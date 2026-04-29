@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -87,6 +89,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.codex_mobile_client.AgentAvailabilityStatus
 import uniffi.codex_mobile_client.AgentRuntimeKind
+import uniffi.codex_mobile_client.AppConnectionCommandSnapshot
+import uniffi.codex_mobile_client.AppConnectionProgressSnapshot
+import uniffi.codex_mobile_client.AppConnectionStepKind
+import uniffi.codex_mobile_client.AppConnectionStepState
 import uniffi.codex_mobile_client.AppSshSessionResult
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
@@ -100,6 +106,11 @@ private data class SshBridgeAgentContext(
     val host: String,
     val availability: List<RemoteAgentAvailability>,
     val credential: SavedSshCredential,
+)
+
+private data class ConnectionFailureDetails(
+    val message: String,
+    val progress: AppConnectionProgressSnapshot?,
 )
 
 /**
@@ -130,7 +141,7 @@ fun DiscoveryScreen(
     var connectionChoiceServer by remember { mutableStateOf<SavedServer?>(null) }
     var pendingAutoNavigateServerId by remember { mutableStateOf<String?>(null) }
     var wakingServerId by remember { mutableStateOf<String?>(null) }
-    var connectError by remember { mutableStateOf<String?>(null) }
+    var connectError by remember { mutableStateOf<ConnectionFailureDetails?>(null) }
     var renameTarget by remember { mutableStateOf<SavedServer?>(null) }
 
     var savedServers by remember { mutableStateOf(SavedServerStore.load(context)) }
@@ -154,7 +165,10 @@ fun DiscoveryScreen(
         } else if (serverSnapshot.health == AppServerHealth.DISCONNECTED) {
             serverSnapshot.connectionProgress?.terminalMessage?.let { message ->
                 pendingAutoNavigateServerId = null
-                connectError = message
+                connectError = ConnectionFailureDetails(
+                    message = message,
+                    progress = serverSnapshot.connectionProgress,
+                )
             }
         }
     }
@@ -335,7 +349,10 @@ fun DiscoveryScreen(
                 }
 
                 else -> {
-                    connectError = "Server did not respond after wake attempt. Enable Wake for network access on the Mac."
+                    connectError = ConnectionFailureDetails(
+                        message = "Server did not respond after wake attempt. Enable Wake for network access on the Mac.",
+                        progress = null,
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -349,7 +366,10 @@ fun DiscoveryScreen(
                     "preferredConnectionMode" to entry.preferredConnectionMode,
                 ),
             )
-            connectError = e.message ?: "Unable to connect."
+            connectError = ConnectionFailureDetails(
+                message = e.message ?: "Unable to connect.",
+                progress = null,
+            )
         }
     }
 
@@ -532,7 +552,10 @@ fun DiscoveryScreen(
                                                 "os" to server.os,
                                             ),
                                         )
-                                        connectError = e.message ?: "Unable to connect."
+                                        connectError = ConnectionFailureDetails(
+                                            message = e.message ?: "Unable to connect.",
+                                            progress = null,
+                                        )
                                     }
                                 }
                             },
@@ -808,11 +831,13 @@ fun DiscoveryScreen(
         )
     }
 
-    connectError?.let { message ->
+    connectError?.let { failure ->
         AlertDialog(
             onDismissRequest = { connectError = null },
             title = { Text("Connection Failed") },
-            text = { Text(message) },
+            text = {
+                ConnectionFailureBody(failure)
+            },
             confirmButton = {
                 TextButton(onClick = { connectError = null }) {
                     Text("OK")
@@ -856,6 +881,102 @@ fun DiscoveryScreen(
                     },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionFailureBody(failure: ConnectionFailureDetails) {
+    Column(
+        modifier = Modifier
+            .heightIn(max = 420.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            text = failure.message,
+            color = LitterTheme.textPrimary,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+        failure.progress?.let { progress ->
+            if (progress.steps.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Steps",
+                        color = LitterTheme.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    progress.steps.forEach { step ->
+                        val detail = step.detail?.takeIf { it.isNotBlank() }
+                        Text(
+                            text = buildString {
+                                append(connectionStepLabel(step.kind))
+                                append(": ")
+                                append(connectionStateLabel(step.state))
+                                if (detail != null) {
+                                    append(" - ")
+                                    append(detail)
+                                }
+                            },
+                            color = connectionStateColor(step.state),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                }
+            }
+            if (progress.commands.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "SSH commands",
+                        color = LitterTheme.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    progress.commands.forEach { command ->
+                        ConnectionCommandRow(command)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionCommandRow(command: AppConnectionCommandSnapshot) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = "${command.label}: ${connectionStateLabel(command.state)}",
+            color = connectionStateColor(command.state),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = command.command,
+            color = LitterTheme.textSecondary,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        command.stdout?.takeIf { it.isNotBlank() }?.let { stdout ->
+            Text(
+                text = "stdout: ${stdout.trim().take(220)}",
+                color = LitterTheme.textSecondary,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        command.stderr?.takeIf { it.isNotBlank() }?.let { stderr ->
+            Text(
+                text = "stderr: ${stderr.trim().take(220)}",
+                color = Color(0xFFFF6B6B),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontFamily = FontFamily.Monospace,
+            )
         }
     }
 }
@@ -1780,6 +1901,35 @@ private fun orderedSshPorts(preferred: Int?): List<Int> = buildList {
     preferred?.let(::add)
     add(22)
 }.filter { it in 1..65535 }.distinct()
+
+private fun connectionStepLabel(kind: AppConnectionStepKind): String =
+    when (kind) {
+        AppConnectionStepKind.CONNECTING_TO_SSH -> "SSH"
+        AppConnectionStepKind.FINDING_CODEX -> "Find Codex"
+        AppConnectionStepKind.INSTALLING_CODEX -> "Install Codex"
+        AppConnectionStepKind.STARTING_APP_SERVER -> "Start server"
+        AppConnectionStepKind.OPENING_TUNNEL -> "Open tunnel"
+        AppConnectionStepKind.CONNECTED -> "Attach"
+    }
+
+private fun connectionStateLabel(state: AppConnectionStepState): String =
+    when (state) {
+        AppConnectionStepState.PENDING -> "pending"
+        AppConnectionStepState.IN_PROGRESS -> "running"
+        AppConnectionStepState.COMPLETED -> "ok"
+        AppConnectionStepState.FAILED -> "failed"
+        AppConnectionStepState.AWAITING_USER_INPUT -> "waiting"
+        AppConnectionStepState.CANCELLED -> "skipped"
+    }
+
+private fun connectionStateColor(state: AppConnectionStepState): Color =
+    when (state) {
+        AppConnectionStepState.COMPLETED -> LitterTheme.accent
+        AppConnectionStepState.FAILED -> Color(0xFFFF6B6B)
+        AppConnectionStepState.AWAITING_USER_INPUT -> Color(0xFFFFB020)
+        AppConnectionStepState.IN_PROGRESS -> LitterTheme.textPrimary
+        AppConnectionStepState.PENDING, AppConnectionStepState.CANCELLED -> LitterTheme.textSecondary
+    }
 
 private fun sendWakeMagicPacket(wakeMac: String, hostHint: String) {
     val mac = SavedServer.normalizeWakeMac(wakeMac) ?: return

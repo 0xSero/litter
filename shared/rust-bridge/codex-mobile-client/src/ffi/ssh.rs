@@ -481,16 +481,69 @@ pub(crate) async fn run_guided_ssh_connect(
         .app_store
         .update_server_connection_progress(&server_id, Some(progress.clone()));
 
+    let detect_shell_command = progress.push_command(
+        "Detect remote shell".to_string(),
+        "probe PowerShell, then fall back to POSIX shell".to_string(),
+    );
     let remote_shell = ssh_client.detect_remote_shell().await;
+    progress.finish_command(
+        detect_shell_command,
+        AppConnectionStepState::Completed,
+        Some(0),
+        Some(format!("{remote_shell:?}")),
+        None,
+    );
+    mobile_client
+        .app_store
+        .update_server_connection_progress(&server_id, Some(progress.clone()));
     info!(
         "guided ssh connect detected shell server_id={} shell={:?}",
         server_id, remote_shell
     );
-    let codex_binary = match ssh_client
+    let find_codex_command = progress.push_command(
+        "Find Codex".to_string(),
+        "source profile PATH and run command -v codex".to_string(),
+    );
+    mobile_client
+        .app_store
+        .update_server_connection_progress(&server_id, Some(progress.clone()));
+    let resolved_codex = match ssh_client
         .resolve_codex_binary_optional_with_shell(Some(remote_shell))
         .await
-        .map_err(map_ssh_error)?
     {
+        Ok(result) => {
+            progress.finish_command(
+                find_codex_command,
+                AppConnectionStepState::Completed,
+                Some(0),
+                Some(
+                    result
+                        .as_ref()
+                        .map(|binary| binary.path().to_string())
+                        .unwrap_or_else(|| "not found".to_string()),
+                ),
+                None,
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
+            result
+        }
+        Err(error) => {
+            progress.finish_command(
+                find_codex_command,
+                AppConnectionStepState::Failed,
+                None,
+                None,
+                Some(error.to_string()),
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
+            return Err(map_ssh_error(error));
+        }
+    };
+    let codex_binary = match resolved_codex {
         Some(binary) => {
             info!(
                 "guided ssh connect found codex server_id={} path={}",
@@ -610,18 +663,85 @@ pub(crate) async fn run_guided_ssh_connect(
                 .app_store
                 .update_server_connection_progress(&server_id, Some(progress.clone()));
 
+            let detect_platform_command = progress.push_command(
+                "Detect platform".to_string(),
+                "run uname/sysctl probe for Codex release asset".to_string(),
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
             let platform = ssh_client
                 .detect_remote_platform_with_shell(Some(remote_shell))
-                .await
-                .map_err(map_ssh_error)?;
+                .await;
+            let platform = match platform {
+                Ok(platform) => {
+                    progress.finish_command(
+                        detect_platform_command,
+                        AppConnectionStepState::Completed,
+                        Some(0),
+                        Some(format!("{platform:?}")),
+                        None,
+                    );
+                    mobile_client
+                        .app_store
+                        .update_server_connection_progress(&server_id, Some(progress.clone()));
+                    platform
+                }
+                Err(error) => {
+                    progress.finish_command(
+                        detect_platform_command,
+                        AppConnectionStepState::Failed,
+                        None,
+                        None,
+                        Some(error.to_string()),
+                    );
+                    mobile_client
+                        .app_store
+                        .update_server_connection_progress(&server_id, Some(progress.clone()));
+                    return Err(map_ssh_error(error));
+                }
+            };
             info!(
                 "guided ssh connect install platform server_id={} platform={:?}",
                 server_id, platform
             );
-            let (installed_binary, install_outcome) = ssh_client
-                .install_latest_stable_codex(platform)
-                .await
-                .map_err(map_ssh_error)?;
+            let install_command = progress.push_command(
+                "Install Codex".to_string(),
+                "download latest stable Codex into ~/.litter".to_string(),
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
+            let install_result = ssh_client.install_latest_stable_codex(platform).await;
+            let (installed_binary, install_outcome) = match install_result {
+                Ok(result) => result,
+                Err(error) => {
+                    progress.finish_command(
+                        install_command,
+                        AppConnectionStepState::Failed,
+                        None,
+                        None,
+                        Some(error.to_string()),
+                    );
+                    mobile_client
+                        .app_store
+                        .update_server_connection_progress(&server_id, Some(progress.clone()));
+                    return Err(map_ssh_error(error));
+                }
+            };
+            progress.finish_command(
+                install_command,
+                AppConnectionStepState::Completed,
+                Some(0),
+                Some(format!(
+                    "{} ({install_outcome:?})",
+                    installed_binary.path()
+                )),
+                None,
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
             info!(
                 "guided ssh connect install completed server_id={} path={} outcome={:?}",
                 server_id,
@@ -654,14 +774,54 @@ pub(crate) async fn run_guided_ssh_connect(
         server_id,
         credentials.host.as_str()
     );
+    let start_command = progress.push_command(
+        "Start Codex app server".to_string(),
+        format!(
+            "launch {} app-server over SSH tunnel",
+            codex_binary.path()
+        ),
+    );
+    mobile_client
+        .app_store
+        .update_server_connection_progress(&server_id, Some(progress.clone()));
     let bootstrap = ssh_client
         .bootstrap_codex_server_with_binary(
             &codex_binary,
             working_dir.as_deref(),
             config.host.contains(':'),
         )
-        .await
-        .map_err(map_ssh_error)?;
+        .await;
+    let bootstrap = match bootstrap {
+        Ok(bootstrap) => {
+            progress.finish_command(
+                start_command,
+                AppConnectionStepState::Completed,
+                Some(0),
+                Some(format!(
+                    "remote port {}, local tunnel 127.0.0.1:{}",
+                    bootstrap.server_port, bootstrap.tunnel_local_port
+                )),
+                None,
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
+            bootstrap
+        }
+        Err(error) => {
+            progress.finish_command(
+                start_command,
+                AppConnectionStepState::Failed,
+                None,
+                None,
+                Some(error.to_string()),
+            );
+            mobile_client
+                .app_store
+                .update_server_connection_progress(&server_id, Some(progress.clone()));
+            return Err(map_ssh_error(error));
+        }
+    };
     info!(
         "guided ssh connect bootstrap completed server_id={} remote_port={} local_tunnel_port={} pid={:?}",
         server_id, bootstrap.server_port, bootstrap.tunnel_local_port, bootstrap.pid

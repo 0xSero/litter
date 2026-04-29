@@ -91,6 +91,15 @@ pub(crate) fn log_rust(
     let message = message.into();
     let fields_json = fields_json.filter(|value| !value.trim().is_empty());
 
+    #[cfg(target_os = "android")]
+    android_log_rust(
+        level,
+        &subsystem,
+        &category,
+        &message,
+        fields_json.as_deref(),
+    );
+
     match (level.into_tracing(), fields_json.as_deref()) {
         (Level::TRACE, Some(fields_json)) => {
             tracing::event!(
@@ -156,6 +165,52 @@ pub(crate) fn log_rust(
         }
         (Level::ERROR, None) => {
             tracing::event!(target: "mobile", Level::ERROR, subsystem = %subsystem, category = %category, "{message}");
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+fn android_log_rust(
+    level: LogLevelName,
+    subsystem: &str,
+    category: &str,
+    message: &str,
+    fields_json: Option<&str>,
+) {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_int};
+
+    const ANDROID_LOG_DEBUG: c_int = 3;
+    const ANDROID_LOG_INFO: c_int = 4;
+    const ANDROID_LOG_WARN: c_int = 5;
+    const ANDROID_LOG_ERROR: c_int = 6;
+
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    let priority = match level {
+        LogLevelName::Trace | LogLevelName::Debug => ANDROID_LOG_DEBUG,
+        LogLevelName::Info => ANDROID_LOG_INFO,
+        LogLevelName::Warn => ANDROID_LOG_WARN,
+        LogLevelName::Error => ANDROID_LOG_ERROR,
+    };
+    let tag = CString::new("LitterRust").ok();
+    let line = match fields_json {
+        Some(fields_json) => format!(
+            "{} {}/{} {} fields={}",
+            level.as_str(),
+            subsystem,
+            category,
+            message,
+            fields_json
+        ),
+        None => format!("{} {}/{} {}", level.as_str(), subsystem, category, message),
+    };
+    let text = CString::new(line).ok();
+    if let (Some(tag), Some(text)) = (tag, text) {
+        unsafe {
+            let _ = __android_log_write(priority, tag.as_ptr(), text.as_ptr());
         }
     }
 }

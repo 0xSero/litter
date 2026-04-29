@@ -2,3 +2,6 @@
 	path = shared/third_party/codex
 	url = https://github.com/openai/codex
 	shallow = true
+[submodule "shared/third_party/alleycat"]
+	path = shared/third_party/alleycat
+	url = https://github.com/dnakov/alleycat

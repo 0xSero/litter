@@ -14,8 +14,9 @@ pub use boundary::{
 pub use reducer::AppStoreReducer;
 pub(crate) use snapshot::QueuedFollowUpDraft;
 pub use snapshot::{
-    AppConnectionProgressSnapshot, AppConnectionStepKind, AppConnectionStepSnapshot,
-    AppConnectionStepState, AppQueuedFollowUpKind, AppQueuedFollowUpPreview, AppSnapshot,
-    AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot, ThreadSnapshot,
+    AppConnectionCommandSnapshot, AppConnectionProgressSnapshot, AppConnectionStepKind,
+    AppConnectionStepSnapshot, AppConnectionStepState, AppQueuedFollowUpKind,
+    AppQueuedFollowUpPreview, AppSnapshot, AppVoiceSessionSnapshot, ServerHealthSnapshot,
+    ServerSnapshot, ThreadSnapshot,
 };
 pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};

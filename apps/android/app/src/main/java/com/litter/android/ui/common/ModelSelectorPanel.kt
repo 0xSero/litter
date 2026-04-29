@@ -409,10 +409,10 @@ private class ModelSearchIndex(models: List<ModelInfo>) {
 }
 
 internal fun ModelInfo.matchesModelSelection(
-    selection: String,
+    selection: String?,
     runtimeKind: AgentRuntimeKind? = null,
 ): Boolean {
-    val trimmed = selection.trim()
+    val trimmed = selection?.trim().orEmpty()
     if (trimmed.isEmpty()) return false
     if (runtimeKind != null && agentRuntimeKind != runtimeKind) return false
     return id == trimmed || model == trimmed

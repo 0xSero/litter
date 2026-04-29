@@ -39,8 +39,19 @@ pub struct AppConnectionStepSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AppConnectionCommandSnapshot {
+    pub label: String,
+    pub command: String,
+    pub state: AppConnectionStepState,
+    pub exit_code: Option<u32>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AppConnectionProgressSnapshot {
     pub steps: Vec<AppConnectionStepSnapshot>,
+    pub commands: Vec<AppConnectionCommandSnapshot>,
     pub pending_install: bool,
     pub terminal_message: Option<String>,
 }
@@ -80,6 +91,7 @@ impl AppConnectionProgressSnapshot {
                     detail: None,
                 },
             ],
+            commands: Vec::new(),
             pending_install: false,
             terminal_message: None,
         }
@@ -94,6 +106,34 @@ impl AppConnectionProgressSnapshot {
         if let Some(step) = self.steps.iter_mut().find(|step| step.kind == kind) {
             step.state = state;
             step.detail = detail;
+        }
+    }
+
+    pub fn push_command(&mut self, label: String, command: String) -> usize {
+        self.commands.push(AppConnectionCommandSnapshot {
+            label,
+            command,
+            state: AppConnectionStepState::InProgress,
+            exit_code: None,
+            stdout: None,
+            stderr: None,
+        });
+        self.commands.len().saturating_sub(1)
+    }
+
+    pub fn finish_command(
+        &mut self,
+        index: usize,
+        state: AppConnectionStepState,
+        exit_code: Option<u32>,
+        stdout: Option<String>,
+        stderr: Option<String>,
+    ) {
+        if let Some(command) = self.commands.get_mut(index) {
+            command.state = state;
+            command.exit_code = exit_code;
+            command.stdout = stdout;
+            command.stderr = stderr;
         }
     }
 }

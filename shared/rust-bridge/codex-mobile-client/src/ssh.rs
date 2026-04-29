@@ -477,9 +477,29 @@ impl SshClient {
 
     /// Run a command on the remote host and collect its stdout/stderr.
     pub async fn exec(&self, command: &str) -> Result<ExecResult, SshError> {
-        tokio::time::timeout(EXEC_TIMEOUT, self.exec_inner(command))
+        append_android_debug_log(&format!(
+            "ssh_exec_start command={}",
+            redact_ssh_command_for_log(command)
+        ));
+        let result = tokio::time::timeout(EXEC_TIMEOUT, self.exec_inner(command))
             .await
-            .map_err(|_| SshError::Timeout)?
+            .map_err(|_| {
+                append_bridge_info_log(&format!(
+                    "ssh_exec_timeout command={}",
+                    redact_ssh_command_for_log(command)
+                ));
+                SshError::Timeout
+            })?;
+        match &result {
+            Ok(output) => append_android_debug_log(&format!(
+                "ssh_exec_done exit={} stdout={} stderr={}",
+                output.exit_code,
+                log_preview(&output.stdout),
+                log_preview(&output.stderr)
+            )),
+            Err(error) => append_bridge_info_log(&format!("ssh_exec_error error={error}")),
+        }
+        result
     }
 
     /// Open a streaming SSH exec channel.
@@ -1697,6 +1717,11 @@ Write-Host 'litter_restart_app_server stopped port={port}'"#
             remote_shell_name(shell),
             command.len()
         );
+        append_android_debug_log(&format!(
+            "ssh_exec_shell shell={} command={}",
+            remote_shell_name(shell),
+            redact_ssh_command_for_log(command)
+        ));
         match shell {
             // Force bootstrap scripts through a POSIX shell even when the
             // account's login shell is fish or another non-POSIX shell.
@@ -2289,8 +2314,9 @@ async fn proxy_connection(
 /// Shell snippet that sources common profile files to pick up PATH additions.
 /// Runs each file in a subshell so shell-specific syntax cannot crash the
 /// parent `/bin/sh` process, then imports the resulting PATH into the current
-/// shell via a temp file.
-pub(crate) const PROFILE_INIT: &str = r#"_litter_pf="/tmp/.litter_path_$$"; for f in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do [ -f "$f" ] && (. "$f" 2>/dev/null; echo "$PATH") > "$_litter_pf" 2>/dev/null && PATH="$(cat "$_litter_pf")" ; done; rm -f "$_litter_pf" 2>/dev/null;"#;
+/// shell via a temp file. SSH non-login commands on macOS often start with a
+/// minimal PATH, so append common user/package-manager bin directories too.
+pub(crate) const PROFILE_INIT: &str = r#"_litter_pf="/tmp/.litter_path_$$"; if [ -n "$SHELL" ] && [ -x "$SHELL" ]; then "$SHELL" -lc 'printf %s "$PATH"' > "$_litter_pf" 2>/dev/null && [ -s "$_litter_pf" ] && PATH="$(cat "$_litter_pf")"; fi; for f in "$HOME/.zshenv" "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do [ -f "$f" ] && (. "$f" 2>/dev/null; echo "$PATH") > "$_litter_pf" 2>/dev/null && PATH="$(cat "$_litter_pf")" ; done; rm -f "$_litter_pf" 2>/dev/null; _litter_add_path() { case ":$PATH:" in *":$1:"*) ;; *) [ -d "$1" ] && PATH="$1:$PATH" ;; esac; }; _litter_add_path "$NVM_BIN"; _litter_nvm_dir="${NVM_DIR:-$HOME/.nvm}"; for d in "$_litter_nvm_dir"/versions/node/*/bin; do _litter_add_path "$d"; done; _litter_add_path "$ASDF_DATA_DIR/shims"; _litter_add_path "$HOME/.asdf/shims"; _litter_add_path "${BUN_INSTALL:-$HOME/.bun}/bin"; _litter_add_path "$HOME/.volta/bin"; _litter_add_path "$HOME/.local/bin"; _litter_add_path "${CARGO_HOME:-$HOME/.cargo}/bin"; _litter_add_path "/opt/homebrew/opt/node/bin"; _litter_add_path "/opt/homebrew/bin"; _litter_add_path "/usr/local/opt/node/bin"; _litter_add_path "/usr/local/bin"; export PATH;"#;
 
 /// Shell snippet that probes npm/pnpm for their global binary directories.
 /// Sets `_litter_npm_prefix`, `_litter_npm_global_bin`,
@@ -2422,6 +2448,30 @@ fn server_launch_command(
             ),
         },
     }
+}
+
+fn redact_ssh_command_for_log(command: &str) -> String {
+    if command.contains("security unlock-keychain -p") {
+        return "<redacted macOS keychain unlock command>".to_string();
+    }
+    log_preview(command)
+}
+
+fn log_preview(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "<empty>".to_string();
+    }
+    const LIMIT: usize = 1200;
+    let mut preview = String::new();
+    for (index, ch) in trimmed.chars().enumerate() {
+        if index == LIMIT {
+            preview.push_str("...");
+            return preview.replace('\n', "\\n");
+        }
+        preview.push(ch);
+    }
+    preview.replace('\n', "\\n")
 }
 
 fn format_process_logs(stdout: &str, stderr: &str) -> String {
@@ -2837,9 +2887,47 @@ mod tests {
         assert!(PROFILE_INIT.contains(".profile"));
         assert!(PROFILE_INIT.contains(".bash_profile"));
         assert!(PROFILE_INIT.contains(".bashrc"));
+        assert!(PROFILE_INIT.contains(".zshenv"));
         assert!(PROFILE_INIT.contains(".zprofile"));
         assert!(PROFILE_INIT.contains(".zshrc"));
+        assert!(PROFILE_INIT.contains("\"$SHELL\" -lc"));
         assert!(!PROFILE_INIT.contains("-ic 'printf %s \"$PATH\"'"));
+    }
+
+    #[test]
+    fn test_profile_init_adds_common_node_paths() {
+        assert!(PROFILE_INIT.contains("_litter_add_path"));
+        assert!(PROFILE_INIT.contains("$NVM_BIN"));
+        assert!(PROFILE_INIT.contains("${NVM_DIR:-$HOME/.nvm}"));
+        assert!(PROFILE_INIT.contains("/versions/node/*/bin"));
+        assert!(PROFILE_INIT.contains("$ASDF_DATA_DIR/shims"));
+        assert!(PROFILE_INIT.contains("$HOME/.asdf/shims"));
+        assert!(PROFILE_INIT.contains("${BUN_INSTALL:-$HOME/.bun}/bin"));
+        assert!(PROFILE_INIT.contains("$HOME/.volta/bin"));
+        assert!(PROFILE_INIT.contains("$HOME/.local/bin"));
+        assert!(PROFILE_INIT.contains("${CARGO_HOME:-$HOME/.cargo}/bin"));
+        assert!(PROFILE_INIT.contains("/opt/homebrew/opt/node/bin"));
+        assert!(PROFILE_INIT.contains("/opt/homebrew/bin"));
+        assert!(PROFILE_INIT.contains("/usr/local/opt/node/bin"));
+        assert!(PROFILE_INIT.contains("/usr/local/bin"));
+        assert!(PROFILE_INIT.contains("export PATH"));
+    }
+
+    #[test]
+    fn test_posix_launch_runs_after_profile_init() {
+        let command = format!(
+            "{profile_init} nohup {launch} </dev/null >/tmp/codex.log 2>&1 & echo $!",
+            profile_init = PROFILE_INIT,
+            launch = server_launch_command(
+                &RemoteCodexBinary::Codex("/opt/homebrew/bin/codex".into()),
+                "ws://127.0.0.1:8390",
+                RemoteShell::Posix,
+            )
+        );
+
+        assert!(command.starts_with(PROFILE_INIT));
+        assert!(command.contains("/opt/homebrew/bin"));
+        assert!(command.contains("nohup '/opt/homebrew/bin/codex' app-server"));
     }
 
     #[test]
