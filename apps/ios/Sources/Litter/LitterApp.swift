@@ -513,6 +513,9 @@ private struct HomeNavigationView: View {
     @State private var homeInputMode: HomeInputMode = .collapsed
     @State private var hydratingPinnedHomeThreadIds: Set<String> = []
     @State private var pinnedThreadListingRepairTasks: [String: Task<Bool, Never>] = [:]
+    @State private var homeInitialThreadListingServerIds: Set<String> = []
+    @State private var homeInitialThreadListingTasks: [String: Task<Void, Never>] = [:]
+    @State private var homeInitialThreadListingFailures: [String: Int] = [:]
     @State private var hasSeededInitialConversationRoute = false
     @State private var pendingWallpaperConfig: WallpaperConfig?
     @State private var pendingWallpaperImage: UIImage?
@@ -572,6 +575,15 @@ private struct HomeNavigationView: View {
             .joined(separator: "|")
             ?? ""
         return "\(pins)|\(servers)|\(sessions)"
+    }
+
+    private var homeInitialThreadListingSignature: String {
+        let route = isHomeRouteActive ? "home" : "other"
+        let servers = homeDashboardModel.connectedServers
+            .filter(\.canLaunchSessions)
+            .map { "\($0.id):\($0.health)" }
+            .joined(separator: "|")
+        return "\(route)|\(servers)"
     }
 
     @ViewBuilder
@@ -771,6 +783,7 @@ private struct HomeNavigationView: View {
         .task {
             homeDashboardModel.bind(appModel: appModel)
             updateHomeDashboardActivity()
+            loadInitialHomeThreadListingsIfNeeded()
             hydratePinnedThreadsIfNeeded()
             seedInitialConversationIfNeeded(activeKey: appModel.snapshot?.activeThread)
         }
@@ -782,6 +795,9 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: pinnedThreadHydrationSignature) { _, _ in
             hydratePinnedThreadsIfNeeded()
+        }
+        .onChange(of: homeInitialThreadListingSignature) { _, _ in
+            loadInitialHomeThreadListingsIfNeeded()
         }
         .onChange(of: appState.pendingThreadNavigation) { _, newKey in
             if let newKey {
@@ -1418,6 +1434,76 @@ private struct HomeNavigationView: View {
                 await MainActor.run {
                     _ = hydratingPinnedHomeThreadIds.remove(id)
                 }
+            }
+        }
+    }
+
+    private func loadInitialHomeThreadListingsIfNeeded() {
+        guard isHomeRouteActive else { return }
+
+        for server in homeDashboardModel.connectedServers where server.canLaunchSessions {
+            let serverId = server.id
+            guard !homeInitialThreadListingServerIds.contains(serverId),
+                  homeInitialThreadListingTasks[serverId] == nil else {
+                continue
+            }
+
+            let task = Task {
+                do {
+                    try await appModel.client.listThreads(
+                        serverId: serverId,
+                        params: AppListThreadsRequest(
+                            cursor: nil,
+                            limit: 80,
+                            sortKey: .updatedAt,
+                            sortDirection: .desc,
+                            modelProviders: nil,
+                            sourceKinds: [.cli, .vsCode, .appServer],
+                            archived: false,
+                            cwd: nil,
+                            searchTerm: nil,
+                            useStateDbOnly: true,
+                            runtimeKinds: nil
+                        )
+                    )
+                    await appModel.refreshSnapshot()
+                    await MainActor.run {
+                        homeInitialThreadListingServerIds.insert(serverId)
+                        homeInitialThreadListingTasks[serverId] = nil
+                        homeInitialThreadListingFailures[serverId] = nil
+                    }
+                } catch {
+                    LLog.warn(
+                        "home",
+                        "initial thread listing failed",
+                        fields: ["serverId": serverId, "error": String(describing: error)]
+                    )
+                    await MainActor.run {
+                        scheduleInitialHomeThreadListingRetry(for: serverId)
+                    }
+                }
+            }
+            homeInitialThreadListingTasks[serverId] = task
+        }
+    }
+
+    private func scheduleInitialHomeThreadListingRetry(for serverId: String) {
+        let failures = (homeInitialThreadListingFailures[serverId] ?? 0) + 1
+        homeInitialThreadListingFailures[serverId] = failures
+        homeInitialThreadListingTasks[serverId] = nil
+
+        guard failures < 3,
+              isHomeRouteActive,
+              homeDashboardModel.connectedServers.contains(where: { $0.id == serverId && $0.canLaunchSessions }) else {
+            return
+        }
+
+        let delaySeconds = 1 << (failures - 1)
+        homeInitialThreadListingTasks[serverId] = Task {
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * 1_000_000_000)
+            await MainActor.run {
+                homeInitialThreadListingTasks[serverId] = nil
+                loadInitialHomeThreadListingsIfNeeded()
             }
         }
     }
