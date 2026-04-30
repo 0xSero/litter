@@ -124,9 +124,11 @@ private struct ThreadSearchRow: View {
     let isPinned: Bool
     let onAdd: () -> Void
     let onRemove: () -> Void
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
 
     var body: some View {
-        Button(action: { isPinned ? onRemove() : onAdd() }) {
+        let _ = fontFamily
+        return Button(action: { isPinned ? onRemove() : onAdd() }) {
             HStack(alignment: .center, spacing: 10) {
                 ThreadSearchRuntimeIcon(kind: session.agentRuntimeKind)
                 VStack(alignment: .leading, spacing: 2) {

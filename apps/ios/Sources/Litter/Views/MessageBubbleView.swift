@@ -1036,11 +1036,13 @@ private func syncHighlighterTheme(for colorScheme: ColorScheme) {
 private struct ScaledContentMarkdownModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     let baseBodySize: CGFloat
     let baseCodeSize: CGFloat
     let selectionEnabled: Bool
 
     func body(content: Content) -> some View {
+        let _ = fontFamily
         let scaledBody = baseBodySize * textScale
         let scaledCode = baseCodeSize * textScale
         let _ = syncHighlighterTheme(for: colorScheme)
@@ -1059,11 +1061,13 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
 private struct ScaledSystemMarkdownModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     let baseBodySize: CGFloat
     let baseCodeSize: CGFloat
     let selectionEnabled: Bool
 
     func body(content: Content) -> some View {
+        let _ = fontFamily
         let scaledBody = baseBodySize * textScale
         let scaledCode = baseCodeSize * textScale
         let _ = syncHighlighterTheme(for: colorScheme)

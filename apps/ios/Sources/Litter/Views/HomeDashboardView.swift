@@ -1175,8 +1175,10 @@ private struct HomeRuntimeIcon: View {
 /// title reads as a row heading without visually dominating the response.
 private struct MarkdownMatchedTitleFont: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     func body(content: Content) -> some View {
-        content
+        let _ = fontFamily
+        return content
             .font(.custom(
                 LitterFont.markdownFontName,
                 size: LitterFont.conversationBodyPointSize * textScale

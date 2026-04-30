@@ -293,21 +293,28 @@ extension View {
 
 private struct ScaledSizeFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    // Observe so SwiftUI re-evaluates this modifier when the user toggles
+    // mono ↔ system in Settings; LitterFont.styled reads storedFamily, so
+    // the actual font value still comes from there.
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     let size: CGFloat
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+        let _ = fontFamily
+        return content.font(LitterFont.styled(size: size, weight: weight, scale: textScale))
     }
 }
 
 private struct ScaledStyleFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     let style: Font.TextStyle
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(style, weight: weight, scale: textScale))
+        let _ = fontFamily
+        return content.font(LitterFont.styled(style, weight: weight, scale: textScale))
     }
 }
 
