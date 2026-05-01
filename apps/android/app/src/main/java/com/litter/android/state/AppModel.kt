@@ -143,6 +143,7 @@ class AppModel private constructor(context: android.content.Context) {
         // directory. Without setting it at launch the hook is a silent no-op.
         client.setSavedAppsDirectory(SavedAppsDirectory.path(context))
         client.setSlingshotCredentialsDirectory(MobilePreferencesDirectory.path(context))
+        client.setMobilePreferencesDirectory(MobilePreferencesDirectory.path(context))
         serverBridge = ServerBridge()
         ssh = SshBridge()
         sshSessionStore = SshSessionStore(ssh)

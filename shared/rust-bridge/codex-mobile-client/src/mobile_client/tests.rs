@@ -2171,4 +2171,121 @@ mod mobile_client_tests {
         assert_eq!(preview.kind, AppQueuedFollowUpKind::PendingSteer);
         assert_eq!(preview.text, "Please try the same search again.");
     }
+
+    #[tokio::test]
+    async fn start_turn_uses_persisted_plan_mode_after_cold_restore() {
+        let client = MobileClient::new();
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let preferences_dir = tempdir.path().to_string_lossy().to_string();
+        client.set_mobile_preferences_directory(preferences_dir.clone());
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        crate::thread_modes::set_mode(&preferences_dir, &key, AppModeKind::Plan);
+
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(thread_id));
+        thread.info.status = ThreadSummaryStatus::Idle;
+        thread.model = Some("gpt-5".to_string());
+        client.app_store.upsert_thread_snapshot(thread);
+
+        let turn_start_calls = Arc::new(StdMutex::new(Vec::<upstream::ClientRequest>::new()));
+        let request_handler: TestRequestHandler = {
+            let turn_start_calls = Arc::clone(&turn_start_calls);
+            Arc::new(move |request| {
+                turn_start_calls
+                    .lock()
+                    .expect("turn start calls lock should not be poisoned")
+                    .push(request.clone());
+                match request {
+                    upstream::ClientRequest::TurnStart { .. } => {
+                        serde_json::to_value(upstream::TurnStartResponse {
+                            turn: upstream::Turn {
+                                id: "turn-next".to_string(),
+                                items: Vec::new(),
+                                status: upstream::TurnStatus::InProgress,
+                                error: None,
+                                started_at: None,
+                                completed_at: None,
+                                duration_ms: None,
+                            },
+                        })
+                        .map_err(|error| RpcError::Deserialization(error.to_string()))
+                    }
+                    other => Err(RpcError::Deserialization(format!(
+                        "unexpected request in test: {}",
+                        other.method()
+                    ))),
+                }
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .start_turn(
+                server_id,
+                upstream::TurnStartParams {
+                    thread_id: thread_id.to_string(),
+                    input: vec![upstream::UserInput::Text {
+                        text: "hello".to_string(),
+                        text_elements: Vec::new(),
+                    }],
+                    responsesapi_client_metadata: None,
+                    cwd: None,
+                    runtime_workspace_roots: None,
+                    approval_policy: None,
+                    approvals_reviewer: None,
+                    sandbox_policy: None,
+                    environments: None,
+                    permissions: None,
+                    model: None,
+                    service_tier: None,
+                    effort: None,
+                    summary: None,
+                    personality: None,
+                    output_schema: None,
+                    collaboration_mode: None,
+                },
+            )
+            .await
+            .expect("start turn should succeed");
+
+        let captured = turn_start_calls
+            .lock()
+            .expect("turn start calls lock should not be poisoned");
+        let upstream::ClientRequest::TurnStart { params, .. } = &captured[0] else {
+            panic!("expected turn/start request");
+        };
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .map(|mode| mode.mode.clone()),
+            Some(codex_protocol::config_types::ModeKind::Plan)
+        );
+        assert_eq!(
+            client
+                .snapshot_thread(&key)
+                .expect("thread snapshot")
+                .collaboration_mode,
+            AppModeKind::Plan
+        );
+    }
+
 }

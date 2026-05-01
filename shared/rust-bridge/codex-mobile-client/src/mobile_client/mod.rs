@@ -78,6 +78,10 @@ pub struct MobileClient {
     /// session token so cold launches can reconnect without another browser
     /// step-up while the token remains valid.
     pub(crate) slingshot_credentials_directory: Arc<StdMutex<Option<String>>>,
+    /// Directory where small local app preferences live. Used by Rust-only
+    /// helpers that need process-restart persistence without expanding the
+    /// public preferences record.
+    pub(crate) mobile_preferences_directory: Arc<StdMutex<Option<String>>>,
     direct_resumed_threads: Arc<StdMutex<HashSet<ThreadKey>>>,
     resume_locks: Arc<StdMutex<HashMap<ThreadKey, Weak<tokio::sync::Mutex<()>>>>>,
     thread_runtime_routes: Arc<StdMutex<HashMap<ThreadKey, AgentRuntimeKind>>>,
@@ -756,9 +760,11 @@ impl MobileClient {
         let event_processor = Arc::new(EventProcessor::new());
         let app_store = Arc::new(AppStoreReducer::new());
         let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let mobile_preferences_directory = Arc::new(StdMutex::new(None));
         spawn_store_listener(
             Arc::clone(&app_store),
             Arc::clone(&sessions),
+            Arc::clone(&mobile_preferences_directory),
             event_processor.subscribe(),
         );
         Self {
@@ -771,6 +777,7 @@ impl MobileClient {
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),
             widget_waiters: Arc::new(StdMutex::new(HashMap::new())),
             saved_apps_directory: Arc::new(StdMutex::new(None)),
+            mobile_preferences_directory,
             slingshot_credentials_directory: Arc::new(StdMutex::new(None)),
             direct_resumed_threads: Arc::new(StdMutex::new(HashSet::new())),
             resume_locks: Arc::new(StdMutex::new(HashMap::new())),
@@ -972,6 +979,62 @@ impl MobileClient {
             Err(error) => {
                 warn!("MobileClient: recovering poisoned sessions read lock");
                 error.into_inner()
+            }
+        }
+    }
+
+    pub(crate) fn set_mobile_preferences_directory(&self, directory: String) {
+        let mut guard = self
+            .mobile_preferences_directory
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = if directory.is_empty() {
+            None
+        } else {
+            Some(directory)
+        };
+    }
+
+    fn mobile_preferences_directory(&self) -> Option<String> {
+        self.mobile_preferences_directory
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn persisted_thread_collaboration_mode(&self, key: &ThreadKey) -> Option<AppModeKind> {
+        let directory = self.mobile_preferences_directory()?;
+        crate::thread_modes::read_mode(&directory, key)
+    }
+
+    fn persist_thread_collaboration_mode(&self, key: &ThreadKey, mode: AppModeKind) {
+        let Some(directory) = self.mobile_preferences_directory() else {
+            return;
+        };
+        crate::thread_modes::set_mode(&directory, key, mode);
+    }
+
+    pub(crate) fn apply_persisted_thread_collaboration_mode(&self, thread: &mut ThreadSnapshot) {
+        if let Some(mode) = self.persisted_thread_collaboration_mode(&thread.key) {
+            thread.collaboration_mode = mode;
+        }
+    }
+
+    pub(crate) fn apply_persisted_thread_modes_to_infos(
+        &self,
+        server_id: &str,
+        threads: &[ThreadInfo],
+    ) {
+        if self.mobile_preferences_directory().is_none() {
+            return;
+        }
+        for info in threads {
+            let key = ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: info.id.clone(),
+            };
+            if let Some(mode) = self.persisted_thread_collaboration_mode(&key) {
+                self.app_store.set_thread_collaboration_mode(&key, mode);
             }
         }
     }
@@ -2996,6 +3059,7 @@ impl MobileClient {
         }
         reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
         snapshot.is_resumed = true;
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         self.mark_direct_resumed_thread(key.clone());
         Ok(())
@@ -3267,7 +3331,15 @@ impl MobileClient {
         };
         self.app_store
             .dismiss_plan_implementation_prompt(&thread_key);
-        let thread_snapshot = self.snapshot_thread(&thread_key).ok();
+        let mut thread_snapshot = self.snapshot_thread(&thread_key).ok();
+        if let Some(thread) = thread_snapshot.as_mut()
+            && thread.collaboration_mode != AppModeKind::Plan
+            && self.persisted_thread_collaboration_mode(&thread_key) == Some(AppModeKind::Plan)
+        {
+            thread.collaboration_mode = AppModeKind::Plan;
+            self.app_store
+                .set_thread_collaboration_mode(&thread_key, AppModeKind::Plan);
+        }
         if let Some(thread) = thread_snapshot.as_ref()
             && thread.collaboration_mode == AppModeKind::Plan
             && params.collaboration_mode.is_none()
@@ -3524,6 +3596,7 @@ impl MobileClient {
             .map_err(RpcError::Deserialization)?;
             copy_thread_runtime_fields(&current, &mut snapshot);
             reconcile_active_turn(Some(&current), &mut snapshot, &turns);
+            self.apply_persisted_thread_collaboration_mode(&mut snapshot);
             self.app_store.upsert_thread_snapshot(snapshot);
         }
 
@@ -3611,6 +3684,7 @@ impl MobileClient {
             .map_err(RpcError::Deserialization)?;
         }
 
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         self.set_active_thread(Some(next_key.clone()));
         Ok(next_key)
@@ -3948,6 +4022,7 @@ impl MobileClient {
     ) -> Result<(), RpcError> {
         self.get_session(&key.server_id)?;
         self.app_store.set_thread_collaboration_mode(key, mode);
+        self.persist_thread_collaboration_mode(key, mode);
         Ok(())
     }
 
@@ -3960,6 +4035,7 @@ impl MobileClient {
         let thread = self.snapshot_thread(key).ok();
         self.app_store
             .set_thread_collaboration_mode(key, AppModeKind::Default);
+        self.persist_thread_collaboration_mode(key, AppModeKind::Default);
         let collaboration_mode = thread
             .as_ref()
             .and_then(|t| collaboration_mode_from_thread(t, AppModeKind::Default, None, None));

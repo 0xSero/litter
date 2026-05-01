@@ -808,6 +808,7 @@ impl AppStoreReducer {
                     thread.items = existing.items.clone();
                 }
             }
+            restore_plan_implementation_prompt_from_history(&mut thread, existing.as_ref());
             if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
                 sync_thread_follow_up_projection(&mut thread);
             }
@@ -3623,6 +3624,51 @@ fn preserve_thread_runtime_state(source: &ThreadSnapshot, target: &mut ThreadSna
         target.pending_plan_implementation_turn_id =
             source.pending_plan_implementation_turn_id.clone();
     }
+}
+
+fn restore_plan_implementation_prompt_from_history(
+    target: &mut ThreadSnapshot,
+    existing: Option<&ThreadSnapshot>,
+) {
+    if target.collaboration_mode != AppModeKind::Plan
+        || target.active_turn_id.is_some()
+        || target.pending_plan_implementation_turn_id.is_some()
+    {
+        return;
+    }
+
+    let Some((plan_index, plan_turn_id)) = latest_proposed_plan_turn(&target.items) else {
+        return;
+    };
+    if existing.is_some_and(|thread| {
+        latest_proposed_plan_turn(&thread.items).is_some_and(|(_, turn_id)| {
+            turn_id == plan_turn_id && thread.pending_plan_implementation_turn_id.is_none()
+        })
+    }) {
+        return;
+    }
+    if target.items.iter().skip(plan_index + 1).any(|item| {
+        item.is_from_user_turn_boundary
+            || matches!(&item.content, HydratedConversationItemContent::User(_))
+    }) {
+        return;
+    }
+    target.pending_plan_implementation_turn_id = Some(plan_turn_id);
+}
+
+fn latest_proposed_plan_turn(items: &[HydratedConversationItem]) -> Option<(usize, String)> {
+    items.iter().enumerate().rev().find_map(|(index, item)| {
+        if matches!(
+            &item.content,
+            HydratedConversationItemContent::ProposedPlan(_)
+        ) {
+            item.source_turn_id
+                .as_ref()
+                .map(|turn_id| (index, turn_id.clone()))
+        } else {
+            None
+        }
+    })
 }
 
 fn preserve_thread_title(existing: &ThreadInfo, incoming: &mut ThreadInfo) {
@@ -6553,4 +6599,104 @@ fn format_model_reroute_reason(reason: &codex_app_server_protocol::ModelRerouteR
         formatted.push(ch);
     }
     formatted
+
+    // Fork-added plan-mode persistence tests (issue #100).
+
+    fn plan_item(item_id: &str, turn_id: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: item_id.to_string(),
+            content: HydratedConversationItemContent::ProposedPlan(HydratedProposedPlanData {
+                content: "plan".to_string(),
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
+        }
+    }
+
+    fn user_item(item_id: &str, turn_id: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: item_id.to_string(),
+            content: HydratedConversationItemContent::User(HydratedUserMessageData {
+                text: "next turn".to_string(),
+                image_data_uris: Vec::new(),
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: true,
+        }
+    }
+
+    #[test]
+    fn upsert_thread_snapshot_restores_plan_prompt_from_history() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.collaboration_mode = AppModeKind::Plan;
+        thread.items.push(plan_item("plan", "turn-plan"));
+
+        reducer.upsert_thread_snapshot(thread);
+
+        assert_eq!(
+            reducer
+                .thread_snapshot(&key)
+                .unwrap()
+                .pending_plan_implementation_turn_id
+                .as_deref(),
+            Some("turn-plan")
+        );
+    }
+
+    #[test]
+    fn upsert_thread_snapshot_does_not_restore_dismissed_plan_prompt() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.collaboration_mode = AppModeKind::Plan;
+        thread.items.push(plan_item("plan", "turn-plan"));
+        reducer.upsert_thread_snapshot(thread.clone());
+        reducer.dismiss_plan_implementation_prompt(&key);
+
+        reducer.upsert_thread_snapshot(thread);
+
+        assert_eq!(
+            reducer
+                .thread_snapshot(&key)
+                .unwrap()
+                .pending_plan_implementation_turn_id,
+            None
+        );
+    }
+
+    #[test]
+    fn upsert_thread_snapshot_does_not_restore_old_plan_prompt_after_user_turn() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.collaboration_mode = AppModeKind::Plan;
+        thread.items.push(plan_item("plan", "turn-plan"));
+        thread.items.push(user_item("user", "turn-user"));
+
+        reducer.upsert_thread_snapshot(thread);
+
+        assert_eq!(
+            reducer
+                .thread_snapshot(&key)
+                .unwrap()
+                .pending_plan_implementation_turn_id,
+            None
+        );
+    }
+
 }

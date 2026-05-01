@@ -166,6 +166,7 @@ pub mod ssh_detached_launcher;
 pub mod ssh_launcher;
 pub mod store;
 pub mod terminal;
+mod thread_modes;
 pub mod transport;
 pub mod types;
 pub mod widget_guidelines;
