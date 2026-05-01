@@ -2,6 +2,8 @@
 
 Issue target: https://github.com/dnakov/litter
 
+Created issue: https://github.com/dnakov/litter/issues/100
+
 Fix branch: https://github.com/julianpistorius/litter/tree/fix/persist-thread-plan-mode
 
 Suggested issue title:
