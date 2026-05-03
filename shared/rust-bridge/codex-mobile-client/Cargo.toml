@@ -70,4 +70,6 @@ codex-apply-patch = { workspace = true }
 ish-embed-host = { git = "https://github.com/dnakov/litter-ish.git", branch = "main" }
 
 [target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
 openssl-sys = { version = "0.9", features = ["vendored"] }

@@ -522,6 +522,12 @@ private struct ConversationTimelineItemRow: View, Equatable {
     private func userRow(_ data: ConversationUserMessageData) -> some View {
         UserBubble(text: data.text, images: data.images)
             .contextMenu {
+                if !data.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Copy") {
+                        UIPasteboard.general.string = data.text
+                    }
+                }
+
                 if item.isFromUserTurnBoundary {
                     Button("Edit Message") {
                         onEditUserItem(item)

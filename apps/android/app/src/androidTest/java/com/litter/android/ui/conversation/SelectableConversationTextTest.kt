@@ -20,7 +20,7 @@ class SelectableConversationTextTest {
             textView = textView,
             textColor = 0xFFFFFFFF.toInt(),
             linkColor = 0xFF00FF9C.toInt(),
-            textSizeSp = 14f,
+            textSize = 14f,
         )
 
         assertTrue(textView.isTextSelectable)

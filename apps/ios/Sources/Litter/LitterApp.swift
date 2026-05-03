@@ -73,6 +73,14 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
         application.registerForRemoteNotifications()
         UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(
+                identifier: "litter.task.complete",
+                actions: [],
+                intentIdentifiers: [],
+                options: [.allowAnnouncement]
+            )
+        ])
         OrientationResponder.shared.start()
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
@@ -368,6 +376,7 @@ struct ContentView: View {
     @State private var appState = AppState()
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
+    @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
@@ -395,6 +404,16 @@ struct ContentView: View {
                         splashDismissed = true
                         (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
                     }
+                }
+
+                if petOverlay.visible, let pet = petOverlay.selectedPet {
+                    PetOverlayView(
+                        pet: pet,
+                        state: petOverlay.avatarState(snapshot: appModel.snapshot),
+                        message: petOverlay.avatarMessage(snapshot: appModel.snapshot),
+                        reduceMotion: UIAccessibility.isReduceMotionEnabled
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
                 if let approval = appModel.snapshot?.pendingApprovals.first(where: {
@@ -1682,9 +1701,7 @@ private struct HomeNavigationView: View {
 
     private func renameServer(_ serverId: String, newName: String) {
         SavedServerStore.rename(serverId: serverId, newName: newName)
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(
             servers: SavedServerStore.reconnectRecords(
                 localDisplayName: appModel.resolvedLocalServerDisplayName()
@@ -1694,11 +1711,20 @@ private struct HomeNavigationView: View {
     }
 
     @Sendable
-    private func loadSearchThreads(query: String, runtimeKind: AgentRuntimeKind?, forceRepair: Bool) async {
+    private func loadSearchThreads(
+        query: String,
+        runtimeKind: AgentRuntimeKind?,
+        serverId selectedServerId: String?,
+        forceRepair: Bool
+    ) async {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceKinds: [AppThreadSourceKind] = [.cli, .vsCode, .appServer]
+        let selectedServerFilterId = selectedServerId?.trimmingCharacters(in: .whitespacesAndNewlines)
         await withTaskGroup(of: Void.self) { group in
             for server in homeDashboardModel.connectedServers {
+                if let selectedServerFilterId, !selectedServerFilterId.isEmpty, server.id != selectedServerFilterId {
+                    continue
+                }
                 if let runtimeKind,
                    !server.agentRuntimes.contains(where: { $0.available && $0.kind == runtimeKind }) {
                     continue

@@ -8,6 +8,115 @@ use tracing::Level;
 static TRACING_SUBSCRIBER_INSTALLED: OnceLock<()> = OnceLock::new();
 const JSON_LOG_PREVIEW_LIMIT: usize = 512;
 
+#[cfg(target_os = "android")]
+mod android_logcat {
+    use std::ffi::CString;
+    use std::io::{self, Write};
+
+    use tracing::{Level, Metadata};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    const ANDROID_LOG_VERBOSE: i32 = 2;
+    const ANDROID_LOG_DEBUG: i32 = 3;
+    const ANDROID_LOG_INFO: i32 = 4;
+    const ANDROID_LOG_WARN: i32 = 5;
+    const ANDROID_LOG_ERROR: i32 = 6;
+    const LOG_TAG: &str = "LitterRust";
+
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct AndroidLogMakeWriter;
+
+    pub(crate) struct AndroidLogWriter {
+        priority: i32,
+        buffer: Vec<u8>,
+    }
+
+    impl AndroidLogWriter {
+        fn new(priority: i32) -> Self {
+            Self {
+                priority,
+                buffer: Vec::new(),
+            }
+        }
+    }
+
+    impl Drop for AndroidLogWriter {
+        fn drop(&mut self) {
+            let _ = self.flush();
+        }
+    }
+
+    impl Write for AndroidLogWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.buffer.is_empty() {
+                return Ok(());
+            }
+
+            let rendered = String::from_utf8_lossy(&self.buffer);
+            for line in rendered.lines() {
+                write_android_log(self.priority, line);
+            }
+            self.buffer.clear();
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for AndroidLogMakeWriter {
+        type Writer = AndroidLogWriter;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            AndroidLogWriter::new(ANDROID_LOG_INFO)
+        }
+
+        fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
+            AndroidLogWriter::new(priority_for_level(meta.level()))
+        }
+    }
+
+    fn priority_for_level(level: &Level) -> i32 {
+        match *level {
+            Level::TRACE => ANDROID_LOG_VERBOSE,
+            Level::DEBUG => ANDROID_LOG_DEBUG,
+            Level::INFO => ANDROID_LOG_INFO,
+            Level::WARN => ANDROID_LOG_WARN,
+            Level::ERROR => ANDROID_LOG_ERROR,
+        }
+    }
+
+    fn write_android_log(priority: i32, line: &str) {
+        let line = line.trim_end();
+        if line.is_empty() {
+            return;
+        }
+
+        let Ok(tag) = CString::new(LOG_TAG) else {
+            return;
+        };
+        let message = line.replace('\0', "\\0");
+        let Ok(message) = CString::new(message) else {
+            return;
+        };
+
+        unsafe {
+            __android_log_write(priority, tag.as_ptr(), message.as_ptr());
+        }
+    }
+
+    #[link(name = "log")]
+    unsafe extern "C" {
+        fn __android_log_write(
+            priority: i32,
+            tag: *const std::ffi::c_char,
+            text: *const std::ffi::c_char,
+        ) -> i32;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevelName {
     Trace,
@@ -69,11 +178,17 @@ pub(crate) fn install_tracing_subscriber() {
             .compact()
             .with_target(true)
             .with_env_filter(env_filter);
+        #[cfg(target_os = "android")]
+        let subscriber = subscriber
+            .with_writer(android_logcat::AndroidLogMakeWriter)
+            .finish();
         #[cfg(target_os = "ios")]
         let subscriber = subscriber.with_writer(std::io::stderr).finish();
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let subscriber = subscriber.finish();
-        let _ = tracing::subscriber::set_global_default(subscriber);
+        if tracing::subscriber::set_global_default(subscriber).is_ok() {
+            tracing::info!(target: "mobile", "Rust tracing subscriber installed");
+        }
     });
 }
 

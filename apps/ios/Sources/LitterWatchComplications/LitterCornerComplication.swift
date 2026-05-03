@@ -22,7 +22,7 @@ struct LitterCornerView: View {
     let entry: LitterComplicationEntry
 
     var body: some View {
-        Text(entry.runtimeLabel)
+        Text(entry.runtimeLabel(at: entry.date))
             .font(.system(size: 14, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
             .widgetCurvesContent()
@@ -31,6 +31,7 @@ struct LitterCornerView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(LitterComplicationTint.ginger)
             }
+            .widgetURL(entry.taskId.flatMap { URL(string: "litter-watch://task/\($0)") })
     }
 
     private var shortTitle: String {

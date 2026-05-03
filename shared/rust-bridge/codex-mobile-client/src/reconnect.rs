@@ -723,6 +723,10 @@ async fn resolve_ssh_bridge_runtime_kinds(
     let availability = crate::ssh_bridge::probe_remote_agents(&ssh_client)
         .await
         .unwrap_or_default();
+    info!(
+        "reconnect: SSH bridge agent availability requested={:?} availability={:?}",
+        requested, availability
+    );
     let available = |kind: AgentRuntimeKind| {
         kind == AgentRuntimeKind::Codex
             || availability.iter().any(|entry| {
@@ -754,6 +758,10 @@ async fn resolve_ssh_bridge_runtime_kinds(
     if selected.is_empty() {
         selected.push(AgentRuntimeKind::Codex);
     }
+    info!(
+        "reconnect: SSH bridge selected runtimes requested={:?} selected={:?}",
+        requested, selected
+    );
     selected
 }
 

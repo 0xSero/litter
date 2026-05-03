@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use tokio::sync::oneshot;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 const WAKE_MAC_SCRIPT: &str = r#"iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
 if [ -z "$iface" ]; then iface="en0"; fi
@@ -269,6 +269,7 @@ impl SshBridge {
         &self,
         session_id: String,
     ) -> Result<Vec<crate::ssh_bridge::RemoteAgentAvailability>, ClientError> {
+        tracing::info!("SshBridge: probe remote agents start session_id={session_id}");
         let session = self
             .ssh_sessions_lock()
             .get(&session_id)
@@ -276,9 +277,15 @@ impl SshBridge {
             .ok_or_else(|| {
                 ClientError::InvalidParams(format!("unknown SSH session id: {session_id}"))
             })?;
-        crate::ssh_bridge::probe_remote_agents(&session)
+        let availability = crate::ssh_bridge::probe_remote_agents(&session)
             .await
-            .map_err(|error| ClientError::Transport(error.to_string()))
+            .map_err(|error| ClientError::Transport(error.to_string()))?;
+        tracing::info!(
+            "SshBridge: probe remote agents complete session_id={} availability={:?}",
+            session_id,
+            availability
+        );
+        Ok(availability)
     }
 
     pub async fn ssh_connect_bridge_session(
@@ -303,6 +310,14 @@ impl SshBridge {
         } else {
             normalize_ssh_host(&host)
         };
+        tracing::info!(
+            "SshBridge: connect bridge session start session_id={} server_id={} host={} runtimes={:?} transport={:?}",
+            session_id,
+            server_id,
+            host,
+            runtime_kinds,
+            transport
+        );
         let mobile_client = shared_mobile_client();
         let outcome = mobile_client
             .connect_remote_over_ssh_bridges(
@@ -316,6 +331,12 @@ impl SshBridge {
             )
             .await
             .map_err(|error| ClientError::Transport(error.to_string()))?;
+        tracing::info!(
+            "SshBridge: connect bridge session complete session_id={} server_id={} agent_name={}",
+            session_id,
+            outcome.server_id,
+            outcome.agent_name
+        );
         Ok(AppSshBridgeConnectResult {
             server_id: outcome.server_id,
             agent_name: outcome.agent_name,

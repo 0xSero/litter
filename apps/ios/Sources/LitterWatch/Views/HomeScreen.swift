@@ -22,6 +22,22 @@ struct HomeScreen: View {
                 )
             } else {
                 List {
+                    if store.lastSyncIsStale && !store.isReachable {
+                        Section {
+                            HStack(spacing: 6) {
+                                Image(systemName: "iphone.slash")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(WatchTheme.dim)
+                                Text("phone unreachable · last-known")
+                                    .font(WatchTheme.mono(9))
+                                    .foregroundStyle(WatchTheme.dim)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .listRowBackground(Color.clear)
+                        }
+                    }
+
                     Section {
                         ForEach(store.tasks) { task in
                             NavigationLink {

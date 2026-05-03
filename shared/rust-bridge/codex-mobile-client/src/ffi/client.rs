@@ -294,6 +294,16 @@ impl AppClient {
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?;
             let available_runtime_kinds = session.runtime_kinds();
+            tracing::info!(
+                "list_threads: resolve runtimes server_id={} requested={:?} available={:?} search_term={:?} use_state_db_only={} limit={:?} cursor={:?}",
+                server_id,
+                requested_runtime_kinds,
+                available_runtime_kinds,
+                params.search_term,
+                params.use_state_db_only,
+                params.limit,
+                params.cursor
+            );
             let mut runtime_kinds = match requested_runtime_kinds {
                 Some(requested) if !requested.is_empty() => requested
                     .into_iter()
@@ -311,6 +321,11 @@ impl AppClient {
             }
             runtime_kinds.sort();
             runtime_kinds.dedup();
+            tracing::info!(
+                "list_threads: fanout start server_id={} runtime_kinds={:?}",
+                server_id,
+                runtime_kinds
+            );
 
             // Fan out per-runtime concurrently. The previous sequential loop
             // exhausted Codex's full cursor pagination before non-Codex runtimes
@@ -338,6 +353,14 @@ impl AppClient {
                     let mut request_params = initial_params;
                     let mut ids = Vec::new();
                     let mut completed = true;
+                    tracing::info!(
+                        "list_threads: runtime start server_id={} runtime={:?} initial_limit={:?} search_term={:?} use_state_db_only={}",
+                        server_id,
+                        runtime_kind,
+                        request_params.limit,
+                        request_params.search_term,
+                        request_params.use_state_db_only
+                    );
                     loop {
                         // 10s per-page timeout: a stalled agent (e.g.
                         // opencode mid-restart) must not wedge the join.
@@ -371,6 +394,13 @@ impl AppClient {
                                     break;
                                 }
                             };
+                        tracing::info!(
+                            "list_threads: runtime page server_id={} runtime={:?} count={} next_cursor_present={}",
+                            server_id,
+                            runtime_kind,
+                            response.data.len(),
+                            response.next_cursor.is_some()
+                        );
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
                             runtime_kind,
@@ -385,11 +415,26 @@ impl AppClient {
                         }
                         request_params.cursor = Some(next_cursor);
                     }
+                    tracing::info!(
+                        "list_threads: runtime complete server_id={} runtime={:?} completed={} upserted_ids={}",
+                        server_id,
+                        runtime_kind,
+                        completed,
+                        ids.len()
+                    );
                     (runtime_kind, ids, completed)
                 });
             }
 
             let results = futures::future::join_all(tasks).await;
+            tracing::info!(
+                "list_threads: fanout complete server_id={} results={:?}",
+                server_id,
+                results
+                    .iter()
+                    .map(|(runtime, ids, completed)| (*runtime, ids.len(), *completed))
+                    .collect::<Vec<_>>()
+            );
             // Only prune if every runtime finished cleanly. A partial
             // result (one runtime timed out / errored) means we don't
             // know its true thread set yet, and `finalize_thread_list_sync`
@@ -791,6 +836,53 @@ impl AppClient {
     ) -> Result<types::ResolvedImageViewResult, ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             resolve_image_view_bytes(c.as_ref(), &server_id, &path).await
+        })
+    }
+
+    pub async fn list_pets(
+        &self,
+        server_id: String,
+    ) -> Result<Vec<types::AppPetSummary>, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let entries = scan_remote_pets(c.as_ref(), &server_id).await?;
+            Ok(entries.into_iter().map(|entry| entry.summary).collect())
+        })
+    }
+
+    pub async fn load_pet(
+        &self,
+        server_id: String,
+        pet_id: String,
+    ) -> Result<types::AppPetPackage, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let trimmed_pet_id = pet_id.trim();
+            if trimmed_pet_id.is_empty() {
+                return Err(ClientError::InvalidParams("pet id is empty".to_string()));
+            }
+            let entries = scan_remote_pets(c.as_ref(), &server_id).await?;
+            let entry = entries
+                .into_iter()
+                .find(|entry| entry.summary.id == trimmed_pet_id)
+                .ok_or_else(|| ClientError::Rpc(format!("pet not found: {trimmed_pet_id}")))?;
+            if let Some(error) = entry.summary.validation_error.as_ref() {
+                return Err(ClientError::Rpc(error.clone()));
+            }
+            let spritesheet_file = entry
+                .summary
+                .spritesheet_path
+                .as_deref()
+                .ok_or_else(|| ClientError::Rpc("pet has no spritesheet path".to_string()))?;
+            let spritesheet_path =
+                crate::pets::local_spritesheet_path(&entry.summary.source_path, spritesheet_file)
+                    .map_err(ClientError::Serialization)?;
+            let spritesheet_bytes =
+                read_remote_file_bytes(c.as_ref(), &server_id, &spritesheet_path).await?;
+            crate::pets::package_from_parts(
+                entry.summary.source_path,
+                &entry.manifest_json,
+                spritesheet_bytes,
+            )
+            .map_err(ClientError::Serialization)
         })
     }
 
@@ -1306,7 +1398,7 @@ pub(crate) async fn exec_command_simple(
         cwd: cwd.map(std::path::PathBuf::from),
         env: None,
         size: None,
-        sandbox_policy: None,
+        sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
         permission_profile: None,
     };
     rpc(
@@ -1470,6 +1562,152 @@ fn is_windows_path(path: &str) -> bool {
         && bytes[0].is_ascii_alphabetic()
         && (bytes[2] == b'\\' || bytes[2] == b'/'))
         || path.starts_with("\\\\")
+}
+
+struct RemotePetScanEntry {
+    summary: types::AppPetSummary,
+    manifest_json: String,
+}
+
+async fn scan_remote_pets(
+    client: &MobileClient,
+    server_id: &str,
+) -> Result<Vec<RemotePetScanEntry>, ClientError> {
+    ensure_pet_runtime_available(client, server_id)?;
+
+    let script = r#"root="${CODEX_HOME:-$HOME/.codex}/pets"
+[ -d "$root" ] || exit 0
+for manifest in "$root"/*/pet.json; do
+  [ -f "$manifest" ] || continue
+  dir=${manifest%/pet.json}
+  printf '%s\t' "$(printf '%s' "$dir" | base64 | tr -d '\n')"
+  base64 < "$manifest" | tr -d '\n'
+  printf '\n'
+done"#;
+    let response = exec_command_simple_owned(
+        client,
+        server_id,
+        vec!["/bin/sh".to_string(), "-lc".to_string(), script.to_string()],
+        None,
+    )
+    .await?;
+    if response.exit_code != 0 {
+        let stderr = response.stderr.trim();
+        return Err(ClientError::Rpc(if stderr.is_empty() {
+            "pet scan failed".to_string()
+        } else {
+            stderr.to_string()
+        }));
+    }
+
+    let mut entries = Vec::new();
+    for line in response.stdout.lines() {
+        let Some((path_b64, manifest_b64)) = line.split_once('\t') else {
+            continue;
+        };
+        let path = decode_base64_utf8(path_b64, "pet path")?;
+        let manifest_json = decode_base64_utf8(manifest_b64, "pet manifest")?;
+        let mut summary = crate::pets::summary_from_manifest(path.clone(), &manifest_json, false);
+        if let Some(spritesheet_file) = summary.spritesheet_path.as_deref() {
+            let spritesheet_path = crate::pets::local_spritesheet_path(&path, spritesheet_file)
+                .map_err(ClientError::Serialization)?;
+            summary.has_valid_spritesheet =
+                remote_file_exists(client, server_id, &spritesheet_path).await?;
+            if summary.has_valid_spritesheet {
+                summary.validation_error = None;
+            } else if summary.validation_error.is_none() {
+                summary.validation_error = Some(format!("{spritesheet_file} is missing"));
+            }
+        }
+        entries.push(RemotePetScanEntry {
+            summary,
+            manifest_json,
+        });
+    }
+    entries.sort_by(|a, b| {
+        a.summary
+            .display_name
+            .to_lowercase()
+            .cmp(&b.summary.display_name.to_lowercase())
+    });
+    Ok(entries)
+}
+
+fn ensure_pet_runtime_available(client: &MobileClient, server_id: &str) -> Result<(), ClientError> {
+    let runtime_kinds = client
+        .get_session(server_id)
+        .map_err(|error| ClientError::Rpc(error.to_string()))?
+        .runtime_kinds();
+    if runtime_kinds.contains(&types::AgentRuntimeKind::Codex) {
+        return Ok(());
+    }
+    Err(ClientError::Rpc(
+        "pets require a connected Codex runtime; select the Codex Alleycat agent or connect to a Codex server".to_string(),
+    ))
+}
+
+async fn remote_file_exists(
+    client: &MobileClient,
+    server_id: &str,
+    path: &str,
+) -> Result<bool, ClientError> {
+    let response =
+        exec_command_simple_owned(client, server_id, file_exists_command(path), None).await?;
+    Ok(response.exit_code == 0)
+}
+
+async fn read_remote_file_bytes(
+    client: &MobileClient,
+    server_id: &str,
+    path: &str,
+) -> Result<Vec<u8>, ClientError> {
+    let response =
+        exec_command_simple_owned(client, server_id, image_read_command(path), None).await?;
+    if response.exit_code != 0 {
+        let stderr = response.stderr.trim();
+        return Err(ClientError::Rpc(if stderr.is_empty() {
+            "file read failed".to_string()
+        } else {
+            stderr.to_string()
+        }));
+    }
+    let payload: String = response
+        .stdout
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|error| ClientError::Serialization(format!("invalid file base64: {error}")))
+}
+
+fn decode_base64_utf8(value: &str, label: &str) -> Result<String, ClientError> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(value.trim())
+        .map_err(|error| ClientError::Serialization(format!("invalid {label} base64: {error}")))?;
+    String::from_utf8(bytes)
+        .map_err(|error| ClientError::Serialization(format!("invalid {label} utf8: {error}")))
+}
+
+fn file_exists_command(path: &str) -> Vec<String> {
+    if is_windows_path(path) {
+        return vec![
+            "powershell.exe".to_string(),
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            "$p = $args[0]; if ($p.StartsWith('~/') -or $p.StartsWith('~\\\\')) { $p = Join-Path $HOME $p.Substring(2) }; if (Test-Path -LiteralPath $p -PathType Leaf) { exit 0 } else { exit 1 }".to_string(),
+            path.to_string(),
+        ];
+    }
+    vec![
+        "/bin/sh".to_string(),
+        "-lc".to_string(),
+        r#"path="$1"; case "$path" in "~/"*) path="$HOME/${path#~/}" ;; esac; test -f "$path""#
+            .to_string(),
+        "sh".to_string(),
+        path.to_string(),
+    ]
 }
 
 enum ImageViewSource {

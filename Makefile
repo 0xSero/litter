@@ -30,6 +30,8 @@ IOS_SIM_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/ios-sim-run
 IOS_SIM_PROFILE ?= 1
 IOS_SIM_PROFILE_TEMPLATE ?= Time Profiler
 IOS_SIM_PROFILE_TIME_LIMIT ?=
+ANDROID_DEVICE_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-device-run
+ANDROID_EMULATOR_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-emulator-run
 ANDROID_DIR := $(ROOT)/apps/android
 ANDROID_JNI := $(ANDROID_DIR)/core/bridge/src/main/jniLibs
 GENERATED_DIR := $(RUST_DIR)/generated
@@ -333,49 +335,25 @@ android-tools:
 android-emulator-fast:
 	@$(MAKE) android-fast ANDROID_ABIS="$(ANDROID_EMULATOR_ABIS)"
 android-emulator-run: android-emulator-fast
-	@echo "==> Installing and launching on emulator..."
-	@EMU=$$(adb devices | grep '^emulator-' | head -1 | cut -f1) && \
-	if [ -z "$$EMU" ]; then echo "ERROR: no emulator found (run one first)"; exit 1; fi && \
-	adb -s "$$EMU" install -r $(ANDROID_APK) && \
-	adb -s "$$EMU" shell am start -n $(ANDROID_PACKAGE)/$(ANDROID_ACTIVITY)
+	@echo "==> Installing and launching on emulator with saved logcat..."
+	@cd $(ROOT) && \
+	ANDROID_RUN_MODE=emulator \
+	ANDROID_RUN_ARTIFACTS_DIR='$(ANDROID_EMULATOR_RUN_ARTIFACTS_DIR)' \
+	ANDROID_APK='$(ANDROID_APK)' \
+	ANDROID_PACKAGE='$(ANDROID_PACKAGE)' \
+	ANDROID_ACTIVITY='$(ANDROID_ACTIVITY)' \
+	ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH='$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)' \
+	./tools/scripts/run-android.sh
 android-device-run: android-fast
-	@echo "==> Installing and launching on connected device..."
-	@DEVICE=$${ANDROID_DEVICE_SERIAL:-$$(adb devices | awk -F'\t' 'NR>1 && $$2=="device" && $$1 !~ /^emulator-/ {print $$1; exit}')} && \
-	if [ -z "$$DEVICE" ]; then echo "ERROR: no connected Android device found (set ANDROID_DEVICE_SERIAL=<serial> to override)"; exit 1; fi && \
-	echo "==> Using device $$DEVICE..." && \
-	INSTALL_OUTPUT=$$(adb -s "$$DEVICE" install -r $(ANDROID_APK) 2>&1) && \
-	printf '%s\n' "$$INSTALL_OUTPUT" || { \
-		status=$$?; \
-		printf '%s\n' "$$INSTALL_OUTPUT"; \
-		if printf '%s' "$$INSTALL_OUTPUT" | grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE'; then \
-			if [ "$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)" = "1" ]; then \
-				echo "==> Installed app has a different signing key; uninstalling $(ANDROID_PACKAGE) and retrying..."; \
-				adb -s "$$DEVICE" uninstall $(ANDROID_PACKAGE) && \
-				adb -s "$$DEVICE" install -r $(ANDROID_APK) || exit $$?; \
-			else \
-				echo "ERROR: installed app signature does not match this APK. Re-run with ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to uninstall the existing app and install this build."; \
-				exit 1; \
-			fi; \
-		elif printf '%s' "$$INSTALL_OUTPUT" | grep -q 'INSTALL_FAILED_VERSION_DOWNGRADE'; then \
-			echo "==> Installed app has a higher versionCode; uninstalling $(ANDROID_PACKAGE) and retrying..."; \
-			adb -s "$$DEVICE" uninstall $(ANDROID_PACKAGE) && \
-			adb -s "$$DEVICE" install -r $(ANDROID_APK) || exit $$?; \
-		else \
-			exit $$status; \
-		fi; \
-	} && \
-	echo "==> Launching with attached logcat and timestamps (Ctrl+C stops log streaming)..." && \
-	adb -s "$$DEVICE" shell am force-stop $(ANDROID_PACKAGE) >/dev/null 2>&1 || true && \
-	adb -s "$$DEVICE" shell am start -W -n $(ANDROID_PACKAGE)/$(ANDROID_ACTIVITY) >/dev/null && \
-	PID="" && \
-	for _ in $$(seq 1 50); do \
-		PID=$$(adb -s "$$DEVICE" shell pidof -s $(ANDROID_PACKAGE) 2>/dev/null | tr -d '\r'); \
-		if [ -n "$$PID" ]; then break; fi; \
-		sleep 0.2; \
-	done && \
-	if [ -z "$$PID" ]; then echo "ERROR: app launched but no PID found for $(ANDROID_PACKAGE)"; exit 1; fi && \
-	echo "==> Streaming logcat for $(ANDROID_PACKAGE) (pid $$PID)..." && \
-	adb -s "$$DEVICE" logcat --pid="$$PID" -v time
+	@echo "==> Installing and launching on connected device with saved logcat..."
+	@cd $(ROOT) && \
+	ANDROID_RUN_MODE=device \
+	ANDROID_RUN_ARTIFACTS_DIR='$(ANDROID_DEVICE_RUN_ARTIFACTS_DIR)' \
+	ANDROID_APK='$(ANDROID_APK)' \
+	ANDROID_PACKAGE='$(ANDROID_PACKAGE)' \
+	ANDROID_ACTIVITY='$(ANDROID_ACTIVITY)' \
+	ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH='$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)' \
+	./tools/scripts/run-android.sh
 
 android-release: ANDROID_RUST_PROFILE=release
 android-release: ANDROID_ABIS=$(ANDROID_RELEASE_ABIS)
@@ -465,8 +443,8 @@ help:
 		'make catalyst-fast-run  fast Mac Catalyst dev build + launch' \
 		'make android            fast Android dev build (default ABI/profile: arm64-v8a/android-dev)' \
 		'make android-emulator-fast fast Android dev build using emulator ABI ($(ANDROID_EMULATOR_ABIS))' \
-		'make android-emulator-run  fast emulator build + install + launch on emulator' \
-		'make android-device-run    fast Android dev build + install + launch with attached logcat on connected device (override ANDROID_DEVICE_SERIAL; auto-uninstalls on versionCode downgrade; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to also uninstall on signature mismatch)' \
+		'make android-emulator-run  fast emulator build + install + launch on emulator; saves logcat under artifacts/android-emulator-run' \
+		'make android-device-run    fast Android dev build + install + launch with saved logcat under artifacts/android-device-run (override ANDROID_DEVICE_SERIAL; auto-uninstalls on versionCode downgrade; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to also uninstall on signature mismatch)' \
 		'make android-release    Android build using release Rust profile and multi-ABI output' \
 		'make rust-check         host cargo check for shared crates' \
 		'make rust-test          host cargo test for shared crates'

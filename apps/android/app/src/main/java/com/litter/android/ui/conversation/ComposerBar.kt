@@ -734,7 +734,7 @@ fun ComposerBar(
 
             Spacer(Modifier.width(4.dp))
 
-            if (canSend && !isThinking) {
+            if (canSend) {
                 IconButton(
                     onClick = sendCurrent,
                     enabled = !isRecording && !isTranscribing,
@@ -760,7 +760,7 @@ fun ComposerBar(
                 Spacer(Modifier.width(4.dp))
             }
 
-            if (isThinking) {
+            if (isThinking && !canSend) {
                 Text(
                     text = "Cancel",
                     color = LitterTheme.textPrimary,

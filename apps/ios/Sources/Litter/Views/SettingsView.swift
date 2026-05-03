@@ -32,6 +32,7 @@ struct SettingsView: View {
                     appearanceSection
                     fontSection
                     conversationSection
+                    petSection
                     experimentalSection
                     accountSection
                     serversSection
@@ -139,6 +140,36 @@ struct SettingsView: View {
             }
         } header: {
             Text("Font")
+                .foregroundColor(LitterTheme.textSecondary)
+        }
+    }
+
+    // MARK: - Experimental Section
+
+    private var petSection: some View {
+        Section {
+            NavigationLink {
+                PetSettingsView()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "pawprint.fill")
+                        .foregroundColor(LitterTheme.accent)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Wake Pet")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.textPrimary)
+                        if let pet = PetOverlayController.shared.selectedPet {
+                            Text(pet.displayName)
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+                    }
+                }
+            }
+            .listRowBackground(LitterTheme.surface.opacity(0.6))
+        } header: {
+            Text("Pet")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }

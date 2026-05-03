@@ -1,0 +1,66 @@
+name: Auto-release kittylitter
+
+# Fires on every push to `main` that touches the wrapper crate's Cargo.toml.
+# If the version field has changed (i.e. there's no existing GitHub Release
+# with the tag `v<version>`) it dispatches release.yml, which is the
+# cargo-dist-generated workflow that does the full build + sign + npm
+# publish. We never push tags ourselves — cargo-dist handles tagging
+# internally as part of the release.
+#
+# To cut a release: bump `version` in services/kittylitter/Cargo.toml,
+# commit, push to main. That's it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/kittylitter/Cargo.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  maybe-release:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read kittylitter version
+        id: ver
+        run: |
+          set -euo pipefail
+          version=$(awk -F'"' '/^version/ { print $2; exit }' services/kittylitter/Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "could not parse version from services/kittylitter/Cargo.toml" >&2
+            exit 1
+          fi
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $version (tag: $tag)"
+
+      - name: Skip if release already exists
+        id: check
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch release.yml
+        if: steps.check.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching release.yml with tag=$TAG"
+          gh workflow run release.yml --field tag="$TAG"

@@ -54,11 +54,12 @@ struct LitterRectangularView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+        .widgetURL(entry.taskId.flatMap { URL(string: "litter-watch://task/\($0)") })
     }
 
     private var eyebrow: String {
         entry.mode == .running
-            ? "CODEX · \(entry.runtimeLabel)"
+            ? "CODEX · \(entry.runtimeLabel(at: entry.date))"
             : "CODEX · \(entry.serverCount) READY"
     }
 }

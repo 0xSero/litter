@@ -748,7 +748,7 @@ private struct HomeCatFooterView: View {
     }
 }
 
-private struct AlphaAnimatedImageView: UIViewRepresentable {
+struct AlphaAnimatedImageView: UIViewRepresentable {
     let fileURL: URL
     var repeatCount: Int = 0
     var onFinished: (() -> Void)?

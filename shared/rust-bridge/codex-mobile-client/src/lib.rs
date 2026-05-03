@@ -91,6 +91,8 @@ mod shell_quoting;
 pub(crate) mod ssh_scripts;
 
 #[cfg(target_os = "android")]
+mod android_context;
+#[cfg(target_os = "android")]
 pub mod android_exec;
 
 #[cfg(any(
@@ -119,6 +121,7 @@ mod mobile_client;
 pub mod pair;
 pub mod parser;
 pub mod permissions;
+pub mod pets;
 pub mod plugin_refs;
 pub mod preferences;
 pub mod project;

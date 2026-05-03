@@ -67,6 +67,9 @@ private struct AgentRuntimeBadgeStack: View {
     let runtimes: [AgentRuntimeInfo]
     private let badgeSize: CGFloat = 18
     private let badgeOffset: CGFloat = 11
+    private let maxBadgesWithoutOverflow = 4
+    private let badgesWhenOverflowing = 3
+    private var overlapSpacing: CGFloat { badgeOffset - badgeSize }
 
     private var visibleRuntimes: [AgentRuntimeInfo] {
         var seenKinds: [AgentRuntimeKind] = []
@@ -84,20 +87,50 @@ private struct AgentRuntimeBadgeStack: View {
 
     var body: some View {
         let visible = visibleRuntimes
-        if !visible.isEmpty {
-            ZStack(alignment: .leading) {
-                ForEach(Array(visible.enumerated()), id: \.offset) { index, runtime in
+        let isOverflowing = visible.count > maxBadgesWithoutOverflow
+        let displayed = isOverflowing ? Array(visible.prefix(badgesWhenOverflowing)) : visible
+        let overflowCount = isOverflowing ? visible.count - displayed.count : 0
+
+        if !displayed.isEmpty {
+            HStack(spacing: overlapSpacing) {
+                ForEach(Array(displayed.enumerated()), id: \.element.kind) { index, runtime in
                     AgentRuntimeBadge(runtime: runtime)
-                        .offset(x: CGFloat(index) * badgeOffset)
                         .zIndex(Double(index))
                 }
+                if overflowCount > 0 {
+                    AgentRuntimeOverflowBadge(count: overflowCount)
+                        .zIndex(Double(displayed.count))
+                }
             }
-            .frame(
-                width: badgeSize + CGFloat(max(visible.count - 1, 0)) * badgeOffset,
-                height: badgeSize
-            )
+            .fixedSize()
+            .layoutPriority(1)
             .accessibilityLabel(visible.map(\.displayName).joined(separator: ", "))
         }
+    }
+}
+
+private struct AgentRuntimeOverflowBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text("+\(count)")
+            .litterMonoFont(size: 9, weight: .bold)
+            .foregroundStyle(LitterTheme.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 18)
+            .frame(height: 18)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.black.opacity(0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(LitterTheme.textPrimary.opacity(0.28), lineWidth: 0.55)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .shadow(color: .black.opacity(0.32), radius: 2, y: 1)
     }
 }
 

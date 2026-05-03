@@ -20,10 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.DeveloperBoard
 import androidx.compose.material.icons.outlined.Dns
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.SavedServer
@@ -70,7 +72,6 @@ import com.litter.android.state.isConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.ui.ExperimentalFeatures
-import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.util.LLog
@@ -363,112 +364,40 @@ fun DiscoveryScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                text = "Connect Server",
+                text = "Add Server",
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
-            if (isScanning) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = LitterTheme.accent,
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, "Refresh", tint = LitterTheme.textSecondary)
-            }
-            if (ExperimentalFeatures.isEnabled(LitterFeature.ALLEYCAT)) {
-                IconButton(onClick = { showAlleycatSheet = true }) {
-                    Icon(
-                        Icons.Default.QrCodeScanner,
-                        "Add remote host",
-                        tint = LitterTheme.textSecondary,
-                    )
-                }
-            }
-            IconButton(onClick = { showManualEntry = true }) {
-                Icon(Icons.Default.Add, "Add Server", tint = LitterTheme.textSecondary)
-            }
         }
 
-        if (isScanning) {
-            if (scanProgressLabel != null) {
-                Spacer(Modifier.height(4.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = scanProgressLabel,
-                        color = LitterTheme.textMuted,
-                        fontSize = 10.sp,
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            val animatedProgress by animateFloatAsState(
-                targetValue = scanProgress,
-                animationSpec = tween(durationMillis = 250),
-                label = "scanProgress",
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = "Pick how you want to connect.",
+            color = LitterTheme.textSecondary,
+            fontSize = 12.sp,
+        )
+
+        Spacer(Modifier.height(14.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ChooserCard(
+                title = "Pair with kittylitter",
+                subtitle = "Run npx kittylitter on the host, then scan the QR code it prints.",
+                badge = "RECOMMENDED",
+                icon = Icons.Default.QrCodeScanner,
+                onClick = { showAlleycatSheet = true },
             )
-            LinearProgressIndicator(
-                progress = { animatedProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp),
-                color = LitterTheme.accent,
-                trackColor = LitterTheme.surface,
+
+            ChooserCard(
+                title = "SSH or Codex URL",
+                subtitle = "Connect over SSH (auto-bootstraps codex on the host) or paste a ws:// codex URL.",
+                badge = null,
+                icon = Icons.Outlined.Terminal,
+                onClick = { showManualEntry = true },
             )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(merged, key = { it.id }) { entry ->
-                ServerRow(
-                    entry = entry,
-                    connectedServer = connectedSnapshot(entry, snapshot?.servers ?: emptyList()),
-                    isWaking = wakingServerId == entry.id,
-                    enabled = wakingServerId == null || wakingServerId == entry.id,
-                    onClick = { scope.launch { connectSelectedServer(entry) } },
-                    onRename = if (entry.source != "local") {
-                        { renameTarget = entry }
-                    } else {
-                        null
-                    },
-                )
-            }
-
-            if (merged.isEmpty()) {
-                item {
-                    if (isScanning) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = LitterTheme.accent,
-                            )
-                            Text(
-                                text = "Scanning…",
-                                color = LitterTheme.textMuted,
-                                fontSize = 13.sp,
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "No servers found. Try Add Server.",
-                            color = LitterTheme.textMuted,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(vertical = 16.dp),
-                        )
-                    }
-                }
-            }
         }
     }
 
@@ -587,7 +516,29 @@ fun DiscoveryScreen(
                         sshCredentialStore.delete(server.hostname, server.resolvedSshPort)
                     }
 
-                    if (!ExperimentalFeatures.multiClankerAndQuicEnabled()) {
+                    val session = openSshSession(server, credential)
+                    val availability = appModel.ssh.sshProbeRemoteAgents(session.sessionId)
+                    val bridgeAgents = availableSshBridgeKinds(availability)
+                    if (bridgeAgents.isNotEmpty()) {
+                        sshAgentContext = SshBridgeAgentContext(
+                            server = server,
+                            sessionId = session.sessionId,
+                            host = session.normalizedHost,
+                            availability = availability,
+                            credential = credential,
+                        )
+                        sshServer = null
+                        null
+                    } else {
+                        appModel.ssh.sshClose(session.sessionId)
+                        LLog.t(
+                            logTag,
+                            "no SSH bridge agents available; falling back to Codex SSH",
+                            fields = mapOf(
+                                "serverId" to server.id,
+                                "host" to server.hostname,
+                            ),
+                        )
                         startGuidedSshConnect(server, credential)
                         SavedServerStore.remember(
                             context,
@@ -607,50 +558,6 @@ fun DiscoveryScreen(
                         )
                         sshServer = null
                         null
-                    } else {
-                        val session = openSshSession(server, credential)
-                        val availability = appModel.ssh.sshProbeRemoteAgents(session.sessionId)
-                        val bridgeAgents = availableSshBridgeKinds(availability)
-                        if (bridgeAgents.isNotEmpty()) {
-                            sshAgentContext = SshBridgeAgentContext(
-                                server = server,
-                                sessionId = session.sessionId,
-                                host = session.normalizedHost,
-                                availability = availability,
-                                credential = credential,
-                            )
-                            sshServer = null
-                            null
-                        } else {
-                            appModel.ssh.sshClose(session.sessionId)
-                            LLog.t(
-                                logTag,
-                                "no SSH bridge agents available; falling back to Codex SSH",
-                                fields = mapOf(
-                                    "serverId" to server.id,
-                                    "host" to server.hostname,
-                                ),
-                            )
-                            startGuidedSshConnect(server, credential)
-                            SavedServerStore.remember(
-                                context,
-                                server.withPreferredConnection("ssh"),
-                            )
-                            reloadSavedServers()
-                            appModel.refreshSnapshot()
-                            pendingAutoNavigateServerId = server.id
-                            LLog.t(
-                                logTag,
-                                "guided SSH bootstrap started",
-                                fields = mapOf(
-                                    "serverId" to server.id,
-                                    "host" to server.hostname,
-                                    "sshPort" to server.resolvedSshPort,
-                                ),
-                            )
-                            sshServer = null
-                            null
-                        }
                     }
                 } catch (e: Exception) {
                     LLog.e(
@@ -837,6 +744,7 @@ fun DiscoveryScreen(
             ) {
                 AlleycatAddServerSheet(
                     onDismiss = { showAlleycatSheet = false },
+                    startScanningOnAppear = true,
                     onConnected = { result ->
                         showAlleycatSheet = false
                         scope.launch {
@@ -857,6 +765,66 @@ fun DiscoveryScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ChooserCard(
+    title: String,
+    subtitle: String,
+    badge: String?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(LitterTheme.surface, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = LitterTheme.accent,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(22.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = title,
+                color = LitterTheme.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (badge != null) {
+                Text(
+                    text = badge,
+                    color = LitterTheme.accent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                )
+            }
+            Text(
+                text = subtitle,
+                color = LitterTheme.textSecondary,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = LitterTheme.textMuted,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -1143,6 +1111,7 @@ private fun SSHLoginDialog(
     var username by remember(server.id) { mutableStateOf(initialCredential?.username ?: "") }
     var authMethod by remember(server.id) { mutableStateOf(initialCredential?.method ?: SshAuthMethod.PASSWORD) }
     var password by remember(server.id) { mutableStateOf(initialCredential?.password ?: "") }
+    var isPasswordVisible by remember(server.id) { mutableStateOf(false) }
     var privateKey by remember(server.id) { mutableStateOf(initialCredential?.privateKey ?: "") }
     var passphrase by remember(server.id) { mutableStateOf(initialCredential?.passphrase ?: "") }
     var rememberCredentials by remember(server.id) { mutableStateOf(initialCredential != null) }
@@ -1184,7 +1153,10 @@ private fun SSHLoginDialog(
                         Text(if (authMethod == SshAuthMethod.PASSWORD) "Password *" else "Password")
                     }
                     TextButton(
-                        onClick = { authMethod = SshAuthMethod.KEY },
+                        onClick = {
+                            authMethod = SshAuthMethod.KEY
+                            isPasswordVisible = false
+                        },
                         enabled = !isConnecting,
                     ) {
                         Text(if (authMethod == SshAuthMethod.KEY) "SSH Key *" else "SSH Key")
@@ -1196,7 +1168,30 @@ private fun SSHLoginDialog(
                         onValueChange = { password = it },
                         label = { Text("Password") },
                         singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (isPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { isPasswordVisible = !isPasswordVisible },
+                                enabled = !isConnecting,
+                            ) {
+                                Icon(
+                                    imageVector = if (isPasswordVisible) {
+                                        Icons.Filled.VisibilityOff
+                                    } else {
+                                        Icons.Filled.Visibility
+                                    },
+                                    contentDescription = if (isPasswordVisible) {
+                                        "Hide password"
+                                    } else {
+                                        "Show password"
+                                    },
+                                )
+                            }
+                        },
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

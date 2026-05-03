@@ -1,0 +1,38 @@
+[workspace]
+# The kittylitter wrapper crate at services/kittylitter re-exports the
+# alleycat daemon under a kittylitter-branded name. cargo-dist runs against
+# that workspace and produces kittylitter-* artifacts hosted on this repo's
+# GitHub Releases.
+members = ["cargo:services/kittylitter"]
+
+[dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+# npm is the only distribution channel for now. Homebrew, shell installer,
+# powershell installer, and MSI can be re-enabled later by adding them back
+# to this list (and to publish-jobs for the registry-publishing ones).
+installers = ["npm"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
+# Windows targets dropped until alleycat-bridge-core's `tokio::net::UnixListener`
+# usage is cfg-gated and the ring crate's cargo-xwin cross-compile is sorted.
+# Re-add `aarch64-pc-windows-msvc` and `x86_64-pc-windows-msvc` once those land.
+install-path = "CARGO_HOME"
+hosting = "github"
+install-updater = false
+# Code-sign macOS binaries with the Developer ID Application cert in
+# `dnakov/litter`'s repo secrets. Even though npm doesn't trigger Gatekeeper,
+# signing gives the binary a stable identity for TCC (Local Network) and
+# launchd. Required secrets (cargo-dist 0.31 names):
+#   CODESIGN_CERTIFICATE          base64 of MAC_DEVELOPER_ID_CERT_P12_B64
+#   CODESIGN_CERTIFICATE_PASSWORD same as MAC_DEVELOPER_ID_CERT_PASSWORD
+#   CODESIGN_IDENTITY             "Developer ID Application: <Name> (<TEAM>)"
+macos-sign = true
+# Run the npm publish job on tagged releases. Requires NPM_TOKEN.
+publish-jobs = ["npm"]
+# Add a `workflow_dispatch` trigger to release.yml so the auto-release
+# wrapper workflow can invoke it on demand (without us pushing a tag
+# manually). cargo-dist still creates the tag internally as part of the
+# release; we never run `git tag` ourselves.
+dispatch-releases = true
+# Open a PR with the generated workflow on changes rather than overwriting silently.
+pr-run-mode = "plan"

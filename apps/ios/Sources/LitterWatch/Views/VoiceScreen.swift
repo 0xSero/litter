@@ -16,6 +16,7 @@ struct VoiceScreen: View {
         case idle
         case sending
         case sent
+        case queued
         case failed(String)
     }
 
@@ -76,6 +77,16 @@ struct VoiceScreen: View {
                         .font(WatchTheme.mono(10))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
+                    case .queued:
+                        (
+                            Text("queued ")
+                                .foregroundStyle(WatchTheme.gingerLight)
+                            + Text(lastPrompt ?? "")
+                                .foregroundStyle(WatchTheme.dim)
+                        )
+                        .font(WatchTheme.mono(10))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
                     case .failed(let reason):
                         Text(reason)
                             .font(WatchTheme.mono(10))
@@ -129,12 +140,17 @@ struct VoiceScreen: View {
         }
         status = .sending
         lastPrompt = trimmed
-        WatchSessionBridge.shared.sendPrompt(trimmed, serverId: store.focusedTask?.serverId)
-        // sendMessage is fire-and-forget from our perspective; assume success
-        // unless reachability is false, in which case userInfo transfer kicks
-        // in (phone receives on next activation).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            status = .sent
+        let focused = store.focusedTask
+        WatchSessionBridge.shared.sendPrompt(
+            trimmed,
+            serverId: focused?.serverId,
+            threadId: focused?.threadId
+        ) { result in
+            switch result {
+            case .sent:    status = .sent
+            case .queued:  status = .queued
+            case .failed(let reason): status = .failed(reason)
+            }
         }
     }
 }

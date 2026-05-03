@@ -182,7 +182,7 @@ nav .container {
 }
 
 .hero h1 {
-  font-size: clamp(32px, 5vw, 48px);
+  font-size: clamp(22px, 4vw, 36px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -195,6 +195,71 @@ nav .container {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* ── Agent carousel (mirrors the iOS splash) ── */
+.agent-carousel {
+  display: inline-grid;
+  justify-items: start;
+  align-items: center;
+  vertical-align: baseline;
+  height: 1.15em;
+  line-height: 1.15;
+  overflow: hidden;
+  /* Fixed slot wide enough for "opencode" plus its mark. */
+  width: calc(8ch + 1.7em);
+}
+
+.agent-track {
+  display: block;
+  width: 100%;
+  animation: agent-cycle 9s infinite cubic-bezier(0.65, 0, 0.35, 1);
+  will-change: transform;
+}
+
+.agent-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 0.28em;
+  height: 1.15em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.agent-icon,
+.agent-logo {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: -0.10em;
+}
+
+.agent-icon {
+  width: 0.62em;
+  height: 0.62em;
+}
+
+.agent-logo {
+  width: 0.52em;   /* 0.66em × 32/40 to preserve aspect ratio */
+  height: 0.66em;
+}
+
+.agent-name {
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+@keyframes agent-cycle {
+  0%,   17.5% { transform: translateY(0); }
+  25%,  42.5% { transform: translateY(-1.15em); }
+  50%,  67.5% { transform: translateY(-2.30em); }
+  75%,  92.5% { transform: translateY(-3.45em); }
+  100%        { transform: translateY(-4.60em); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-track { animation: none; }
 }
 
 .hero-sub {
@@ -249,6 +314,22 @@ nav .container {
 
 .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
+.btn-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(12, 11, 10, 0.16);
+  border: 1px solid rgba(12, 11, 10, 0.18);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .btn-primary {
   background: var(--ginger);
   color: var(--bg);
@@ -269,6 +350,84 @@ nav .container {
   color: var(--text);
   border-color: var(--border-warm);
   transform: translateY(-1px);
+}
+
+/* ── TestFlight signup form ── */
+.tf-form {
+  margin: 28px auto 0;
+  max-width: 520px;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.tf-form--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.tf-form-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.tf-form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.tf-form-field {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tf-form-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tf-form input[type="email"] {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tf-form input[type="email"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.tf-form-submit {
+  align-self: flex-end;
+}
+.tf-form-submit[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.tf-form-status {
+  margin: 12px 0 0;
+  min-height: 1em;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.tf-form-status[data-kind="success"] { color: var(--ginger-l); }
+.tf-form-status[data-kind="error"]   { color: #F87171; }
+.tf-form-status[data-kind="pending"] { color: var(--text-muted); }
+.tf-form-fineprint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ═══════════════════════════════════════

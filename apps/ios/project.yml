@@ -94,11 +94,8 @@ targets:
         product: WebRTC
       - target: LitterLiveActivity
         embed: true
-      # Watch app is gated for now — enable by re-adding the LitterWatch
-      # dependency below. The target still lives in this project.yml and
-      # builds via the standalone `LitterWatch` scheme.
-      # - target: LitterWatch
-      #   embed: true
+      - target: LitterWatch
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter
@@ -271,8 +268,12 @@ targets:
           - group.com.sigkitten.litter
     sources:
       - path: Sources/LitterWatch
+        excludes:
+          - "Assets.xcassets"
+      - path: Sources/Litter/AppIcon.icon
     resources:
       - path: Sources/Litter/Resources/Fonts
+      - path: Sources/LitterWatch/Assets.xcassets
     dependencies:
       - target: LitterWatchComplications
         embed: true
@@ -289,6 +290,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: ""
         HEADER_SEARCH_PATHS: "$(inherited)"
         SWIFT_INCLUDE_PATHS: "$(inherited)"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Debug:
           CODE_SIGN_STYLE: "$(WATCH_CODE_SIGN_STYLE)"
@@ -314,6 +316,10 @@ targets:
           - group.com.sigkitten.litter
     sources:
       - path: Sources/LitterWatchComplications
+        excludes:
+          - "Assets.xcassets"
+    resources:
+      - path: Sources/LitterWatchComplications/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp.complications

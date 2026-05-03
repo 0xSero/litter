@@ -46,11 +46,12 @@ struct LitterCircularView: View {
             }
         }
         .padding(2)
+        .widgetURL(entry.taskId.flatMap { URL(string: "litter-watch://task/\($0)") })
     }
 
     private var primary: String {
         switch entry.mode {
-        case .running: return entry.runtimeLabel
+        case .running: return entry.runtimeLabel(at: entry.date)
         case .idle:    return "\(entry.serverCount)"
         case .offline: return "—"
         }

@@ -12,6 +12,11 @@ final class VoiceRuntimeController: VoiceActions {
     static let persistedLocalVoiceThreadIDKey = "litter.voice.local.thread_id"
 
     private(set) var activeVoiceSession: VoiceSessionState?
+    /// Tracks the local mic mute state for the active realtime session.
+    /// Reset to `false` on every session start/end. Disabling the local
+    /// `RTCAudioTrack` doesn't renegotiate the peer connection — Codex
+    /// just stops receiving audio frames until we re-enable it.
+    private(set) var isMicrophoneMuted: Bool = false
     var handoffModel: String?
     var handoffEffort: String?
     var handoffFastMode = false
@@ -117,6 +122,15 @@ final class VoiceRuntimeController: VoiceActions {
     func toggleActiveVoiceSessionSpeaker() async throws {
         guard activeVoiceSession != nil else { return }
         try realtimeSession?.toggleSpeaker()
+    }
+
+    /// Drive the local mic mute state on the active realtime session.
+    /// No-op when there is no active session — the next session will start
+    /// unmuted via the reset in `prepareAndLaunchRealtimeVoiceSession`.
+    func setMicrophoneMuted(_ muted: Bool) {
+        guard activeVoiceSession != nil else { return }
+        isMicrophoneMuted = muted
+        realtimeSession?.setMicrophoneMuted(muted)
     }
 
     private func startEventLoopIfNeeded(appModel: AppModel) {
@@ -304,6 +318,9 @@ final class VoiceRuntimeController: VoiceActions {
             self?.handleRealtimeRouteChanged(route)
         }
         self.realtimeSession = session
+        // Every new session starts unmuted. The watch can re-mute via
+        // `voice.toggleMute` once it observes the live `WatchVoiceState`.
+        isMicrophoneMuted = false
 
         // Detached background launch so the caller can push UI immediately
         // and the user sees the .connecting state while WebRTC handshakes.
@@ -740,6 +757,7 @@ final class VoiceRuntimeController: VoiceActions {
         voiceStopRequestedThreadKey = nil
         realtimeSession?.stop()
         realtimeSession = nil
+        isMicrophoneMuted = false
         _ = activeKey
         activeVoiceSession = nil
         endVoiceCallActivity()

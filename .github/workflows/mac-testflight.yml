@@ -6,7 +6,7 @@ on:
       beta_group_names:
         description: "Comma-separated TestFlight beta groups (must have macOS enabled)"
         required: false
-        default: "Internal Testers,External Testers"
+        default: "Internal Testers,Beta Testers"
         type: string
       wait_for_processing:
         description: "Wait for ASC processing before finishing"
@@ -236,7 +236,7 @@ jobs:
               WAIT_FOR_PROCESSING="0"
             fi
           else
-            BETA_GROUP_NAMES="Internal Testers,External Testers"
+            BETA_GROUP_NAMES="Internal Testers,Beta Testers"
             WAIT_FOR_PROCESSING="0"
           fi
 

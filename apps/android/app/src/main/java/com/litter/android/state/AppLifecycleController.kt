@@ -38,9 +38,7 @@ class AppLifecycleController {
      */
     suspend fun reconnectSavedServers(context: Context, appModel: AppModel) {
         val servers = SavedServerStore.remembered(context).map { it.toRecord(context) }
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(true)
         appModel.reconnectController.syncSavedServers(servers)
         val results = appModel.reconnectController.reconnectSavedServers()
         restoreLocalStateAfterReconnect(appModel, results)
@@ -52,9 +50,7 @@ class AppLifecycleController {
      */
     suspend fun reconnectServer(context: Context, appModel: AppModel, serverId: String) {
         val servers = SavedServerStore.load(context).map { it.toRecord(context) }
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(true)
         appModel.reconnectController.syncSavedServers(servers)
         val result = appModel.reconnectController.reconnectServer(serverId)
         restoreLocalStateAfterReconnect(appModel, listOf(result))
@@ -74,9 +70,7 @@ class AppLifecycleController {
             appModel.snapshot.value?.activeThread?.let(::add)
         }
         val servers = SavedServerStore.remembered(context).map { it.toRecord(context) }
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(true)
         appModel.reconnectController.syncSavedServers(servers)
         val results = appModel.reconnectController.onAppBecameActive()
         restoreLocalStateAfterReconnect(appModel, results)

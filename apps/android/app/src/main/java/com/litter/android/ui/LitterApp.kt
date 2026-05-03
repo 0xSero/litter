@@ -1,5 +1,6 @@
 package com.litter.android.ui
 
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -18,10 +19,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
 import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.NetworkDiscovery
+import com.litter.android.state.PetOverlayController
 import com.litter.android.state.SavedThreadsStore
 import com.litter.android.state.VoiceRuntimeController
 import com.litter.android.state.connectionModeLabel
@@ -33,6 +36,7 @@ import com.litter.android.ui.discovery.DiscoveryScreen
 import com.litter.android.ui.home.HomeDashboardScreen
 import com.litter.android.ui.home.HomeDashboardSupport
 import com.litter.android.ui.home.ProjectPickerSheet
+import com.litter.android.ui.pets.PetOverlayView
 import com.litter.android.state.SavedProjectStore
 import com.litter.android.ui.settings.AccountSheet
 import com.litter.android.ui.settings.SettingsSheet
@@ -68,6 +72,7 @@ fun LitterApp(appModel: AppModel) {
         com.litter.android.ui.home.DashboardZoomPrefs.initialize(context)
         ExperimentalFeatures.initialize(context)
         com.litter.android.state.DebugSettings.initialize(context)
+        PetOverlayController.initialize(context)
     }
 
     // Read currentStep so Compose tracks it as a dependency and recomposes on change.
@@ -419,6 +424,17 @@ fun LitterApp(appModel: AppModel) {
                 }
             }
 
+            val pet = PetOverlayController.selectedPet
+            if (PetOverlayController.visible && pet != null) {
+                PetOverlayView(
+                    pet = pet,
+                    state = PetOverlayController.avatarState(snapshot),
+                    message = PetOverlayController.avatarMessage(snapshot),
+                    reducedMotion = context.animationsDisabled(),
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+            }
+
             // Global approval overlay
             val approvals = snapshot?.pendingApprovals.orEmpty()
             val userInputs = snapshot?.pendingUserInputs.orEmpty()
@@ -587,4 +603,11 @@ fun LitterApp(appModel: AppModel) {
             }
         }
     }
+}
+
+private fun android.content.Context.animationsDisabled(): Boolean {
+    val scale = runCatching {
+        Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE)
+    }.getOrDefault(1f)
+    return scale == 0f
 }

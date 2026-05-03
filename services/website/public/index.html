@@ -3,14 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>litter — codex on your phone</title>
-  <meta name="description" content="A native iOS and Android client for Codex. Connect to your coding agent from anywhere.">
+  <title>litter — the kitty app for your AI agents</title>
+  <meta name="description" content="The kitty app for your AI agents. A native iOS and Android client for Codex, Claude, OpenCode, and Pi. Connect over local network, SSH, or Alleycat (peer-to-peer) — from anywhere.">
   <meta name="theme-color" content="#0C0B0A">
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <meta property="og:title" content="litter — codex on your phone">
-  <meta property="og:description" content="A native iOS and Android client for Codex. Connect to your coding agent from anywhere.">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="litter — the kitty app for your AI agents">
+  <meta property="og:description" content="The kitty app for your AI agents. A native iOS and Android client for Codex, Claude, OpenCode, and Pi. Connect over local network, SSH, or Alleycat (peer-to-peer) — from anywhere.">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kittylitter.app/">
+  <meta property="og:site_name" content="litter">
+  <meta property="og:image" content="https://kittylitter.app/app-icon.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="1024">
+  <meta property="og:image:alt" content="litter app icon — three kittens peeking out of a cardboard box">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="litter — the kitty app for your AI agents">
+  <meta name="twitter:description" content="The kitty app for your AI agents. A native iOS and Android client for Codex, Claude, OpenCode, and Pi.">
+  <meta name="twitter:image" content="https://kittylitter.app/app-icon.png">
+  <meta name="twitter:image:alt" content="litter app icon — three kittens peeking out of a cardboard box">
 </head>
 <body>
 
@@ -213,12 +229,56 @@
         </svg>
       </div>
 
-      <h1 class="fade-in fade-in-d1">codex on your <span class="warm">phone</span></h1>
+      <!-- Reusable agent icon symbols -->
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="ico-codex" viewBox="0 0 24 24">
+          <path fill="#FFFFFF" d="M19.5 0H4.5C2.01 0 0 2.01 0 4.5v15C0 21.99 2.01 24 4.5 24h15c2.49 0 4.5-2.01 4.5-4.5v-15C24 2.01 21.99 0 19.5 0z"/>
+          <path fill="#6F8CFF" d="M9.064 3.344a4.578 4.578 0 0 1 2.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 0 0 .043 0 4.55 4.55 0 0 1 3.046.275l.047.022.116.057a4.581 4.581 0 0 1 2.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 0 1-.134 1.223.123.123 0 0 0 .03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 0 1-2.201 1.388.123.123 0 0 0-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 0 0-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 0 1-1.945-.466 4.544 4.544 0 0 1-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 0 1-.37-.961 4.582 4.582 0 0 1-.014-2.298.124.124 0 0 0 .006-.056.085.085 0 0 0-.027-.048 4.467 4.467 0 0 1-1.034-1.651 3.896 3.896 0 0 1-.251-1.192 5.189 5.189 0 0 1 .141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 0 0 .065-.066 4.51 4.51 0 0 1 .829-1.615 4.535 4.535 0 0 1 1.837-1.388zM12.546 13.909a.637.637 0 0 0 0 1.272h3.636a.637.637 0 1 0 0-1.272h-3.636zM8.462 9.23a.637.637 0 0 0-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 1 0 1.095.649l1.454-2.455a.636.636 0 0 0 .005-.64L8.462 9.23z"/>
+        </symbol>
+        <symbol id="ico-opencode" viewBox="0 0 32 40">
+          <path fill="#4B4646" d="M24 32H8V16H24V32Z"/>
+          <path fill="#F1ECEC" d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z"/>
+        </symbol>
+        <symbol id="ico-pi" viewBox="0 0 24 24">
+          <path fill="currentColor" fill-rule="evenodd" d="M5 5H16V12H12V16H9V19H5ZM9 9V12H12V9Z"/>
+          <path fill="currentColor" d="M16 12H19V19H16Z"/>
+        </symbol>
+        <symbol id="ico-claude" viewBox="0 0 24 24">
+          <path fill="#D97757" fill-rule="nonzero" d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/>
+        </symbol>
+      </svg>
+
+      <h1 class="fade-in fade-in-d1">
+        the <span class="warm">kitty</span> app for
+        <span class="agent-carousel" aria-label="codex, opencode, pi, claude">
+          <span class="agent-track">
+            <span class="agent-item">
+              <span class="agent-name">codex</span>
+              <svg class="agent-icon" aria-hidden="true"><use href="#ico-codex"/></svg>
+            </span>
+            <span class="agent-item">
+              <span class="agent-name">opencode</span>
+              <svg class="agent-logo" aria-hidden="true"><use href="#ico-opencode"/></svg>
+            </span>
+            <span class="agent-item">
+              <span class="agent-name">pi</span>
+              <svg class="agent-icon" aria-hidden="true"><use href="#ico-pi"/></svg>
+            </span>
+            <span class="agent-item">
+              <span class="agent-name">claude</span>
+              <svg class="agent-icon" aria-hidden="true"><use href="#ico-claude"/></svg>
+            </span>
+            <span class="agent-item" aria-hidden="true">
+              <span class="agent-name">codex</span>
+              <svg class="agent-icon" aria-hidden="true"><use href="#ico-codex"/></svg>
+            </span>
+          </span>
+        </span>
+      </h1>
 
       <p class="hero-sub fade-in fade-in-d2">
-        a native ios + android client for codex.
-        connect to your local or remote server and
-        manage coding sessions from anywhere.
+        a native ios + android client for codex, claude, opencode, and pi.
+        connect from your local network, over ssh, or via alleycat — from anywhere.
         <span class="hero-oss">open source and always free.</span>
       </p>
 
@@ -227,10 +287,11 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
           App Store
         </a>
-        <a href="https://testflight.apple.com/join/8KE1X3yW" class="btn btn-primary">
+        <button type="button" class="btn btn-primary" id="testflight-trigger" aria-haspopup="dialog" aria-controls="testflight-form">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
           TestFlight
-        </a>
+          <span class="btn-badge">beta</span>
+        </button>
         <a href="https://play.google.com/store/apps/details?id=com.sigkitten.litter.android" class="btn btn-primary">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-1.4l2.458 1.42c.594.344.594 1.202 0 1.546l-2.458 1.42-2.534-2.534 2.534-2.852zM5.864 2.658L16.8 8.99l-2.302 2.302-8.635-8.635z"/></svg>
           Google Play
@@ -241,6 +302,22 @@
         </a>
       </div>
       <p class="hero-coming-soon fade-in fade-in-d4"></p>
+
+      <form id="testflight-form" class="tf-form" hidden aria-label="Request a TestFlight invite"
+            action="https://signup.kittylitter.app/signup" method="post" novalidate>
+        <p class="tf-form-lead">Enter your Apple ID email — we'll add you to the TestFlight beta and Apple will send the invite.</p>
+        <div class="tf-form-row">
+          <label class="tf-form-field">
+            <span class="tf-form-label">Email</span>
+            <input type="email" name="email" id="testflight-email" required
+                   autocomplete="email" inputmode="email" spellcheck="false"
+                   placeholder="you@example.com">
+          </label>
+          <button type="submit" class="btn btn-primary tf-form-submit">Request invite</button>
+        </div>
+        <p class="tf-form-status" role="status" aria-live="polite"></p>
+        <p class="tf-form-fineprint">Your email is only used to send the TestFlight invite.</p>
+      </form>
     </div>
   </section>
 
@@ -249,34 +326,34 @@
       <span class="section-label fade-in">Features</span>
       <div class="feature-grid">
         <div class="feature-card">
+          <span class="feature-icon">🤖</span>
+          <h3>multi-agent</h3>
+          <p>Codex, Claude, OpenCode, and Pi — all in one app. Switch between them per session, or run several in parallel.</p>
+        </div>
+        <div class="feature-card">
           <span class="feature-icon">📡</span>
           <h3>auto-discovery</h3>
-          <p>Finds Codex servers on your local network automatically. No manual configuration needed.</p>
+          <p>Finds agents running on your local network automatically. No IP addresses, no manual configuration.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">🐈</span>
+          <h3>alleycat</h3>
+          <p>Peer-to-peer pairing via QR code. Connect through NATs and corporate firewalls — no VPN, no public IP, no port forwarding.</p>
         </div>
         <div class="feature-card">
           <span class="feature-icon">🔑</span>
           <h3>ssh connections</h3>
-          <p>Connect to remote machines over SSH. Litter can start Codex on your server automatically.</p>
+          <p>Connect to any remote machine over SSH. Litter starts your agent on the server for you.</p>
         </div>
         <div class="feature-card">
           <span class="feature-icon">🎙</span>
           <h3>voice input</h3>
-          <p>Talk to Codex using real-time voice. Transcription and conversation happen seamlessly.</p>
+          <p>Real-time voice with your agent — transcription and conversation happen seamlessly while you walk, drive, or think.</p>
         </div>
         <div class="feature-card">
           <span class="feature-icon">🎨</span>
           <h3>70+ themes</h3>
-          <p>Pick from dozens of editor themes — Catppuccin, Dracula, Nord, Gruvbox, Solarized, and more. Dark and light.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-icon">🍎</span>
-          <h3>native on both platforms</h3>
-          <p>Built with SwiftUI on iOS and Jetpack Compose on Android. Feels right at home.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-icon">🦀</span>
-          <h3>shared rust core</h3>
-          <p>Transport, session management, and state live in a shared Rust library for consistency and speed.</p>
+          <p>Dozens of editor themes — Catppuccin, Dracula, Nord, Gruvbox, Solarized, and more. Dark and light.</p>
         </div>
       </div>
     </div>
@@ -289,18 +366,18 @@
       <div class="steps">
         <div class="step">
           <div class="step-num">1</div>
-          <h3>open litter</h3>
-          <p>The app discovers machines on your local network and via Tailscale automatically.</p>
+          <h3>find your server</h3>
+          <p>Auto-discovery on your local network, alleycat QR pairing for anywhere else, or paste an SSH address.</p>
         </div>
         <div class="step">
           <div class="step-num">2</div>
-          <h3>pick a server</h3>
-          <p>Select a machine and litter starts Codex on it for you. SSH, local, or Tailscale — it just works.</p>
+          <h3>pick an agent</h3>
+          <p>Codex, Claude, OpenCode, or Pi. Litter starts the agent on your server for you.</p>
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <h3>start coding</h3>
-          <p>Pick up exactly where you left off. All your sessions, threads, and context are right there.</p>
+          <h3>get to work</h3>
+          <p>Pick up exactly where you left off. Sessions, threads, and context follow you everywhere.</p>
         </div>
       </div>
     </div>
@@ -322,6 +399,67 @@
       </div>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      var trigger = document.getElementById('testflight-trigger');
+      var form = document.getElementById('testflight-form');
+      if (!trigger || !form) return;
+
+      var status = form.querySelector('.tf-form-status');
+      var input = form.querySelector('input[name="email"]');
+      var submit = form.querySelector('button[type="submit"]');
+
+      function setStatus(msg, kind) {
+        status.textContent = msg || '';
+        status.dataset.kind = kind || '';
+      }
+
+      trigger.addEventListener('click', function () {
+        form.hidden = false;
+        form.classList.add('tf-form--visible');
+        setStatus('', '');
+        setTimeout(function () { input && input.focus(); }, 50);
+      });
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var email = (input.value || '').trim();
+        if (!email || email.indexOf('@') < 1) {
+          setStatus('Please enter a valid email address.', 'error');
+          return;
+        }
+        submit.disabled = true;
+        setStatus('Sending…', 'pending');
+
+        fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email: email })
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (body) {
+            return { ok: r.ok, status: r.status, body: body };
+          });
+        }).then(function (res) {
+          if (res.ok) {
+            setStatus('Invite request sent. Check your inbox for a TestFlight invite from Apple.', 'success');
+            input.value = '';
+          } else if (res.status === 409) {
+            setStatus('That email is already on the beta. Check your inbox or your TestFlight app.', 'success');
+          } else if (res.status === 429) {
+            setStatus('Too many requests. Please try again in a few minutes.', 'error');
+          } else {
+            var msg = (res.body && res.body.error) || 'Something went wrong. Please try again.';
+            setStatus(msg, 'error');
+          }
+        }).catch(function () {
+          setStatus('Network error. Please try again.', 'error');
+        }).then(function () {
+          submit.disabled = false;
+        });
+      });
+    })();
+  </script>
 
 </body>
 </html>

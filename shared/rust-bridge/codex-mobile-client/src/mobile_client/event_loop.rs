@@ -608,8 +608,8 @@ impl MobileClient {
         let started_at = Instant::now();
         let session = self.get_session(server_id).map_err(|e| e.to_string())?;
         info!(
-            "server request start server_id={} method={}",
-            server_id, wire_method
+            "server request start server_id={} runtime={:?} method={}",
+            server_id, runtime_kind, wire_method
         );
         let value = session
             .request_client_for_runtime(runtime_kind, request)
@@ -617,8 +617,9 @@ impl MobileClient {
             .map_err(|error| {
                 self.reconcile_transport_error(server_id, &error);
                 warn!(
-                    "server request failed server_id={} method={} duration_ms={} error={}",
+                    "server request failed server_id={} runtime={:?} method={} duration_ms={} error={}",
                     server_id,
+                    runtime_kind,
                     wire_method,
                     started_at.elapsed().as_millis(),
                     error
@@ -626,8 +627,9 @@ impl MobileClient {
                 error.to_string()
             })?;
         info!(
-            "server request ok server_id={} method={} duration_ms={}",
+            "server request ok server_id={} runtime={:?} method={} duration_ms={}",
             server_id,
+            runtime_kind,
             wire_method,
             started_at.elapsed().as_millis()
         );

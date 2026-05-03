@@ -284,8 +284,17 @@ async fn open_stream(
     let transport = QuicTransportConfig::builder()
         .max_idle_timeout(Some(idle_timeout))
         .build();
-    let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
-        .transport_config(transport)
+    let mut endpoint_builder =
+        Endpoint::builder(iroh::endpoint::presets::N0).transport_config(transport);
+    #[cfg(target_os = "android")]
+    {
+        endpoint_builder = endpoint_builder
+            .dns_resolver(iroh::dns::DnsResolver::with_nameserver(
+                std::net::SocketAddr::from(([8, 8, 8, 8], 53)),
+            ))
+            .ca_roots_config(iroh::tls::CaRootsConfig::embedded());
+    }
+    let endpoint = endpoint_builder
         .bind()
         .await
         .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))?;

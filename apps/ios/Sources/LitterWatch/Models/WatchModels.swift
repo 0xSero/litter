@@ -72,10 +72,28 @@ struct WatchTask: Identifiable, Hashable, Codable {
     let pendingApprovalId: String?
 }
 
+/// Slice of realtime voice session state pushed to the watch so it can
+/// render the transcript, audio level, and mute state without re-deriving
+/// from upstream events.
+struct WatchVoiceState: Codable, Hashable {
+    enum Mode: String, Codable, Hashable {
+        case idle, listening, speaking, thinking, error
+    }
+
+    let mode: Mode
+    let serverId: String?
+    let threadId: String?
+    let recentTurns: [WatchTranscriptTurn]
+    /// Most recent input level scaled to [0, 1].
+    let audioLevel: Double
+    let isMuted: Bool
+}
+
 /// Wire-format the iOS app pushes to the watch via `updateApplicationContext`.
 struct WatchSnapshotPayload: Codable, Hashable {
     var tasks: [WatchTask]
     var pendingApproval: WatchApproval?
+    var voice: WatchVoiceState?
 }
 
 #if DEBUG
@@ -137,6 +155,18 @@ enum WatchPreviewFixtures {
         target: "origin/fix-auth-expiry",
         diffSummary: "+12 -3 · 1 file",
         kind: .command
+    )
+
+    static let voice = WatchVoiceState(
+        mode: .listening,
+        serverId: "local",
+        threadId: "voice-thread",
+        recentTurns: [
+            WatchTranscriptTurn(role: .user,      text: "what's on my plate", faded: false),
+            WatchTranscriptTurn(role: .assistant, text: "two open threads…",  faded: false),
+        ],
+        audioLevel: 0.42,
+        isMuted: false
     )
 
     static let transcript: [WatchTranscriptTurn] = [

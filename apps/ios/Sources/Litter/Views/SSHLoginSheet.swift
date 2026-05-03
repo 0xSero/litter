@@ -8,6 +8,7 @@ struct SSHLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var username: String
     @State private var password = ""
+    @State private var isPasswordVisible = false
     @State private var useKey = false
     @State private var privateKey = ""
     @State private var passphrase = ""
@@ -102,9 +103,7 @@ struct SSHLoginSheet: View {
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         } else {
-                            SecureField("password", text: $password)
-                                .litterFont(.footnote)
-                                .foregroundColor(LitterTheme.textPrimary)
+                            passwordInput
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Toggle(isOn: $unlockMacosKeychain) {
@@ -190,8 +189,36 @@ struct SSHLoginSheet: View {
         }
         .onChange(of: useKey) { _, isUsingKey in
             if isUsingKey {
+                isPasswordVisible = false
                 unlockMacosKeychain = false
             }
+        }
+    }
+
+    private var passwordInput: some View {
+        HStack(spacing: 8) {
+            Group {
+                if isPasswordVisible {
+                    TextField("password", text: $password)
+                        .textContentType(.password)
+                } else {
+                    SecureField("password", text: $password)
+                        .textContentType(.password)
+                }
+            }
+            .litterFont(.footnote)
+            .foregroundColor(LitterTheme.textPrimary)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
+
+            Button {
+                isPasswordVisible.toggle()
+            } label: {
+                Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPasswordVisible ? "Hide password" : "Show password")
         }
     }
 
@@ -306,6 +333,7 @@ struct SSHLoginSheet: View {
 
     private func clearSensitiveInput() {
         password = ""
+        isPasswordVisible = false
         privateKey = ""
         passphrase = ""
     }

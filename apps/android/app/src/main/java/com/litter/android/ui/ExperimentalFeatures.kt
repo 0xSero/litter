@@ -29,12 +29,6 @@ enum class LitterFeature(
         description = "Tap the Thinking shimmer while the assistant generates to play a tiny generated minigame.",
         defaultEnabled = false,
     ),
-    ALLEYCAT(
-        id = "alleycat",
-        displayName = "multi-clanker and quic",
-        description = "Enable multi-agent remote hosts and Alleycat QUIC pairing.",
-        defaultEnabled = false,
-    ),
 }
 
 object ExperimentalFeatures {
@@ -82,10 +76,6 @@ object ExperimentalFeatures {
         } else {
             ""
         }
-    }
-
-    fun multiClankerAndQuicEnabled(): Boolean {
-        return isEnabled(LitterFeature.ALLEYCAT)
     }
 
     private fun persist(context: Context) {

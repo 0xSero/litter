@@ -590,6 +590,9 @@ jobs:
           IOS_DIST_CERT_P12_B64: ${{ secrets.IOS_DIST_CERT_P12_B64 }}
           IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_APP_STORE_PROFILE_B64 }}
+          IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64: ${{ secrets.IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64 }}
         run: |
           set -euo pipefail
           required=(
@@ -601,6 +604,9 @@ jobs:
             IOS_DIST_CERT_P12_B64
             IOS_DIST_CERT_PASSWORD
             IOS_APP_STORE_PROFILE_B64
+            IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64
+            IOS_WATCH_APP_STORE_PROFILE_B64
+            IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -649,18 +655,24 @@ jobs:
           IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_APP_STORE_PROFILE_B64 }}
           IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64: ${{ secrets.IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64 }}
         run: |
           set -euo pipefail
 
           CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
           APP_PROFILE_PATH="$RUNNER_TEMP/app-store.mobileprovision"
           LIVE_ACTIVITY_PROFILE_PATH="$RUNNER_TEMP/live-activity-app-store.mobileprovision"
+          WATCH_PROFILE_PATH="$RUNNER_TEMP/watch-app-store.mobileprovision"
+          WATCH_COMP_PROFILE_PATH="$RUNNER_TEMP/watch-complications-app-store.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
 
           echo "$IOS_DIST_CERT_P12_B64" | base64 --decode > "$CERT_PATH"
           echo "$IOS_APP_STORE_PROFILE_B64" | base64 --decode > "$APP_PROFILE_PATH"
           echo "$IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64" | base64 --decode > "$LIVE_ACTIVITY_PROFILE_PATH"
+          echo "$IOS_WATCH_APP_STORE_PROFILE_B64" | base64 --decode > "$WATCH_PROFILE_PATH"
+          echo "$IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64" | base64 --decode > "$WATCH_COMP_PROFILE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -685,6 +697,8 @@ jobs:
 
           install_profile "$APP_PROFILE_PATH" "APP_PROVISIONING_PROFILE_SPECIFIER"
           install_profile "$LIVE_ACTIVITY_PROFILE_PATH" "LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER"
+          install_profile "$WATCH_PROFILE_PATH" "WATCH_PROVISIONING_PROFILE_SPECIFIER"
+          install_profile "$WATCH_COMP_PROFILE_PATH" "WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER"
 
       - name: Resolve release inputs
         run: |
@@ -692,8 +706,8 @@ jobs:
 
           SCHEME="Litter"
           APP_BUNDLE_ID="com.sigkitten.litter"
-          BETA_GROUP_NAMES="Internal Testers,External Testers"
-          WAIT_FOR_PROCESSING="0"
+          BETA_GROUP_NAMES="Internal Testers,Beta Testers"
+          WAIT_FOR_PROCESSING="1"
 
           echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "APP_BUNDLE_ID=$APP_BUNDLE_ID" >> "$GITHUB_ENV"
@@ -709,6 +723,8 @@ jobs:
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           APP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.APP_PROVISIONING_PROFILE_SPECIFIER }}
           LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER: ${{ env.LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER }}
+          WATCH_PROVISIONING_PROFILE_SPECIFIER: ${{ env.WATCH_PROVISIONING_PROFILE_SPECIFIER }}
+          WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER }}
           EXPORT_SIGNING_STYLE: manual
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -729,6 +745,8 @@ jobs:
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           APP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.APP_PROVISIONING_PROFILE_SPECIFIER }}
           LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER: ${{ env.LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER }}
+          WATCH_PROVISIONING_PROFILE_SPECIFIER: ${{ env.WATCH_PROVISIONING_PROFILE_SPECIFIER }}
+          WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER }}
           EXPORT_SIGNING_STYLE: manual
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -965,8 +983,8 @@ jobs:
 
           SCHEME="LitterMac"
           APP_BUNDLE_ID="com.sigkitten.litter"
-          BETA_GROUP_NAMES="Internal Testers,External Testers"
-          WAIT_FOR_PROCESSING="0"
+          BETA_GROUP_NAMES="Internal Testers,Beta Testers"
+          WAIT_FOR_PROCESSING="1"
 
           echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "APP_BUNDLE_ID=$APP_BUNDLE_ID" >> "$GITHUB_ENV"

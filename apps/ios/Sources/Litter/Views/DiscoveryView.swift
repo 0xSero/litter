@@ -63,60 +63,22 @@ struct DiscoveryView: View {
     }
 
     private func handleAppear() {
-        refreshDiscovery()
         guard autoStartDiscovery else { return }
         maybeStartSimulatorAutoSSH()
     }
 
-    private func handleDisappear() {
-        guard autoStartDiscovery else { return }
-        discovery.stopScanning()
-    }
+    private func handleDisappear() {}
 
     var body: some View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
-            List {
-                serversSection
-            }
-            .scrollContentBackground(.hidden)
-            .refreshable { refreshDiscovery() }
-            .accessibilityIdentifier("discovery.list")
+            chooserContent
         }
-        .navigationTitle("")
+        .navigationTitle("Add Server")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    refreshDiscovery()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .foregroundColor(LitterTheme.accent)
-                }
-                .accessibilityIdentifier("discovery.refreshButton")
-                .disabled(discovery.isScanning)
-                .keyboardShortcut("r", modifiers: [.command])
-            }
             ToolbarItem(placement: .principal) {
                 BrandLogo(size: 44)
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if ExperimentalFeatures.shared.isEnabled(.alleycat) {
-                    Button {
-                        showAlleycatSheet = true
-                    } label: {
-                        Image(systemName: "qrcode.viewfinder")
-                            .foregroundColor(LitterTheme.accent)
-                    }
-                    .accessibilityIdentifier("discovery.alleycatButton")
-                }
-                Button {
-                    showManualEntry = true
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(LitterTheme.accent)
-                }
-                .accessibilityIdentifier("discovery.manualEntryButton")
             }
         }
         .onAppear { handleAppear() }
@@ -125,11 +87,7 @@ struct DiscoveryView: View {
             SSHLoginSheet(server: server) { target in
                 sshServer = nil
                 if case .sshThenRemote(let host, let credentials) = target {
-                    if ExperimentalFeatures.shared.multiClankerAndQuicEnabled() {
-                        Task { await startSSHAgentProbe(server: server, host: host, credentials: credentials) }
-                    } else {
-                        Task { await connectToServer(server, targetOverride: .sshThenRemote(host: host, credentials: credentials)) }
-                    }
+                    Task { await startSSHAgentProbe(server: server, host: host, credentials: credentials) }
                 } else {
                     Task { await connectToServer(server, targetOverride: target) }
                 }
@@ -318,7 +276,104 @@ struct DiscoveryView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Chooser
+
+    @ViewBuilder
+    private var chooserContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Pick how you want to connect.")
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .padding(.top, 8)
+
+                chooserCard(
+                    title: "Pair with kittylitter",
+                    subtitle: "Run npx kittylitter on the host, then scan the QR code it prints.",
+                    badge: "RECOMMENDED",
+                    icon: "qrcode.viewfinder",
+                    accessibilityID: "discovery.chooser.kittylitter"
+                ) {
+                    showAlleycatSheet = true
+                }
+
+                chooserCard(
+                    title: "SSH or Codex URL",
+                    subtitle: "Connect over SSH (auto-bootstraps codex on the host) or paste a ws:// codex URL.",
+                    badge: nil,
+                    icon: "terminal",
+                    accessibilityID: "discovery.chooser.manual"
+                ) {
+                    showManualEntry = true
+                }
+
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func chooserCard(
+        title: String,
+        subtitle: String,
+        badge: String?,
+        icon: String,
+        accessibilityID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(LitterTheme.accent)
+                    .frame(width: 32, alignment: .center)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .litterFont(.subheadline, weight: .semibold)
+                        .foregroundColor(LitterTheme.textPrimary)
+                    if let badge {
+                        Text(badge)
+                            .litterFont(.caption2, weight: .semibold)
+                            .foregroundColor(LitterTheme.accentStrong)
+                            .tracking(0.5)
+                    }
+                    Text(subtitle)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(LitterTheme.textMuted)
+                    .padding(.top, 4)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(LitterTheme.surface.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(LitterTheme.accent.opacity(0.18), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityID)
+    }
+
+    // MARK: - Sections (legacy discovery list, retained for sheet plumbing)
 
     private var allServers: [DiscoveredServer] {
         localServers + networkServers
@@ -910,10 +965,6 @@ struct DiscoveryView: View {
         host: String,
         credentials: SSHCredentials
     ) async {
-        guard ExperimentalFeatures.shared.multiClankerAndQuicEnabled() else {
-            await connectToServer(server, targetOverride: .sshThenRemote(host: host, credentials: credentials))
-            return
-        }
         connectingServer = server
         connectError = nil
         do {

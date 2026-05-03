@@ -166,8 +166,12 @@ struct ConversationComposerTextView: UIViewRepresentable {
                 ? textView.bounds.height
                 : maximumHeight(for: textView)
             let shouldScroll = fittingHeight > threshold + 0.5
-            if textView.isScrollEnabled != shouldScroll {
-                textView.isScrollEnabled = shouldScroll
+            let shouldScrollForDismiss = parent.isFocused || shouldScroll
+            if textView.isScrollEnabled != shouldScrollForDismiss {
+                textView.isScrollEnabled = shouldScrollForDismiss
+            }
+            if textView.alwaysBounceVertical != shouldScrollForDismiss {
+                textView.alwaysBounceVertical = shouldScrollForDismiss
             }
         }
 

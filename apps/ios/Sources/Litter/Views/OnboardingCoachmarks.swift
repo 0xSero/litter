@@ -28,6 +28,8 @@ extension View {
 struct OnboardingCoachmarksView: View {
     let anchors: [CoachmarkTarget: Anchor<CGRect>]
 
+    @Environment(\.colorScheme) private var colorScheme
+
     enum LineStyle {
         case smoothCurve        // straight quadratic curve, no wiggle
         case solidSquiggle      // continuous sine wave
@@ -188,10 +190,18 @@ struct OnboardingCoachmarksView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .shadow(color: .black.opacity(0.7), radius: 4, x: 0, y: 1)
+            .shadow(color: coachmarkTextShadowColor, radius: coachmarkTextShadowRadius, x: 0, y: 1)
             .frame(width: item.labelWidth, height: labelHeight, alignment: vstackFrameAlignment(for: item.labelAlignment))
             .position(x: labelCenter.x, y: labelCenter.y)
         }
+    }
+
+    private var coachmarkTextShadowColor: Color {
+        colorScheme == .dark ? .black.opacity(0.7) : .clear
+    }
+
+    private var coachmarkTextShadowRadius: CGFloat {
+        colorScheme == .dark ? 4 : 0
     }
 
     private func textAlignment(for h: HorizontalAlignment) -> TextAlignment {

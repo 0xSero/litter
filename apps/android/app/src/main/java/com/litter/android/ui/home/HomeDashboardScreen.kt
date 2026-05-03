@@ -106,6 +106,7 @@ import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.common.DebugBuildLabel
 import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
 import com.sigkitten.litter.android.R
@@ -175,6 +176,32 @@ fun HomeDashboardScreen(
     val recentSessions = remember(homeSessions, scopedServerId) {
         if (scopedServerId.isNullOrEmpty()) homeSessions
         else homeSessions.filter { it.key.serverId == scopedServerId }
+    }
+
+    fun pinThreadOnHome(key: ThreadKey) {
+        val displacedKeys = if (pinnedKeys.isEmpty()) {
+            recentSessions
+                .map { it.key }
+                .filter { it != key }
+        } else {
+            emptyList()
+        }
+        val pin = PinnedThreadKey(serverId = key.serverId, threadId = key.threadId)
+        SavedThreadsStore.add(context, pin)
+        if (hiddenKeys.contains(pin)) {
+            SavedThreadsStore.unhide(context, pin)
+        }
+        pinnedKeys = SavedThreadsStore.pinnedKeys(context)
+        hiddenKeys = SavedThreadsStore.hiddenKeys(context)
+        if (displacedKeys.isNotEmpty()) {
+            scope.launch {
+                displacedKeys.distinct().forEach { displacedKey ->
+                    runCatching {
+                        appModel.store.unsubscribeThread(displacedKey)
+                    }
+                }
+            }
+        }
     }
 
     // Saved apps by origin thread id. The store's `.apps` StateFlow is kept
@@ -678,28 +705,7 @@ fun HomeDashboardScreen(
                             }
                         },
                         onPin = { session ->
-                            val displacedKeys = if (pinnedKeys.isEmpty()) {
-                                recentSessions
-                                    .map { it.key }
-                                    .filter { it != session.key }
-                            } else {
-                                emptyList()
-                            }
-                            val key = PinnedThreadKey(
-                                serverId = session.key.serverId,
-                                threadId = session.key.threadId,
-                            )
-                            SavedThreadsStore.add(context, key)
-                            pinnedKeys = SavedThreadsStore.pinnedKeys(context)
-                            if (displacedKeys.isNotEmpty()) {
-                                scope.launch {
-                                    displacedKeys.distinct().forEach { displacedKey ->
-                                        runCatching {
-                                            appModel.store.unsubscribeThread(displacedKey)
-                                        }
-                                    }
-                                }
-                            }
+                            pinThreadOnHome(session.key)
                             selectedSearchRuntimeKind = null
                         },
                         onUnpin = { session ->
@@ -746,6 +752,7 @@ fun HomeDashboardScreen(
                     .fillMaxWidth()
                     .background(LitterTheme.background.copy(alpha = 0.4f)),
             ) {
+                DebugBuildLabel(modifier = Modifier.align(Alignment.End))
                 when {
                     // Full-screen search overlay above handles the search UI;
                     // suppress the bottom chrome entirely while it's open so
@@ -800,7 +807,10 @@ fun HomeDashboardScreen(
                         }
                         HomeComposerBar(
                             project = selectedProject,
-                            onThreadCreated = onThreadCreated,
+                            onThreadCreated = { key ->
+                                pinThreadOnHome(key)
+                                onThreadCreated(key)
+                            },
                             onLoginRequired = onOpenAccount,
                             onActiveChange = { active ->
                                 if (active) {

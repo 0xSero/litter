@@ -1,0 +1,23 @@
+name = "litter-testflight-signup"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+workers_dev = true
+routes = [{ pattern = "signup.kittylitter.app", custom_domain = true }]
+
+[[kv_namespaces]]
+binding = "SIGNUPS"
+id = "d4df48183ec0452b8c5de690c9d7abd1"
+
+[vars]
+# App Store Connect Beta Testers group ID for KittyLitter.
+ASC_BETA_GROUP_ID = "f84224ec-8ec4-43e8-8ae9-933d665f73f1"
+# Allowed CORS origins (comma-separated).
+ALLOWED_ORIGINS = "https://kittylitter.app,https://www.kittylitter.app"
+# Per-IP rate limit: max submissions inside the rolling window (seconds).
+RATE_LIMIT_MAX = "5"
+RATE_LIMIT_WINDOW_SECONDS = "600"
+
+# Secrets (set via `wrangler secret put`):
+#   ASC_KEY_ID            App Store Connect API key ID
+#   ASC_ISSUER_ID         App Store Connect issuer ID
+#   ASC_PRIVATE_KEY       Contents of AuthKey_<KEY_ID>.p8 (full PEM)

@@ -1,4 +1,5 @@
 import SwiftUI
+import WatchKit
 
 /// 3 · Approve — real pending approval from the phone. Deny on the left,
 /// allow on the right. `handGestureShortcut(.primaryAction)` maps the
@@ -68,7 +69,7 @@ private struct ApprovalBody: View {
                 }
 
                 HStack(spacing: 4) {
-                    Button { store.respond(approve: false) } label: {
+                    Button { tap(approve: false) } label: {
                         Text("deny")
                             .font(WatchTheme.mono(12, weight: .bold))
                             .foregroundStyle(WatchTheme.text)
@@ -79,9 +80,10 @@ private struct ApprovalBody: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .disabled(store.approvalInFlight)
 
-                    Button { store.respond(approve: true) } label: {
-                        Text("allow")
+                    Button { tap(approve: true) } label: {
+                        Text(store.approvalInFlight ? "sending…" : "allow")
                             .font(WatchTheme.mono(12, weight: .bold))
                             .foregroundStyle(WatchTheme.onAccent)
                             .frame(maxWidth: .infinity, minHeight: 34)
@@ -98,12 +100,36 @@ private struct ApprovalBody: View {
                     .buttonStyle(.plain)
                     .layoutPriority(1.3)
                     .handGestureShortcut(.primaryAction)
+                    .disabled(store.approvalInFlight)
                 }
                 .padding(.top, 4)
+
+                if let error = store.approvalError {
+                    Text(error)
+                        .font(WatchTheme.mono(9))
+                        .foregroundStyle(WatchTheme.danger)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 2)
+                        .onAppear {
+                            WKInterfaceDevice.current().play(.notification)
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                if store.approvalError == error {
+                                    store.approvalError = nil
+                                }
+                            }
+                        }
+                }
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 4)
         }
+    }
+
+    private func tap(approve: Bool) {
+        WKInterfaceDevice.current().play(approve ? .success : .failure)
+        store.respond(approve: approve)
     }
 
     private var approvalLabel: String {

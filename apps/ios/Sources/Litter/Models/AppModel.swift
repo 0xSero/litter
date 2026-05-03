@@ -69,7 +69,7 @@ final class AppModel {
         let rc = ReconnectController()
         rc.setCredentialProvider(provider: SwiftSshCredentialProvider())
         rc.setIpcSocketPathOverride(path: ExperimentalFeatures.shared.ipcSocketPathOverride())
-        rc.setMultiClankerAndQuicEnabled(enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled())
+        rc.setMultiClankerAndQuicEnabled(enabled: true)
         return RustBridges(
             store: AppStore(),
             client: AppClient(),
@@ -822,6 +822,9 @@ final class AppModel {
         case .threadStreamingDelta(let key, let itemId, let kind, let text):
             switch kind {
             case .assistantText:
+                if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {
+                    scheduleThreadSnapshotRefresh(for: key)
+                }
                 StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
             default:
                 if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {

@@ -68,6 +68,9 @@ pub(crate) mod posix {
     /// Scan `~/.claude/projects` for thread/session metadata.
     pub(crate) const CLAUDE_SESSION_SCAN: &str = include_str!("posix/claude_session_scan.sh");
 
+    /// Scan `~/.pi/agent/sessions` for thread/session metadata.
+    pub(crate) const PI_SESSION_SCAN: &str = include_str!("posix/pi_session_scan.sh");
+
     /// Spawn a long-running detached agent behind a stdin keeper FIFO.
     /// Placeholders: `{{ROOT}}`, `{{INPUT}}`, `{{OUT_LOG}}`, `{{ERR_LOG}}`,
     /// `{{KEEPER_PID}}`, `{{AGENT_PID}}` (all caller-quoted), `{{COMMAND}}`

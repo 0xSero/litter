@@ -1,0 +1,16 @@
+{
+  "name": "litter-testflight-signup",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only WITH LicenseRef-App-Store-Google-Play-Exception",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241205.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.72.0"
+  }
+}

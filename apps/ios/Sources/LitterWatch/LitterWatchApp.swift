@@ -35,17 +35,42 @@ struct LitterWatchApp: App {
 /// Nesting `NavigationStack` per tab page fought with the vertical
 /// page tab view and broke back navigation.
 struct WatchRootView: View {
+    @EnvironmentObject var store: WatchAppStore
     @State private var tab: RootTab = .home
+    @State private var path: [WatchTask] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             TabView(selection: $tab) {
                 HomeScreen().tag(RootTab.home)
-                VoiceScreen().tag(RootTab.voice)
+                RealtimeVoiceScreen().tag(RootTab.voice)
                 ApprovalScreen().tag(RootTab.approval)
             }
             .tabViewStyle(.verticalPage)
+            .navigationDestination(for: WatchTask.self) { task in
+                TaskDetailScreen(task: task)
+            }
         }
+        .onOpenURL { url in
+            route(url)
+        }
+    }
+
+    /// Parse `litter-watch://task/{taskId}` and push `TaskDetailScreen` for
+    /// the matched task. Falls back to home when the task isn't in the
+    /// store (e.g., complication tapped before first snapshot arrived).
+    private func route(_ url: URL) {
+        guard url.scheme == "litter-watch", url.host == "task" else { return }
+        let taskId = url.pathComponents.dropFirst().first ?? ""
+        guard !taskId.isEmpty,
+              let task = store.tasks.first(where: { $0.id == taskId })
+        else {
+            path.removeAll()
+            tab = .home
+            return
+        }
+        tab = .home
+        path = [task]
     }
 }
 

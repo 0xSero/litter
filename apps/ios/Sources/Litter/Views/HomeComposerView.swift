@@ -82,6 +82,7 @@ struct HomeComposerView: View {
                     Spacer(minLength: 0)
                     Button {
                         self.errorMessage = nil
+                        isComposerFocused = false
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(LitterTheme.textMuted)

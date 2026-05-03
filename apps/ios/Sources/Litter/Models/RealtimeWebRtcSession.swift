@@ -162,6 +162,13 @@ final class RealtimeWebRtcSession: NSObject {
         emitRoute()
     }
 
+    /// Toggle the local mic track without renegotiating the peer
+    /// connection. Disabling the track stops Codex from receiving any
+    /// audio frames; re-enabling resumes immediately.
+    func setMicrophoneMuted(_ muted: Bool) {
+        audioTrack?.isEnabled = !muted
+    }
+
     private func cleanup() {
         if let continuation = iceGatheringContinuation {
             iceGatheringContinuation = nil

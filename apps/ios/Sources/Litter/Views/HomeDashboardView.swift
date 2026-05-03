@@ -87,19 +87,40 @@ struct HomeDashboardView: View {
         connectedServers.filter(\.canLaunchSessions)
     }
 
+    private var selectedMachineServerId: String? {
+        let trimmed = selectedServerId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var composerServerId: String? {
+        selectedProject?.serverId ?? selectedMachineServerId
+    }
+
     private var selectedLaunchableServer: HomeDashboardServer? {
-        let serverId = selectedProject?.serverId ?? selectedServerId
+        let serverId = composerServerId
         guard let serverId else { return nil }
         return launchableServers.first { $0.id == serverId }
     }
 
-    var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ forceRepair: Bool) async -> Void)? = nil
+    var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ serverId: String?, _ forceRepair: Bool) async -> Void)? = nil
 
     private var isSearchExpanded: Bool { inputMode == .search }
 
+    private var searchSessions: [HomeDashboardRecentSession] {
+        let serverId = selectedMachineServerId
+        guard let serverId, !serverId.isEmpty else { return allSessions }
+        return allSessions.filter { $0.serverId == serverId }
+    }
+
+    private var searchServers: [HomeDashboardServer] {
+        let serverId = selectedMachineServerId
+        guard let serverId, !serverId.isEmpty else { return connectedServers }
+        return connectedServers.filter { $0.id == serverId }
+    }
+
     private var availableSearchRuntimeKinds: [AgentRuntimeKind] {
         let kinds = Set(
-            connectedServers.flatMap { server in
+            searchServers.flatMap { server in
                 server.agentRuntimes
                     .filter(\.available)
                     .map(\.kind)
@@ -111,6 +132,7 @@ struct HomeDashboardView: View {
     private var searchLoadID: String {
         [
             isSearchExpanded ? "open" : "closed",
+            selectedMachineServerId ?? "all",
             searchQuery,
             selectedSearchRuntimeKind?.displayLabel ?? "all"
         ].joined(separator: "|")
@@ -144,7 +166,7 @@ struct HomeDashboardView: View {
     }
 
     private var visibleSessions: [HomeDashboardRecentSession] {
-        let serverId = selectedProject?.serverId ?? selectedServerId
+        let serverId = selectedMachineServerId
         guard let serverId, !serverId.isEmpty else { return recentSessions }
         return recentSessions.filter { $0.serverId == serverId }
     }
@@ -189,12 +211,13 @@ struct HomeDashboardView: View {
                 guard isSearchExpanded, let onSearchThreads else { return }
                 let query = searchQuery
                 let runtimeKind = selectedSearchRuntimeKind
+                let serverId = selectedMachineServerId
                 if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                     guard !Task.isCancelled else { return }
                 }
                 await MainActor.run { isLoadingThreadListing = true }
-                await onSearchThreads(query, runtimeKind, false)
+                await onSearchThreads(query, runtimeKind, serverId, false)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { isLoadingThreadListing = false }
             }
@@ -348,12 +371,12 @@ struct HomeDashboardView: View {
                 ZStack(alignment: .top) {
                     LitterTheme.backgroundGradient.ignoresSafeArea()
                     ThreadSearchResultsView(
-                        sessions: allSessions,
+                        sessions: searchSessions,
                         pinnedThreadKeys: Set(pinnedThreadKeys),
                         query: searchQuery,
                         runtimeKinds: availableSearchRuntimeKinds,
                         selectedRuntimeKind: $selectedSearchRuntimeKind,
-                        isLoading: isLoadingThreadListing && allSessions.isEmpty,
+                        isLoading: isLoadingThreadListing && searchSessions.isEmpty,
                         onRefresh: refreshSearchThreads,
                         onAdd: { session in
                             onPinThread(session.key)
@@ -383,6 +406,12 @@ struct HomeDashboardView: View {
                 sidebarBottomChrome
             }
         }
+        .overlay {
+            if showOnboardingCoachmarks {
+                emptyHomeFatCat
+                    .transition(.opacity)
+            }
+        }
         .overlayPreferenceValue(CoachmarkAnchorKey.self) { anchors in
             if showOnboardingCoachmarks {
                 OnboardingCoachmarksView(anchors: anchors)
@@ -395,7 +424,7 @@ struct HomeDashboardView: View {
     private func refreshSearchThreads() async {
         guard let onSearchThreads else { return }
         await MainActor.run { isLoadingThreadListing = true }
-        await onSearchThreads(searchQuery, selectedSearchRuntimeKind, true)
+        await onSearchThreads(searchQuery, selectedSearchRuntimeKind, selectedMachineServerId, true)
         await MainActor.run { isLoadingThreadListing = false }
     }
 
@@ -416,7 +445,7 @@ struct HomeDashboardView: View {
     private var topChrome: some View {
         ServerPillRow(
             servers: connectedServers,
-            selectedServerId: selectedProject?.serverId ?? selectedServerId,
+            selectedServerId: selectedMachineServerId,
             onTap: onSelectServer,
             onReconnect: { server in onReconnectServer?(server) },
             onRestartAppServer: { server in onRestartAppServer?(server) },
@@ -459,11 +488,13 @@ struct HomeDashboardView: View {
 
     private var bottomChrome: some View {
         VStack(alignment: .trailing, spacing: 6) {
+            DebugBuildLabel()
+                .padding(.trailing, 14)
             if inputMode == .composer {
                 HStack(spacing: 8) {
                     Spacer()
                     HomeModelChip(
-                        serverId: selectedProject?.serverId ?? selectedServerId,
+                        serverId: composerServerId,
                         disabled: selectedLaunchableServer == nil,
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
@@ -484,7 +515,7 @@ struct HomeDashboardView: View {
                 searchQuery: $searchQuery,
                 collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
-                transcriptionServerId: selectedProject?.serverId ?? selectedServerId,
+                transcriptionServerId: composerServerId,
                 onThreadCreated: onThreadCreated
             )
         }
@@ -556,6 +587,44 @@ struct HomeDashboardView: View {
     /// branch just reserves vertical space for the scroll view.
     private var emptyState: some View {
         Color.clear.frame(height: 1)
+    }
+
+    /// Fat cat illustration shown on the empty home screen. Positioned in
+    /// the middle vertical band — between the addServer label (y≈0.20) and
+    /// the search/newThread labels (y≈0.62/0.70) — so it never collides
+    /// with the coachmark arrows or labels. Plays the entrance APNG once
+    /// then crossfades to the looping APNG, matching the cat footer.
+    private var emptyHomeFatCat: some View {
+        GeometryReader { proxy in
+            let h = proxy.size.height
+            let w = proxy.size.width
+            let catWidth = min(max(180, w * 0.55), 260)
+            let catHeight = catWidth * 202.0 / 360.0
+            EmptyHomeFatCatView()
+                .frame(width: catWidth, height: catHeight)
+                .position(x: w / 2, y: h * 0.42)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct EmptyHomeFatCatView: View {
+    @State private var showingLoop = false
+
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+
+    var body: some View {
+        Group {
+            if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
+                AlphaAnimatedImageView(
+                    fileURL: imageURL,
+                    repeatCount: showingLoop ? 0 : 1,
+                    onFinished: showingLoop ? nil : { showingLoop = true }
+                )
+                .accessibilityHidden(true)
+            }
+        }
     }
 }
 

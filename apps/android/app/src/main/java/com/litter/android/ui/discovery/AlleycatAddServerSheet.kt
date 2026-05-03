@@ -28,6 +28,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +62,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
@@ -88,6 +91,7 @@ private const val LOG_TAG = "AlleycatSheet"
 fun AlleycatAddServerSheet(
     onDismiss: () -> Unit,
     onConnected: (AlleycatConnectedTarget) -> Unit,
+    startScanningOnAppear: Boolean = false,
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
@@ -117,6 +121,7 @@ fun AlleycatAddServerSheet(
         scope.launch {
             try {
                 val loaded = withContext(Dispatchers.IO) {
+                    UniffiInit.ensure(context.applicationContext)
                     appModel.serverBridge.listAlleycatAgents(params)
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
@@ -179,6 +184,14 @@ fun AlleycatAddServerSheet(
         }
     }
 
+    var autoStartTriggered by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(startScanningOnAppear) {
+        if (startScanningOnAppear && !autoStartTriggered) {
+            autoStartTriggered = true
+            requestCameraAndScan()
+        }
+    }
+
     fun connect() {
         val params = parsedParams ?: return
         val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
@@ -193,6 +206,7 @@ fun AlleycatAddServerSheet(
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
+                    UniffiInit.ensure(context.applicationContext)
                     appModel.serverBridge.connectRemoteOverAlleycat(
                         serverId = serverId,
                         displayName = resolvedName,
@@ -545,6 +559,8 @@ fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.JSONL -> "jsonl"
 }
 
+private const val PAIR_COMMAND = "npx kittylitter"
+
 @Composable
 private fun QrScannerScreen(
     onScanned: (String) -> Unit,
@@ -572,13 +588,10 @@ private fun QrScannerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LitterTheme.background),
+            .background(androidx.compose.ui.graphics.Color.Black),
     ) {
         AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(3f / 4f)
-                .align(Alignment.Center),
+            modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -599,34 +612,182 @@ private fun QrScannerScreen(
                 previewView
             },
         )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "Point the camera at the Alleycat QR code",
-                color = LitterTheme.textPrimary,
-                fontSize = 12.sp,
-            )
-            TextButton(onClick = onCancel) {
-                Text("Cancel", color = LitterTheme.accent)
-            }
-        }
+
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(12.dp),
+                .fillMaxWidth()
+                .height(320.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0f),
+                        ),
+                    ),
+                )
+                .align(Alignment.TopCenter),
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            TextButton(onClick = onCancel) {
-                Text("Cancel", color = LitterTheme.textPrimary)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = onCancel,
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = androidx.compose.ui.graphics.Color.White,
+                    ),
+                    modifier = Modifier
+                        .background(
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f),
+                            RoundedCornerShape(50),
+                        ),
+                ) {
+                    Text(
+                        text = "Cancel",
+                        color = androidx.compose.ui.graphics.Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
+
+            InstructionsCard()
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            FramingHint()
         }
-        Spacer(Modifier.height(12.dp))
     }
+}
+
+@Composable
+private fun InstructionsCard() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
+                RoundedCornerShape(14.dp),
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Pair with kittylitter",
+            color = androidx.compose.ui.graphics.Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        StepRow(number = "1", title = "On the host you want to connect to, run:")
+        CommandRow()
+        StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+    }
+}
+
+@Composable
+private fun StepRow(number: String, title: String) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .background(LitterTheme.accent, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number,
+                color = androidx.compose.ui.graphics.Color.Black,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            text = title,
+            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f),
+            fontSize = 13.sp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun CommandRow() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var copied by remember { mutableStateOf(false) }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(start = 30.dp),
+    ) {
+        Text(
+            text = PAIR_COMMAND,
+            color = androidx.compose.ui.graphics.Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .weight(1f)
+                .background(
+                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
+                    RoundedCornerShape(8.dp),
+                )
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+        )
+        TextButton(
+            onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                    as? android.content.ClipboardManager
+                clipboard?.setPrimaryClip(
+                    android.content.ClipData.newPlainText("kittylitter", PAIR_COMMAND),
+                )
+                copied = true
+                scope.launch {
+                    kotlinx.coroutines.delay(1400)
+                    copied = false
+                }
+            },
+            modifier = Modifier
+                .size(36.dp)
+                .background(
+                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
+                    androidx.compose.foundation.shape.CircleShape,
+                ),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        ) {
+            Icon(
+                imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                contentDescription = if (copied) "Copied" else "Copy command",
+                tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FramingHint() {
+    Text(
+        text = "Hold steady — the QR code is detected automatically.",
+        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f),
+        fontSize = 12.sp,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f),
+                RoundedCornerShape(50),
+            )
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }
 
 private fun bindCameraUseCases(

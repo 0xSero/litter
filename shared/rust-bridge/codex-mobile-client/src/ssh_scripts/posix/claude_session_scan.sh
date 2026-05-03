@@ -17,10 +17,21 @@ mtime_ms() {
   esac
   printf '%s000' "$seconds"
 }
+list_paths() {
+  paths=$(find "$root" -type f -name '*.jsonl' -mtime -30 2>/dev/null)
+  if [ -z "$paths" ]; then
+    paths=$(find "$root" -type f -name '*.jsonl' 2>/dev/null)
+  fi
+  if [ -n "$paths" ]; then
+    printf '%s\n' "$paths" | xargs ls -t 2>/dev/null | head -n "$max"
+  fi
+}
 root="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 case "$root" in "~") root="$HOME" ;; "~/"*) root="$HOME/${root#~/}" ;; esac
+max="${CLAUDE_SESSION_SCAN_LIMIT:-25}"
+case "$max" in ''|*[!0-9]*) max=25 ;; esac
 [ -d "$root" ] || exit 0
-find "$root" -type f -name '*.jsonl' 2>/dev/null | while IFS= read -r path; do
+list_paths | while IFS= read -r path; do
   [ -f "$path" ] || continue
   base=${path##*/}
   session_id=${base%.jsonl}

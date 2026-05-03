@@ -23,7 +23,7 @@ use serde_json::Value as JsonValue;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
-use crate::logging::{LogLevelName, log_rust, summarize_json_for_log};
+use crate::logging::{LogLevelName, log_rust};
 use crate::session::remote_transport::{Reconnected, RemoteTransport};
 use crate::ssh::{SshBootstrapResult, SshClient};
 use crate::transport::{RpcError, TransportError};
@@ -760,6 +760,10 @@ impl ServerSession {
         resources: Vec<RuntimeRemoteSessionResource>,
         extras: RemoteSessionExtras,
     ) -> Result<Self, TransportError> {
+        let requested_runtime_kinds = resources
+            .iter()
+            .map(|resource| resource.runtime_kind)
+            .collect::<Vec<_>>();
         let first_runtime_kind = resources
             .first()
             .map(|resource| resource.runtime_kind)
@@ -777,6 +781,10 @@ impl ServerSession {
         let mut primary_tx = None;
 
         for resource in resources {
+            info!(
+                "multiplexed remote runtime worker start server_id={} runtime={:?}",
+                config.server_id, resource.runtime_kind
+            );
             let (command_tx, command_rx) = mpsc::channel::<SessionCommand>(256);
             if primary_tx.is_none() || resource.runtime_kind == first_runtime_kind {
                 primary_tx = Some(command_tx.clone());
@@ -806,8 +814,8 @@ impl ServerSession {
 
         let _ = health_tx.send(ConnectionHealth::Connected);
         info!(
-            "multiplexed remote server session connected: {} ({})",
-            config.display_name, url
+            "multiplexed remote server session connected: {} ({}) runtimes={:?}",
+            config.display_name, url, requested_runtime_kinds
         );
 
         Ok(Self {
@@ -844,7 +852,9 @@ impl ServerSession {
         if self.runtime_command_txs.is_empty() {
             return vec![AgentRuntimeKind::Codex];
         }
-        self.runtime_command_txs.keys().copied().collect()
+        let mut kinds = self.runtime_command_txs.keys().copied().collect::<Vec<_>>();
+        kinds.sort();
+        kinds
     }
 
     /// Send a typed `ClientRequest` and await the raw JSON response.
@@ -858,11 +868,23 @@ impl ServerSession {
         runtime_kind: AgentRuntimeKind,
         request: ClientRequest,
     ) -> Result<JsonValue, RpcError> {
+        let wire_method = serde_json::to_value(&request)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("method")
+                    .and_then(|method| method.as_str().map(str::to_string))
+            })
+            .unwrap_or_else(|| "<unknown>".to_string());
         let (response_tx, response_rx) = oneshot::channel();
         let command_tx = self
             .runtime_command_txs
             .get(&runtime_kind)
             .unwrap_or(&self.command_tx);
+        debug!(
+            "session request route server_id={} runtime={:?} method={}",
+            self.config.server_id, runtime_kind, wire_method
+        );
         command_tx
             .send(SessionCommand::Request {
                 request,

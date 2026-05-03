@@ -367,7 +367,8 @@ final class HomeDashboardSupportTests: XCTestCase {
                 canStartThreads: health == .connected,
                 canResumeThreads: health == .connected,
                 canUseIpc: false,
-                canResumeViaIpc: false
+                canResumeViaIpc: false,
+                supportsTurnPagination: true
             ),
             account: nil,
             requiresOpenaiAuth: false,

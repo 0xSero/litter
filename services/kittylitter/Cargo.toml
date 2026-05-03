@@ -1,0 +1,37 @@
+[workspace]
+
+[package]
+name = "kittylitter"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+authors = ["The Alleycat Authors"]
+repository = "https://github.com/dnakov/litter"
+homepage = "https://github.com/dnakov/litter"
+description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) for paired clients."
+readme = "README.md"
+
+[package.metadata.wix]
+upgrade-guid = "DA2F3E1D-ED35-4E0F-A090-DBAF066F1634"
+path-guid = "45FCD157-114F-40BA-8F2D-21BA43E7F15F"
+license = false
+eula = false
+
+[[bin]]
+name = "kittylitter"
+path = "src/main.rs"
+
+[dependencies]
+# Tracks dnakov/alleycat main. `cargo update` pulls the latest commit;
+# Cargo.lock pins the exact one for any given build. CI clones from this
+# git URL, so the alleycat lib refactor (adding `pub struct App` and
+# `pub fn run`) must be pushed to main before this resolves.
+alleycat = { git = "https://github.com/dnakov/alleycat.git", branch = "main" }
+anyhow = "1"
+
+# cargo-dist builds with `cargo build --profile dist`. Mirrors the
+# upstream alleycat workspace's profile so binaries are LTO-thinned in
+# release artifacts.
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -12,8 +12,11 @@ struct LitterComplicationEntry: TimelineEntry {
 
     let date: Date
     let mode: Mode
-    /// Seconds since the task started, for the runtime display.
-    let runtimeSeconds: Int
+    /// Wall-clock epoch ms when the running task's current turn started.
+    /// Used to compute live runtime against `entry.date` in the timeline.
+    let lastTurnStartMsEpoch: Int64?
+    /// Stable task identifier (e.g. "macbook-pro:t1") used for `widgetURL` deep links.
+    let taskId: String?
     /// Progress [0, 1] of the running task — used for circular arc + pips.
     let progress: Double
     /// Short human label shown on rectangular / corner faces.
@@ -23,16 +26,22 @@ struct LitterComplicationEntry: TimelineEntry {
     /// Count of connected servers (idle mode only).
     let serverCount: Int
 
-    var runtimeLabel: String {
-        let m = runtimeSeconds / 60
-        let s = runtimeSeconds % 60
+    /// Runtime label as `m:ss` (or `mm:ss` past 10 minutes), capped at 99:59.
+    func runtimeLabel(at now: Date) -> String {
+        guard let startMs = lastTurnStartMsEpoch else { return "0:00" }
+        let startSeconds = TimeInterval(startMs) / 1000.0
+        let elapsed = max(0, Int(now.timeIntervalSince1970 - startSeconds))
+        let capped = min(elapsed, 99 * 60 + 59)
+        let m = capped / 60
+        let s = capped % 60
         return String(format: "%d:%02d", m, s)
     }
 
     static let placeholder = LitterComplicationEntry(
         date: .now,
         mode: .running,
-        runtimeSeconds: 42,
+        lastTurnStartMsEpoch: Int64((Date.now.timeIntervalSince1970 - 42) * 1000),
+        taskId: "preview:t1",
         progress: 0.4,
         title: "fix auth token expiry",
         toolLine: "edit_file src/auth.go",
@@ -42,7 +51,8 @@ struct LitterComplicationEntry: TimelineEntry {
     static let idlePlaceholder = LitterComplicationEntry(
         date: .now,
         mode: .idle,
-        runtimeSeconds: 0,
+        lastTurnStartMsEpoch: nil,
+        taskId: nil,
         progress: 1,
         title: "3 servers ready",
         toolLine: "tap to open",
@@ -66,7 +76,8 @@ enum LitterComplicationStore {
         return LitterComplicationEntry(
             date: .now,
             mode: payload.mode,
-            runtimeSeconds: payload.runtimeSeconds,
+            lastTurnStartMsEpoch: payload.lastTurnStartMsEpoch,
+            taskId: payload.taskId,
             progress: payload.progress,
             title: payload.title,
             toolLine: payload.toolLine,
@@ -80,7 +91,8 @@ enum LitterComplicationStore {
         guard let defaults = UserDefaults(suiteName: appGroup) else { return }
         let payload = Payload(
             mode: entry.mode,
-            runtimeSeconds: entry.runtimeSeconds,
+            lastTurnStartMsEpoch: entry.lastTurnStartMsEpoch,
+            taskId: entry.taskId,
             progress: entry.progress,
             title: entry.title,
             toolLine: entry.toolLine,
@@ -92,7 +104,8 @@ enum LitterComplicationStore {
 
     private struct Payload: Codable {
         let mode: LitterComplicationEntry.Mode
-        let runtimeSeconds: Int
+        let lastTurnStartMsEpoch: Int64?
+        let taskId: String?
         let progress: Double
         let title: String
         let toolLine: String

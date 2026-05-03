@@ -519,6 +519,35 @@ pub struct DirectoryListResult {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct AppPetSummary {
+    pub id: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub source_path: String,
+    pub spritesheet_path: Option<String>,
+    pub has_valid_spritesheet: bool,
+    pub validation_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct AppPetFrameContract {
+    pub columns: u32,
+    pub rows: u32,
+    pub frame_width: u32,
+    pub frame_height: u32,
+    pub atlas_width: u32,
+    pub atlas_height: u32,
+    pub state_rows: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct AppPetPackage {
+    pub summary: AppPetSummary,
+    pub frame_contract: AppPetFrameContract,
+    pub spritesheet_bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Enum)]

@@ -890,6 +890,11 @@ impl MobileClient {
         session: Arc<ServerSession>,
         runtime_infos: Vec<AgentRuntimeInfo>,
     ) {
+        let session_runtime_kinds = session.runtime_kinds();
+        info!(
+            "MobileClient: attaching remote session server_id={} session_runtimes={:?} runtime_infos={:?}",
+            server_id, session_runtime_kinds, runtime_infos
+        );
         self.app_store.upsert_server(
             session.config(),
             ServerHealthSnapshot::Connected,
@@ -1194,6 +1199,15 @@ impl MobileClient {
             )
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        info!(
+            "MobileClient: SSH bridge runtime resources ready server_id={} runtimes={:?} infos={:?}",
+            server_id,
+            runtime_resources
+                .iter()
+                .map(|resource| resource.runtime_kind)
+                .collect::<Vec<_>>(),
+            runtime_infos
+        );
         if runtime_resources.is_empty() {
             self.app_store
                 .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
@@ -1216,6 +1230,11 @@ impl MobileClient {
                 return Err(error);
             }
         };
+        info!(
+            "MobileClient: SSH bridge session ready server_id={} runtime_kinds={:?}",
+            server_id,
+            session.runtime_kinds()
+        );
         self.attach_remote_session(&server_id, session, runtime_infos.clone());
 
         Ok(AlleycatConnectOutcome {

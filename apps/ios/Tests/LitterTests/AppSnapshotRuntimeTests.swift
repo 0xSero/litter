@@ -331,7 +331,8 @@ final class AppSnapshotRuntimeTests: XCTestCase {
                 canStartThreads: true,
                 canResumeThreads: true,
                 canUseIpc: false,
-                canResumeViaIpc: false
+                canResumeViaIpc: false,
+                supportsTurnPagination: false
             ),
             account: nil,
             requiresOpenaiAuth: false,

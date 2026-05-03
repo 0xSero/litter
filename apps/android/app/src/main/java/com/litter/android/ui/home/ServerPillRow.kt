@@ -10,9 +10,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +48,9 @@ import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AgentRuntimeInfo
 import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppServerSnapshot
+
+private const val MaxRuntimeBadgesWithoutOverflow = 4
+private const val RuntimeBadgesWhenOverflowing = 3
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -168,24 +172,52 @@ private fun AgentRuntimeBadgeStack(runtimes: List<AgentRuntimeInfo>) {
         .sortedBy { it.kind.runtimeSortIndex }
         .distinctBy { it.kind }
     if (visible.isEmpty()) return
-    val badgeSize = 18
-    val badgeOffset = 11
+    val isOverflowing = visible.size > MaxRuntimeBadgesWithoutOverflow
+    val displayed = if (isOverflowing) visible.take(RuntimeBadgesWhenOverflowing) else visible
+    val overflowCount = if (isOverflowing) visible.size - displayed.size else 0
 
-    Box(
-        modifier = Modifier
-            .size(
-                width = (badgeSize + ((visible.size - 1).coerceAtLeast(0) * badgeOffset)).dp,
-                height = badgeSize.dp,
-            ),
+    Row(
+        horizontalArrangement = Arrangement.spacedBy((-7).dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        visible.forEachIndexed { index, runtime ->
+        displayed.forEachIndexed { index, runtime ->
             AgentRuntimeBadge(
                 runtime = runtime,
-                modifier = Modifier
-                    .offset(x = (index * badgeOffset).dp)
-                    .zIndex(index.toFloat()),
+                modifier = Modifier.zIndex(index.toFloat()),
             )
         }
+        if (overflowCount > 0) {
+            AgentRuntimeOverflowBadge(
+                count = overflowCount,
+                modifier = Modifier.zIndex(displayed.size.toFloat()),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentRuntimeOverflowBadge(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .height(18.dp)
+            .widthIn(min = 18.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color.Black.copy(alpha = 0.82f))
+            .border(0.55.dp, LitterTheme.textPrimary.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "+$count",
+            color = LitterTheme.textPrimary,
+            fontSize = LitterTextStyle.caption2.scaled,
+            fontWeight = FontWeight.Bold,
+            fontFamily = LitterTheme.monoFont,
+            maxLines = 1,
+        )
     }
 }
 

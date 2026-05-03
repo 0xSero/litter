@@ -116,9 +116,7 @@ class AppModel private constructor(context: android.content.Context) {
         reconnectController.setIpcSocketPathOverride(
             com.litter.android.ui.ExperimentalFeatures.ipcSocketPathOverride()
         )
-        reconnectController.setMultiClankerAndQuicEnabled(
-            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
-        )
+        reconnectController.setMultiClankerAndQuicEnabled(true)
         launchState = AppLaunchState(context)
     }
 

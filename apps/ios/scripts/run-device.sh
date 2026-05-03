@@ -496,6 +496,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Forward LITTER_* env vars from the calling shell into the on-device
+# process so flags like LITTER_FORCE_BETA_SUNSET=1 work the same as the
+# SIMCTL_CHILD_* path on simulator. devicectl picks up any env var
+# prefixed with DEVICECTL_CHILD_ and strips the prefix on launch.
+while IFS= read -r litter_env_line; do
+  [[ "${litter_env_line}" == LITTER_*=* ]] || continue
+  export "DEVICECTL_CHILD_${litter_env_line%%=*}=${litter_env_line#*=}"
+done < <(env)
+unset litter_env_line
+
 echo "==> Installing on device ${DEVICE_ID}..."
 xcrun devicectl device install app --device "${DEVICE_ID}" "${APP_PATH}"
 
