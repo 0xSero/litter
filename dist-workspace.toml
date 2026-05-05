@@ -12,10 +12,10 @@ ci = "github"
 # powershell installer, and MSI can be re-enabled later by adding them back
 # to this list (and to publish-jobs for the registry-publishing ones).
 installers = ["npm"]
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
-# Windows targets dropped until alleycat-bridge-core's `tokio::net::UnixListener`
-# usage is cfg-gated and the ring crate's cargo-xwin cross-compile is sorted.
-# Re-add `aarch64-pc-windows-msvc` and `x86_64-pc-windows-msvc` once those land.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+# Keep Windows on the native x64 GitHub runner for now. The aarch64 Windows
+# target still needs cargo-xwin/ring cross-compilation coverage before it can
+# be added safely.
 install-path = "CARGO_HOME"
 hosting = "github"
 install-updater = false
