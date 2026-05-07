@@ -313,7 +313,7 @@ dependencies = [
 [[package]]
 name = "alleycat-bridge-core"
 version = "0.1.0"
-source = "git+https://github.com/dnakov/alleycat.git?rev=cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048#cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048"
+source = "git+https://github.com/mkelzeer/alleycat.git?rev=09f47cc420b9cfef857de99eba20e55e84caea17#09f47cc420b9cfef857de99eba20e55e84caea17"
 dependencies = [
  "alleycat-codex-proto",
  "anyhow",
@@ -332,7 +332,7 @@ dependencies = [
 [[package]]
 name = "alleycat-claude-bridge"
 version = "0.1.0"
-source = "git+https://github.com/dnakov/alleycat.git?rev=cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048#cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048"
+source = "git+https://github.com/mkelzeer/alleycat.git?rev=09f47cc420b9cfef857de99eba20e55e84caea17#09f47cc420b9cfef857de99eba20e55e84caea17"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -356,7 +356,7 @@ dependencies = [
 [[package]]
 name = "alleycat-codex-proto"
 version = "0.1.0"
-source = "git+https://github.com/dnakov/alleycat.git?rev=cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048#cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048"
+source = "git+https://github.com/mkelzeer/alleycat.git?rev=09f47cc420b9cfef857de99eba20e55e84caea17#09f47cc420b9cfef857de99eba20e55e84caea17"
 dependencies = [
  "chrono",
  "serde",
@@ -367,7 +367,7 @@ dependencies = [
 [[package]]
 name = "alleycat-opencode-bridge"
 version = "0.1.0"
-source = "git+https://github.com/dnakov/alleycat.git?rev=cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048#cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048"
+source = "git+https://github.com/mkelzeer/alleycat.git?rev=09f47cc420b9cfef857de99eba20e55e84caea17#09f47cc420b9cfef857de99eba20e55e84caea17"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -391,7 +391,7 @@ dependencies = [
 [[package]]
 name = "alleycat-pi-bridge"
 version = "0.1.0"
-source = "git+https://github.com/dnakov/alleycat.git?rev=cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048#cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048"
+source = "git+https://github.com/mkelzeer/alleycat.git?rev=09f47cc420b9cfef857de99eba20e55e84caea17#09f47cc420b9cfef857de99eba20e55e84caea17"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",

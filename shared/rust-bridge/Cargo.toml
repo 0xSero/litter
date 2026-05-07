@@ -26,10 +26,12 @@ codex-cloud-requirements = { path = "../third_party/codex/codex-rs/cloud-require
 codex-config = { path = "../third_party/codex/codex-rs/config" }
 codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolute-path" }
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
-alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048" }
-alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048" }
-alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048" }
-alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "cd0beeeb668e01ef1f09e5d6dfa5cd10e4985048" }
+# Fork carries pi session hydration refresh: existing ~/.pi/agent/sessions JSONL rows
+# are upserted by path so mobile can catch up to desktop-continued sessions.
+alleycat-bridge-core = { git = "https://github.com/mkelzeer/alleycat.git", rev = "09f47cc420b9cfef857de99eba20e55e84caea17" }
+alleycat-pi-bridge = { git = "https://github.com/mkelzeer/alleycat.git", rev = "09f47cc420b9cfef857de99eba20e55e84caea17" }
+alleycat-claude-bridge = { git = "https://github.com/mkelzeer/alleycat.git", rev = "09f47cc420b9cfef857de99eba20e55e84caea17" }
+alleycat-opencode-bridge = { git = "https://github.com/mkelzeer/alleycat.git", rev = "09f47cc420b9cfef857de99eba20e55e84caea17" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
