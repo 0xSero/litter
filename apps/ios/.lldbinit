@@ -1,0 +1,14 @@
+# LLDB init for the Litter iOS/Mac project.
+#
+# iSH (the Alpine Linux user-mode emulator we link in via litter-ish) uses
+# SIGUSR1/SIGUSR2 internally to emulate Linux signals on iOS pthreads. Tokio
+# runtimes also deliver SIGPIPE through signal-fd. LLDB's defaults stop on
+# SIGUSR1/SIGUSR2, which makes the debugger pause every time iSH wakes one
+# of its threads — the process halts in __psynch_mutexwait and never boots.
+#
+# `process handle` requires a current process target, but lldbinit files
+# load before Xcode attaches. So we register a stop-hook that runs on every
+# stop, including the initial SIGSTOP fired when Xcode attaches. The first
+# stop reconfigures signal handling, and the kept-state-across-the-process
+# semantics of `process handle` mean the rest of the session is fine.
+target stop-hook add --one-liner "process handle SIGUSR1 --pass true --stop false --notify false" --one-liner "process handle SIGUSR2 --pass true --stop false --notify false" --one-liner "process handle SIGPIPE --pass true --stop false --notify false"

@@ -1,10 +1,14 @@
 package com.litter.android.state
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import uniffi.codex_mobile_client.AppPetSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppServerTransportState
@@ -47,15 +51,31 @@ data class CachedPetPackage(
     }
 }
 
+data class PetOverlayUiModel(
+    val pet: CachedPetPackage,
+    val state: PetAvatarState,
+    val message: String?,
+)
+
 object PetOverlayController {
     private const val PREFS = "litter_pet_overlay"
     private const val KEY_VISIBLE = "visible"
+    private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
     private const val KEY_SERVER_ID = "server_id"
     private const val KEY_PET_ID = "pet_id"
     private const val KEY_PET_NAME = "pet_name"
+    private const val KEY_DRAG_OFFSET_X = "drag_offset_x"
+    private const val KEY_DRAG_OFFSET_Y = "drag_offset_y"
+    private const val KEY_PET_SCALE = "pet_scale"
     private const val CACHE_DIR = "pets"
 
+    const val MIN_PET_SCALE = 0.25f
+    const val MAX_PET_SCALE = 5.0f
+    const val DEFAULT_PET_SCALE = 1.0f
+
     var visible by mutableStateOf(false)
+        private set
+    var overlayEnabled by mutableStateOf(false)
         private set
     var selectedPet by mutableStateOf<CachedPetPackage?>(null)
         private set
@@ -69,6 +89,11 @@ object PetOverlayController {
         private set
     var isDragging by mutableStateOf(false)
         private set
+    var petScale by mutableFloatStateOf(DEFAULT_PET_SCALE)
+        private set
+    var isPinching by mutableStateOf(false)
+        private set
+    private var pinchInitialScale: Float = DEFAULT_PET_SCALE
     private var dragDirection by mutableStateOf(PetAvatarState.RUNNING_RIGHT)
     private var initialized = false
 
@@ -77,6 +102,11 @@ object PetOverlayController {
         initialized = true
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         visible = prefs.getBoolean(KEY_VISIBLE, false)
+        overlayEnabled = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
+        dragOffsetX = prefs.getFloat(KEY_DRAG_OFFSET_X, 24f)
+        dragOffsetY = prefs.getFloat(KEY_DRAG_OFFSET_Y, 96f)
+        petScale = prefs.getFloat(KEY_PET_SCALE, DEFAULT_PET_SCALE)
+            .coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
         val serverId = prefs.getString(KEY_SERVER_ID, null)
         val petId = prefs.getString(KEY_PET_ID, null)
         val name = prefs.getString(KEY_PET_NAME, null)
@@ -99,10 +129,20 @@ object PetOverlayController {
             .edit()
             .putBoolean(KEY_VISIBLE, next)
             .apply()
+        syncOverlayService(context)
     }
 
     fun toggleVisible(context: Context) {
         setVisible(context, !visible)
+    }
+
+    fun setOverlayEnabled(context: Context, next: Boolean) {
+        overlayEnabled = next
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_OVERLAY_ENABLED, next)
+            .apply()
+        syncOverlayService(context)
     }
 
     suspend fun selectPet(context: Context, appModel: AppModel, serverId: String, pet: AppPetSummary) {
@@ -129,6 +169,7 @@ object PetOverlayController {
                 .apply()
             selectedPet = cached
             visible = true
+            syncOverlayService(context)
         } catch (error: Throwable) {
             errorMessage = error.message ?: "Unable to load pet."
         } finally {
@@ -140,15 +181,102 @@ object PetOverlayController {
         isDragging = true
     }
 
-    fun dragBy(dx: Float, dy: Float) {
+    fun dragBy(context: Context? = null, dx: Float, dy: Float) {
         dragOffsetX += dx
         dragOffsetY += dy
         if (dx > 0.5f) dragDirection = PetAvatarState.RUNNING_RIGHT
         if (dx < -0.5f) dragDirection = PetAvatarState.RUNNING_LEFT
+        if (context != null) {
+            persistPosition(context)
+        }
+    }
+
+    fun setPosition(context: Context? = null, x: Float, y: Float) {
+        val dx = x - dragOffsetX
+        dragOffsetX = x
+        dragOffsetY = y
+        if (dx > 0.5f) dragDirection = PetAvatarState.RUNNING_RIGHT
+        if (dx < -0.5f) dragDirection = PetAvatarState.RUNNING_LEFT
+        if (context != null) {
+            persistPosition(context)
+        }
     }
 
     fun endDrag() {
         isDragging = false
+    }
+
+    fun startPinch() {
+        pinchInitialScale = petScale
+        isPinching = true
+    }
+
+    fun pinchBy(factor: Float) {
+        if (!factor.isFinite() || factor <= 0f) return
+        petScale = (pinchInitialScale * factor).coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
+    }
+
+    fun endPinch(context: Context) {
+        isPinching = false
+        persistScale(context)
+    }
+
+    fun setScale(context: Context, value: Float) {
+        petScale = value.coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
+        persistScale(context)
+    }
+
+    fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    fun requestOverlayPermission(context: Context) {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+
+    fun shouldShowSystemOverlay(context: Context): Boolean =
+        visible && overlayEnabled && selectedPet != null && canDrawOverlays(context)
+
+    fun shouldShowInAppOverlay(context: Context): Boolean =
+        visible && selectedPet != null && !shouldShowSystemOverlay(context)
+
+    fun buildUiModel(snapshot: AppSnapshotRecord?): PetOverlayUiModel? {
+        val pet = selectedPet ?: return null
+        if (!visible) return null
+        return PetOverlayUiModel(
+            pet = pet,
+            state = avatarState(snapshot),
+            message = avatarMessage(snapshot),
+        )
+    }
+
+    fun syncOverlayService(context: Context) {
+        val appContext = context.applicationContext
+        val intent = Intent(appContext, PetOverlayService::class.java).apply {
+            action = PetOverlayService.ACTION_SYNC
+        }
+        if (shouldShowSystemOverlay(appContext)) {
+            ContextCompat.startForegroundService(appContext, intent)
+        } else {
+            appContext.stopService(intent)
+        }
+    }
+
+    private fun persistPosition(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_DRAG_OFFSET_X, dragOffsetX)
+            .putFloat(KEY_DRAG_OFFSET_Y, dragOffsetY)
+            .apply()
+    }
+
+    private fun persistScale(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_PET_SCALE, petScale)
+            .apply()
     }
 
     fun avatarState(snapshot: AppSnapshotRecord?): PetAvatarState {

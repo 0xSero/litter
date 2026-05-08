@@ -8,10 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -64,7 +68,9 @@ fun ApprovalOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .padding(16.dp),
+                .fillMaxHeight(0.85f)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             for (approval in approvals) {
@@ -119,18 +125,24 @@ private fun ApprovalCard(
             fontSize = 16f.scaled,
         )
 
-        // Command text
+        // Command text — capped + scrollable so a long command can't push the
+        // action buttons off-screen (issue #92).
         approval.command?.let { cmd ->
-            Text(
-                text = cmd,
-                color = LitterTheme.accent,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.code.scaled,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 220.dp)
                     .background(LitterTheme.codeBackground, RoundedCornerShape(6.dp))
+                    .verticalScroll(rememberScrollState())
                     .padding(8.dp),
-            )
+            ) {
+                Text(
+                    text = cmd,
+                    color = LitterTheme.accent,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = LitterTextStyle.code.scaled,
+                )
+            }
         }
 
         // CWD

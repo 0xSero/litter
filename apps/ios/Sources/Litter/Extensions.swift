@@ -30,9 +30,10 @@ extension UIColor {
 enum LitterTheme {
     private static var light: ResolvedTheme { ThemeStore.shared.light }
     private static var dark: ResolvedTheme { ThemeStore.shared.dark }
+    private static var colorScheme: ColorScheme { ThemeStore.shared.colorScheme }
 
     static func adaptive(light: String, dark: String) -> Color {
-        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light) })
+        Color(hex: colorScheme == .dark ? dark : light)
     }
 
     static var accent: Color        { adaptive(light: light.accent, dark: dark.accent) }
@@ -52,16 +53,24 @@ enum LitterTheme {
     static var textOnAccent: Color   { adaptive(light: light.textOnAccent, dark: dark.textOnAccent) }
     static var codeBackground: Color { adaptive(light: light.codeBackground, dark: dark.codeBackground) }
 
-    static let overlayScrim: Color = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor.black.withAlphaComponent(0.5)
-            : UIColor.black.withAlphaComponent(0.3)
-    })
+    static var overlayScrim: Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.5)
+            : Color.black.opacity(0.3)
+    }
 
     static var gradientColors: [Color] {
-        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-        let theme = isDark ? dark : light
-        return gradientColors(for: theme, isDark: isDark)
+        [
+            adaptive(light: light.background, dark: dark.background),
+            adaptive(
+                light: ResolvedTheme.adjustBrightness(light.background, by: -0.01),
+                dark: ResolvedTheme.adjustBrightness(dark.background, by: 0.02)
+            ),
+            adaptive(
+                light: ResolvedTheme.adjustBrightness(light.background, by: 0.01),
+                dark: ResolvedTheme.adjustBrightness(dark.background, by: -0.01)
+            ),
+        ]
     }
 
     static func gradientColors(for colorScheme: ColorScheme) -> [Color] {
@@ -96,9 +105,7 @@ enum LitterTheme {
     }
 
     static var headerScrim: [Color] {
-        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-        let bg = isDark ? dark.background : light.background
-        let bgColor = Color(hex: bg)
+        let bgColor = adaptive(light: light.background, dark: dark.background)
         return [bgColor.opacity(0.7), bgColor.opacity(0.3), .clear]
     }
 }

@@ -9,6 +9,7 @@ struct AppearanceSettingsView: View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             Form {
+                appearanceModeSection
                 fontSizeSection
                 conversationPreviewSection
                 lightThemeSection
@@ -28,6 +29,33 @@ struct AppearanceSettingsView: View {
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    // MARK: - Appearance Mode
+
+    private var appearanceModeSection: some View {
+        Section {
+            Picker(
+                "Appearance",
+                selection: Binding(
+                    get: { themeManager.appearanceMode },
+                    set: { themeManager.setAppearanceMode($0) }
+                )
+            ) {
+                ForEach(LitterAppearanceMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .tint(LitterTheme.accent)
+            .listRowBackground(LitterTheme.surface.opacity(0.6))
+        } header: {
+            Text("Mode")
+                .foregroundColor(LitterTheme.textSecondary)
+        } footer: {
+            Text("Match the device setting, or keep Litter fixed in light or dark mode.")
+                .foregroundColor(LitterTheme.textMuted)
         }
     }
 

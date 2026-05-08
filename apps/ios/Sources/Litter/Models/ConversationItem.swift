@@ -138,12 +138,25 @@ struct ConversationMcpToolCallData: Equatable {
 }
 
 struct ConversationDynamicToolCallData: Equatable {
+    struct Metadata: Equatable {
+        var key: String
+        var value: String
+    }
+
+    struct Display: Equatable {
+        var title: String
+        var summary: String
+        var metadata: [Metadata]
+    }
+
+    var namespace: String?
     var tool: String
     var status: AppOperationStatus
     var durationMs: Int?
     var success: Bool?
     var argumentsJSON: String?
     var contentSummary: String?
+    var display: Display?
 
     var isInProgress: Bool {
         status == .pending || status == .inProgress
@@ -713,12 +726,25 @@ private extension HydratedConversationItemContent {
         case .dynamicToolCall(let data):
             return .dynamicToolCall(
                 ConversationDynamicToolCallData(
+                    namespace: data.namespace,
                     tool: data.tool,
                     status: data.status,
                     durationMs: data.durationMs.map(Int.init),
                     success: data.success,
                     argumentsJSON: data.argumentsJson,
-                    contentSummary: data.contentSummary
+                    contentSummary: data.contentSummary,
+                    display: data.display.map {
+                        ConversationDynamicToolCallData.Display(
+                            title: $0.title,
+                            summary: $0.summary,
+                            metadata: $0.metadata.map {
+                                ConversationDynamicToolCallData.Metadata(
+                                    key: $0.key,
+                                    value: $0.value
+                                )
+                            }
+                        )
+                    }
                 )
             )
         case .multiAgentAction(let data):

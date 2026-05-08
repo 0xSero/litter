@@ -1610,7 +1610,9 @@ impl MobileClient {
             ))
         })?;
 
-        let params = upstream::LoginAccountParams::Chatgpt;
+        let params = upstream::LoginAccountParams::Chatgpt {
+            codex_streamlined_login: false,
+        };
         let response = self
             .request_typed_for_server::<upstream::LoginAccountResponse>(
                 server_id,
@@ -3064,7 +3066,7 @@ impl MobileClient {
                 approvals_reviewer: None,
                 sandbox_policy: None,
                 environments: None,
-                permission_profile: None,
+                permissions: None,
                 model: None,
                 service_tier: None,
                 effort: None,

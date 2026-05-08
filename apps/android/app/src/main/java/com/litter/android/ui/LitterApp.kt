@@ -40,6 +40,7 @@ import com.litter.android.ui.pets.PetOverlayView
 import com.litter.android.state.SavedProjectStore
 import com.litter.android.ui.settings.AccountSheet
 import com.litter.android.ui.settings.SettingsSheet
+import com.litter.android.ui.settings.SettingsStartDestination
 import com.litter.android.ui.sessions.DirectoryPickerServerOption
 import com.litter.android.ui.sessions.DirectoryPickerSheet
 import com.litter.android.ui.sessions.SessionLaunchSupport
@@ -62,7 +63,10 @@ val LocalAppModel = staticCompositionLocalOf<AppModel> {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LitterApp(appModel: AppModel) {
+fun LitterApp(
+    appModel: AppModel,
+    openPetSettingsRequest: Int = 0,
+) {
     val context = LocalContext.current
 
     // Initialize text size preference
@@ -92,6 +96,7 @@ fun LitterApp(appModel: AppModel) {
         // Global sheet state
         var showDiscovery by remember { mutableStateOf(false) }
         var showSettings by remember { mutableStateOf(false) }
+        var settingsStartDestination by remember { mutableStateOf(SettingsStartDestination.TopLevel) }
         var showAccountForServer by remember { mutableStateOf<String?>(null) }
         var directoryPickerServerId by remember { mutableStateOf<String?>(null) }
         var directoryPickerForProject by remember { mutableStateOf(false) }
@@ -151,6 +156,12 @@ fun LitterApp(appModel: AppModel) {
         // Network discovery
         val networkDiscovery = remember { NetworkDiscovery(appModel.discovery) }
         val voiceController = remember { VoiceRuntimeController.shared }
+
+        LaunchedEffect(openPetSettingsRequest) {
+            if (openPetSettingsRequest <= 0) return@LaunchedEffect
+            settingsStartDestination = SettingsStartDestination.Pets
+            showSettings = true
+        }
 
         // Navigate helpers
         val navigate = remember {
@@ -425,7 +436,7 @@ fun LitterApp(appModel: AppModel) {
             }
 
             val pet = PetOverlayController.selectedPet
-            if (PetOverlayController.visible && pet != null) {
+            if (pet != null && PetOverlayController.shouldShowInAppOverlay(context)) {
                 PetOverlayView(
                     pet = pet,
                     state = PetOverlayController.avatarState(snapshot),
@@ -490,13 +501,19 @@ fun LitterApp(appModel: AppModel) {
                 containerColor = LitterTheme.background,
             ) {
                 SettingsSheet(
-                    onDismiss = { showSettings = false },
+                    onDismiss = {
+                        showSettings = false
+                        settingsStartDestination = SettingsStartDestination.TopLevel
+                    },
                     onOpenAccount = { serverId ->
                         showSettings = false
+                        settingsStartDestination = SettingsStartDestination.TopLevel
                         showAccountForServer = serverId
                     },
+                    initialSubScreen = settingsStartDestination,
                     onOpenApps = {
                         showSettings = false
+                        settingsStartDestination = SettingsStartDestination.TopLevel
                         navigate(Route.Apps)
                     },
                 )

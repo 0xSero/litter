@@ -844,21 +844,6 @@ pub enum AppReadOnlyAccess {
     FullAccess,
 }
 
-impl From<upstream::ReadOnlyAccess> for AppReadOnlyAccess {
-    fn from(value: upstream::ReadOnlyAccess) -> Self {
-        match value {
-            upstream::ReadOnlyAccess::Restricted {
-                include_platform_defaults,
-                readable_roots,
-            } => Self::Restricted {
-                include_platform_defaults,
-                readable_roots: readable_roots.into_iter().map(Into::into).collect(),
-            },
-            upstream::ReadOnlyAccess::FullAccess => Self::FullAccess,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[derive(uniffi::Enum)]
@@ -904,11 +889,8 @@ impl From<upstream::SandboxPolicy> for AppSandboxPolicy {
     fn from(value: upstream::SandboxPolicy) -> Self {
         match value {
             upstream::SandboxPolicy::DangerFullAccess => Self::DangerFullAccess,
-            upstream::SandboxPolicy::ReadOnly {
-                access,
-                network_access,
-            } => Self::ReadOnly {
-                access: access.into(),
+            upstream::SandboxPolicy::ReadOnly { network_access } => Self::ReadOnly {
+                access: AppReadOnlyAccess::FullAccess,
                 network_access,
             },
             upstream::SandboxPolicy::ExternalSandbox { network_access } => Self::ExternalSandbox {
@@ -916,13 +898,12 @@ impl From<upstream::SandboxPolicy> for AppSandboxPolicy {
             },
             upstream::SandboxPolicy::WorkspaceWrite {
                 writable_roots,
-                read_only_access,
                 network_access,
                 exclude_tmpdir_env_var,
                 exclude_slash_tmp,
             } => Self::WorkspaceWrite {
                 writable_roots: writable_roots.into_iter().map(Into::into).collect(),
-                read_only_access: read_only_access.into(),
+                read_only_access: AppReadOnlyAccess::FullAccess,
                 network_access,
                 exclude_tmpdir_env_var,
                 exclude_slash_tmp,

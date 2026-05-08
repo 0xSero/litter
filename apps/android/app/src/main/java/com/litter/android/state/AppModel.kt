@@ -207,9 +207,15 @@ class AppModel private constructor(context: android.content.Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var subscriptionJob: Job? = null
+    private val lifecycleLock = Any()
+    private var activeClients: Int = 0
 
     fun start() {
-        if (subscriptionJob?.isActive == true) return
+        val shouldStart = synchronized(lifecycleLock) {
+            activeClients += 1
+            subscriptionJob?.isActive != true
+        }
+        if (!shouldStart) return
         subscriptionJob = scope.launch {
             try {
                 val subscription: AppStoreSubscription = store.subscribeUpdates()
@@ -231,6 +237,11 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     fun stop() {
+        val shouldStop = synchronized(lifecycleLock) {
+            activeClients = (activeClients - 1).coerceAtLeast(0)
+            activeClients == 0
+        }
+        if (!shouldStop) return
         subscriptionJob?.cancel()
         subscriptionJob = null
         pendingActiveThreadHydrationJob?.cancel()

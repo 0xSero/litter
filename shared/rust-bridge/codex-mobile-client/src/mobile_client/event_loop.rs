@@ -755,7 +755,9 @@ where
     let legacy_permission_profile = normalize_legacy_permission_profile_fields(&mut normalized);
     normalize_empty_cwd_fields(&mut normalized, None);
     normalize_default_service_tier(&mut normalized);
+    normalize_legacy_v0_128_compat(&mut normalized);
     normalize_dynamic_tool_content_item_aliases(&mut normalized);
+    normalize_tool_status_aliases(&mut normalized);
     normalize_command_action_aliases(&mut normalized);
     normalize_relative_absolute_path_fields(&mut normalized, None);
     let parsed = if let Some(base_path) = response_deserialization_base(&normalized) {
@@ -770,12 +772,24 @@ where
 fn normalize_empty_cwd_fields(value: &mut serde_json::Value, inherited_base: Option<&Path>) {
     match value {
         serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(cwd)) = map.get_mut("cwd")
-                && cwd.is_empty()
-            {
-                *cwd = inherited_base
-                    .map(|base| base.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "/".to_string());
+            let is_command_execution = object_type(map) == Some("commandExecution");
+            let fallback_cwd = inherited_base
+                .map(|base| base.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "/".to_string());
+            match map.get_mut("cwd") {
+                Some(serde_json::Value::String(cwd)) if cwd.is_empty() => {
+                    *cwd = fallback_cwd.clone();
+                }
+                Some(cwd) if cwd.is_null() => {
+                    *cwd = serde_json::Value::String(fallback_cwd.clone());
+                }
+                None if is_command_execution => {
+                    map.insert(
+                        "cwd".to_string(),
+                        serde_json::Value::String(fallback_cwd.clone()),
+                    );
+                }
+                _ => {}
             }
             let local_base = absolute_path_from_value(map.get("cwd"))
                 .or_else(|| inherited_base.map(Path::to_path_buf));
@@ -790,6 +804,87 @@ fn normalize_empty_cwd_fields(value: &mut serde_json::Value, inherited_base: Opt
             }
         }
         _ => {}
+    }
+}
+
+fn normalize_tool_status_aliases(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            match object_type(map) {
+                Some("commandExecution") | Some("fileChange") => {
+                    normalize_status_field(map, true);
+                }
+                Some("mcpToolCall") | Some("dynamicToolCall") | Some("collabAgentToolCall") => {
+                    normalize_status_field(map, false);
+                }
+                _ => {}
+            }
+            normalize_collab_agent_state_statuses(map);
+
+            for child in map.values_mut() {
+                normalize_tool_status_aliases(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_tool_status_aliases(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_status_field(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    allow_declined: bool,
+) {
+    let Some(serde_json::Value::String(status)) = map.get_mut("status") else {
+        return;
+    };
+    if let Some(normalized) = normalize_operation_status_alias(status, allow_declined) {
+        *status = normalized;
+    }
+}
+
+fn normalize_operation_status_alias(raw: &str, allow_declined: bool) -> Option<String> {
+    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
+        "pending" | "running" | "queued" | "started" | "in_progress" | "in-progress"
+        | "inprogress" => "inProgress",
+        "completed" | "complete" | "success" | "succeeded" | "done" => "completed",
+        "declined" | "denied" | "rejected" if allow_declined => "declined",
+        "declined" | "denied" | "rejected" => "failed",
+        "error" | "failed" | "failure" | "cancelled" | "canceled" | "aborted" => "failed",
+        _ => return None,
+    };
+    (normalized != raw).then(|| normalized.to_string())
+}
+
+fn normalize_collab_agent_state_statuses(map: &mut serde_json::Map<String, serde_json::Value>) {
+    let Some(serde_json::Value::Object(agent_states)) = map.get_mut("agentsStates") else {
+        return;
+    };
+    for state in agent_states.values_mut() {
+        let Some(state_map) = state.as_object_mut() else {
+            continue;
+        };
+        let Some(serde_json::Value::String(status)) = state_map.get_mut("status") else {
+            continue;
+        };
+        let normalized = match status.trim().to_ascii_lowercase().as_str() {
+            "pending" | "pending_init" | "pending-init" | "pendinginit" => "pendingInit",
+            "running" | "in_progress" | "in-progress" | "inprogress" | "started" => "running",
+            "completed" | "complete" | "success" | "succeeded" | "done" => "completed",
+            "error" | "errored" | "failed" | "failure" | "cancelled" | "canceled" | "aborted" => {
+                "errored"
+            }
+            "shutdown" => "shutdown",
+            "interrupted" => "interrupted",
+            "not_found" | "not-found" | "notfound" => "notFound",
+            _ => continue,
+        };
+        if normalized != status {
+            *status = normalized.to_string();
+        }
     }
 }
 
@@ -808,6 +903,66 @@ fn normalize_default_service_tier(value: &mut serde_json::Value) {
         serde_json::Value::Array(items) => {
             for child in items {
                 normalize_default_service_tier(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Inject defaults for fields that upstream rust-v0.129.0 made required on
+/// `Thread`, `ItemStartedNotification`, and `ItemCompletedNotification`.
+/// Servers running older codex versions (e.g., rust-v0.128.0) don't emit
+/// these fields, so the typed deserializer would fail with `missing field
+/// 'sessionId'` etc. We mirror legacy server behavior here rather than
+/// patching the upstream protocol crate so the litter-side build can stay
+/// upstream-faithful.
+///
+/// The `Thread.sessionId` fallback follows upstream's own convention for
+/// stored/unloaded threads (see PR #21336): when no live session id is
+/// known, treat `sessionId == id`. Litter's sub-agent grouping uses
+/// `Thread.source` + `parent_thread_id` rather than `session_id`, so the
+/// fallback is harmless there; for any future upstream-style consumer this
+/// matches what app-server itself returns for stored threads.
+fn normalize_legacy_v0_128_compat(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // Thread: detected by id+preview+status+source which all v2
+            // Thread payloads carry. sessionId was added in v0.129.
+            if map.contains_key("id")
+                && map.contains_key("preview")
+                && map.contains_key("status")
+                && map.contains_key("source")
+                && !map.contains_key("sessionId")
+            {
+                let fallback = map.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                map.insert("sessionId".to_string(), fallback);
+            }
+            // Item lifecycle notifications: detected by item+threadId+turnId.
+            // startedAtMs/completedAtMs were added in v0.129.
+            if map.contains_key("item")
+                && map.contains_key("threadId")
+                && map.contains_key("turnId")
+            {
+                if !map.contains_key("startedAtMs") {
+                    map.insert(
+                        "startedAtMs".to_string(),
+                        serde_json::Value::Number(0.into()),
+                    );
+                }
+                if !map.contains_key("completedAtMs") {
+                    map.insert(
+                        "completedAtMs".to_string(),
+                        serde_json::Value::Number(0.into()),
+                    );
+                }
+            }
+            for child in map.values_mut() {
+                normalize_legacy_v0_128_compat(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_legacy_v0_128_compat(child);
             }
         }
         _ => {}
@@ -1947,6 +2102,142 @@ mod tests {
             &command_actions[1],
             upstream::CommandAction::ListFiles { command, path }
                 if command == "read .pi-tool-demo.txt" && path.as_deref() == Some("src")
+        ));
+    }
+
+    #[test]
+    fn deserialize_typed_response_accepts_legacy_opencode_tool_shapes() {
+        let payload: serde_json::Value = serde_json::from_str(
+            r#"{
+                "model": "opencode",
+                "modelProvider": "opencode",
+                "serviceTier": "default",
+                "approvalPolicy": "on-request",
+                "approvalsReviewer": "user",
+                "sandbox": { "type": "dangerFullAccess" },
+                "permissionProfile": { "type": "disabled" },
+                "cwd": "/repo",
+                "instructionSources": [],
+                "reasoningEffort": "high",
+                "thread": {
+                    "id": "thread-1",
+                    "preview": "hello",
+                    "ephemeral": false,
+                    "modelProvider": "opencode",
+                    "createdAt": 1,
+                    "updatedAt": 2,
+                    "status": { "type": "notLoaded" },
+                    "path": "/tmp/thread.jsonl",
+                    "cwd": "/repo",
+                    "cliVersion": "alleycat-opencode-bridge/0.1.0",
+                    "source": "appServer",
+                    "agentNickname": null,
+                    "agentRole": null,
+                    "gitInfo": null,
+                    "name": null,
+                    "turns": [{
+                        "id": "turn-1",
+                        "items": [{
+                            "id": "cmd-1",
+                            "type": "commandExecution",
+                            "command": "read src/lib.rs",
+                            "cwd": null,
+                            "status": "error",
+                            "commandActions": [{"type": "read", "path": "src/lib.rs"}],
+                            "aggregatedOutput": "missing"
+                        }, {
+                            "id": "fc-1",
+                            "type": "fileChange",
+                            "changes": [],
+                            "status": "error"
+                        }, {
+                            "id": "mcp-1",
+                            "type": "mcpToolCall",
+                            "server": "github",
+                            "tool": "create_issue",
+                            "status": "error",
+                            "arguments": {},
+                            "error": {"message": "bad token"}
+                        }, {
+                            "id": "dyn-1",
+                            "type": "dynamicToolCall",
+                            "tool": "webfetch",
+                            "arguments": {},
+                            "status": "running",
+                            "contentItems": [{"text": "loading"}]
+                        }, {
+                            "id": "agent-1",
+                            "type": "collabAgentToolCall",
+                            "tool": "spawnAgent",
+                            "status": "running",
+                            "senderThreadId": "thread-1",
+                            "receiverThreadIds": ["ses_child"],
+                            "agentsStates": {"ses_child": {"status": "error"}}
+                        }],
+                        "status": "completed",
+                        "error": null,
+                        "startedAt": 1,
+                        "completedAt": 2,
+                        "durationMs": 1
+                    }]
+                }
+            }"#,
+        )
+        .expect("legacy opencode fixture should be valid JSON");
+
+        let parsed: upstream::ThreadResumeResponse = deserialize_typed_response(&payload)
+            .expect("legacy opencode payload should deserialize");
+        let items = &parsed.thread.turns[0].items;
+        assert!(matches!(
+            &items[0],
+            upstream::ThreadItem::CommandExecution {
+                cwd,
+                status: upstream::CommandExecutionStatus::Failed,
+                command_actions,
+                ..
+            } if cwd.as_path() == Path::new("/repo")
+                && matches!(
+                    &command_actions[0],
+                    upstream::CommandAction::Read { path, .. }
+                        if path.as_path() == Path::new("/repo/src/lib.rs")
+                )
+        ));
+        assert!(matches!(
+            &items[1],
+            upstream::ThreadItem::FileChange {
+                status: upstream::PatchApplyStatus::Failed,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &items[2],
+            upstream::ThreadItem::McpToolCall {
+                status: upstream::McpToolCallStatus::Failed,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &items[3],
+            upstream::ThreadItem::DynamicToolCall {
+                status: upstream::DynamicToolCallStatus::InProgress,
+                content_items: Some(content_items),
+                ..
+            } if matches!(
+                &content_items[0],
+                upstream::DynamicToolCallOutputContentItem::InputText { text }
+                    if text == "loading"
+            )
+        ));
+        assert!(matches!(
+            &items[4],
+            upstream::ThreadItem::CollabAgentToolCall {
+                status: upstream::CollabAgentToolCallStatus::InProgress,
+                agents_states,
+                ..
+            } if matches!(
+                agents_states.get("ses_child").map(|state| &state.status),
+                Some(upstream::CollabAgentStatus::Errored)
+            )
         ));
     }
 

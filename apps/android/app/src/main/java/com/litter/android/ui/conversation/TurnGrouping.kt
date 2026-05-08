@@ -598,27 +598,37 @@ private fun explorationActionLabel(
     action: uniffi.codex_mobile_client.HydratedCommandActionData,
     fallback: String,
 ): String {
+    val suffix = explorationCommandSuffix(action)
     return when (action.kind) {
         HydratedCommandActionKind.READ -> {
-            action.path?.let { "Read ${workspaceTitle(it)}" } ?: fallback
+            action.path?.let { "Read ${workspaceTitle(it)}$suffix" } ?: fallback
         }
 
         HydratedCommandActionKind.SEARCH -> {
             when {
                 !action.query.isNullOrBlank() && !action.path.isNullOrBlank() ->
-                    "Searched for ${action.query} in ${workspaceTitle(action.path!!)}"
+                    "Searched for ${action.query} in ${workspaceTitle(action.path!!)}$suffix"
                 !action.query.isNullOrBlank() ->
-                    "Searched for ${action.query}"
+                    "Searched for ${action.query}$suffix"
                 else -> fallback
             }
         }
 
         HydratedCommandActionKind.LIST_FILES -> {
-            action.path?.let { "Listed files in ${workspaceTitle(it)}" } ?: fallback
+            action.path?.let { "Listed files in ${workspaceTitle(it)}$suffix" } ?: fallback
         }
 
         HydratedCommandActionKind.UNKNOWN -> fallback
     }
+}
+
+private fun explorationCommandSuffix(
+    action: uniffi.codex_mobile_client.HydratedCommandActionData,
+): String {
+    val command = action.command.trim()
+    if (!command.endsWith(")")) return ""
+    val start = command.lastIndexOf(" (")
+    return if (start >= 0) command.substring(start) else ""
 }
 
 private fun workspaceTitle(path: String): String {

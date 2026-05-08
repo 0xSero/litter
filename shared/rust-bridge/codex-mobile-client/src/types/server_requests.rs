@@ -6,7 +6,6 @@
 
 use crate::RpcClientError;
 use codex_app_server_protocol as upstream;
-use codex_protocol::config_types::ServiceTier as CoreServiceTier;
 use codex_protocol::openai_models::ReasoningEffort as CoreReasoningEffort;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use serde::{Deserialize, Serialize};
@@ -59,10 +58,12 @@ pub(crate) fn sandbox_mode_into_upstream(value: AppSandboxMode) -> upstream::San
     }
 }
 
-pub(crate) fn service_tier_into_upstream(value: ServiceTier) -> CoreServiceTier {
+/// Wire-format string for upstream `Option<Option<String>>` service_tier
+/// fields. Matches `ServiceTier`'s `rename_all = "lowercase"` serde shape.
+pub(crate) fn service_tier_into_upstream_string(value: ServiceTier) -> String {
     match value {
-        ServiceTier::Fast => CoreServiceTier::Fast,
-        ServiceTier::Flex => CoreServiceTier::Flex,
+        ServiceTier::Fast => "fast".to_string(),
+        ServiceTier::Flex => "flex".to_string(),
     }
 }
 
@@ -84,22 +85,14 @@ fn network_access_into_upstream(value: super::AppNetworkAccess) -> upstream::Net
     }
 }
 
-fn read_only_access_into_upstream(
-    value: AppReadOnlyAccess,
-) -> Result<upstream::ReadOnlyAccess, RpcClientError> {
-    Ok(match value {
-        AppReadOnlyAccess::Restricted {
-            include_platform_defaults,
-            readable_roots,
-        } => upstream::ReadOnlyAccess::Restricted {
-            include_platform_defaults,
-            readable_roots: readable_roots
-                .into_iter()
-                .map(absolute_path_buf_from_mobile)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        AppReadOnlyAccess::FullAccess => upstream::ReadOnlyAccess::FullAccess,
-    })
+fn ensure_read_only_access_supported(value: AppReadOnlyAccess) -> Result<(), RpcClientError> {
+    match value {
+        AppReadOnlyAccess::FullAccess => Ok(()),
+        AppReadOnlyAccess::Restricted { .. } => Err(RpcClientError::Serialization(
+            "restricted read access is no longer supported by SandboxPolicy; use permission profiles"
+                .to_string(),
+        )),
+    }
 }
 
 fn sandbox_policy_into_upstream(
@@ -110,10 +103,10 @@ fn sandbox_policy_into_upstream(
         AppSandboxPolicy::ReadOnly {
             access,
             network_access,
-        } => upstream::SandboxPolicy::ReadOnly {
-            access: read_only_access_into_upstream(access)?,
-            network_access,
-        },
+        } => {
+            ensure_read_only_access_supported(access)?;
+            upstream::SandboxPolicy::ReadOnly { network_access }
+        }
         AppSandboxPolicy::ExternalSandbox { network_access } => {
             upstream::SandboxPolicy::ExternalSandbox {
                 network_access: network_access_into_upstream(network_access),
@@ -125,16 +118,18 @@ fn sandbox_policy_into_upstream(
             network_access,
             exclude_tmpdir_env_var,
             exclude_slash_tmp,
-        } => upstream::SandboxPolicy::WorkspaceWrite {
-            writable_roots: writable_roots
-                .into_iter()
-                .map(absolute_path_buf_from_mobile)
-                .collect::<Result<Vec<_>, _>>()?,
-            read_only_access: read_only_access_into_upstream(read_only_access)?,
-            network_access,
-            exclude_tmpdir_env_var,
-            exclude_slash_tmp,
-        },
+        } => {
+            ensure_read_only_access_supported(read_only_access)?;
+            upstream::SandboxPolicy::WorkspaceWrite {
+                writable_roots: writable_roots
+                    .into_iter()
+                    .map(absolute_path_buf_from_mobile)
+                    .collect::<Result<Vec<_>, _>>()?,
+                network_access,
+                exclude_tmpdir_env_var,
+                exclude_slash_tmp,
+            }
+        }
     })
 }
 
@@ -340,7 +335,7 @@ impl TryFrom<AppStartThreadRequest> for upstream::ThreadStartParams {
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
             approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permission_profile: None,
+            permissions: None,
             config: None,
             service_name: None,
             base_instructions: None,
@@ -348,6 +343,7 @@ impl TryFrom<AppStartThreadRequest> for upstream::ThreadStartParams {
             personality: None,
             ephemeral: value.ephemeral,
             session_start_source: None,
+            thread_source: None,
             dynamic_tools: value
                 .dynamic_tools
                 .map(|tools| {
@@ -410,7 +406,7 @@ impl TryFrom<AppResumeThreadRequest> for upstream::ThreadResumeParams {
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
             approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permission_profile: None,
+            permissions: None,
             config: None,
             base_instructions: None,
             developer_instructions: value.developer_instructions,
@@ -451,11 +447,12 @@ impl TryFrom<AppForkThreadRequest> for upstream::ThreadForkParams {
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
             approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permission_profile: None,
+            permissions: None,
             config: None,
             base_instructions: None,
             developer_instructions: value.developer_instructions,
             ephemeral: false,
+            thread_source: None,
             exclude_turns: value.exclude_turns,
             persist_extended_history: value.persist_extended_history,
         })
@@ -710,7 +707,10 @@ impl TryFrom<AppListPluginsRequest> for upstream::PluginListParams {
             }
             Some(converted)
         };
-        Ok(Self { cwds })
+        Ok(Self {
+            cwds,
+            marketplace_kinds: None,
+        })
     }
 }
 
@@ -753,9 +753,12 @@ impl TryFrom<AppStartTurnRequest> for upstream::TurnStartParams {
                 .map(sandbox_policy_into_upstream)
                 .transpose()?,
             environments: None,
-            permission_profile: None,
+            permissions: None,
             model: value.model,
-            service_tier: value.service_tier.map(service_tier_into_upstream).map(Some),
+            service_tier: value
+                .service_tier
+                .map(service_tier_into_upstream_string)
+                .map(Some),
             effort: value.effort.map(reasoning_effort_into_upstream),
             summary: None,
             personality: None,
@@ -802,7 +805,7 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
         Ok(Self {
             thread_id: value.thread_id,
             prompt: Some(Some(value.prompt)),
-            session_id: value.session_id,
+            realtime_session_id: value.session_id,
             output_modality: value
                 .output_modality
                 .unwrap_or(crate::types::models::AppRealtimeOutputModality::Audio)
@@ -951,7 +954,9 @@ impl From<AppLoginAccountRequest> for upstream::LoginAccountParams {
     fn from(value: AppLoginAccountRequest) -> Self {
         match value {
             AppLoginAccountRequest::ApiKey { api_key } => Self::ApiKey { api_key },
-            AppLoginAccountRequest::Chatgpt => Self::Chatgpt,
+            AppLoginAccountRequest::Chatgpt => Self::Chatgpt {
+                codex_streamlined_login: false,
+            },
             AppLoginAccountRequest::ChatgptAuthTokens {
                 access_token,
                 chatgpt_account_id,

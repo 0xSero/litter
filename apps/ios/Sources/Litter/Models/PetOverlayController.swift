@@ -26,10 +26,15 @@ struct CachedPetPackage: Equatable {
 final class PetOverlayController {
     static let shared = PetOverlayController()
 
+    static let minPetScale: CGFloat = 0.25
+    static let maxPetScale: CGFloat = 5.0
+    static let defaultPetScale: CGFloat = 1.0
+
     private let visibleKey = "litter.petOverlay.visible"
     private let serverIdKey = "litter.petOverlay.serverId"
     private let petIdKey = "litter.petOverlay.petId"
     private let petNameKey = "litter.petOverlay.petName"
+    private let petScaleKey = "litter.petOverlay.petScale"
 
     private(set) var visible = false
     private(set) var selectedPet: CachedPetPackage?
@@ -37,10 +42,16 @@ final class PetOverlayController {
     private(set) var errorMessage: String?
     var dragOffset = CGSize(width: 24, height: 96)
     private(set) var isDragging = false
+    private(set) var petScale: CGFloat = PetOverlayController.defaultPetScale
+    private(set) var isPinching = false
+    private var pinchInitialScale: CGFloat = PetOverlayController.defaultPetScale
     private var dragDirection = PetAvatarState.runningRight
 
     private init() {
         visible = UserDefaults.standard.bool(forKey: visibleKey)
+        let savedScale = UserDefaults.standard.object(forKey: petScaleKey) as? Double
+            ?? Double(Self.defaultPetScale)
+        petScale = Self.clampScale(CGFloat(savedScale))
         guard let serverId = UserDefaults.standard.string(forKey: serverIdKey),
               let petId = UserDefaults.standard.string(forKey: petIdKey),
               let name = UserDefaults.standard.string(forKey: petNameKey),
@@ -52,6 +63,10 @@ final class PetOverlayController {
             displayName: name,
             spritesheetBytes: data
         )
+    }
+
+    private static func clampScale(_ value: CGFloat) -> CGFloat {
+        min(maxPetScale, max(minPetScale, value))
     }
 
     func setVisible(_ next: Bool) {
@@ -100,6 +115,27 @@ final class PetOverlayController {
 
     func endDrag() {
         isDragging = false
+    }
+
+    func startPinch() {
+        guard !isPinching else { return }
+        pinchInitialScale = petScale
+        isPinching = true
+    }
+
+    func pinchBy(_ factor: CGFloat) {
+        guard factor.isFinite, factor > 0 else { return }
+        petScale = Self.clampScale(pinchInitialScale * factor)
+    }
+
+    func endPinch() {
+        isPinching = false
+        UserDefaults.standard.set(Double(petScale), forKey: petScaleKey)
+    }
+
+    func setScale(_ value: CGFloat) {
+        petScale = Self.clampScale(value)
+        UserDefaults.standard.set(Double(petScale), forKey: petScaleKey)
     }
 
     func avatarState(snapshot: AppSnapshotRecord?) -> PetAvatarState {

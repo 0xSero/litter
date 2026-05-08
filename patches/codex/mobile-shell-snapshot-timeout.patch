@@ -1,11 +1,11 @@
 diff --git a/codex-rs/core/src/shell_snapshot.rs b/codex-rs/core/src/shell_snapshot.rs
-index 29b50cb9e..bdad4f632 100644
+index b328a977d7..cc2acd038c 100644
 --- a/codex-rs/core/src/shell_snapshot.rs
 +++ b/codex-rs/core/src/shell_snapshot.rs
-@@ -29,6 +29,11 @@ pub struct ShellSnapshot {
+@@ -30,6 +30,11 @@ pub struct ShellSnapshot {
      pub cwd: AbsolutePathBuf,
  }
-
+ 
 +// On mobile (iOS/Android) the shell environment is minimal and snapshot
 +// attempts frequently timeout, adding 10s to every thread/start.
 +#[cfg(any(target_os = "ios", target_os = "android"))]

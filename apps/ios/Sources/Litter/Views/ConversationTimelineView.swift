@@ -714,23 +714,36 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
     private func makeDynamicToolModel(_ data: ConversationDynamicToolCallData) -> ToolCallCardModel {
         var sections: [ToolCallSection] = []
+        var metadata: [ToolCallKeyValue] = []
+        if let display = data.display {
+            metadata.append(contentsOf: display.metadata.map {
+                ToolCallKeyValue(key: $0.key, value: $0.value)
+            })
+        }
+        if let namespace = data.namespace, !namespace.isEmpty {
+            metadata.append(ToolCallKeyValue(key: "Namespace", value: namespace))
+        }
+        if let success = data.success {
+            metadata.append(ToolCallKeyValue(key: "Success", value: success ? "true" : "false"))
+        }
+        if !metadata.isEmpty {
+            sections.append(.kv(label: "Metadata", entries: metadata))
+        }
         if let arguments = data.argumentsJSON, !arguments.isEmpty {
             sections.append(.json(label: "Arguments", content: arguments))
         }
         if let contentSummary = data.contentSummary, !contentSummary.isEmpty {
             sections.append(.text(label: "Result", content: contentSummary))
         }
-        if let success = data.success {
-            sections.insert(
-                .kv(label: "Metadata", entries: [ToolCallKeyValue(key: "Success", value: success ? "true" : "false")]),
-                at: 0
-            )
-        }
+        let title = data.display?.title ?? "Dynamic Tool Call"
+        let summary = data.display?.summary
+            ?? data.namespace.map { "\($0).\(data.tool)" }
+            ?? data.tool
 
         return ToolCallCardModel(
             kind: .mcpToolCall,
-            title: "Dynamic Tool Call",
-            summary: data.tool,
+            title: title,
+            summary: summary,
             status: data.status.toolCallStatus,
             duration: formatDuration(data.durationMs),
             sections: sections
@@ -995,22 +1008,32 @@ private struct ConversationExplorationGroupRow: View {
     }
 
     private func explorationLabel(for action: ConversationCommandAction, fallback: String) -> String {
+        let suffix = explorationCommandSuffix(for: action)
         switch action.kind {
         case .read:
-            return action.path.map { "Read \(workspaceTitle(for: $0))" } ?? fallback
+            return action.path.map { "Read \(workspaceTitle(for: $0))\(suffix)" } ?? fallback
         case .search:
             if let query = action.query, let path = action.path {
-                return "Searched for \(query) in \(workspaceTitle(for: path))"
+                return "Searched for \(query) in \(workspaceTitle(for: path))\(suffix)"
             }
             if let query = action.query {
-                return "Searched for \(query)"
+                return "Searched for \(query)\(suffix)"
             }
             return fallback
         case .listFiles:
-            return action.path.map { "Listed files in \(workspaceTitle(for: $0))" } ?? fallback
+            return action.path.map { "Listed files in \(workspaceTitle(for: $0))\(suffix)" } ?? fallback
         case .unknown:
             return fallback
         }
+    }
+
+    private func explorationCommandSuffix(for action: ConversationCommandAction) -> String {
+        let command = action.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard command.hasSuffix(")"),
+              let start = command.range(of: " (", options: .backwards)?.lowerBound else {
+            return ""
+        }
+        return String(command[start...])
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = false) {

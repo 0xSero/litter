@@ -1,8 +1,8 @@
 diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
-index 396b7701be..a40731cbe3 100644
+index fd5cd7bcdc..4d8c5a1aef 100644
 --- a/codex-rs/core/src/exec.rs
 +++ b/codex-rs/core/src/exec.rs
-@@ -47,6 +47,59 @@ use codex_utils_absolute_path::AbsolutePathBuf;
+@@ -48,6 +48,59 @@ use codex_utils_absolute_path::AbsolutePathBuf;
  use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
  use codex_utils_pty::process_group::kill_child_process_group;
  
@@ -62,7 +62,7 @@ index 396b7701be..a40731cbe3 100644
  pub const DEFAULT_EXEC_COMMAND_TIMEOUT_MS: u64 = 10_000;
  
  // Hardcode these since it does not seem worth including the libc crate just
-@@ -837,6 +890,7 @@ async fn exec(
+@@ -912,6 +965,7 @@ fn aggregate_output(
  /// Note this command does not apply any sandboxing logic. The caller is
  /// responsible for constructing [ExecParams::command] to include any sandboxing
  /// wrapper args, as appropriate.
@@ -70,7 +70,7 @@ index 396b7701be..a40731cbe3 100644
  async fn exec(
      params: ExecParams,
      network_sandbox_policy: NetworkSandboxPolicy,
-@@ -860,6 +914,55 @@ async fn exec(
+@@ -938,6 +992,55 @@ async fn exec(
      if let Some(network) = network.as_ref() {
          network.apply_to_env(&mut env);
      }
@@ -127,13 +127,13 @@ index 396b7701be..a40731cbe3 100644
      let (program, args) = command.split_first().ok_or_else(|| {
          CodexErr::Io(io::Error::new(
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
-index 5181359698..28b48c9919 100644
+index 4f85b1ddf7..5cbd1943e5 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager.rs
-@@ -237,6 +237,12 @@ impl UnifiedExecProcessManager {
-             .workdir
-             .clone()
-             .unwrap_or_else(|| context.turn.cwd.clone());
+@@ -372,6 +372,12 @@ impl UnifiedExecProcessManager {
+         context: &UnifiedExecContext,
+     ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
+         let cwd = request.cwd.clone();
 +        #[cfg(target_os = "ios")]
 +        {
 +            return self.exec_command_ios(&request, cwd, context).await;
@@ -143,7 +143,7 @@ index 5181359698..28b48c9919 100644
          let process = self
              .open_session_with_sandbox(&request, cwd.clone(), context)
              .await;
-@@ -404,6 +410,86 @@ impl UnifiedExecProcessManager {
+@@ -591,6 +597,84 @@ impl UnifiedExecProcessManager {
          Ok(response)
      }
  
@@ -221,9 +221,7 @@ index 5181359698..28b48c9919 100644
 +            process_id: None,
 +            exit_code: Some(exit_code),
 +            original_token_count: Some(original_token_count),
-+            hook_command: Some(codex_shell_command::parse_command::shlex_join(
-+                &request.command,
-+            )),
++            hook_command: Some(request.hook_command.clone()),
 +        })
 +    }
 +

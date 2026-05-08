@@ -1,0 +1,482 @@
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -166,6 +166,8 @@
+     pub transport: Option<ConversationStartTransport>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub voice: Option<RealtimeVoice>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub dynamic_tools: Option<Vec<crate::dynamic_tools::DynamicToolSpec>>,
+ }
+ 
+ #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
+@@ -384,6 +386,7 @@
+     },
+     HandoffRequested(RealtimeHandoffRequested),
+     NoopRequested(RealtimeNoopRequested),
++    ToolCallRequested(Value),
+     Error(String),
+ }
+ 
+@@ -423,6 +426,11 @@
+     /// Close the running realtime conversation stream.
+     RealtimeConversationClose,
+ 
++    /// Resolve a dynamic tool call from the realtime conversation with output text.
++    /// The output is sent to the realtime API as `function_call_output` and a
++    /// `response.create` is queued so the model continues speaking.
++    RealtimeResolveDynamicTool { call_id: String, output: String },
++
+     /// Request the list of voices supported by realtime conversation streams.
+     RealtimeConversationListVoices,
+ 
+@@ -845,6 +853,7 @@
+             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
+             Self::RealtimeConversationText(_) => "realtime_conversation_text",
+             Self::RealtimeConversationClose => "realtime_conversation_close",
++            Self::RealtimeResolveDynamicTool { .. } => "realtime_resolve_dynamic_tool",
+             Self::RealtimeConversationListVoices => "realtime_conversation_list_voices",
+             Self::UserInput { .. } => "user_input",
+             Self::UserInputWithTurnContext { .. } => "user_input_with_turn_context",
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol.rs
+@@ -20,7 +20,7 @@
+     Transcription,
+ }
+ 
+-#[derive(Debug, Clone, PartialEq, Eq)]
++#[derive(Debug, Clone, PartialEq)]
+ pub struct RealtimeSessionConfig {
+     pub instructions: String,
+     pub model: Option<String>,
+@@ -29,6 +29,7 @@
+     pub session_mode: RealtimeSessionMode,
+     pub output_modality: RealtimeOutputModality,
+     pub voice: RealtimeVoice,
++    pub dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
+ }
+ 
+ #[derive(Debug, Clone, Serialize)]
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_common.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_common.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_common.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_common.rs
+@@ -62,13 +62,18 @@
+     session_mode: RealtimeSessionMode,
+     output_modality: RealtimeOutputModality,
+     voice: RealtimeVoice,
++    dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
+ ) -> SessionUpdateSession {
+     let session_mode = normalized_session_mode(event_parser, session_mode);
+     match event_parser {
+         RealtimeEventParser::V1 => v1_session_update_session(instructions, voice),
+-        RealtimeEventParser::RealtimeV2 => {
+-            v2_session_update_session(instructions, session_mode, output_modality, voice)
+-        }
++        RealtimeEventParser::RealtimeV2 => v2_session_update_session(
++            instructions,
++            session_mode,
++            output_modality,
++            voice,
++            dynamic_tools,
++        ),
+     }
+ }
+ 
+@@ -79,6 +84,7 @@
+         config.session_mode,
+         config.output_modality,
+         config.voice,
++        config.dynamic_tools,
+     );
+     session.id = config.session_id;
+     session.model = config.model;
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_v2.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_v2.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_v2.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods_v2.rs
+@@ -25,6 +25,7 @@
+ use crate::endpoint::realtime_websocket::protocol::SessionType;
+ use crate::endpoint::realtime_websocket::protocol::SessionUpdateSession;
+ use crate::endpoint::realtime_websocket::protocol::TurnDetectionType;
++use codex_protocol::dynamic_tools::DynamicToolSpec;
+ use serde_json::json;
+ 
+ const REALTIME_V2_OUTPUT_MODALITY_AUDIO: &str = "audio";
+@@ -67,6 +68,7 @@
+     session_mode: RealtimeSessionMode,
+     output_modality: RealtimeOutputModality,
+     voice: RealtimeVoice,
++    dynamic_tools: Option<Vec<DynamicToolSpec>>,
+ ) -> SessionUpdateSession {
+     match session_mode {
+         RealtimeSessionMode::Conversational => SessionUpdateSession {
+@@ -102,34 +104,7 @@
+                     voice,
+                 }),
+             },
+-            tools: Some(vec![
+-                SessionFunctionTool {
+-                    r#type: SessionToolType::Function,
+-                    name: REALTIME_V2_BACKGROUND_AGENT_TOOL_NAME.to_string(),
+-                    description: REALTIME_V2_BACKGROUND_AGENT_TOOL_DESCRIPTION.to_string(),
+-                    parameters: json!({
+-                        "type": "object",
+-                        "properties": {
+-                            "prompt": {
+-                                "type": "string",
+-                                "description": "The user request to delegate to the background agent."
+-                            }
+-                        },
+-                        "required": ["prompt"],
+-                        "additionalProperties": false
+-                    }),
+-                },
+-                SessionFunctionTool {
+-                    r#type: SessionToolType::Function,
+-                    name: REALTIME_V2_SILENCE_TOOL_NAME.to_string(),
+-                    description: REALTIME_V2_SILENCE_TOOL_DESCRIPTION.to_string(),
+-                    parameters: json!({
+-                        "type": "object",
+-                        "properties": {},
+-                        "additionalProperties": false
+-                    }),
+-                },
+-            ]),
++            tools: Some(realtime_v2_session_tools(dynamic_tools)),
+             tool_choice: Some(REALTIME_V2_TOOL_CHOICE.to_string()),
+         },
+         RealtimeSessionMode::Transcription => SessionUpdateSession {
+@@ -158,6 +133,52 @@
+     }
+ }
+ 
++pub(super) fn realtime_v2_session_tools(
++    dynamic_tools: Option<Vec<DynamicToolSpec>>,
++) -> Vec<SessionFunctionTool> {
++    let mut tools = vec![
++        SessionFunctionTool {
++            r#type: SessionToolType::Function,
++            name: REALTIME_V2_BACKGROUND_AGENT_TOOL_NAME.to_string(),
++            description: REALTIME_V2_BACKGROUND_AGENT_TOOL_DESCRIPTION.to_string(),
++            parameters: json!({
++                "type": "object",
++                "properties": {
++                    "prompt": {
++                        "type": "string",
++                        "description": "The user request to delegate to the background agent."
++                    },
++                    "server": {
++                        "type": "string",
++                        "description": "Target server identifier for routing the handoff."
++                    }
++                },
++                "required": ["prompt", "server"],
++                "additionalProperties": false
++            }),
++        },
++        SessionFunctionTool {
++            r#type: SessionToolType::Function,
++            name: REALTIME_V2_SILENCE_TOOL_NAME.to_string(),
++            description: REALTIME_V2_SILENCE_TOOL_DESCRIPTION.to_string(),
++            parameters: json!({
++                "type": "object",
++                "properties": {},
++                "additionalProperties": false
++            }),
++        },
++    ];
++    if let Some(dynamic_tools) = dynamic_tools {
++        tools.extend(dynamic_tools.into_iter().map(|tool| SessionFunctionTool {
++            r#type: SessionToolType::Function,
++            name: tool.name,
++            description: tool.description,
++            parameters: tool.input_schema,
++        }));
++    }
++    tools
++}
++
+ fn output_modality_value(output_modality: RealtimeOutputModality) -> &'static str {
+     match output_modality {
+         RealtimeOutputModality::Text => REALTIME_V2_OUTPUT_MODALITY_TEXT,
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+@@ -315,6 +315,7 @@
+         session_mode: RealtimeSessionMode,
+         output_modality: RealtimeOutputModality,
+         voice: RealtimeVoice,
++        dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
+     ) -> Result<(), ApiError> {
+         let session_mode = normalized_session_mode(self.event_parser, session_mode);
+         let session = session_update_session(
+@@ -323,6 +324,7 @@
+             session_mode,
+             output_modality,
+             voice,
++            dynamic_tools,
+         );
+         self.send_json(&RealtimeOutboundMessage::SessionUpdate { session })
+             .await
+@@ -477,6 +479,7 @@
+             | RealtimeEvent::ConversationItemDone { .. }
+             | RealtimeEvent::NoopRequested(_)
+             | RealtimeEvent::ConversationItemAdded(_)
++            | RealtimeEvent::ToolCallRequested(_)
+             | RealtimeEvent::Error(_) => {}
+         }
+     }
+@@ -687,6 +690,7 @@
+                 config.session_mode,
+                 config.output_modality,
+                 config.voice,
++                config.dynamic_tools,
+             )
+             .await?;
+         Ok(connection)
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
+@@ -133,6 +133,18 @@
+         return Some(noop);
+     }
+ 
++    // Emit ToolCallRequested for completed function_call items whose name is
++    // not the in-process background_agent tool. The bespoke layer routes
++    // these to the client via the existing DynamicToolCall server-request flow.
++    if item.get("type").and_then(Value::as_str) == Some("function_call")
++        && item.get("status").and_then(Value::as_str) == Some("completed")
++        && item.get("name").and_then(Value::as_str) != Some(BACKGROUND_AGENT_TOOL_NAME)
++    {
++        return Some(RealtimeEvent::ToolCallRequested(Value::Object(
++            item.clone(),
++        )));
++    }
++
+     item.get("id")
+         .and_then(Value::as_str)
+         .map(str::to_string)
+diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
+--- a/codex-rs/core/src/realtime_conversation.rs
++++ b/codex-rs/core/src/realtime_conversation.rs
+@@ -114,6 +114,10 @@
+         handoff_id: String,
+         output_text: String,
+     },
++    DynamicToolOutput {
++        call_id: String,
++        output_text: String,
++    },
+ }
+ 
+ #[derive(Debug, PartialEq, Eq)]
+@@ -481,6 +485,20 @@
+         Ok(())
+     }
+ 
++    pub(crate) async fn resolve_realtime_dynamic_tool(&self, call_id: String, output_text: String) {
++        let guard = self.state.lock().await;
++        if let Some(state) = guard.as_ref() {
++            let _ = state
++                .handoff
++                .output_tx
++                .send(HandoffOutput::DynamicToolOutput {
++                    call_id,
++                    output_text,
++                })
++                .await;
++        }
++    }
++
+     pub(crate) async fn handoff_complete(&self) -> CodexResult<()> {
+         let handoff = {
+             let guard = self.state.lock().await;
+@@ -632,6 +650,7 @@
+         params.realtime_session_id,
+         params.output_modality,
+         params.voice,
++        params.dynamic_tools,
+     )
+     .await?;
+     let requested_realtime_session_id = session_config.session_id.clone();
+@@ -667,6 +686,7 @@
+     realtime_session_id: Option<String>,
+     output_modality: RealtimeOutputModality,
+     voice: Option<RealtimeVoice>,
++    dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
+ ) -> CodexResult<RealtimeSessionConfig> {
+     let config = sess.get_config().await;
+     let prompt = prepare_realtime_backend_prompt(
+@@ -720,6 +740,7 @@
+         session_mode,
+         output_modality,
+         voice,
++        dynamic_tools,
+     })
+ }
+ 
+@@ -1195,6 +1216,14 @@
+             } => {
+                 writer
+                     .send_conversation_function_call_output(handoff_id, output_text)
++                    .await
++            }
++            HandoffOutput::DynamicToolOutput {
++                call_id,
++                output_text,
++            } => {
++                writer
++                    .send_conversation_function_call_output(call_id, output_text)
+                     .await
+             }
+         },
+@@ -1231,6 +1260,21 @@
+                         .await;
+                 }
+             }
++            HandoffOutput::DynamicToolOutput {
++                call_id,
++                output_text,
++            } => {
++                if let Err(err) = writer
++                    .send_conversation_function_call_output(call_id, output_text)
++                    .await
++                {
++                    Err(err)
++                } else {
++                    return response_create_queue
++                        .request_create(writer, events_tx, "dynamic_tool")
++                        .await;
++                }
++            }
+         },
+     };
+     if let Err(err) = result {
+@@ -1416,6 +1460,19 @@
+         | RealtimeEvent::OutputTranscriptDone(_)
+         | RealtimeEvent::ConversationItemAdded(_)
+         | RealtimeEvent::ConversationItemDone { .. } => false,
++        RealtimeEvent::ToolCallRequested(_) => {
++            // Realtime V2 dynamic tool calls are surfaced via the normal
++            // conversation-item pipeline. Clear output audio state so the
++            // follow-up response.create after the tool output is returned
++            // is not suppressed.
++            *output_audio_state = None;
++            if matches!(session_kind, RealtimeSessionKind::V2) {
++                response_create_queue
++                    .mark_finished(writer, events_tx, "tool_call")
++                    .await?;
++            }
++            false
++        }
+     };
+ 
+     if events_tx.send(event).await.is_err() {
+diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
+--- a/codex-rs/core/src/session/handlers.rs
++++ b/codex-rs/core/src/session/handlers.rs
+@@ -752,6 +752,12 @@
+                 }
+                 Op::RealtimeConversationClose => {
+                     handle_realtime_conversation_close(&sess, sub.id.clone()).await;
++                    false
++                }
++                Op::RealtimeResolveDynamicTool { call_id, output } => {
++                    sess.conversation
++                        .resolve_realtime_dynamic_tool(call_id, output)
++                        .await;
+                     false
+                 }
+                 Op::RealtimeConversationListVoices => {
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
+--- a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
+@@ -1,3 +1,4 @@
++use codex_protocol::dynamic_tools::DynamicToolSpec;
+ use codex_protocol::protocol::RealtimeAudioFrame as CoreRealtimeAudioFrame;
+ use codex_protocol::protocol::RealtimeConversationVersion;
+ use codex_protocol::protocol::RealtimeOutputModality;
+@@ -82,6 +83,9 @@
+     pub transport: Option<ThreadRealtimeStartTransport>,
+     #[ts(optional = nullable)]
+     pub voice: Option<RealtimeVoice>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    #[ts(optional = nullable)]
++    pub dynamic_tools: Option<Vec<DynamicToolSpec>>,
+ }
+ 
+ /// EXPERIMENTAL - transport used by thread realtime.
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -721,6 +721,7 @@
+                     }
+                 }),
+                 voice: params.voice,
++                dynamic_tools: params.dynamic_tools,
+             }),
+         )
+         .await
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -465,6 +465,59 @@
+                     .await;
+             }
+             RealtimeEvent::ConversationItemDone { .. } | RealtimeEvent::NoopRequested(_) => {}
++            RealtimeEvent::ToolCallRequested(item) => {
++                let call_id = item
++                    .get("call_id")
++                    .or_else(|| item.get("id"))
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("")
++                    .to_string();
++                let tool_name = item
++                    .get("name")
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("")
++                    .to_string();
++                let arguments_str = item
++                    .get("arguments")
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("{}")
++                    .to_string();
++                let arguments: serde_json::Value = serde_json::from_str(&arguments_str)
++                    .unwrap_or(serde_json::Value::Object(Default::default()));
++
++                let params = DynamicToolCallParams {
++                    thread_id: conversation_id.to_string(),
++                    turn_id: String::new(),
++                    call_id: call_id.clone(),
++                    namespace: None,
++                    tool: tool_name,
++                    arguments,
++                };
++                let (_pending_request_id, rx) = outgoing
++                    .send_request(ServerRequestPayload::DynamicToolCall(params))
++                    .await;
++
++                let thread = conversation.clone();
++                tokio::spawn(async move {
++                    let output = match rx.await {
++                        Ok(Ok(value)) => value
++                            .get("contentItems")
++                            .and_then(serde_json::Value::as_array)
++                            .and_then(|items| items.first())
++                            .and_then(|item| item.get("text"))
++                            .and_then(serde_json::Value::as_str)
++                            .unwrap_or("")
++                            .to_string(),
++                        _ => "Tool call failed".to_string(),
++                    };
++                    let _ = thread
++                        .submit(codex_protocol::protocol::Op::RealtimeResolveDynamicTool {
++                            call_id,
++                            output,
++                        })
++                        .await;
++                });
++            }
+             RealtimeEvent::HandoffRequested(handoff) => {
+                 let notification = ThreadRealtimeItemAddedNotification {
+                     thread_id: conversation_id.to_string(),

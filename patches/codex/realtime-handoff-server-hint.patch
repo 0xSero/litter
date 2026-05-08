@@ -1,0 +1,66 @@
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+index 64215566ee..5bd8385320 100644
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -474,6 +474,7 @@ pub(crate) async fn apply_bespoke_event_handling(
+                         "item_id": handoff.item_id,
+                         "input_transcript": handoff.input_transcript,
+                         "active_transcript": handoff.active_transcript,
++                        "server": handoff.server,
+                     }),
+                 };
+                 outgoing
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
+index 3c1d25aed7..afc4c7e3fe 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
+@@ -79,6 +79,7 @@ pub(super) fn parse_realtime_event_v1(payload: &str) -> Option<RealtimeEvent> {
+                 item_id,
+                 input_transcript,
+                 active_transcript: Vec::new(),
++                server: None,
+             }))
+         }
+         "error" => parse_error_event(&parsed),
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
+index ee0bba9946..22aa7d8263 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
+@@ -157,11 +157,24 @@ fn parse_handoff_requested_event(item: &JsonMap<String, Value>) -> Option<Realti
+         .to_string();
+     let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("");
+ 
++    let server = serde_json::from_str::<Value>(arguments)
++        .ok()
++        .as_ref()
++        .and_then(|parsed| {
++            parsed
++                .get("server")
++                .or_else(|| parsed.get("server_hint"))
++                .or_else(|| parsed.get("serverHint"))
++        })
++        .and_then(Value::as_str)
++        .map(str::to_string);
++
+     Some(RealtimeEvent::HandoffRequested(RealtimeHandoffRequested {
+         handoff_id: call_id.to_string(),
+         item_id,
+         input_transcript: extract_input_transcript(arguments),
+         active_transcript: Vec::new(),
++        server,
+     }))
+ }
+ 
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+index 30e33abe43..529e6e8248 100644
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -333,6 +333,8 @@ pub struct RealtimeHandoffRequested {
+     pub item_id: String,
+     pub input_transcript: String,
+     pub active_transcript: Vec<RealtimeTranscriptEntry>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub server: Option<String>,
+ }
+ 
+ #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]

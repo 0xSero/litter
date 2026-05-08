@@ -1905,7 +1905,7 @@ async fn start_ephemeral_thread_for_structured(
         approval_policy: None,
         approvals_reviewer: None,
         sandbox: None,
-        permission_profile: None,
+        permissions: None,
         config: None,
         service_name: None,
         base_instructions: None,
@@ -1913,6 +1913,7 @@ async fn start_ephemeral_thread_for_structured(
         personality: None,
         ephemeral: Some(true),
         session_start_source: None,
+        thread_source: None,
         environments: None,
         dynamic_tools: None,
         mock_experimental_field: None,
@@ -1956,7 +1957,7 @@ async fn run_structured_turn(
         approvals_reviewer: None,
         sandbox_policy: None,
         environments: None,
-        permission_profile: None,
+        permissions: None,
         model: None,
         service_tier: None,
         effort: None,
@@ -2151,7 +2152,7 @@ async fn perform_update_saved_app(
         None
     } else {
         Some(Some(
-            crate::types::server_requests::service_tier_into_upstream(
+            crate::types::server_requests::service_tier_into_upstream_string(
                 crate::types::ServiceTier::Fast,
             ),
         ))
@@ -2196,7 +2197,7 @@ async fn perform_update_saved_app(
         approval_policy: Some(upstream::AskForApproval::Never),
         approvals_reviewer: None,
         sandbox: Some(upstream::SandboxMode::DangerFullAccess),
-        permission_profile: None,
+        permissions: None,
         config: None,
         service_name: None,
         base_instructions: None,
@@ -2204,6 +2205,7 @@ async fn perform_update_saved_app(
         personality: None,
         ephemeral: Some(false),
         session_start_source: None,
+        thread_source: None,
         environments: None,
         dynamic_tools: None,
         mock_experimental_field: None,
@@ -2248,7 +2250,7 @@ async fn perform_update_saved_app(
         approvals_reviewer: None,
         sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
         environments: None,
-        permission_profile: None,
+        permissions: None,
         model: Some(model),
         service_tier,
         effort: Some(

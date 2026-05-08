@@ -1,8 +1,8 @@
 diff --git a/codex-rs/utils/absolute-path/src/lib.rs b/codex-rs/utils/absolute-path/src/lib.rs
-index 0de0f4e02..ba8df410f 100644
+index 6c37e0866e..4ff7e273fc 100644
 --- a/codex-rs/utils/absolute-path/src/lib.rs
 +++ b/codex-rs/utils/absolute-path/src/lib.rs
-@@ -180,6 +180,32 @@ impl Drop for AbsolutePathBufGuard {
+@@ -350,6 +350,32 @@ impl Drop for AbsolutePathBufGuard {
      }
  }
  
@@ -35,7 +35,7 @@ index 0de0f4e02..ba8df410f 100644
  impl<'de> Deserialize<'de> for AbsolutePathBuf {
      fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
      where
-@@ -193,6 +219,7 @@ impl<'de> Deserialize<'de> for AbsolutePathBuf {
+@@ -361,6 +387,7 @@ impl<'de> Deserialize<'de> for AbsolutePathBuf {
              None if path.is_absolute() => {
                  Self::from_absolute_path(path).map_err(SerdeError::custom)
              }

@@ -1,18 +1,18 @@
 diff --git a/codex-rs/code-mode/Cargo.toml b/codex-rs/code-mode/Cargo.toml
-index 23b2ce2306..9c18050292 100644
+index 19d6c3ab45..8d2a211b0d 100644
 --- a/codex-rs/code-mode/Cargo.toml
 +++ b/codex-rs/code-mode/Cargo.toml
-@@ -22,6 +22,8 @@ serde_json = { workspace = true }
+@@ -25,6 +25,8 @@ serde_json = { workspace = true }
  tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
  tokio-util = { workspace = true, features = ["rt"] }
  tracing = { workspace = true }
 +
 +[target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "linux")))'.dependencies]
  v8 = { workspace = true }
-
+ 
  [dev-dependencies]
 diff --git a/codex-rs/code-mode/src/lib.rs b/codex-rs/code-mode/src/lib.rs
-index bb27d99960..0240e2aa4a 100644
+index bf0ce699cc..bfb1aff123 100644
 --- a/codex-rs/code-mode/src/lib.rs
 +++ b/codex-rs/code-mode/src/lib.rs
 @@ -1,6 +1,14 @@
@@ -28,10 +28,11 @@ index bb27d99960..0240e2aa4a 100644
 +#[cfg(any(target_os = "ios", target_os = "android", target_os = "linux"))]
 +#[path = "service_stub.rs"]
  mod service;
-
+ 
  pub use description::CODE_MODE_PRAGMA_PREFIX;
 diff --git a/codex-rs/code-mode/src/runtime_stub.rs b/codex-rs/code-mode/src/runtime_stub.rs
 new file mode 100644
+index 0000000000..8050fe3e5c
 --- /dev/null
 +++ b/codex-rs/code-mode/src/runtime_stub.rs
 @@ -0,0 +1,69 @@
@@ -106,9 +107,10 @@ new file mode 100644
 +}
 diff --git a/codex-rs/code-mode/src/service_stub.rs b/codex-rs/code-mode/src/service_stub.rs
 new file mode 100644
+index 0000000000..f943591fb3
 --- /dev/null
 +++ b/codex-rs/code-mode/src/service_stub.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,93 @@
 +use std::collections::HashMap;
 +use std::sync::Arc;
 +use std::sync::atomic::{AtomicU64, Ordering};
@@ -159,7 +161,9 @@ new file mode 100644
 +    }
 +
 +    pub fn allocate_cell_id(&self) -> String {
-+        self.next_cell_id.fetch_add(1, Ordering::Relaxed).to_string()
++        self.next_cell_id
++            .fetch_add(1, Ordering::Relaxed)
++            .to_string()
 +    }
 +
 +    pub async fn execute(&self, request: ExecuteRequest) -> Result<RuntimeResponse, String> {

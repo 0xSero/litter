@@ -15,8 +15,30 @@ private const val THEME_LOG_TAG = "LitterThemeManager"
 private const val UI_PREFERENCES_NAME = "litter_ui_prefs"
 private const val SELECTED_LIGHT_THEME_KEY = "selected_light_theme"
 private const val SELECTED_DARK_THEME_KEY = "selected_dark_theme"
+private const val APPEARANCE_MODE_KEY = "appearance_mode"
 private const val DARK_MODE_KEY = "dark_mode_enabled"
 private const val FONT_MONO_KEY = "font_family_mono"
+
+enum class LitterAppearanceMode(
+    val storageValue: String,
+    val displayName: String,
+) {
+    SYSTEM("system", "System"),
+    LIGHT("light", "Light"),
+    DARK("dark", "Dark");
+
+    companion object {
+        fun fromStorageValue(value: String?): LitterAppearanceMode? =
+            entries.firstOrNull { it.storageValue.equals(value, ignoreCase = true) }
+    }
+
+    fun resolvesDarkTheme(systemIsDark: Boolean): Boolean =
+        when (this) {
+            SYSTEM -> systemIsDark
+            LIGHT -> false
+            DARK -> true
+        }
+}
 
 enum class LitterColorThemeType {
     LIGHT,
@@ -213,7 +235,7 @@ object LitterThemeManager {
     private var definitionCache = LinkedHashMap<String, LitterThemeDefinition>()
     private var systemIsDark = false
 
-    var darkModeEnabled by mutableStateOf(false)
+    var appearanceMode by mutableStateOf(LitterAppearanceMode.SYSTEM)
         private set
 
     var monoFontEnabled by mutableStateOf(true)
@@ -260,11 +282,9 @@ object LitterThemeManager {
             darkTheme = loadAndResolve(selectedDarkSlug) ?: LitterResolvedTheme.defaultDark
             val nightModeFlags = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
             val systemIsDarkMode = nightModeFlags == Configuration.UI_MODE_NIGHT_YES
-            val hasDarkModePref = preferences?.contains(DARK_MODE_KEY) ?: false
-            // Default to dark mode (matching iOS) when no preference is stored
-            val storedDark = if (hasDarkModePref) preferences?.getBoolean(DARK_MODE_KEY, false) ?: false else true
-            darkModeEnabled = storedDark
-            activeTheme = if (storedDark) darkTheme else lightTheme
+            systemIsDark = systemIsDarkMode
+            appearanceMode = loadAppearanceMode()
+            activeTheme = themeForMode(appearanceMode)
             monoFontEnabled = preferences?.getBoolean(FONT_MONO_KEY, true) ?: true
             initialized = true
         }
@@ -272,19 +292,20 @@ object LitterThemeManager {
 
     fun applySystemTheme(isDark: Boolean) {
         systemIsDark = isDark
-        val nextTheme = if (darkModeEnabled) darkTheme else lightTheme
-        if (activeTheme.slug != nextTheme.slug || activeTheme.type != nextTheme.type) {
-            activeTheme = nextTheme
-        }
+        applyActiveTheme()
     }
 
     fun applyDarkMode(enabled: Boolean) {
-        preferences?.edit()?.putBoolean(DARK_MODE_KEY, enabled)?.apply()
-        darkModeEnabled = enabled
-        val nextTheme = if (enabled) darkTheme else lightTheme
-        if (activeTheme.slug != nextTheme.slug || activeTheme.type != nextTheme.type) {
-            activeTheme = nextTheme
+        applyAppearanceMode(if (enabled) LitterAppearanceMode.DARK else LitterAppearanceMode.LIGHT)
+    }
+
+    fun applyAppearanceMode(mode: LitterAppearanceMode) {
+        preferences?.edit()?.putString(APPEARANCE_MODE_KEY, mode.storageValue)?.apply()
+        if (appearanceMode != mode) {
+            appearanceMode = mode
+            themeVersion += 1
         }
+        applyActiveTheme()
     }
 
     fun applyFont(isMono: Boolean) {
@@ -295,7 +316,7 @@ object LitterThemeManager {
     fun selectLightTheme(slug: String) {
         preferences?.edit()?.putString(SELECTED_LIGHT_THEME_KEY, slug)?.apply()
         lightTheme = loadAndResolve(slug) ?: LitterResolvedTheme.defaultLight
-        if (!systemIsDark) {
+        if (!usesDarkTheme()) {
             activeTheme = lightTheme
         }
         themeVersion += 1
@@ -304,10 +325,43 @@ object LitterThemeManager {
     fun selectDarkTheme(slug: String) {
         preferences?.edit()?.putString(SELECTED_DARK_THEME_KEY, slug)?.apply()
         darkTheme = loadAndResolve(slug) ?: LitterResolvedTheme.defaultDark
-        if (systemIsDark) {
+        if (usesDarkTheme()) {
             activeTheme = darkTheme
         }
         themeVersion += 1
+    }
+
+    private fun loadAppearanceMode(): LitterAppearanceMode {
+        val prefs = preferences ?: return LitterAppearanceMode.SYSTEM
+        LitterAppearanceMode.fromStorageValue(prefs.getString(APPEARANCE_MODE_KEY, null))?.let {
+            return it
+        }
+        return if (prefs.contains(DARK_MODE_KEY)) {
+            if (prefs.getBoolean(DARK_MODE_KEY, false)) {
+                LitterAppearanceMode.DARK
+            } else {
+                LitterAppearanceMode.LIGHT
+            }
+        } else {
+            LitterAppearanceMode.SYSTEM
+        }
+    }
+
+    private fun usesDarkTheme(mode: LitterAppearanceMode = appearanceMode): Boolean =
+        mode.resolvesDarkTheme(systemIsDark)
+
+    private fun themeForMode(mode: LitterAppearanceMode): LitterResolvedTheme =
+        if (usesDarkTheme(mode)) {
+            darkTheme
+        } else {
+            lightTheme
+        }
+
+    private fun applyActiveTheme() {
+        val nextTheme = themeForMode(appearanceMode)
+        if (activeTheme.slug != nextTheme.slug || activeTheme.type != nextTheme.type) {
+            activeTheme = nextTheme
+        }
     }
 
     private fun loadThemeIndex(): List<LitterThemeIndexEntry> {

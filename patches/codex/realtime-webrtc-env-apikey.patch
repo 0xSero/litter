@@ -1,21 +1,16 @@
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
-index 0ca7c1c169..007aeb7122 100644
+index 249b3ae15f..ac6e5884f7 100644
 --- a/codex-rs/core/src/realtime_conversation.rs
 +++ b/codex-rs/core/src/realtime_conversation.rs
-@@ -634,7 +634,15 @@ async fn prepare_realtime_start(
+@@ -644,9 +644,10 @@ async fn prepare_realtime_start(
              )?
          }
          ConversationStartTransport::Webrtc { .. } => {
--            realtime_request_headers(requested_session_id.as_deref(), /*api_key*/ None)?
-+            // Keep behavior parity with the WebSocket branch when api_auth is absent
-+            // (e.g. OPENAI_API_KEY env var only, no auth.json). Without this fallback,
-+            // create_realtime_call_with_headers relies solely on client_setup.api_auth
-+            // which is empty in that setup.
 +            let realtime_api_key = realtime_api_key(auth.as_ref(), &provider).ok();
-+            realtime_request_headers(
-+                requested_session_id.as_deref(),
+             realtime_request_headers(
+                 requested_realtime_session_id.as_deref(),
+-                /*api_key*/ None,
 +                realtime_api_key.as_deref(),
-+            )?
+             )?
          }
      };
-     Ok(PreparedRealtimeConversationStart {

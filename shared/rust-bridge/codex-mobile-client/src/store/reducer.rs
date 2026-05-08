@@ -1951,19 +1951,19 @@ impl AppStoreReducer {
                 {
                     let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
                     snapshot.voice_session.active_thread = Some(key.clone());
-                    snapshot.voice_session.session_id = notification.session_id.clone();
+                    snapshot.voice_session.session_id = notification.realtime_session_id.clone();
                     snapshot.voice_session.phase = Some(AppVoiceSessionPhase::Listening);
                     snapshot.voice_session.last_error = None;
                     snapshot.voice_session.transcript_entries.clear();
                     snapshot.voice_session.handoff_thread_key = None;
                     if let Some(thread) = snapshot.threads.get_mut(key) {
-                        thread.realtime_session_id = notification.session_id.clone();
+                        thread.realtime_session_id = notification.realtime_session_id.clone();
                     }
                 }
                 self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
                 let protocol_notification = crate::types::AppRealtimeStartedNotification {
                     thread_id: notification.thread_id.clone(),
-                    session_id: notification.session_id.clone(),
+                    session_id: notification.realtime_session_id.clone(),
                     version: match notification.version {
                         codex_protocol::protocol::RealtimeConversationVersion::V1 => {
                             "v1".to_string()

@@ -270,6 +270,7 @@ pub fn project_conversation_state(
 
     let thread = upstream::Thread {
         id: conversation_id.to_string(),
+        session_id: conversation_id.to_string(),
         forked_from_id: None,
         preview: thread_preview(&turns).unwrap_or_default(),
         ephemeral: conversation.ephemeral.unwrap_or(false),
@@ -289,6 +290,7 @@ pub fn project_conversation_state(
         cwd,
         cli_version: conversation.cli_version.unwrap_or_default(),
         source: conversation.source.unwrap_or_default(),
+        thread_source: None,
         agent_nickname: conversation.agent_nickname.and_then(non_empty_option_owned),
         agent_role: conversation.agent_role.and_then(non_empty_option_owned),
         git_info: conversation.git_info,
@@ -434,6 +436,7 @@ fn project_turn(
     Ok(upstream::Turn {
         id: turn_id,
         items,
+        items_view: upstream::TurnItemsView::Full,
         status: parse_turn_status(turn.status.as_deref()),
         error: turn.error.clone(),
         started_at: None,

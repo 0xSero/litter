@@ -1056,17 +1056,25 @@ private fun DynamicToolCallRow(
         return
     }
 
+    val display = data.display
+    val summary = display?.summary?.takeIf { it.isNotBlank() }
+        ?: data.namespace?.takeIf { it.isNotBlank() }?.let { "$it.${data.tool}" }
+        ?: data.tool
+    val metadata = buildList {
+        display?.metadata?.forEach { entry ->
+            add(entry.key to entry.value)
+        }
+        data.namespace?.takeIf { it.isNotBlank() }?.let { add("Namespace" to it) }
+        data.success?.let { add("Success" to it.toString()) }
+    }
     ToolCardShell(
-        summary = data.tool,
+        summary = summary,
         accent = LitterTheme.toolCallMcpCall,
         status = data.status,
         durationMs = data.durationMs,
     ) {
-        data.success?.let { success ->
-            KeyValueSection(
-                label = "Metadata",
-                entries = listOf("Success" to success.toString()),
-            )
+        if (metadata.isNotEmpty()) {
+            KeyValueSection(label = "Metadata", entries = metadata)
         }
         data.argumentsJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Arguments", it) }
         data.contentSummary?.takeIf { it.isNotBlank() }?.let { InlineTextSection("Result", it) }

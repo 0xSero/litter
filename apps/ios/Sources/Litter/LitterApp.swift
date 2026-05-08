@@ -379,6 +379,7 @@ struct ContentView: View {
     @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
 
     private var textScale: CGFloat {
@@ -456,17 +457,26 @@ struct ContentView: View {
         .environment(appState)
         .environment(conversationWarmup)
         .environment(\.textScale, textScale)
+        .preferredColorScheme(themeManager.appearanceMode.preferredColorScheme)
+        .background {
+            InterfaceStyleSynchronizer(style: themeManager.appearanceMode.userInterfaceStyle)
+                .frame(width: 0, height: 0)
+        }
         #if targetEnvironment(macCatalyst)
         .background {
             MacWindowTitleBarStyler()
         }
         #endif
         .onAppear {
+            themeManager.syncSystemColorScheme(colorScheme)
             let forceDiscoveryForUITest =
                 ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] == "1"
             if forceDiscoveryForUITest {
                 appState.showServerPicker = true
             }
+        }
+        .onChange(of: colorScheme) { _, nextColorScheme in
+            themeManager.syncSystemColorScheme(nextColorScheme)
         }
         .onChange(of: appModel.snapshot?.activeThread) { _, _ in
             appState.selectedModel = ""
@@ -493,12 +503,57 @@ struct ContentView: View {
                 .environment(appState)
                 .environment(themeManager)
                 .environment(\.textScale, textScale)
+                .background {
+                    InterfaceStyleSynchronizer(style: themeManager.appearanceMode.userInterfaceStyle)
+                        .frame(width: 0, height: 0)
+                }
         }
         #if targetEnvironment(macCatalyst)
         .onReceive(NotificationCenter.default.publisher(for: .litterCommandShowSettings)) { _ in
             appState.showSettings = true
         }
         #endif
+    }
+}
+
+private struct InterfaceStyleSynchronizer: UIViewRepresentable {
+    let style: UIUserInterfaceStyle
+
+    func makeUIView(context: Context) -> InterfaceStyleSyncView {
+        let view = InterfaceStyleSyncView()
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        view.targetStyle = style
+        return view
+    }
+
+    func updateUIView(_ uiView: InterfaceStyleSyncView, context: Context) {
+        uiView.targetStyle = style
+    }
+
+    final class InterfaceStyleSyncView: UIView {
+        var targetStyle: UIUserInterfaceStyle = .unspecified {
+            didSet { applyStyleIfNeeded() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyStyleIfNeeded()
+            DispatchQueue.main.async { [weak self] in
+                self?.applyStyleIfNeeded()
+            }
+        }
+
+        private func applyStyleIfNeeded() {
+            guard let window else { return }
+            if window.overrideUserInterfaceStyle != targetStyle {
+                window.overrideUserInterfaceStyle = targetStyle
+            }
+            guard let windowScene = window.windowScene else { return }
+            for sceneWindow in windowScene.windows where sceneWindow.overrideUserInterfaceStyle != targetStyle {
+                sceneWindow.overrideUserInterfaceStyle = targetStyle
+            }
+        }
     }
 }
 
@@ -2043,58 +2098,62 @@ private struct ApprovalPromptView: View {
                     .litterFont(.headline)
                     .foregroundColor(LitterTheme.textPrimary)
 
-                if let reason = approval.reason, !reason.isEmpty {
-                    Text(reason)
-                        .litterFont(.footnote)
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-
-                if let threadId = approval.threadId, onViewThread != nil {
-                    HStack {
-                        Button {
-                            onViewThread?(ThreadKey(serverId: approval.serverId, threadId: threadId))
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text("View Thread")
-                                    .litterFont(.caption, weight: .medium)
-                                Image(systemName: "arrow.right")
-                                    .litterFont(size: 9, weight: .semibold)
-                            }
-                            .foregroundColor(LitterTheme.accent)
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                    }
-                }
-
-                if let command = approval.command, !command.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Command")
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textMuted)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(command)
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let reason = approval.reason, !reason.isEmpty {
+                            Text(reason)
                                 .litterFont(.footnote)
-                                .foregroundColor(LitterTheme.textBody)
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(LitterTheme.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+
+                        if let threadId = approval.threadId, onViewThread != nil {
+                            HStack {
+                                Button {
+                                    onViewThread?(ThreadKey(serverId: approval.serverId, threadId: threadId))
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Text("View Thread")
+                                            .litterFont(.caption, weight: .medium)
+                                        Image(systemName: "arrow.right")
+                                            .litterFont(size: 9, weight: .semibold)
+                                    }
+                                    .foregroundColor(LitterTheme.accent)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
+                        }
+
+                        if let command = approval.command, !command.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Command")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text(command)
+                                    .litterFont(.footnote)
+                                    .foregroundColor(LitterTheme.textBody)
+                                    .textSelection(.enabled)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(LitterTheme.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+
+                        if let cwd = approval.cwd, !cwd.isEmpty {
+                            Text("CWD: \(cwd)")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textMuted)
+                        }
+
+                        if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
+                            Text("Grant Root: \(grantRoot)")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textMuted)
                         }
                     }
-                }
-
-                if let cwd = approval.cwd, !cwd.isEmpty {
-                    Text("CWD: \(cwd)")
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textMuted)
-                }
-
-                if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
-                    Text("Grant Root: \(grantRoot)")
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 VStack(spacing: 8) {
@@ -2121,6 +2180,7 @@ private struct ApprovalPromptView: View {
                 .litterFont(.callout)
             }
             .padding(16)
+            .frame(maxHeight: UIScreen.main.bounds.height * 0.8)
             .modifier(GlassRectModifier(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)

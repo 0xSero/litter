@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Observation
 
 extension Notification.Name {
@@ -12,6 +13,52 @@ final class ThemeStore: Sendable {
 
     nonisolated(unsafe) var light: ResolvedTheme = .defaultLight
     nonisolated(unsafe) var dark: ResolvedTheme = .defaultDark
+    nonisolated(unsafe) var colorScheme: ColorScheme = .dark
+}
+
+enum LitterAppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        }
+    }
+
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    func resolvedColorScheme(systemColorScheme: ColorScheme) -> ColorScheme {
+        preferredColorScheme ?? systemColorScheme
+    }
+
+    var userInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system:
+            return .unspecified
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
 }
 
 @MainActor
@@ -20,11 +67,14 @@ final class ThemeManager {
     static let shared = ThemeManager()
 
     private static let appGroupSuite = LitterPalette.appGroupSuite
+    private static let appearanceModeKey = "appearanceMode"
 
     private(set) var lightTheme: ResolvedTheme = .defaultLight
     private(set) var darkTheme: ResolvedTheme = .defaultDark
+    private(set) var appearanceMode: LitterAppearanceMode = .system
     private(set) var themeVersion: Int = 0
     private(set) var themeIndex: [ThemeIndexEntry] = []
+    private var systemColorScheme: ColorScheme = .dark
 
     var selectedLightSlug: String {
         get { UserDefaults.standard.string(forKey: "selectedLightTheme") ?? "kitty-litter-light" }
@@ -48,6 +98,8 @@ final class ThemeManager {
 
     private init() {
         loadThemeIndex()
+        appearanceMode = Self.storedAppearanceMode()
+        systemColorScheme = Self.currentSystemColorScheme()
         lightTheme = loadAndResolve(selectedLightSlug) ?? .defaultLight
         darkTheme = loadAndResolve(selectedDarkSlug) ?? .defaultDark
         syncStore()
@@ -57,9 +109,29 @@ final class ThemeManager {
     private func syncStore() {
         ThemeStore.shared.light = lightTheme
         ThemeStore.shared.dark = darkTheme
+        ThemeStore.shared.colorScheme = appearanceMode.resolvedColorScheme(systemColorScheme: systemColorScheme)
     }
 
     // MARK: - Public API
+
+    func setAppearanceMode(_ mode: LitterAppearanceMode) {
+        guard mode != appearanceMode else { return }
+        appearanceMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.appearanceModeKey)
+        syncStore()
+        themeVersion += 1
+        writeToSharedDefaults()
+        notifyHighlighter()
+    }
+
+    func syncSystemColorScheme(_ colorScheme: ColorScheme) {
+        guard colorScheme != systemColorScheme else { return }
+        systemColorScheme = colorScheme
+        guard appearanceMode == .system else { return }
+        syncStore()
+        themeVersion += 1
+        notifyHighlighter()
+    }
 
     func selectLightTheme(_ slug: String) {
         selectedLightSlug = slug
@@ -85,6 +157,17 @@ final class ThemeManager {
 
     func resolvedTheme(for colorScheme: ColorScheme) -> ResolvedTheme {
         colorScheme == .dark ? darkTheme : lightTheme
+    }
+
+    private static func storedAppearanceMode() -> LitterAppearanceMode {
+        guard let raw = UserDefaults.standard.string(forKey: appearanceModeKey) else {
+            return .system
+        }
+        return LitterAppearanceMode(rawValue: raw) ?? .system
+    }
+
+    private static func currentSystemColorScheme() -> ColorScheme {
+        UITraitCollection.current.userInterfaceStyle == .light ? .light : .dark
     }
 
     // MARK: - Loading
@@ -140,6 +223,7 @@ final class ThemeManager {
         // Sync font preference alongside theme colors
         let family = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
         shared.set(family, forKey: "fontFamily")
+        shared.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
         let pairs: [(String, String, String)] = [
             ("surface", lightTheme.surface, darkTheme.surface),
             ("surfaceLight", lightTheme.surfaceLight, darkTheme.surfaceLight),

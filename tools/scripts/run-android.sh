@@ -7,6 +7,14 @@ APK_PATH="${ANDROID_APK:-${ROOT_DIR}/apps/android/app/build/outputs/apk/debug/ap
 PACKAGE_NAME="${ANDROID_PACKAGE:-com.sigkitten.litter.android}"
 ACTIVITY_NAME="${ANDROID_ACTIVITY:-com.litter.android.MainActivity}"
 REINSTALL_ON_SIGNATURE_MISMATCH="${ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH:-1}"
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-${HOME}/Library/Android/sdk}}"
+
+if [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]]; then
+  export PATH="${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+fi
+if [[ -d "${ANDROID_SDK_ROOT}/emulator" ]]; then
+  export PATH="${ANDROID_SDK_ROOT}/emulator:${PATH}"
+fi
 
 case "${RUN_MODE}" in
   emulator)
@@ -32,6 +40,11 @@ mkdir -p "${RUN_DIR}"
 
 if [[ ! -f "${APK_PATH}" ]]; then
   echo "ERROR: APK not found: ${APK_PATH}" >&2
+  exit 1
+fi
+
+if ! command -v adb >/dev/null 2>&1; then
+  echo "ERROR: adb not found on PATH. Set ANDROID_SDK_ROOT or install Android platform-tools." >&2
   exit 1
 fi
 
@@ -63,10 +76,69 @@ select_device() {
   fi
 }
 
+boot_emulator_if_needed() {
+  if [[ "${RUN_MODE}" != "emulator" ]]; then
+    return 0
+  fi
+
+  local existing
+  existing="$(select_device)"
+  if [[ -n "${existing}" ]]; then
+    return 0
+  fi
+
+  if ! command -v emulator >/dev/null 2>&1; then
+    echo "ERROR: emulator binary not found on PATH. Set ANDROID_SDK_ROOT or install Android Emulator." >&2
+    exit 1
+  fi
+
+  local avd_name
+  avd_name="${ANDROID_AVD_NAME:-}"
+  if [[ -z "${avd_name}" ]]; then
+    avd_name="$(emulator -list-avds | head -n1)"
+  fi
+  if [[ -z "${avd_name}" ]]; then
+    echo "ERROR: no Android Virtual Device found. Create one in Android Studio or set ANDROID_AVD_NAME." >&2
+    exit 1
+  fi
+
+  local emulator_log_path="${RUN_DIR}/emulator.log"
+  echo "==> No running emulator found; booting AVD ${avd_name}..."
+  nohup emulator -avd "${avd_name}" ${ANDROID_EMULATOR_ARGS:-} >"${emulator_log_path}" 2>&1 &
+
+  local serial=""
+  for _ in $(seq 1 180); do
+    serial="$(select_device)"
+    if [[ -n "${serial}" ]]; then
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ -z "${serial}" ]]; then
+    echo "ERROR: emulator did not appear in adb within 180 seconds. See ${emulator_log_path}" >&2
+    exit 1
+  fi
+
+  echo "==> Waiting for emulator ${serial} to finish booting..."
+  adb -s "${serial}" wait-for-device >/dev/null
+  for _ in $(seq 1 180); do
+    if [[ "$(adb -s "${serial}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+      adb -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "ERROR: emulator ${serial} did not finish booting within 180 seconds. See ${emulator_log_path}" >&2
+  exit 1
+}
+
+boot_emulator_if_needed
 DEVICE="$(select_device)"
 if [[ -z "${DEVICE}" ]]; then
   if [[ "${RUN_MODE}" == "emulator" ]]; then
-    echo "ERROR: no emulator found (run one first)" >&2
+    echo "ERROR: no emulator found after boot attempt" >&2
   else
     echo "ERROR: no connected Android device found (set ANDROID_DEVICE_SERIAL=<serial> to override)" >&2
   fi

@@ -2,7 +2,9 @@ use codex_app_server_protocol as upstream;
 use tracing::{info, warn};
 
 use crate::mobile_client::{WidgetFinalizedPayload, WidgetWaiter};
-use crate::types::server_requests::{reasoning_effort_into_upstream, service_tier_into_upstream};
+use crate::types::server_requests::{
+    reasoning_effort_into_upstream, service_tier_into_upstream_string,
+};
 use crate::types::{ReasoningEffort, ServiceTier};
 use crate::widget_guidelines::show_widget_tool_spec;
 
@@ -260,12 +262,12 @@ pub(crate) async fn run_minigame(
         model: Some(MINIGAME_MODEL.to_string()),
         model_provider: None,
         // ThreadStartParams.service_tier is Option<Option<ServiceTier>> (double-option wire format)
-        service_tier: Some(Some(service_tier_into_upstream(ServiceTier::Fast))),
+        service_tier: Some(Some(service_tier_into_upstream_string(ServiceTier::Fast))),
         cwd: None,
         approval_policy: None,
         approvals_reviewer: None,
         sandbox: None,
-        permission_profile: None,
+        permissions: None,
         config: None,
         service_name: None,
         base_instructions: None,
@@ -273,6 +275,7 @@ pub(crate) async fn run_minigame(
         personality: None,
         ephemeral: Some(true),
         session_start_source: None,
+        thread_source: None,
         environments: None,
         dynamic_tools: Some(dynamic_tools),
         mock_experimental_field: None,
@@ -323,10 +326,10 @@ pub(crate) async fn run_minigame(
         approvals_reviewer: None,
         sandbox_policy: None,
         environments: None,
-        permission_profile: None,
+        permissions: None,
         model: Some(MINIGAME_MODEL.to_string()),
         // Upstream TurnStartParams.service_tier is Option<Option<CoreServiceTier>>
-        service_tier: Some(Some(service_tier_into_upstream(ServiceTier::Fast))),
+        service_tier: Some(Some(service_tier_into_upstream_string(ServiceTier::Fast))),
         effort: Some(reasoning_effort_into_upstream(ReasoningEffort::Low)),
         summary: None,
         personality: None,

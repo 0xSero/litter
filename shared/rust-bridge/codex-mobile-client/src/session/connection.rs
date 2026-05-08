@@ -523,8 +523,8 @@ impl ServerSession {
         use codex_app_server_protocol::{ClientInfo, InitializeCapabilities, InitializeParams};
         use codex_arg0::Arg0DispatchPaths;
         use codex_cloud_requirements::cloud_requirements_loader;
+        use codex_config::LoaderOverrides;
         use codex_core::config::ConfigBuilder;
-        use codex_core::config_loader::LoaderOverrides;
         use codex_feedback::CodexFeedback;
         use codex_login::AuthManager;
         use codex_protocol::protocol::SessionSource;
@@ -589,7 +589,8 @@ impl ServerSession {
             false,
             base_config.cli_auth_credentials_store_mode,
             Some(base_config.chatgpt_base_url.clone()),
-        );
+        )
+        .await;
 
         let cloud_requirements = cloud_requirements_loader(
             auth_manager.clone(),
@@ -620,6 +621,7 @@ impl ServerSession {
             cloud_requirements,
             feedback,
             log_db: None,
+            state_db: None,
             thread_config_loader: Arc::new(codex_config::NoopThreadConfigLoader),
             environment_manager: Arc::new(
                 codex_exec_server::EnvironmentManager::default_for_tests(),

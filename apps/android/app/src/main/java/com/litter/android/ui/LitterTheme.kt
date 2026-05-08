@@ -1,5 +1,11 @@
 package com.litter.android.ui
 
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -9,6 +15,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -223,14 +230,17 @@ fun LitterAppTheme(content: @Composable () -> Unit) {
         onDispose {}
     }
 
-    val darkModeEnabled = LitterThemeManager.darkModeEnabled
+    val systemIsDark = isSystemInDarkTheme()
+    val appearanceMode = LitterThemeManager.appearanceMode
     val lightThemeSlug = LitterThemeManager.lightTheme.slug
     val darkThemeSlug = LitterThemeManager.darkTheme.slug
-    LaunchedEffect(darkModeEnabled, lightThemeSlug, darkThemeSlug) {
-        LitterThemeManager.applySystemTheme(darkModeEnabled)
+    LaunchedEffect(appearanceMode, systemIsDark, lightThemeSlug, darkThemeSlug) {
+        LitterThemeManager.applySystemTheme(systemIsDark)
     }
 
     val activeTheme = LitterThemeManager.activeTheme
+    LitterSystemBarsEffect(useDarkTheme = activeTheme.type == LitterColorThemeType.DARK)
+
     val colorScheme =
         remember(activeTheme.slug, activeTheme.type) {
             if (activeTheme.type == LitterColorThemeType.DARK) {
@@ -273,6 +283,33 @@ fun LitterAppTheme(content: @Composable () -> Unit) {
         content = content,
     )
 }
+
+@Composable
+private fun LitterSystemBarsEffect(useDarkTheme: Boolean) {
+    val activity = LocalContext.current.findActivity()
+
+    SideEffect {
+        val componentActivity = activity ?: return@SideEffect
+        val transparent = android.graphics.Color.TRANSPARENT
+        val systemBarStyle =
+            if (useDarkTheme) {
+                SystemBarStyle.dark(transparent)
+            } else {
+                SystemBarStyle.light(transparent, transparent)
+            }
+        componentActivity.enableEdgeToEdge(
+            statusBarStyle = systemBarStyle,
+            navigationBarStyle = systemBarStyle,
+        )
+    }
+}
+
+private tailrec fun Context.findActivity(): ComponentActivity? =
+    when (this) {
+        is ComponentActivity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable

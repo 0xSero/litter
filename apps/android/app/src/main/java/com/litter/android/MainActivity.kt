@@ -25,6 +25,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.AppModel
 import com.litter.android.state.OpenAIApiKeyStore
+import com.litter.android.state.PetOverlayController
 import com.litter.android.ui.AnimatedSplashScreen
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterApp
@@ -39,10 +40,12 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_NOTIFICATION_SERVER_ID = "litter.notification.serverId"
         const val EXTRA_NOTIFICATION_THREAD_ID = "litter.notification.threadId"
+        const val EXTRA_OPEN_PET_SETTINGS = "litter.openPetSettings"
     }
 
     private var appModel: AppModel? = null
     private val lifecycleController = AppLifecycleController()
+    private var openPetSettingsRequest by mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must be called before super.onCreate to hand off the system splash
@@ -54,6 +57,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         OpenAIApiKeyStore(applicationContext).applyToEnvironment()
         ExperimentalFeatures.initialize(applicationContext)
+        PetOverlayController.initialize(applicationContext)
 
         try {
             appModel = AppModel.init(this)
@@ -73,7 +77,10 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     val model = appModel
                     if (model != null) {
-                        LitterApp(appModel = model)
+                        LitterApp(
+                            appModel = model,
+                            openPetSettingsRequest = openPetSettingsRequest,
+                        )
                     } else {
                         Text(
                             text = "Litter couldn't finish starting.",
@@ -114,6 +121,7 @@ class MainActivity : ComponentActivity() {
         }
 
         handleNotificationIntent(intent)
+        consumeOverlayNavigationIntent(intent)
     }
 
     override fun onResume() {
@@ -121,6 +129,7 @@ class MainActivity : ComponentActivity() {
         val model = appModel ?: return
         lifecycleScope.launch {
             lifecycleController.onResume(this@MainActivity, model)
+            PetOverlayController.syncOverlayService(this@MainActivity)
         }
     }
 
@@ -134,6 +143,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNotificationIntent(intent)
+        consumeOverlayNavigationIntent(intent)
     }
 
     override fun onDestroy() {
@@ -164,6 +174,14 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(EXTRA_NOTIFICATION_SERVER_ID)
         intent.removeExtra(EXTRA_NOTIFICATION_THREAD_ID)
         return ThreadKey(serverId = serverId, threadId = threadId)
+    }
+
+    private fun consumeOverlayNavigationIntent(intent: Intent?) {
+        intent ?: return
+        if (intent.getBooleanExtra(EXTRA_OPEN_PET_SETTINGS, false)) {
+            openPetSettingsRequest += 1
+            intent.removeExtra(EXTRA_OPEN_PET_SETTINGS)
+        }
     }
 
     private fun loadPushToken() {

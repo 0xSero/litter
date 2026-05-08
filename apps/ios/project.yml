@@ -398,6 +398,7 @@ schemes:
         Litter: all
     run:
       config: Debug
+      customLLDBInit: $(SRCROOT)/.lldbinit
     test:
       config: Debug
       targets:

@@ -1,0 +1,479 @@
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -166,6 +166,8 @@
+     pub transport: Option<ConversationStartTransport>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub voice: Option<RealtimeVoice>,
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub client_controlled_handoff: bool,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub dynamic_tools: Option<Vec<crate::dynamic_tools::DynamicToolSpec>>,
+ }
+@@ -426,6 +428,15 @@
+     /// Close the running realtime conversation stream.
+     RealtimeConversationClose,
+ 
++    /// Resolve a handoff request with tool output (client-controlled handoff).
++    /// Sends `function_call_output` for the active handoff but does NOT trigger
++    /// `response.create` — pair with `RealtimeConversationFinalizeHandoff` when
++    /// all tool outputs are queued and the model should continue speaking.
++    RealtimeConversationResolveHandoff { tool_call_output: String },
++
++    /// Finalize a resolved handoff: triggers `response.create` for V2.
++    RealtimeConversationFinalizeHandoff,
++
+     /// Resolve a dynamic tool call from the realtime conversation with output text.
+     /// The output is sent to the realtime API as `function_call_output` and a
+     /// `response.create` is queued so the model continues speaking.
+@@ -853,6 +864,10 @@
+             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
+             Self::RealtimeConversationText(_) => "realtime_conversation_text",
+             Self::RealtimeConversationClose => "realtime_conversation_close",
++            Self::RealtimeConversationResolveHandoff { .. } => {
++                "realtime_conversation_resolve_handoff"
++            }
++            Self::RealtimeConversationFinalizeHandoff => "realtime_conversation_finalize_handoff",
+             Self::RealtimeResolveDynamicTool { .. } => "realtime_resolve_dynamic_tool",
+             Self::RealtimeConversationListVoices => "realtime_conversation_list_voices",
+             Self::UserInput { .. } => "user_input",
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
+--- a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
+@@ -83,6 +83,8 @@
+     pub transport: Option<ThreadRealtimeStartTransport>,
+     #[ts(optional = nullable)]
+     pub voice: Option<RealtimeVoice>,
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub client_controlled_handoff: bool,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     #[ts(optional = nullable)]
+     pub dynamic_tools: Option<Vec<DynamicToolSpec>>,
+@@ -151,6 +153,35 @@
+ #[ts(export_to = "v2/")]
+ pub struct ThreadRealtimeStopResponse {}
+ 
++/// EXPERIMENTAL - resolve a client-controlled handoff with tool output.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeResolveHandoffParams {
++    pub thread_id: String,
++    pub tool_call_output: String,
++}
++
++/// EXPERIMENTAL - response for resolving a handoff.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeResolveHandoffResponse {}
++
++/// EXPERIMENTAL - finalize a resolved handoff (triggers response.create for V2).
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeFinalizeHandoffParams {
++    pub thread_id: String,
++}
++
++/// EXPERIMENTAL - response for finalizing a handoff.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeFinalizeHandoffResponse {}
++
+ /// EXPERIMENTAL - list voices supported by thread realtime.
+ #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+--- a/codex-rs/app-server-protocol/src/protocol/common.rs
++++ b/codex-rs/app-server-protocol/src/protocol/common.rs
+@@ -769,6 +769,18 @@
+         params: v2::ThreadRealtimeStopParams,
+         serialization: thread_id(params.thread_id),
+         response: v2::ThreadRealtimeStopResponse,
++    },
++    #[experimental("thread/realtime/resolveHandoff")]
++    ThreadRealtimeResolveHandoff => "thread/realtime/resolveHandoff" {
++        params: v2::ThreadRealtimeResolveHandoffParams,
++        serialization: thread_id(params.thread_id),
++        response: v2::ThreadRealtimeResolveHandoffResponse,
++    },
++    #[experimental("thread/realtime/finalizeHandoff")]
++    ThreadRealtimeFinalizeHandoff => "thread/realtime/finalizeHandoff" {
++        params: v2::ThreadRealtimeFinalizeHandoffParams,
++        serialization: thread_id(params.thread_id),
++        response: v2::ThreadRealtimeFinalizeHandoffResponse,
+     },
+     #[experimental("thread/realtime/listVoices")]
+     ThreadRealtimeListVoices => "thread/realtime/listVoices" {
+diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+--- a/codex-rs/app-server/src/message_processor.rs
++++ b/codex-rs/app-server/src/message_processor.rs
+@@ -1164,6 +1164,16 @@
+             ClientRequest::ThreadRealtimeStop { params, .. } => {
+                 self.turn_processor
+                     .thread_realtime_stop(&request_id, params)
++                    .await
++            }
++            ClientRequest::ThreadRealtimeResolveHandoff { params, .. } => {
++                self.turn_processor
++                    .thread_realtime_resolve_handoff(&request_id, params)
++                    .await
++            }
++            ClientRequest::ThreadRealtimeFinalizeHandoff { params, .. } => {
++                self.turn_processor
++                    .thread_realtime_finalize_handoff(&request_id, params)
+                     .await
+             }
+             ClientRequest::ThreadRealtimeListVoices { params: _, .. } => {
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -202,6 +202,10 @@
+ use codex_app_server_protocol::ThreadRealtimeStartParams;
+ use codex_app_server_protocol::ThreadRealtimeStartResponse;
+ use codex_app_server_protocol::ThreadRealtimeStartTransport;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse;
+ use codex_app_server_protocol::ThreadRealtimeStopParams;
+ use codex_app_server_protocol::ThreadRealtimeStopResponse;
+ use codex_app_server_protocol::ThreadResumeParams;
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -127,6 +127,26 @@
+         params: ThreadRealtimeStopParams,
+     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+         self.thread_realtime_stop_inner(request_id, params)
++            .await
++            .map(|response| response.map(Into::into))
++    }
++
++    pub(crate) async fn thread_realtime_resolve_handoff(
++        &self,
++        request_id: &ConnectionRequestId,
++        params: ThreadRealtimeResolveHandoffParams,
++    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
++        self.thread_realtime_resolve_handoff_inner(request_id, params)
++            .await
++            .map(|response| response.map(Into::into))
++    }
++
++    pub(crate) async fn thread_realtime_finalize_handoff(
++        &self,
++        request_id: &ConnectionRequestId,
++        params: ThreadRealtimeFinalizeHandoffParams,
++    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
++        self.thread_realtime_finalize_handoff_inner(request_id, params)
+             .await
+             .map(|response| response.map(Into::into))
+     }
+@@ -721,6 +741,7 @@
+                     }
+                 }),
+                 voice: params.voice,
++                client_controlled_handoff: params.client_controlled_handoff,
+                 dynamic_tools: params.dynamic_tools,
+             }),
+         )
+@@ -800,6 +821,50 @@
+         Ok(Some(ThreadRealtimeStopResponse::default()))
+     }
+ 
++    async fn thread_realtime_resolve_handoff_inner(
++        &self,
++        request_id: &ConnectionRequestId,
++        params: ThreadRealtimeResolveHandoffParams,
++    ) -> Result<Option<ThreadRealtimeResolveHandoffResponse>, JSONRPCErrorError> {
++        let Some((_, thread)) = self
++            .prepare_realtime_conversation_thread(request_id, &params.thread_id)
++            .await?
++        else {
++            return Ok(None);
++        };
++        self.submit_core_op(
++            request_id,
++            thread.as_ref(),
++            Op::RealtimeConversationResolveHandoff {
++                tool_call_output: params.tool_call_output,
++            },
++        )
++        .await
++        .map_err(|err| internal_error(format!("failed to resolve realtime handoff: {err}")))?;
++        Ok(Some(ThreadRealtimeResolveHandoffResponse::default()))
++    }
++
++    async fn thread_realtime_finalize_handoff_inner(
++        &self,
++        request_id: &ConnectionRequestId,
++        params: ThreadRealtimeFinalizeHandoffParams,
++    ) -> Result<Option<ThreadRealtimeFinalizeHandoffResponse>, JSONRPCErrorError> {
++        let Some((_, thread)) = self
++            .prepare_realtime_conversation_thread(request_id, &params.thread_id)
++            .await?
++        else {
++            return Ok(None);
++        };
++        self.submit_core_op(
++            request_id,
++            thread.as_ref(),
++            Op::RealtimeConversationFinalizeHandoff,
++        )
++        .await
++        .map_err(|err| internal_error(format!("failed to finalize realtime handoff: {err}")))?;
++        Ok(Some(ThreadRealtimeFinalizeHandoffResponse::default()))
++    }
++
+     fn build_review_turn(turn_id: String, display_text: &str) -> Turn {
+         let items = if display_text.is_empty() {
+             Vec::new()
+diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
+--- a/codex-rs/core/src/realtime_conversation.rs
++++ b/codex-rs/core/src/realtime_conversation.rs
+@@ -198,12 +198,14 @@
+     handoff_state: RealtimeHandoffState,
+     session_kind: RealtimeSessionKind,
+     event_parser: RealtimeEventParser,
++    finalize_rx: Receiver<()>,
+ }
+ 
+ struct RealtimeInputChannels {
+     user_text_rx: Receiver<String>,
+     handoff_output_rx: Receiver<HandoffOutput>,
+     audio_rx: Receiver<RealtimeAudioFrame>,
++    finalize_rx: Receiver<()>,
+ }
+ 
+ impl RealtimeHandoffState {
+@@ -226,6 +228,8 @@
+     input_task: JoinHandle<()>,
+     fanout_task: Option<JoinHandle<()>>,
+     realtime_active: Arc<AtomicBool>,
++    client_controlled_handoff: bool,
++    finalize_tx: Sender<()>,
+ }
+ 
+ struct RealtimeStart {
+@@ -234,6 +238,7 @@
+     session_config: RealtimeSessionConfig,
+     model_client: ModelClient,
+     sdp: Option<String>,
++    client_controlled_handoff: bool,
+ }
+ 
+ struct RealtimeStartOutput {
+@@ -286,6 +291,7 @@
+             session_config,
+             model_client,
+             sdp,
++            client_controlled_handoff,
+         } = start;
+         let event_parser = session_config.event_parser;
+         let session_kind = match event_parser {
+@@ -301,6 +307,7 @@
+             async_channel::bounded::<HandoffOutput>(HANDOFF_OUT_QUEUE_CAPACITY);
+         let (events_tx, events_rx) =
+             async_channel::bounded::<RealtimeEvent>(OUTPUT_EVENTS_QUEUE_CAPACITY);
++        let (finalize_tx, finalize_rx) = async_channel::bounded::<()>(4);
+ 
+         let realtime_active = Arc::new(AtomicBool::new(true));
+         let handoff = RealtimeHandoffState::new(handoff_output_tx, session_kind);
+@@ -308,6 +315,7 @@
+             user_text_rx,
+             handoff_output_rx,
+             audio_rx,
++            finalize_rx,
+         };
+ 
+         let client = RealtimeWebsocketClient::new(api_provider);
+@@ -351,6 +359,7 @@
+                 handoff_state: handoff.clone(),
+                 session_kind,
+                 event_parser,
++                finalize_rx: input_channels.finalize_rx,
+             });
+             (task, None)
+         };
+@@ -364,6 +373,8 @@
+             input_task: task,
+             fanout_task: None,
+             realtime_active: Arc::clone(&realtime_active),
++            client_controlled_handoff,
++            finalize_tx,
+         });
+         Ok(RealtimeStartOutput {
+             realtime_active,
+@@ -494,11 +505,47 @@
+                 .send(HandoffOutput::DynamicToolOutput {
+                     call_id,
+                     output_text,
++                })
++                .await;
++        }
++    }
++
++    pub(crate) async fn is_client_controlled_handoff(&self) -> bool {
++        let guard = self.state.lock().await;
++        guard
++            .as_ref()
++            .map(|s| s.client_controlled_handoff)
++            .unwrap_or(false)
++    }
++
++    pub(crate) async fn resolve_handoff(&self, tool_call_output: String) {
++        let guard = self.state.lock().await;
++        if let Some(state) = guard.as_ref() {
++            let handoff_id = state
++                .handoff
++                .active_handoff
++                .lock()
++                .await
++                .clone()
++                .unwrap_or_default();
++            let _ = state
++                .handoff
++                .output_tx
++                .send(HandoffOutput::FinalUpdate {
++                    handoff_id,
++                    output_text: tool_call_output,
+                 })
+                 .await;
+         }
+     }
+ 
++    pub(crate) async fn finalize_handoff(&self) {
++        let guard = self.state.lock().await;
++        if let Some(state) = guard.as_ref() {
++            let _ = state.finalize_tx.send(()).await;
++        }
++    }
++
+     pub(crate) async fn handoff_complete(&self) -> CodexResult<()> {
+         let handoff = {
+             let guard = self.state.lock().await;
+@@ -622,6 +669,7 @@
+     version: RealtimeWsVersion,
+     session_config: RealtimeSessionConfig,
+     transport: ConversationStartTransport,
++    client_controlled_handoff: bool,
+ }
+ 
+ async fn prepare_realtime_start(
+@@ -677,6 +725,7 @@
+         version,
+         session_config,
+         transport,
++        client_controlled_handoff: params.client_controlled_handoff,
+     })
+ }
+ 
+@@ -800,6 +849,7 @@
+         version,
+         session_config,
+         transport,
++        client_controlled_handoff,
+     } = prepared_start;
+     info!("starting realtime conversation");
+     let sdp = match transport {
+@@ -812,6 +862,7 @@
+         session_config,
+         model_client: sess.services.model_client.clone(),
+         sdp,
++        client_controlled_handoff,
+     };
+     let start_output = sess.conversation.start(start).await?;
+ 
+@@ -864,16 +915,21 @@
+             if let RealtimeEvent::Error(_) = &event {
+                 end = RealtimeConversationEnd::Error;
+             }
+-            let maybe_routed_text = match &event {
+-                RealtimeEvent::HandoffRequested(handoff) => {
+-                    realtime_delegation_from_handoff(handoff)
++            // Skip auto-route when the client opted into client-controlled handoff:
++            // the handoff event is forwarded to the client, which resolves it via
++            // RealtimeConversationResolveHandoff/FinalizeHandoff.
++            if !sess_clone.conversation.is_client_controlled_handoff().await {
++                let maybe_routed_text = match &event {
++                    RealtimeEvent::HandoffRequested(handoff) => {
++                        realtime_delegation_from_handoff(handoff)
++                    }
++                    _ => None,
++                };
++                if let Some(text) = maybe_routed_text {
++                    debug!(text = %text, "[realtime-text] realtime conversation text output");
++                    let sess_for_routed_text = Arc::clone(&sess_clone);
++                    sess_for_routed_text.route_realtime_text_input(text).await;
+                 }
+-                _ => None,
+-            };
+-            if let Some(text) = maybe_routed_text {
+-                debug!(text = %text, "[realtime-text] realtime conversation text output");
+-                let sess_for_routed_text = Arc::clone(&sess_clone);
+-                sess_for_routed_text.route_realtime_text_input(text).await;
+             }
+             if !fanout_realtime_active.load(Ordering::Relaxed) {
+                 break;
+@@ -1107,6 +1163,7 @@
+             handoff_state,
+             session_kind,
+             event_parser,
++            finalize_rx: input_channels.finalize_rx,
+         })
+         .await;
+     })
+@@ -1123,6 +1180,7 @@
+         handoff_state,
+         session_kind,
+         event_parser,
++        finalize_rx,
+     } = input;
+ 
+     let mut output_audio_state: Option<OutputAudioState> = None;
+@@ -1169,6 +1227,25 @@
+                 handle_user_audio_input(user_audio_frame, &writer, &events_tx)
+                     .await
+             }
++            // Finalize signal: client-controlled handoff resolution complete; trigger response.create.
++            finalize = finalize_rx.recv() => {
++                if finalize.is_err() {
++                    continue;
++                }
++                if matches!(session_kind, RealtimeSessionKind::V2) {
++                    if let Err(err) = response_create_queue
++                        .request_create(&writer, &events_tx, "finalize_handoff")
++                        .await
++                    {
++                        warn!("failed to send finalize response.create: {err}");
++                        Err(err)
++                    } else {
++                        Ok(())
++                    }
++                } else {
++                    Ok(())
++                }
++            }
+         };
+         if result.is_err() {
+             break;
+diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
+--- a/codex-rs/core/src/session/handlers.rs
++++ b/codex-rs/core/src/session/handlers.rs
+@@ -752,6 +752,14 @@
+                 }
+                 Op::RealtimeConversationClose => {
+                     handle_realtime_conversation_close(&sess, sub.id.clone()).await;
++                    false
++                }
++                Op::RealtimeConversationResolveHandoff { tool_call_output } => {
++                    sess.conversation.resolve_handoff(tool_call_output).await;
++                    false
++                }
++                Op::RealtimeConversationFinalizeHandoff => {
++                    sess.conversation.finalize_handoff().await;
+                     false
+                 }
+                 Op::RealtimeResolveDynamicTool { call_id, output } => {

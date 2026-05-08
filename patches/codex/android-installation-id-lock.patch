@@ -1,8 +1,8 @@
 diff --git a/codex-rs/core/src/installation_id.rs b/codex-rs/core/src/installation_id.rs
-index e9e5445c8..5199e3a0c 100644
+index a42e6b6d83..d4222d971b 100644
 --- a/codex-rs/core/src/installation_id.rs
 +++ b/codex-rs/core/src/installation_id.rs
-@@ -29,6 +29,10 @@ pub(crate) async fn resolve_installation_id(codex_home: &AbsolutePathBuf) -> Res
+@@ -29,6 +29,10 @@ pub async fn resolve_installation_id(codex_home: &AbsolutePathBuf) -> Result<Str
          }
  
          let mut file = options.open(&path)?;

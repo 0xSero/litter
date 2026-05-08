@@ -241,13 +241,28 @@ pub struct ComputerUseView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, uniffi::Record)]
+pub struct HydratedToolMetadataData {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, uniffi::Record)]
+pub struct HydratedDynamicToolDisplayData {
+    pub title: String,
+    pub summary: String,
+    pub metadata: Vec<HydratedToolMetadataData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, uniffi::Record)]
 pub struct HydratedDynamicToolCallData {
+    pub namespace: Option<String>,
     pub tool: String,
     pub status: AppOperationStatus,
     pub duration_ms: Option<i64>,
     pub success: Option<bool>,
     pub arguments_json: Option<String>,
     pub content_summary: Option<String>,
+    pub display: Option<HydratedDynamicToolDisplayData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, uniffi::Record)]

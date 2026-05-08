@@ -58,8 +58,8 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
 
     private suspend fun refreshTurnFromPush(data: Map<String, String>) {
         val key = notificationThreadKey(data) ?: return
+        val appModel = AppModel.init(applicationContext).also { it.start() }
         try {
-            val appModel = AppModel.init(applicationContext).also { it.start() }
             AppLifecycleController().reconnectServer(this, appModel, key.serverId)
             val resolvedKey = appModel.ensureThreadLoaded(key, maxAttempts = 2) ?: key
             appModel.refreshThreadSnapshot(resolvedKey)
@@ -83,6 +83,8 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
             }
         } catch (error: Exception) {
             LLog.e("LitterFirebaseMessagingService", "Push wake refresh failed", error)
+        } finally {
+            appModel.stop()
         }
     }
 

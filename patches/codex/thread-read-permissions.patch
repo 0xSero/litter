@@ -1,8 +1,8 @@
-diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index 72ac0db65e..ca5c5c1693 100644
---- a/codex-rs/app-server-protocol/src/protocol/v2.rs
-+++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -3395,6 +3395,10 @@ pub struct ThreadReadParams {
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
+index 5f293ff8f6..5acc126ae7 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
+@@ -975,6 +975,10 @@ pub struct ThreadReadParams {
  #[ts(export_to = "v2/")]
  pub struct ThreadReadResponse {
      pub thread: Thread,
@@ -13,76 +13,30 @@ index 72ac0db65e..ca5c5c1693 100644
  }
  
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-diff --git a/codex-rs/app-server/src/codex_message_processor.rs b/codex-rs/app-server/src/codex_message_processor.rs
-index 0342cc84ce..22e4dfc8e9 100644
---- a/codex-rs/app-server/src/codex_message_processor.rs
-+++ b/codex-rs/app-server/src/codex_message_processor.rs
-@@ -3911,7 +3911,38 @@ impl CodexMessageProcessor {
-                 return;
-             }
-         };
--        let response = ThreadReadResponse { thread };
-+        let loaded_thread = self.load_live_thread_for_read(thread_uuid).await;
-+        let live_config_snapshot = if let Some(loaded) = loaded_thread.as_ref() {
-+            Some(loaded.config_snapshot().await)
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index deeb2e9d62..d6a1ecc5a1 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1898,7 +1898,21 @@ impl ThreadRequestProcessor {
+             .read_thread_view(thread_uuid, include_turns)
+             .await
+             .map_err(thread_read_view_error)?;
+-        Ok(ThreadReadResponse { thread })
++        let live_config_snapshot = if let Ok(thread) = self.thread_manager.get_thread(thread_uuid).await
++        {
++            Some(thread.config_snapshot().await)
 +        } else {
 +            None
 +        };
-+        let persisted_metadata = if let Some(state_db_ctx) = get_state_db(&self.config).await {
-+            state_db_ctx.get_thread(thread_uuid).await.ok().flatten()
-+        } else {
-+            None
-+        };
-+        let response = ThreadReadResponse {
++        Ok(ThreadReadResponse {
 +            thread,
 +            approval_policy: live_config_snapshot
 +                .as_ref()
-+                .map(|config| config.approval_policy.into())
-+                .or_else(|| {
-+                    persisted_metadata
-+                        .as_ref()
-+                        .and_then(thread_metadata_approval_policy)
-+                        .map(Into::into)
-+                }),
++                .map(|config| config.approval_policy.into()),
 +            sandbox: live_config_snapshot
 +                .as_ref()
-+                .map(|config| config.sandbox_policy.clone().into())
-+                .or_else(|| {
-+                    persisted_metadata
-+                        .as_ref()
-+                        .and_then(thread_metadata_sandbox_policy)
-+                        .map(Into::into)
-+                }),
-+        };
-         self.outgoing.send_response(request_id, response).await;
++                .map(|config| config.sandbox_policy().into()),
++        })
      }
  
-@@ -9171,6 +9202,28 @@ fn merge_persisted_resume_metadata(
-     }
- }
- 
-+fn parse_thread_metadata_enum<T: serde::de::DeserializeOwned>(value: &str) -> Option<T> {
-+    let trimmed = value.trim();
-+    if trimmed.is_empty() {
-+        return None;
-+    }
-+    serde_json::from_str(trimmed)
-+        .or_else(|_| serde_json::from_value(serde_json::Value::String(trimmed.to_string())))
-+        .ok()
-+}
-+
-+fn thread_metadata_approval_policy(
-+    persisted_metadata: &ThreadMetadata,
-+) -> Option<codex_protocol::protocol::AskForApproval> {
-+    parse_thread_metadata_enum(&persisted_metadata.approval_mode)
-+}
-+
-+fn thread_metadata_sandbox_policy(
-+    persisted_metadata: &ThreadMetadata,
-+) -> Option<codex_protocol::protocol::SandboxPolicy> {
-+    parse_thread_metadata_enum(&persisted_metadata.sandbox_policy)
-+}
-+
- fn has_model_resume_override(
-     request_overrides: Option<&HashMap<String, serde_json::Value>>,
-     typesafe_overrides: &ConfigOverrides,
+     /// Builds the API view for `thread/read` from persisted metadata plus optional live state.

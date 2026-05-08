@@ -141,6 +141,43 @@ if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then
   export RUSTC_WRAPPER="$(command -v sccache)"
 fi
 
+ensure_host_llvm_on_path() {
+  local candidate
+  local llvm_candidates=(
+    "/opt/homebrew/opt/llvm/bin"
+    "/usr/local/opt/llvm/bin"
+    "/opt/local/bin"
+  )
+
+  if [ -n "${ANDROID_NDK_HOME:-}" ]; then
+    for candidate in "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin; do
+      llvm_candidates+=("$candidate")
+    done
+  fi
+
+  if [ -n "${ANDROID_NDK_ROOT:-}" ]; then
+    for candidate in "$ANDROID_NDK_ROOT"/toolchains/llvm/prebuilt/*/bin; do
+      llvm_candidates+=("$candidate")
+    done
+  fi
+
+  for candidate in /opt/homebrew/share/android-commandlinetools/ndk/*/toolchains/llvm/prebuilt/*/bin; do
+    llvm_candidates+=("$candidate")
+  done
+
+  for candidate in "${llvm_candidates[@]}"; do
+    if [ -x "$candidate/clang" ] && [ -x "$candidate/ld.lld" ]; then
+      case ":$PATH:" in
+        *":$candidate:"*) ;;
+        *) export PATH="$candidate:$PATH" ;;
+      esac
+      return
+    fi
+  done
+}
+
+ensure_host_llvm_on_path
+
 export CXX_aarch64_apple_ios="$IOS_CLANGXX_WRAPPER"
 export CXX_aarch64_apple_ios_sim="$IOS_CLANGXX_WRAPPER"
 export CXX_aarch64_apple_ios_macabi="$IOS_CLANGXX_WRAPPER"
@@ -262,6 +299,7 @@ elif [ "$MACABI_ONLY" -eq 1 ]; then
 else
   rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-ios-macabi x86_64-apple-ios-macabi
 fi
+rustup target add i686-unknown-linux-musl
 
 if [ "$DEVICE_ONLY" -eq 1 ]; then
   echo "==> Building codex-mobile-client for aarch64-apple-ios ($PROFILE)..."

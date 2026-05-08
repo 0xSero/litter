@@ -76,6 +76,8 @@ endef
 ANDROID_SDK_ROOT ?= $(or $(ANDROID_HOME),$(wildcard $(HOME)/Library/Android/sdk))
 ANDROID_NDK_HOME ?= $(shell ls -d $(ANDROID_SDK_ROOT)/ndk/*/ 2>/dev/null | sort -V | tail -1 | sed 's:/*$$::')
 JAVA_HOME ?= $(or $(shell /usr/libexec/java_home 2>/dev/null),$(shell test -d '/Applications/Android Studio.app/Contents/jbr/Contents/Home' && echo '/Applications/Android Studio.app/Contents/jbr/Contents/Home'))
+ANDROID_PLATFORM_TOOLS_DIR := $(ANDROID_SDK_ROOT)/platform-tools
+ANDROID_EMULATOR_DIR := $(ANDROID_SDK_ROOT)/emulator
 ANDROID_ENV := JAVA_HOME='$(JAVA_HOME)' ANDROID_SDK_ROOT='$(ANDROID_SDK_ROOT)' ANDROID_NDK_HOME='$(ANDROID_NDK_HOME)'
 
 # Android app metadata
@@ -88,6 +90,12 @@ ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH ?= 1
 export ANDROID_SDK_ROOT
 export ANDROID_NDK_HOME
 export JAVA_HOME
+ifneq ($(wildcard $(ANDROID_PLATFORM_TOOLS_DIR)),)
+  export PATH := $(ANDROID_PLATFORM_TOOLS_DIR):$(PATH)
+endif
+ifneq ($(wildcard $(ANDROID_EMULATOR_DIR)),)
+  export PATH := $(ANDROID_EMULATOR_DIR):$(PATH)
+endif
 
 SCCACHE := $(shell command -v sccache 2>/dev/null)
 ifneq ($(SCCACHE),)

@@ -377,6 +377,7 @@ fn convert_thread_item(
             )
         }
         ThreadItem::DynamicToolCall {
+            namespace,
             tool,
             arguments,
             status,
@@ -419,8 +420,15 @@ fn convert_thread_item(
                     status: convert_dynamic_status(status),
                     duration_ms: *duration_ms,
                     success: *success,
+                    namespace: namespace.clone(),
                     arguments_json: pretty_json(arguments)
                         .map(|json| truncate_command_display_text(&json)),
+                    display: build_dynamic_tool_display(
+                        namespace.as_deref(),
+                        tool,
+                        arguments,
+                        content_summary.as_deref(),
+                    ),
                     content_summary,
                 }),
                 false,
@@ -743,6 +751,394 @@ fn convert_command_action(action: &CommandAction) -> HydratedCommandActionData {
             path: None,
             query: None,
         },
+    }
+}
+
+fn build_dynamic_tool_display(
+    namespace: Option<&str>,
+    tool: &str,
+    arguments: &serde_json::Value,
+    content_summary: Option<&str>,
+) -> Option<HydratedDynamicToolDisplayData> {
+    if namespace != Some("claude") {
+        return None;
+    }
+    let object = arguments.as_object();
+    let mut metadata = Vec::new();
+
+    let display = match tool {
+        "ToolSearch" => {
+            let query = object.and_then(|o| json_string_field(o, &["query"]));
+            push_metadata(&mut metadata, "Query", query.clone());
+            push_metadata(
+                &mut metadata,
+                "Max results",
+                object
+                    .and_then(|o| json_i64_field(o, &["max_results", "maxResults", "limit"]))
+                    .map(|v| v.to_string()),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Tool Search".to_string(),
+                summary: query
+                    .map(|q| format!("Search: {}", truncate_command_action_field(&q)))
+                    .unwrap_or_else(|| "Search available tools".to_string()),
+                metadata,
+            }
+        }
+        "TaskGet" => {
+            let task_id = object.and_then(|o| json_string_field(o, &["taskId", "task_id", "id"]));
+            push_metadata(&mut metadata, "Task ID", task_id.clone());
+            HydratedDynamicToolDisplayData {
+                title: "Claude Task".to_string(),
+                summary: task_id
+                    .map(|id| format!("Task {id}"))
+                    .unwrap_or_else(|| "Get task".to_string()),
+                metadata,
+            }
+        }
+        "TaskList" => HydratedDynamicToolDisplayData {
+            title: "Claude Task List".to_string(),
+            summary: "List tasks".to_string(),
+            metadata,
+        },
+        "SendMessage" => {
+            let to = object.and_then(|o| json_string_field(o, &["to"]));
+            let recipient = object.and_then(|o| json_string_field(o, &["recipient"]));
+            let summary = object.and_then(|o| json_string_field(o, &["summary"]));
+            let message_type = object.and_then(|o| json_string_field(o, &["type"]));
+            let request_id =
+                object.and_then(|o| json_string_field(o, &["request_id", "requestId"]));
+            let approve = object.and_then(|o| json_bool_field(o, &["approve"]));
+            let message = object.and_then(|o| json_string_field(o, &["message"]));
+            let content = object.and_then(|o| json_string_field(o, &["content"]));
+            push_metadata(&mut metadata, "To", to.clone());
+            if recipient.as_ref() != to.as_ref() {
+                push_metadata(&mut metadata, "Recipient", recipient.clone());
+            }
+            push_metadata(&mut metadata, "Type", message_type);
+            push_metadata(&mut metadata, "Summary", summary.clone());
+            push_metadata(&mut metadata, "Request ID", request_id);
+            push_metadata(
+                &mut metadata,
+                "Approve",
+                approve.map(|value| value.to_string()),
+            );
+            push_metadata(&mut metadata, "Message", message.clone());
+            if content.as_ref() != message.as_ref() {
+                push_metadata(&mut metadata, "Content", content);
+            }
+            HydratedDynamicToolDisplayData {
+                title: "Claude Team Message".to_string(),
+                summary: summary
+                    .or_else(|| recipient.clone())
+                    .or(to)
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Send team message".to_string()),
+                metadata,
+            }
+        }
+        "Monitor" => {
+            let command = object.and_then(|o| json_string_field(o, &["command"]));
+            let description = object.and_then(|o| json_string_field(o, &["description"]));
+            push_metadata(&mut metadata, "Description", description.clone());
+            push_metadata(&mut metadata, "Command", command.clone());
+            push_metadata(
+                &mut metadata,
+                "Timeout",
+                object
+                    .and_then(|o| json_i64_field(o, &["timeout_ms", "timeoutMs"]))
+                    .map(|v| format!("{v} ms")),
+            );
+            push_metadata(
+                &mut metadata,
+                "Persistent",
+                object
+                    .and_then(|o| json_bool_field(o, &["persistent"]))
+                    .map(|v| v.to_string()),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Monitor".to_string(),
+                summary: description
+                    .or(command)
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Monitor command".to_string()),
+                metadata,
+            }
+        }
+        "WebFetch" => {
+            let url = object.and_then(|o| json_string_field(o, &["url"]));
+            push_metadata(&mut metadata, "URL", url.clone());
+            push_metadata(
+                &mut metadata,
+                "Prompt",
+                object.and_then(|o| json_string_field(o, &["prompt"])),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Web Fetch".to_string(),
+                summary: url
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Fetch web page".to_string()),
+                metadata,
+            }
+        }
+        "TodoWrite" => {
+            let todo_count = object
+                .and_then(|o| o.get("todos"))
+                .and_then(serde_json::Value::as_array)
+                .map(|todos| {
+                    for (index, todo) in todos.iter().take(12).enumerate() {
+                        push_metadata(
+                            &mut metadata,
+                            &format!("Todo {}", index + 1),
+                            Some(format_todo_value(todo)),
+                        );
+                    }
+                    if todos.len() > 12 {
+                        push_metadata(
+                            &mut metadata,
+                            "More",
+                            Some(format!("{} additional todos", todos.len() - 12)),
+                        );
+                    }
+                    todos.len()
+                })
+                .unwrap_or(0);
+            HydratedDynamicToolDisplayData {
+                title: "Claude Todo Write".to_string(),
+                summary: match todo_count {
+                    0 => "Update todos".to_string(),
+                    1 => "Update 1 todo".to_string(),
+                    count => format!("Update {count} todos"),
+                },
+                metadata,
+            }
+        }
+        "TeamCreate" => {
+            let team_name = object.and_then(|o| json_string_field(o, &["team_name", "teamName"]));
+            push_metadata(&mut metadata, "Team", team_name.clone());
+            push_metadata(
+                &mut metadata,
+                "Agent type",
+                object.and_then(|o| json_string_field(o, &["agent_type", "agentType"])),
+            );
+            push_metadata(
+                &mut metadata,
+                "Description",
+                object.and_then(|o| json_string_field(o, &["description"])),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Team Create".to_string(),
+                summary: team_name
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Create team".to_string()),
+                metadata,
+            }
+        }
+        "TeamDelete" => HydratedDynamicToolDisplayData {
+            title: "Claude Team Delete".to_string(),
+            summary: "Delete team".to_string(),
+            metadata,
+        },
+        "TaskCreate" => {
+            let subject = object.and_then(|o| {
+                json_string_field(o, &["subject", "description", "activeForm", "active_form"])
+            });
+            push_metadata(&mut metadata, "Subject", subject.clone());
+            push_metadata(
+                &mut metadata,
+                "Active form",
+                object.and_then(|o| json_string_field(o, &["activeForm", "active_form"])),
+            );
+            push_metadata(
+                &mut metadata,
+                "Status",
+                object.and_then(|o| json_string_field(o, &["status"])),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Task Create".to_string(),
+                summary: subject
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Create task".to_string()),
+                metadata,
+            }
+        }
+        "TaskUpdate" => {
+            let task_id = object.and_then(|o| json_string_field(o, &["taskId", "task_id", "id"]));
+            push_metadata(&mut metadata, "Task ID", task_id.clone());
+            push_metadata(
+                &mut metadata,
+                "Status",
+                object.and_then(|o| json_string_field(o, &["status"])),
+            );
+            push_metadata(
+                &mut metadata,
+                "Active form",
+                object.and_then(|o| json_string_field(o, &["activeForm", "active_form"])),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Task Update".to_string(),
+                summary: task_id
+                    .map(|id| format!("Update task {id}"))
+                    .unwrap_or_else(|| "Update task".to_string()),
+                metadata,
+            }
+        }
+        "Read" => {
+            let path = object.and_then(|o| json_string_field(o, &["file_path", "path"]));
+            push_metadata(&mut metadata, "Path", path.clone());
+            push_metadata(
+                &mut metadata,
+                "Offset",
+                object
+                    .and_then(|o| json_i64_field(o, &["offset"]))
+                    .map(|v| v.to_string()),
+            );
+            push_metadata(
+                &mut metadata,
+                "Limit",
+                object
+                    .and_then(|o| json_i64_field(o, &["limit"]))
+                    .map(|v| v.to_string()),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Read".to_string(),
+                summary: path
+                    .map(|value| truncate_command_action_field(&value))
+                    .unwrap_or_else(|| "Read file".to_string()),
+                metadata,
+            }
+        }
+        "Grep" => {
+            let pattern = object.and_then(|o| json_string_field(o, &["pattern"]));
+            push_metadata(&mut metadata, "Pattern", pattern.clone());
+            push_metadata(
+                &mut metadata,
+                "Path",
+                object.and_then(|o| json_string_field(o, &["path"])),
+            );
+            push_metadata(
+                &mut metadata,
+                "Output mode",
+                object.and_then(|o| json_string_field(o, &["output_mode", "outputMode"])),
+            );
+            push_metadata(
+                &mut metadata,
+                "Head limit",
+                object
+                    .and_then(|o| json_i64_field(o, &["head_limit", "headLimit"]))
+                    .map(|v| v.to_string()),
+            );
+            HydratedDynamicToolDisplayData {
+                title: "Claude Grep".to_string(),
+                summary: pattern
+                    .map(|value| format!("Search: {}", truncate_command_action_field(&value)))
+                    .unwrap_or_else(|| "Search files".to_string()),
+                metadata,
+            }
+        }
+        "Glob" | "LS" => {
+            let pattern = object.and_then(|o| json_string_field(o, &["pattern"]));
+            push_metadata(&mut metadata, "Pattern", pattern.clone());
+            push_metadata(
+                &mut metadata,
+                "Path",
+                object.and_then(|o| json_string_field(o, &["path"])),
+            );
+            HydratedDynamicToolDisplayData {
+                title: format!("Claude {tool}"),
+                summary: pattern
+                    .map(|value| truncate_command_action_field(&value))
+                    .or_else(|| object.and_then(|o| json_string_field(o, &["path"])))
+                    .unwrap_or_else(|| "List files".to_string()),
+                metadata,
+            }
+        }
+        _ => return None,
+    };
+
+    if display.metadata.is_empty() && content_summary.is_none() {
+        return None;
+    }
+    Some(display)
+}
+
+fn push_metadata(metadata: &mut Vec<HydratedToolMetadataData>, key: &str, value: Option<String>) {
+    if let Some(value) = value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
+        metadata.push(HydratedToolMetadataData {
+            key: key.to_string(),
+            value: truncate_command_output_text(&value),
+        });
+    }
+}
+
+fn json_string_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        object
+            .get(*key)
+            .and_then(json_value_to_display_string)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn json_i64_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<i64> {
+    keys.iter().find_map(|key| {
+        object.get(*key).and_then(|value| match value {
+            serde_json::Value::Number(number) => number
+                .as_i64()
+                .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
+            serde_json::Value::String(text) => text.parse::<i64>().ok(),
+            _ => None,
+        })
+    })
+}
+
+fn json_bool_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        object.get(*key).and_then(|value| match value {
+            serde_json::Value::Bool(value) => Some(*value),
+            serde_json::Value::String(text) => match text.as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        })
+    })
+}
+
+fn json_value_to_display_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        serde_json::Value::Null => None,
+        other => pretty_json(other),
+    }
+}
+
+fn format_todo_value(value: &serde_json::Value) -> String {
+    let Some(object) = value.as_object() else {
+        return json_value_to_display_string(value).unwrap_or_default();
+    };
+    let status = json_string_field(object, &["status"]);
+    let content = json_string_field(object, &["content", "activeForm", "active_form"])
+        .unwrap_or_else(|| json_value_to_display_string(value).unwrap_or_default());
+    match status {
+        Some(status) if !status.is_empty() => format!("[{status}] {content}"),
+        _ => content,
     }
 }
 
@@ -1883,6 +2279,80 @@ diff --git a/parser.rs b/parser.rs\n\
             items[4].content,
             HydratedConversationItemContent::ImageView(_)
         ));
+    }
+
+    #[test]
+    fn test_claude_dynamic_tool_hydrates_namespace_and_display() {
+        let turns = vec![make_turn(
+            "t-claude-dynamic",
+            vec![
+                ThreadItem::DynamicToolCall {
+                    id: "tool-search".into(),
+                    namespace: Some("claude".into()),
+                    tool: "ToolSearch".into(),
+                    arguments: serde_json::json!({
+                        "query": "select:AskUserQuestion,ExitPlanMode",
+                        "max_results": 2
+                    }),
+                    status: DynamicToolCallStatus::Completed,
+                    content_items: Some(vec![DynamicToolCallOutputContentItem::InputText {
+                        text: "AskUserQuestion\nExitPlanMode".into(),
+                    }]),
+                    success: Some(true),
+                    duration_ms: Some(42),
+                },
+                ThreadItem::DynamicToolCall {
+                    id: "send-message".into(),
+                    namespace: Some("claude".into()),
+                    tool: "SendMessage".into(),
+                    arguments: serde_json::json!({
+                        "to": "ios-bridge-engineer",
+                        "recipient": "ios-bridge-engineer",
+                        "type": "notify",
+                        "summary": "Check bridge mapping",
+                        "message": "Please verify the shared Rust hydration path."
+                    }),
+                    status: DynamicToolCallStatus::Completed,
+                    content_items: Some(vec![DynamicToolCallOutputContentItem::InputText {
+                        text: "sent".into(),
+                    }]),
+                    success: Some(true),
+                    duration_ms: None,
+                },
+            ],
+        )];
+
+        let items = hydrate_turns(&turns, &HydrationOptions::default());
+        assert_eq!(items.len(), 2);
+        let HydratedConversationItemContent::DynamicToolCall(search) = &items[0].content else {
+            panic!("expected DynamicToolCall");
+        };
+        assert_eq!(search.namespace.as_deref(), Some("claude"));
+        assert_eq!(
+            search.content_summary.as_deref(),
+            Some("AskUserQuestion\nExitPlanMode")
+        );
+        let display = search.display.as_ref().expect("claude display");
+        assert_eq!(display.title, "Claude Tool Search");
+        assert_eq!(
+            display.summary,
+            "Search: select:AskUserQuestion,ExitPlanMode"
+        );
+        assert!(
+            display
+                .metadata
+                .iter()
+                .any(|entry| entry.key == "Max results" && entry.value == "2")
+        );
+
+        let HydratedConversationItemContent::DynamicToolCall(message) = &items[1].content else {
+            panic!("expected DynamicToolCall");
+        };
+        let display = message.display.as_ref().expect("claude display");
+        assert_eq!(display.title, "Claude Team Message");
+        assert_eq!(display.summary, "Check bridge mapping");
+        assert!(display.metadata.iter().any(|entry| entry.key == "Message"
+            && entry.value == "Please verify the shared Rust hydration path."));
     }
 
     #[test]
