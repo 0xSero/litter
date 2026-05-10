@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -55,6 +56,7 @@ fun ApprovalOverlay(
     approvals: List<PendingApproval>,
     userInputs: List<PendingUserInputRequest>,
     appStore: AppStore,
+    onDismissUserInput: ((String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -92,6 +94,7 @@ fun ApprovalOverlay(
                             appStore.respondToUserInput(input.id, answers)
                         }
                     },
+                    onDismiss = { onDismissUserInput?.invoke(input.id) },
                 )
             }
         }
@@ -200,6 +203,7 @@ private fun ApprovalCard(
 private fun UserInputCard(
     request: PendingUserInputRequest,
     onSubmit: (List<PendingUserInputAnswer>) -> Unit,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val answers = remember { mutableMapOf<String, String>() }
 
@@ -208,20 +212,39 @@ private fun UserInputCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Requester badge
-        val requester = buildString {
-            request.requesterAgentNickname?.let { append(it) }
-            request.requesterAgentRole?.let {
-                if (isNotEmpty()) append(" ")
-                append("[$it]")
+        // Header with close button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Requester badge
+            val requester = buildString {
+                request.requesterAgentNickname?.let { append(it) }
+                request.requesterAgentRole?.let {
+                    if (isNotEmpty()) append(" ")
+                    append("[$it]")
+                }
             }
-        }
-        if (requester.isNotBlank()) {
-            Text(
-                text = requester,
-                color = LitterTheme.accent,
-                fontSize = LitterTextStyle.caption2.scaled,
-            )
+            if (requester.isNotBlank()) {
+                Text(
+                    text = requester,
+                    color = LitterTheme.accent,
+                    fontSize = LitterTextStyle.caption2.scaled,
+                )
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            if (onDismiss != null) {
+                Text(
+                    text = "✕",
+                    color = LitterTheme.textMuted,
+                    fontSize = LitterTextStyle.body.scaled,
+                    modifier = Modifier
+                        .clickable { onDismiss() }
+                        .padding(4.dp),
+                )
+            }
         }
 
         for (question in request.questions) {

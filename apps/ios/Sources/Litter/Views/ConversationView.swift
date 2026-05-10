@@ -1425,9 +1425,11 @@ private struct ConversationInputBar: View {
     @State private var hasLoggedKeyboardShown = false
     @State private var isComposerFocused = false
     @State private var composerSelectionRange = NSRange(location: 0, length: 0)
+    @State private var dismissedPendingUserInputIds: Set<String> = []
 
     private var pendingUserInputRequest: PendingUserInputRequest? {
-        snapshot.pendingUserInputRequest
+        guard let request = snapshot.pendingUserInputRequest else { return nil }
+        return dismissedPendingUserInputIds.contains(request.id) ? nil : request
     }
 
     private var pendingModelOverride: String? {
@@ -1568,6 +1570,7 @@ private struct ConversationInputBar: View {
                 showAttachMenu: $showAttachMenu,
                 onClearAttachment: clearAttachment,
                 onRespondToPendingUserInput: respondToPendingUserInput,
+                onDismissPendingUserInput: dismissPendingUserInput,
                 onImplementPlan: { Task { await implementPlan() } },
                 onDismissPlanImplementation: dismissPlanImplementationPrompt,
                 onSteerQueuedFollowUp: steerQueuedFollowUp,
@@ -1673,6 +1676,9 @@ private struct ConversationInputBar: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let image = attachedImage
         guard !text.isEmpty || image != nil else { return }
+        if let request = snapshot.pendingUserInputRequest {
+            dismissedPendingUserInputIds.insert(request.id)
+        }
         if image == nil,
            let invocation = parseSlashCommandInvocation(text) {
             inputText = ""
@@ -1690,6 +1696,11 @@ private struct ConversationInputBar: View {
         let pluginMentions = collectPluginMentionsForSubmission(text)
         pluginMentionSelections = []
         onSend(text, image, skillMentions, pluginMentions)
+    }
+
+    private func dismissPendingUserInput() {
+        guard let request = snapshot.pendingUserInputRequest else { return }
+        dismissedPendingUserInputIds.insert(request.id)
     }
 
     private func collectPluginMentionsForSubmission(_ text: String) -> [PluginMentionSelection] {
@@ -2983,6 +2994,7 @@ private func index(in text: String, offset: Int) -> String.Index? {
 struct PendingUserInputPromptView: View {
     let request: PendingUserInputRequest
     let onSubmit: ([String: [String]]) -> Void
+    let onDismiss: () -> Void
 
     @State private var selectedAnswers: [String: String] = [:]
     @State private var otherAnswers: [String: String] = [:]
@@ -3022,6 +3034,13 @@ struct PendingUserInputPromptView: View {
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .litterFont(.body)
+                        .foregroundColor(LitterTheme.textMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss input request")
             }
 
             if let requesterLabel {

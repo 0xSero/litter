@@ -276,8 +276,11 @@ fun ConversationScreen(
     }
 
     // Pending user input for this thread
-    val pendingInput = remember(snapshot, threadKey) {
-        snapshot?.pendingUserInputs?.firstOrNull { it.threadId == threadKey.threadId }
+    var dismissedUserInputIds by remember { mutableStateOf(setOf<String>()) }
+    val pendingInput = remember(snapshot, threadKey, dismissedUserInputIds) {
+        snapshot?.pendingUserInputs?.firstOrNull {
+            it.threadId == threadKey.threadId && !dismissedUserInputIds.contains(it.id)
+        }
     }
 
     val activeTaskSummary = remember(items) {
@@ -832,6 +835,9 @@ fun ConversationScreen(
                         onShowSkillsSheet = { showSkillsSheet = true },
                         onSlashError = { slashErrorMessage = it },
                         pendingUserInput = pendingInput,
+                        onDismissPendingUserInput = {
+                            pendingInput?.let { dismissedUserInputIds = dismissedUserInputIds + it.id }
+                        },
                     )
 
                     Spacer(Modifier.navigationBarsPadding())

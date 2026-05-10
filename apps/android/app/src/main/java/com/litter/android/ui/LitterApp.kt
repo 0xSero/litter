@@ -448,12 +448,18 @@ fun LitterApp(
 
             // Global approval overlay
             val approvals = snapshot?.pendingApprovals.orEmpty()
-            val userInputs = snapshot?.pendingUserInputs.orEmpty()
+            var dismissedUserInputIds by remember { mutableStateOf(setOf<String>()) }
+            val userInputs = snapshot?.pendingUserInputs.orEmpty().filter {
+                !dismissedUserInputIds.contains(it.id)
+            }
             if (approvals.isNotEmpty() || userInputs.isNotEmpty()) {
                 ApprovalOverlay(
                     approvals = approvals,
                     userInputs = userInputs,
                     appStore = appModel.store,
+                    onDismissUserInput = { id ->
+                        dismissedUserInputIds = dismissedUserInputIds + id
+                    },
                 )
             }
         }
