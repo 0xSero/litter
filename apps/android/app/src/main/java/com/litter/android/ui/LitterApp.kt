@@ -59,6 +59,26 @@ val LocalAppModel = staticCompositionLocalOf<AppModel> {
 }
 
 /**
+ * UI-only ledger of pending-user-input request IDs the user has manually dismissed.
+ * Lives at the app shell so the inline composer prompt and the global approval
+ * overlay agree on what's been hidden.
+ */
+class DismissedUserInputState {
+    var ids by mutableStateOf(setOf<String>())
+        private set
+
+    fun dismiss(id: String) {
+        ids = ids + id
+    }
+
+    fun isDismissed(id: String): Boolean = ids.contains(id)
+}
+
+val LocalDismissedUserInputs = staticCompositionLocalOf<DismissedUserInputState> {
+    error("DismissedUserInputState not provided")
+}
+
+/**
  * Root composable for the app. Manages navigation stack and global overlays.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,9 +101,11 @@ fun LitterApp(
 
     // Read currentStep so Compose tracks it as a dependency and recomposes on change.
     val textScale = ConversationTextSize.fromStep(TextSizePrefs.currentStep).scale
+    val dismissedUserInputs = remember { DismissedUserInputState() }
     CompositionLocalProvider(
         LocalAppModel provides appModel,
         LocalTextScale provides textScale,
+        LocalDismissedUserInputs provides dismissedUserInputs,
     ) {
         val snapshot by appModel.snapshot.collectAsState()
         val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -448,18 +470,15 @@ fun LitterApp(
 
             // Global approval overlay
             val approvals = snapshot?.pendingApprovals.orEmpty()
-            var dismissedUserInputIds by remember { mutableStateOf(setOf<String>()) }
             val userInputs = snapshot?.pendingUserInputs.orEmpty().filter {
-                !dismissedUserInputIds.contains(it.id)
+                !dismissedUserInputs.isDismissed(it.id)
             }
             if (approvals.isNotEmpty() || userInputs.isNotEmpty()) {
                 ApprovalOverlay(
                     approvals = approvals,
                     userInputs = userInputs,
                     appStore = appModel.store,
-                    onDismissUserInput = { id ->
-                        dismissedUserInputIds = dismissedUserInputIds + id
-                    },
+                    onDismissUserInput = { id -> dismissedUserInputs.dismiss(id) },
                 )
             }
         }

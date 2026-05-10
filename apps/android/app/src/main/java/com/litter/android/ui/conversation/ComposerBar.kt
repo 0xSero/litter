@@ -82,6 +82,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppModel
 import com.litter.android.state.ComposerImageAttachment
@@ -627,7 +629,8 @@ fun ComposerBar(
                             fontSize = LitterTextStyle.body.scaled,
                             modifier = Modifier
                                 .clickable { onDismissPendingUserInput() }
-                                .padding(4.dp),
+                                .padding(4.dp)
+                                .semantics { contentDescription = "Dismiss input request" },
                         )
                     }
                 }
