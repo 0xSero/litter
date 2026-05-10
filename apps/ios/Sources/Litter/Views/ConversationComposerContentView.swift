@@ -22,6 +22,7 @@ struct ConversationComposerContentView: View {
     @Binding var showAttachMenu: Bool
     let onClearAttachment: () -> Void
     let onRespondToPendingUserInput: ([String: [String]]) -> Void
+    let onDismissPendingUserInput: () -> Void
     let onImplementPlan: () -> Void
     let onDismissPlanImplementation: () -> Void
     let onSteerQueuedFollowUp: (AppQueuedFollowUpPreview) -> Void
@@ -57,6 +58,7 @@ struct ConversationComposerContentView: View {
         showAttachMenu: Binding<Bool>,
         onClearAttachment: @escaping () -> Void,
         onRespondToPendingUserInput: @escaping ([String: [String]]) -> Void,
+        onDismissPendingUserInput: @escaping () -> Void = {},
         onImplementPlan: @escaping () -> Void = {},
         onDismissPlanImplementation: @escaping () -> Void = {},
         onSteerQueuedFollowUp: @escaping (AppQueuedFollowUpPreview) -> Void,
@@ -91,6 +93,7 @@ struct ConversationComposerContentView: View {
         _showAttachMenu = showAttachMenu
         self.onClearAttachment = onClearAttachment
         self.onRespondToPendingUserInput = onRespondToPendingUserInput
+        self.onDismissPendingUserInput = onDismissPendingUserInput
         self.onImplementPlan = onImplementPlan
         self.onDismissPlanImplementation = onDismissPlanImplementation
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
@@ -154,9 +157,13 @@ struct ConversationComposerContentView: View {
                 }
 
                 if let pendingUserInputRequest {
-                    PendingUserInputPromptView(request: pendingUserInputRequest, onSubmit: onRespondToPendingUserInput)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
+                    PendingUserInputPromptView(
+                        request: pendingUserInputRequest,
+                        onSubmit: onRespondToPendingUserInput,
+                        onDismiss: onDismissPendingUserInput
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
                 }
 
                 if hasPendingPlanImplementation {
