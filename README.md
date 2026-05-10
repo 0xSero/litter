@@ -1,36 +1,75 @@
 # litter
 
-<p align="center">
-  <img src="apps/ios/Sources/Litter/Resources/brand_logo.png" alt="litter logo" width="180" />
-</p>
+![litter logo](https://raw.githubusercontent.com/dnakov/litter/main/apps/ios/Sources/Litter/Resources/brand_logo.png)
 
-<p align="center">
-  Native iOS + Android client for <a href="https://github.com/openai/codex">Codex</a>. Connect to local or remote servers, manage sessions, and run agentic coding workflows from your phone.
-</p>
+Native iOS + Android client for running agentic coding workflows from your phone. Connects to the [alleycat](https://github.com/dnakov/alleycat) daemon (distributed as `kittylitter`) running on your machine, which bridges multiple coding agents over a single QUIC connection via Iroh.
 
-<p align="center">
-  <a href="https://kittylitter.app"><img src="docs/badges/website.svg" alt="kittylitter.app" /></a>
-  &nbsp;
-  <a href="https://apps.apple.com/us/app/kittylitter/id6759521788"><img src="docs/badges/app-store.svg" alt="App Store" /></a>
-  &nbsp;
-  <a href="https://kittylitter.app/android-beta"><img src="docs/badges/android-beta.svg" alt="Android Beta" /></a>
-</p>
+## Supported Agents
 
-## Screenshots (iOS)
+| Agent | Description |
+|---|---|
+| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | Anthropic's CLI coding agent |
+| **[Codex](https://github.com/openai/codex)** | OpenAI's CLI coding agent |
+| **[OpenCode](https://opencode.ai)** | Open-source coding assistant |
+| **[Pi](https://pi.monicahq.com)** | AI coding agent by Monica |
+| **[Factory Droid](https://factory.ai)** | Factory's AI coding agent |
 
-<p align="center">
-  <img src="docs/screenshots/01-hero-iphone-1320x2868.png" alt="Home" width="200" />
-  <img src="docs/screenshots/02-remote-iphone-1320x2868.png" alt="Remote servers" width="200" />
-  <img src="docs/screenshots/07-generative-ui-iphone-1320x2868.png" alt="Generative UI" width="200" />
-  <img src="docs/screenshots/05-realtime-voice-iphone-1320x2868.png" alt="Realtime voice" width="200" />
-</p>
+## Install
+
+- **iOS**: [App Store](https://apps.apple.com/app/litter/id6743473375)
+- **Android**: [Google Play](https://play.google.com/store/apps/details?id=com.sigkitten.litter.android)
 
 ## Quick Start
 
+### 1. Install the daemon on your computer
+
 ```bash
-make ios-device-fast   # fast device build
-make ios-sim-fast      # fast simulator build
-make android-emulator-fast  # fast Android emulator build
+npm install -g kittylitter
+```
+
+Or from source via the [alleycat repo](https://github.com/dnakov/alleycat).
+
+### 2. Install your preferred coding agent(s)
+
+```bash
+# Claude Code
+npm install -g @anthropic-ai/claude-code && claude /login
+
+# Codex — see https://github.com/openai/codex
+
+# OpenCode — see https://opencode.ai
+```
+
+### 3. Start and pair
+
+```bash
+kittylitter install   # autostart at login (no admin needed)
+kittylitter pair --qr # scan with the Litter app
+```
+
+The daemon spawns agents on demand — install whichever ones you'll use. See the [alleycat README](https://github.com/dnakov/alleycat#what-the-daemon-spawns) for per-agent details.
+
+## Screenshots (iOS)
+
+![Home](https://raw.githubusercontent.com/dnakov/litter/main/docs/screenshots/01-hero-iphone-1320x2868.png)
+![Remote servers](https://raw.githubusercontent.com/dnakov/litter/main/docs/screenshots/02-remote-iphone-1320x2868.png)
+![Generative UI](https://raw.githubusercontent.com/dnakov/litter/main/docs/screenshots/07-generative-ui-iphone-1320x2868.png)
+![Realtime voice](https://raw.githubusercontent.com/dnakov/litter/main/docs/screenshots/05-realtime-voice-iphone-1320x2868.png)
+
+## Key Features
+
+- **Network discovery** — auto-detects running agents on your local network via Iroh
+- **Realtime voice** — talk to your coding agent
+- **Session management** — create, resume, and manage coding sessions from your phone
+- **Generative UI** — rich rendering of agent output
+- **SSH fallback** — connect to remote machines via SSH port forwarding
+
+## Build from Source
+
+```bash
+make ios-device-fast          # fast iOS device build
+make ios-sim-fast             # fast iOS simulator build
+make android-emulator-fast    # fast Android emulator build
 ```
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for prerequisites, full build options, TestFlight/App Store release, and SSH setup.
@@ -44,6 +83,7 @@ shared/rust-bridge/
   codex-mobile-client/     Shared Rust client crate + UniFFI surface (iOS & Android)
   codex-ios-audio/         iOS-only audio/AEC crate
 shared/third_party/codex/  Upstream Codex submodule
+shared/third_party/alleycat/ Alleycat daemon submodule (multi-agent bridge)
 patches/codex/             Local patch set applied during builds
 tools/scripts/             Cross-platform helper scripts
 ```
@@ -51,6 +91,8 @@ tools/scripts/             Cross-platform helper scripts
 ## Architecture
 
 Both platforms share a single Rust core (`codex-mobile-client`) via UniFFI-generated bindings. Platform code (Swift/Kotlin) stays thin: UI, permissions, notifications, and platform APIs only. Session state, streaming, hydration, discovery, and auth logic live in Rust.
+
+The companion daemon ([alleycat](https://github.com/dnakov/alleycat)) runs on your computer, spawns coding agent CLIs on demand, and multiplexes them onto a single QUIC connection. The phone connects over the local network (or via Iroh relay) and picks an agent per session.
 
 ## Contributing
 
