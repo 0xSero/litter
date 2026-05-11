@@ -31,6 +31,7 @@ use crate::types::AgentRuntimeKind;
 
 const REMOTE_RECONNECT_MAX_ATTEMPTS: u32 = 5;
 const REMOTE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+const OPENAI_BASE_URL_ENV_KEY: &str = "OPENAI_BASE_URL";
 
 #[derive(Clone)]
 pub(crate) struct SshReconnectTransport {
@@ -50,6 +51,13 @@ fn append_android_debug_log(line: &str) {
         line.to_string(),
         None,
     );
+}
+
+fn openai_base_url_from_env() -> Option<String> {
+    std::env::var(OPENAI_BASE_URL_ENV_KEY)
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -559,7 +567,7 @@ impl ServerSession {
             }
         }
 
-        let cli_overrides = vec![
+        let mut cli_overrides = vec![
             ("features.goals".to_string(), true.into()),
             ("features.realtime_conversation".to_string(), true.into()),
             (
@@ -572,6 +580,9 @@ impl ServerSession {
                 "conversational".to_string().into(),
             ),
         ];
+        if let Some(base_url) = openai_base_url_from_env() {
+            cli_overrides.push(("openai_base_url".to_string(), base_url.into()));
+        }
 
         let mut base_builder = ConfigBuilder::default().cli_overrides(cli_overrides.clone());
         if let Some(ref codex_home) = in_process.codex_home {
@@ -2146,6 +2157,34 @@ mod tests {
         assert_eq!(config.channel_capacity, 256);
         assert!(config.codex_home.is_none());
         assert!(config.working_directory.is_none());
+    }
+
+    #[test]
+    fn openai_base_url_from_env_trims_empty_and_trailing_slashes() {
+        let _guard = env_lock().lock().expect("env lock should not be poisoned");
+        let original = std::env::var_os(OPENAI_BASE_URL_ENV_KEY);
+
+        unsafe {
+            std::env::set_var(OPENAI_BASE_URL_ENV_KEY, " http://localhost:11434/v1/// ");
+        }
+        assert_eq!(
+            openai_base_url_from_env(),
+            Some("http://localhost:11434/v1".to_string())
+        );
+
+        unsafe {
+            std::env::set_var(OPENAI_BASE_URL_ENV_KEY, "   ");
+        }
+        assert_eq!(openai_base_url_from_env(), None);
+
+        match original {
+            Some(value) => unsafe {
+                std::env::set_var(OPENAI_BASE_URL_ENV_KEY, value);
+            },
+            None => unsafe {
+                std::env::remove_var(OPENAI_BASE_URL_ENV_KEY);
+            },
+        }
     }
 
     #[test]

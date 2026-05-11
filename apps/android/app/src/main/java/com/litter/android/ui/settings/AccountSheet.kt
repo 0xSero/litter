@@ -63,9 +63,11 @@ fun AccountSheet(
     val account = server?.account
     val apiKeyStore = remember(context) { OpenAIApiKeyStore(context.applicationContext) }
     var apiKey by remember { mutableStateOf("") }
+    var openAIBaseUrl by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var isAuthWorking by remember { mutableStateOf(false) }
     var hasStoredApiKey by remember { mutableStateOf(apiKeyStore.hasStoredKey()) }
+    var hasStoredBaseUrl by remember { mutableStateOf(apiKeyStore.hasStoredBaseUrl()) }
     val authLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -108,6 +110,7 @@ fun AccountSheet(
 
     androidx.compose.runtime.LaunchedEffect(serverId, account) {
         hasStoredApiKey = apiKeyStore.hasStoredKey()
+        hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
     }
 
     androidx.compose.runtime.LaunchedEffect(serverId) {
@@ -174,6 +177,14 @@ fun AccountSheet(
         if (server?.isLocal == true && hasStoredApiKey) {
             Text(
                 "Local OpenAI API key is saved.",
+                color = LitterTheme.accent,
+                fontSize = 12.sp,
+            )
+        }
+
+        if (server?.isLocal == true && hasStoredBaseUrl) {
+            Text(
+                "OpenAI-compatible base URL is saved.",
                 color = LitterTheme.accent,
                 fontSize = 12.sp,
             )
@@ -279,6 +290,84 @@ fun AccountSheet(
                     Text(if (hasStoredApiKey) "Update API Key" else "Save API Key")
                 }
             }
+
+            Text(
+                if (hasStoredBaseUrl) {
+                    "Custom OpenAI-compatible endpoint saved for the local Codex server."
+                } else {
+                    "Optional OpenAI-compatible endpoint for local models."
+                },
+                color = LitterTheme.textSecondary,
+                fontSize = 12.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = openAIBaseUrl,
+                    onValueChange = { openAIBaseUrl = it },
+                    label = { Text("Base URL") },
+                    placeholder = { Text("http://host:port/v1") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = {
+                        val normalized = normalizeOpenAIBaseUrl(openAIBaseUrl)
+                        if (normalized == null) {
+                            error = "Enter a valid http or https base URL."
+                        } else {
+                            scope.launch {
+                                isAuthWorking = true
+                                try {
+                                    apiKeyStore.saveBaseUrl(normalized)
+                                    appModel.restartLocalServer()
+                                    hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
+                                    if (hasStoredBaseUrl) {
+                                        openAIBaseUrl = ""
+                                        error = null
+                                    } else {
+                                        error = "Base URL did not persist locally."
+                                    }
+                                } catch (e: Exception) {
+                                    error = e.message
+                                } finally {
+                                    isAuthWorking = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = openAIBaseUrl.isNotBlank() && !isAuthWorking,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = LitterTheme.accent,
+                        contentColor = Color.Black,
+                    ),
+                ) {
+                    Text(if (hasStoredBaseUrl) "Update" else "Save")
+                }
+            }
+            if (hasStoredBaseUrl) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            isAuthWorking = true
+                            try {
+                                apiKeyStore.clearBaseUrl()
+                                appModel.restartLocalServer()
+                                hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
+                                openAIBaseUrl = ""
+                                error = null
+                            } catch (e: Exception) {
+                                error = e.message
+                            } finally {
+                                isAuthWorking = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isAuthWorking,
+                ) {
+                    Text("Clear Base URL")
+                }
+            }
         } else if (server?.isLocal == false) {
             Text(
                 "Remote servers request their own OAuth login when needed. Account login and API key entry stay local-only.",
@@ -291,4 +380,14 @@ fun AccountSheet(
             Text(it, color = LitterTheme.danger, fontSize = 12.sp)
         }
     }
+}
+
+private fun normalizeOpenAIBaseUrl(rawValue: String): String? {
+    val trimmed = rawValue.trim().trimEnd('/')
+    if (trimmed.isEmpty()) return null
+    val uri = runCatching { java.net.URI(trimmed) }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") return null
+    if (uri.host.isNullOrBlank()) return null
+    return trimmed
 }

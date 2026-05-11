@@ -5,8 +5,10 @@ final class OpenAIApiKeyStore {
     static let shared = OpenAIApiKeyStore()
 
     private let service = "com.sigkitten.litter.openai-api-key"
-    private let account = "default"
-    private let envKey = "OPENAI_API_KEY"
+    private let apiKeyAccount = "default"
+    private let baseURLAccount = "openai-base-url"
+    private let apiKeyEnvKey = "OPENAI_API_KEY"
+    private let baseURLEnvKey = "OPENAI_BASE_URL"
 
     private init() {}
 
@@ -14,8 +16,20 @@ final class OpenAIApiKeyStore {
         (try? load())?.isEmpty == false
     }
 
+    var hasStoredBaseURL: Bool {
+        (try? loadBaseURL())?.isEmpty == false
+    }
+
     func load() throws -> String? {
-        let query = baseQuery().merging([
+        try load(account: apiKeyAccount)
+    }
+
+    func loadBaseURL() throws -> String? {
+        try load(account: baseURLAccount)
+    }
+
+    private func load(account: String) throws -> String? {
+        let query = baseQuery(account: account).merging([
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]) { _, new in new }
@@ -42,9 +56,19 @@ final class OpenAIApiKeyStore {
     }
 
     func save(_ key: String) throws {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        try save(value: key, account: apiKeyAccount)
+        applyToEnvironment()
+    }
+
+    func saveBaseURL(_ baseURL: String) throws {
+        try save(value: baseURL, account: baseURLAccount)
+        applyToEnvironment()
+    }
+
+    private func save(value: String, account: String) throws {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let data = Data(trimmed.utf8)
-        let attributes: [String: Any] = baseQuery().merging([
+        let attributes: [String: Any] = baseQuery(account: account).merging([
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: data,
         ]) { _, new in new }
@@ -55,7 +79,7 @@ final class OpenAIApiKeyStore {
                 kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
                 kSecValueData as String: data,
             ]
-            let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, updates as CFDictionary)
+            let updateStatus = SecItemUpdate(baseQuery(account: account) as CFDictionary, updates as CFDictionary)
             guard updateStatus == errSecSuccess else {
                 throw NSError(
                     domain: NSOSStatusErrorDomain,
@@ -63,7 +87,6 @@ final class OpenAIApiKeyStore {
                     userInfo: [NSLocalizedDescriptionKey: "Keychain error (\(updateStatus))"]
                 )
             }
-            applyToEnvironment()
             return
         }
 
@@ -74,11 +97,20 @@ final class OpenAIApiKeyStore {
                 userInfo: [NSLocalizedDescriptionKey: "Keychain error (\(status))"]
             )
         }
-        applyToEnvironment()
     }
 
     func clear() throws {
-        let status = SecItemDelete(baseQuery() as CFDictionary)
+        try clear(account: apiKeyAccount)
+        unsetenv(apiKeyEnvKey)
+    }
+
+    func clearBaseURL() throws {
+        try clear(account: baseURLAccount)
+        unsetenv(baseURLEnvKey)
+    }
+
+    private func clear(account: String) throws {
+        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NSError(
                 domain: NSOSStatusErrorDomain,
@@ -86,18 +118,23 @@ final class OpenAIApiKeyStore {
                 userInfo: [NSLocalizedDescriptionKey: "Keychain error (\(status))"]
             )
         }
-        unsetenv(envKey)
     }
 
     func applyToEnvironment() {
         if let key = (try? load()) ?? nil, !key.isEmpty {
-            setenv(envKey, key, 1)
+            setenv(apiKeyEnvKey, key, 1)
         } else {
-            unsetenv(envKey)
+            unsetenv(apiKeyEnvKey)
+        }
+
+        if let baseURL = (try? loadBaseURL()) ?? nil, !baseURL.isEmpty {
+            setenv(baseURLEnvKey, baseURL, 1)
+        } else {
+            unsetenv(baseURLEnvKey)
         }
     }
 
-    private func baseQuery() -> [String: Any] {
+    private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

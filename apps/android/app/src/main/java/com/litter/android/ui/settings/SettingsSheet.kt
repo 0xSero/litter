@@ -1318,9 +1318,11 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
     val scope = rememberCoroutineScope()
     val apiKeyStore = remember(context) { OpenAIApiKeyStore(context.applicationContext) }
     var apiKey by remember { mutableStateOf("") }
+    var openAIBaseUrl by remember { mutableStateOf("") }
     var isAuthWorking by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     var hasStoredApiKey by remember { mutableStateOf(apiKeyStore.hasStoredKey()) }
+    var hasStoredBaseUrl by remember { mutableStateOf(apiKeyStore.hasStoredBaseUrl()) }
     val authLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -1380,6 +1382,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
 
     androidx.compose.runtime.LaunchedEffect(server.serverId, server.account) {
         hasStoredApiKey = apiKeyStore.hasStoredKey()
+        hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
     }
 
     Column(
@@ -1411,6 +1414,14 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
         if (server.isLocal && hasStoredApiKey) {
             Text(
                 "Local OpenAI API key is saved.",
+                color = LitterTheme.accent,
+                fontSize = 11.sp,
+            )
+        }
+
+        if (server.isLocal && hasStoredBaseUrl) {
+            Text(
+                "OpenAI-compatible base URL is saved.",
                 color = LitterTheme.accent,
                 fontSize = 11.sp,
             )
@@ -1500,6 +1511,84 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                     )
                 }
             }
+
+            Text(
+                if (hasStoredBaseUrl) {
+                    "Custom OpenAI-compatible endpoint saved for the local Codex server."
+                } else {
+                    "Optional OpenAI-compatible endpoint for local models."
+                },
+                color = LitterTheme.textSecondary,
+                fontSize = 11.sp,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = openAIBaseUrl,
+                    onValueChange = { openAIBaseUrl = it },
+                    textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 13.sp),
+                    cursorBrush = SolidColor(LitterTheme.accent),
+                    modifier = Modifier.weight(1f).background(LitterTheme.codeBackground, RoundedCornerShape(6.dp)).padding(8.dp),
+                    decorationBox = { inner -> if (openAIBaseUrl.isEmpty()) Text("http://host:port/v1", color = LitterTheme.textMuted, fontSize = 13.sp); inner() },
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(
+                    onClick = {
+                        val normalized = normalizeOpenAIBaseUrl(openAIBaseUrl)
+                        if (normalized == null) {
+                            authError = "Enter a valid http or https base URL."
+                        } else {
+                            scope.launch {
+                                isAuthWorking = true
+                                try {
+                                    apiKeyStore.saveBaseUrl(normalized)
+                                    appModel.restartLocalServer()
+                                    hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
+                                    if (hasStoredBaseUrl) {
+                                        openAIBaseUrl = ""
+                                        authError = null
+                                    } else {
+                                        authError = "Base URL did not persist locally."
+                                    }
+                                } catch (e: Exception) {
+                                    authError = e.message
+                                } finally {
+                                    isAuthWorking = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = openAIBaseUrl.trim().isNotEmpty() && !isAuthWorking,
+                ) {
+                    Text(
+                        if (hasStoredBaseUrl) "Update" else "Save",
+                        color = LitterTheme.accent,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            if (hasStoredBaseUrl) {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            isAuthWorking = true
+                            try {
+                                apiKeyStore.clearBaseUrl()
+                                appModel.restartLocalServer()
+                                hasStoredBaseUrl = apiKeyStore.hasStoredBaseUrl()
+                                openAIBaseUrl = ""
+                                authError = null
+                            } catch (e: Exception) {
+                                authError = e.message
+                            } finally {
+                                isAuthWorking = false
+                            }
+                        }
+                    },
+                    enabled = !isAuthWorking,
+                ) {
+                    Text("Clear Base URL", color = LitterTheme.danger, fontSize = 12.sp)
+                }
+            }
         } else {
             Text(
                 "Remote servers request their own OAuth login when needed. Settings login and API key entry stay local-only.",
@@ -1510,6 +1599,16 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
 
         authError?.let { Text(it, color = LitterTheme.danger, fontSize = 11.sp) }
     }
+}
+
+private fun normalizeOpenAIBaseUrl(rawValue: String): String? {
+    val trimmed = rawValue.trim().trimEnd('/')
+    if (trimmed.isEmpty()) return null
+    val uri = runCatching { java.net.URI(trimmed) }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") return null
+    if (uri.host.isNullOrBlank()) return null
+    return trimmed
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -42,6 +42,7 @@ const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// re-run `npm install @openai/codex@latest` on next spawn. Mirrors
 /// `CODEX_UPDATE_CHECK_INTERVAL_SECS` in `ssh.rs`.
 const MANAGED_CODEX_MAX_AGE_SECS: u64 = 24 * 60 * 60;
+const OPENAI_BASE_URL_ENV_KEY: &str = "OPENAI_BASE_URL";
 
 // ---------------------------------------------------------------------------
 // Shared path list
@@ -453,9 +454,16 @@ async fn spawn_local_server(
 ) -> Result<LocalServerHandle, LocalServerError> {
     let listen_url = format!("ws://127.0.0.1:{port}");
     let mut cmd = Command::new(codex_path);
-    cmd.arg("--enable")
-        .arg("goals")
-        .arg("app-server")
+    cmd.arg("--enable").arg("goals");
+
+    if let Some(base_url) = openai_base_url_from_env() {
+        cmd.arg("--config").arg(format!(
+            "openai_base_url={}",
+            toml_string_literal(&base_url)
+        ));
+    }
+
+    cmd.arg("app-server")
         .arg("--listen")
         .arg(&listen_url)
         .stdin(Stdio::null())
@@ -631,6 +639,39 @@ async fn install_codex_via_local_npm() -> Result<(), String> {
     Ok(())
 }
 
+fn openai_base_url_from_env() -> Option<String> {
+    std::env::var(OPENAI_BASE_URL_ENV_KEY)
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn toml_string_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                let codepoint = ch as u32;
+                if codepoint <= 0xFFFF {
+                    let _ = write!(escaped, "\\u{codepoint:04X}");
+                } else {
+                    let _ = write!(escaped, "\\U{codepoint:08X}");
+                }
+            }
+            ch => escaped.push(ch),
+        }
+    }
+    escaped.push('"');
+    escaped
+}
+
 // ---------------------------------------------------------------------------
 // Attach result
 // ---------------------------------------------------------------------------
@@ -677,6 +718,18 @@ mod tests {
         assert!(shell.contains(".local/bin/codex"));
         assert!(shell.contains("/opt/homebrew/bin/codex"));
         assert!(shell.contains("/usr/local/bin/codex"));
+    }
+
+    #[test]
+    fn toml_string_literal_escapes_base_url_value() {
+        assert_eq!(
+            toml_string_literal("http://localhost:11434/v1"),
+            "\"http://localhost:11434/v1\""
+        );
+        assert_eq!(
+            toml_string_literal("http://host/quote\"slash\\"),
+            "\"http://host/quote\\\"slash\\\\\""
+        );
     }
 
     #[tokio::test]
