@@ -70,9 +70,10 @@ struct ConversationComposerTextView: UIViewRepresentable {
             uiView.text = text
             context.coordinator.applySelectedRange(to: uiView)
             context.coordinator.isSynchronizingText = false
+        } else if !uiView.isFirstResponder {
+            context.coordinator.applySelectedRange(to: uiView)
         }
 
-        context.coordinator.applySelectedRange(to: uiView)
         context.coordinator.updateScrollState(for: uiView)
         context.coordinator.syncFocus(for: uiView)
     }
