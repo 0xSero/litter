@@ -1,6 +1,7 @@
 //! UniFFI-exported state surface for the canonical Rust app store.
 
 use crate::MobileClient;
+use crate::conversation_uniffi::{HydratedConversationItem, HydratedConversationItemContent};
 use crate::ffi::ClientError;
 use crate::ffi::shared::{blocking_async, shared_mobile_client, shared_runtime};
 use crate::store::{AppSnapshotRecord, AppStoreUpdateRecord, AppThreadSnapshot};
@@ -28,9 +29,15 @@ const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
 
 #[cfg(test)]
 mod tests {
+    use super::should_preserve_thread_item_update_boundary;
     use super::{AppStoreSubscription, AppStoreSubscriptionState};
+    use crate::conversation_uniffi::{
+        HydratedAssistantMessageData, HydratedConversationItem, HydratedConversationItemContent,
+        HydratedFileChangeData, HydratedFileChangeEntryData, HydratedMcpToolCallData,
+        HydratedMultiAgentActionData, HydratedMultiAgentStateData,
+    };
     use crate::store::{AppStoreReducer, AppStoreUpdateRecord, ThreadStreamingDeltaKind};
-    use crate::types::ThreadKey;
+    use crate::types::{AppOperationStatus, AppSubagentStatus, ThreadKey};
     use codex_app_server_protocol as upstream;
     use serde_json::json;
     use std::collections::{HashMap, VecDeque};
@@ -185,6 +192,164 @@ mod tests {
             .expect("next update should succeed");
 
         assert!(matches!(update, AppStoreUpdateRecord::FullResync));
+    }
+
+    #[test]
+    fn app_store_subscription_preserves_tool_lifecycle_boundaries() {
+        let current = hydrated_item(
+            "tool-1",
+            HydratedConversationItemContent::McpToolCall(mcp_tool_call(
+                AppOperationStatus::InProgress,
+                Vec::new(),
+            )),
+        );
+        let next = hydrated_item(
+            "tool-1",
+            HydratedConversationItemContent::McpToolCall(mcp_tool_call(
+                AppOperationStatus::Completed,
+                Vec::new(),
+            )),
+        );
+
+        assert!(should_preserve_thread_item_update_boundary(&current, &next));
+    }
+
+    #[test]
+    fn app_store_subscription_preserves_tool_progress_boundaries() {
+        let current = hydrated_item(
+            "tool-1",
+            HydratedConversationItemContent::McpToolCall(mcp_tool_call(
+                AppOperationStatus::InProgress,
+                vec!["connecting".to_string()],
+            )),
+        );
+        let next = hydrated_item(
+            "tool-1",
+            HydratedConversationItemContent::McpToolCall(mcp_tool_call(
+                AppOperationStatus::InProgress,
+                vec!["connecting".to_string(), "reading".to_string()],
+            )),
+        );
+
+        assert!(should_preserve_thread_item_update_boundary(&current, &next));
+    }
+
+    #[test]
+    fn app_store_subscription_preserves_file_and_agent_progress_boundaries() {
+        let current_file = hydrated_item(
+            "file-1",
+            HydratedConversationItemContent::FileChange(HydratedFileChangeData {
+                status: AppOperationStatus::InProgress,
+                changes: Vec::new(),
+            }),
+        );
+        let next_file = hydrated_item(
+            "file-1",
+            HydratedConversationItemContent::FileChange(HydratedFileChangeData {
+                status: AppOperationStatus::InProgress,
+                changes: vec![HydratedFileChangeEntryData {
+                    path: "src/lib.rs".to_string(),
+                    kind: "update".to_string(),
+                    diff: "@@ -1 +1\n-old\n+new\n".to_string(),
+                    additions: 1,
+                    deletions: 1,
+                }],
+            }),
+        );
+        assert!(should_preserve_thread_item_update_boundary(
+            &current_file,
+            &next_file
+        ));
+
+        let current_agent = hydrated_item(
+            "agent-1",
+            HydratedConversationItemContent::MultiAgentAction(multi_agent_action(None)),
+        );
+        let next_agent = hydrated_item(
+            "agent-1",
+            HydratedConversationItemContent::MultiAgentAction(multi_agent_action(Some(
+                "Scanning files".to_string(),
+            ))),
+        );
+
+        assert!(should_preserve_thread_item_update_boundary(
+            &current_agent,
+            &next_agent
+        ));
+    }
+
+    #[test]
+    fn app_store_subscription_keeps_non_tool_item_updates_coalescible() {
+        let current = hydrated_item(
+            "assistant-1",
+            HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                text: "hel".to_string(),
+                agent_nickname: None,
+                agent_role: None,
+                phase: None,
+            }),
+        );
+        let next = hydrated_item(
+            "assistant-1",
+            HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                text: "hello".to_string(),
+                agent_nickname: None,
+                agent_role: None,
+                phase: None,
+            }),
+        );
+
+        assert!(!should_preserve_thread_item_update_boundary(
+            &current, &next
+        ));
+    }
+
+    fn hydrated_item(
+        id: &str,
+        content: HydratedConversationItemContent,
+    ) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: id.to_string(),
+            content,
+            source_turn_id: Some("turn-1".to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
+        }
+    }
+
+    fn mcp_tool_call(
+        status: AppOperationStatus,
+        progress_messages: Vec<String>,
+    ) -> HydratedMcpToolCallData {
+        HydratedMcpToolCallData {
+            server: "filesystem".to_string(),
+            tool: "read_file".to_string(),
+            status,
+            duration_ms: None,
+            arguments_json: None,
+            content_summary: None,
+            structured_content_json: None,
+            raw_output_json: None,
+            error_message: None,
+            progress_messages,
+            computer_use: None,
+        }
+    }
+
+    fn multi_agent_action(message: Option<String>) -> HydratedMultiAgentActionData {
+        HydratedMultiAgentActionData {
+            tool: "spawn_agent".to_string(),
+            status: AppOperationStatus::InProgress,
+            prompt: Some("Inspect realtime updates".to_string()),
+            targets: vec!["agent-1".to_string()],
+            receiver_thread_ids: vec!["thread-child".to_string()],
+            agent_states: vec![HydratedMultiAgentStateData {
+                target_id: "agent-1".to_string(),
+                status: AppSubagentStatus::Running,
+                message,
+            }],
+        }
     }
 }
 
@@ -506,10 +671,7 @@ impl AppStore {
 
     /// Write `bytes` to the currently-active terminal session, if any.
     /// Returns `Ok(false)` if no active session is set.
-    pub async fn write_to_active_terminal(
-        &self,
-        bytes: Vec<u8>,
-    ) -> Result<bool, ClientError> {
+    pub async fn write_to_active_terminal(&self, bytes: Vec<u8>) -> Result<bool, ClientError> {
         self.inner
             .write_to_active_terminal(bytes)
             .await
@@ -663,6 +825,13 @@ fn merge_app_update(
                 session_summary: next_summary,
             },
         ) if *key == next_key && item.id == next_item.id => {
+            if should_preserve_thread_item_update_boundary(item, &next_item) {
+                return Err(AppStoreUpdateRecord::ThreadItemChanged {
+                    key: next_key,
+                    item: next_item,
+                    session_summary: next_summary,
+                });
+            }
             *item = next_item;
             *session_summary = next_summary;
             Ok(())
@@ -692,6 +861,53 @@ fn merge_app_update(
             Ok(())
         }
         (_current, next) => Err(next),
+    }
+}
+
+fn should_preserve_thread_item_update_boundary(
+    current: &HydratedConversationItem,
+    next: &HydratedConversationItem,
+) -> bool {
+    use HydratedConversationItemContent::*;
+
+    match (&current.content, &next.content) {
+        (CommandExecution(current), CommandExecution(next)) => {
+            current.status != next.status
+                || current.exit_code != next.exit_code
+                || current.duration_ms != next.duration_ms
+                || current.process_id != next.process_id
+        }
+        (McpToolCall(current), McpToolCall(next)) => {
+            current.status != next.status
+                || current.duration_ms != next.duration_ms
+                || current.progress_messages != next.progress_messages
+        }
+        (DynamicToolCall(current), DynamicToolCall(next)) => {
+            current.status != next.status
+                || current.duration_ms != next.duration_ms
+                || current.success != next.success
+                || current.content_summary != next.content_summary
+                || current.display != next.display
+        }
+        (FileChange(current), FileChange(next)) => {
+            current.status != next.status || current.changes != next.changes
+        }
+        (MultiAgentAction(current), MultiAgentAction(next)) => {
+            current.status != next.status
+                || current.agent_states != next.agent_states
+                || current.targets != next.targets
+                || current.receiver_thread_ids != next.receiver_thread_ids
+        }
+        (ImageGeneration(current), ImageGeneration(next)) => {
+            current.status != next.status
+                || current.revised_prompt != next.revised_prompt
+                || current.saved_path != next.saved_path
+                || current.image_png.is_some() != next.image_png.is_some()
+        }
+        (WebSearch(current), WebSearch(next)) => {
+            current.is_in_progress != next.is_in_progress || current.action_json != next.action_json
+        }
+        _ => false,
     }
 }
 
