@@ -242,7 +242,7 @@ struct HomeComposerView: View {
 
                 let pendingModel = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let modelOverride = pendingModel.isEmpty ? nil : pendingModel
-                let agentRuntimeOverride = modelOverride == nil ? nil : appState.preferredAgentRuntimeKind
+                let agentRuntimeOverride = appState.preferredAgentRuntimeKind
                 let pendingEffort = appState.preferredReasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
                 let effortOverride = ReasoningEffort(wireValue: pendingEffort.isEmpty ? nil : pendingEffort)
                 let launchConfig = AppThreadLaunchConfig(

@@ -223,6 +223,15 @@ impl MobileClient {
         server_id: &str,
         response: &upstream::ThreadStartResponse,
     ) -> Result<ThreadKey, String> {
+        self.apply_thread_start_response_for_runtime(server_id, "codex".to_string(), response)
+    }
+
+    pub fn apply_thread_start_response_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        response: &upstream::ThreadStartResponse,
+    ) -> Result<ThreadKey, String> {
         let mut snapshot = crate::thread_snapshot_from_upstream_thread_with_overrides(
             server_id,
             response.thread.clone(),
@@ -235,6 +244,7 @@ impl MobileClient {
             Some(response.sandbox.clone().into()),
         )
         .map_err(|e| e.to_string())?;
+        snapshot.agent_runtime_kind = runtime_kind;
         // A freshly-started thread has no turns to page; mark the initial
         // page as loaded so UI does not auto-fire `thread/turns/list`
         // (which the server rejects until the first user message lands).
@@ -1316,6 +1326,76 @@ mod tests {
             "new thread must be marked initial_turns_loaded"
         );
         assert!(snapshot.older_turns_cursor.is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_thread_start_response_for_runtime_projects_session_summary() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &ServerConfig {
+                server_id: "srv".to_string(),
+                display_name: "Server".to_string(),
+                host: "localhost".to_string(),
+                port: 8390,
+                websocket_url: None,
+                is_local: true,
+                tls: false,
+            },
+            ServerHealthSnapshot::Connected,
+        );
+        let response = upstream::ThreadStartResponse {
+            thread: test_upstream_thread("thread-opencode"),
+            model: "opencode/default".to_string(),
+            model_provider: "opencode".to_string(),
+            service_tier: None,
+            cwd: test_abs_path("/tmp"),
+            runtime_workspace_roots: Vec::new(),
+            instruction_sources: Vec::new(),
+            approval_policy: upstream::AskForApproval::Never,
+            approvals_reviewer: upstream::ApprovalsReviewer::User,
+            sandbox: upstream::SandboxPolicy::DangerFullAccess,
+            active_permission_profile: None,
+            reasoning_effort: None,
+        };
+
+        let key = client
+            .apply_thread_start_response_for_runtime("srv", "opencode".to_string(), &response)
+            .expect("thread/start reconciliation");
+        let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
+        assert_eq!(snapshot.agent_runtime_kind, "opencode");
+
+        let record = crate::store::AppSnapshotRecord::try_from(client.app_snapshot())
+            .expect("snapshot record");
+        assert!(record.threads.iter().any(|thread| thread.key == key));
+        let summary = record
+            .session_summaries
+            .iter()
+            .find(|summary| summary.key == key)
+            .expect("new session summary");
+        assert_eq!(summary.agent_runtime_kind, "opencode");
+
+        let default_response = upstream::ThreadStartResponse {
+            thread: test_upstream_thread("thread-codex"),
+            model: "gpt-5.5".to_string(),
+            model_provider: "openai".to_string(),
+            service_tier: None,
+            cwd: test_abs_path("/tmp"),
+            runtime_workspace_roots: Vec::new(),
+            instruction_sources: Vec::new(),
+            approval_policy: upstream::AskForApproval::Never,
+            approvals_reviewer: upstream::ApprovalsReviewer::User,
+            sandbox: upstream::SandboxPolicy::DangerFullAccess,
+            active_permission_profile: None,
+            reasoning_effort: None,
+        };
+        let default_key = client
+            .apply_thread_start_response("srv", &default_response)
+            .expect("default thread/start reconciliation");
+        let default_snapshot = client
+            .app_store
+            .thread_snapshot(&default_key)
+            .expect("default snapshot");
+        assert_eq!(default_snapshot.agent_runtime_kind, "codex");
     }
 
     /// `thread/read` carries embedded turns and is authoritative — the

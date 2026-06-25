@@ -381,7 +381,11 @@ impl AppClient {
             )
             .await?;
             let key = c
-                .apply_thread_start_response(&server_id, &response)
+                .apply_thread_start_response_for_runtime(
+                    &server_id,
+                    runtime_kind.clone(),
+                    &response,
+                )
                 .map_err(ClientError::Serialization)?;
             c.note_thread_runtime(key.clone(), runtime_kind);
             Ok(key)

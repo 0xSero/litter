@@ -1288,7 +1288,7 @@ struct SessionsScreen: View {
         let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasSelectedModel = !selectedModel.isEmpty
         return AppThreadLaunchConfig(
-            agentRuntimeKind: hasSelectedModel ? appState.selectedAgentRuntimeKind : nil,
+            agentRuntimeKind: appState.selectedAgentRuntimeKind,
             model: hasSelectedModel ? selectedModel : nil,
             approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
             sandbox: appState.launchSandboxMode(for: threadKey),

@@ -1318,12 +1318,10 @@ private struct HomeNavigationView: View {
             return
         }
 
-        guard let resolvedKey = await appModel.ensureThreadLoaded(key: startedKey)
-            ?? appModel.snapshot?.threadSnapshot(for: startedKey)?.key else {
-            actionErrorMessage = appModel.lastError ?? "Failed to load the new session."
-            return
-        }
-
+        // startThread already created the thread and reconciled it into the
+        // Rust store. Open immediately so the route can show its loading
+        // state while any late metadata/hydration catches up.
+        let resolvedKey = appModel.snapshot?.threadSnapshot(for: startedKey)?.key ?? startedKey
         openConversation(resolvedKey)
     }
 
@@ -1350,7 +1348,7 @@ private struct HomeNavigationView: View {
         let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasSelectedModel = !selectedModel.isEmpty
         return AppThreadLaunchConfig(
-            agentRuntimeKind: hasSelectedModel ? appState.selectedAgentRuntimeKind : nil,
+            agentRuntimeKind: appState.selectedAgentRuntimeKind,
             model: hasSelectedModel ? selectedModel : nil,
             approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
             sandbox: appState.launchSandboxMode(for: threadKey),
