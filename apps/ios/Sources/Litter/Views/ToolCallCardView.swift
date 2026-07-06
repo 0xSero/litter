@@ -463,13 +463,14 @@ struct ToolCallCardView: View {
         if trimmed.hasPrefix("file://"),
            let url = URL(string: trimmed),
            url.isFileURL {
-            return url.path(percentEncoded: false)
+            let path = url.path(percentEncoded: false)
+            return ConversationAttachmentSupport.isPhotosLibraryInternalPath(path) ? nil : path
         }
         if trimmed.hasPrefix("/") || trimmed.hasPrefix("~/") || trimmed.hasPrefix("\\\\") {
-            return trimmed
+            return ConversationAttachmentSupport.isPhotosLibraryInternalPath(trimmed) ? nil : trimmed
         }
         if trimmed.range(of: #"^[A-Za-z]:[\\/]"#, options: .regularExpression) != nil {
-            return trimmed
+            return ConversationAttachmentSupport.isPhotosLibraryInternalPath(trimmed) ? nil : trimmed
         }
 
         return nil
