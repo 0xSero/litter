@@ -55,6 +55,7 @@ fun HomeModelChip(
     val appModel = LocalAppModel.current
     val snapshot by appModel.snapshot.collectAsState()
     val launchState by appModel.launchState.snapshot.collectAsState()
+    var showSheet by remember { mutableStateOf(false) }
 
     val server = remember(snapshot, serverId) {
         snapshot?.servers?.firstOrNull { it.serverId == serverId }
@@ -74,13 +75,21 @@ fun HomeModelChip(
             ?: selectedId.ifBlank { "model" }
     }
 
-    LaunchedEffect(serverId) {
+    LaunchedEffect(serverId, server?.transportState, showSheet) {
         if (!serverId.isNullOrBlank()) {
-            runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
+            if (showSheet) {
+                // Opening the picker is an explicit retry opportunity. The
+                // first preload can run before the selected server finishes
+                // connecting, or can leave an empty list after a transient
+                // model/list failure.
+                runCatching { appModel.loadAvailableModelsIfNeeded(serverId) }
+                runCatching { appModel.loadRateLimitsIfNeeded(serverId) }
+            } else {
+                runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
+            }
         }
     }
 
-    var showSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(showSheet) {

@@ -549,7 +549,10 @@ class AppModel private constructor(context: android.content.Context) {
     suspend fun loadAvailableModelsIfNeeded(serverId: String) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (server.availableModels != null) return
+        // An empty list can be the result of a transient model/list failure.
+        // Do not let that poison the cache permanently: the picker should be
+        // able to retry once the server/runtime is healthy again.
+        if (!server.availableModels.isNullOrEmpty()) return
         if (!loadingModelServerIds.add(serverId)) return
         try {
             client.refreshModels(
@@ -1567,9 +1570,16 @@ class AppModel private constructor(context: android.content.Context) {
 
     private fun hasFreshConversationMetadata(serverId: String): Boolean {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
-        val hasModels = server.availableModels != null
+        val hasModels = !server.availableModels.isNullOrEmpty()
         val hasRateLimits = server.account == null || server.rateLimits != null
         if (hasModels && hasRateLimits) return true
+
+        // An empty model list is not a successful metadata load. In
+        // particular, refreshModels can publish an empty list after a
+        // transient runtime/model-list failure. Keep the short debounce for
+        // rate-limit-only retries, but let the picker retry models
+        // immediately when it is opened again.
+        if (!hasModels) return false
 
         val lastLoad = recentConversationMetadataLoads[serverId] ?: return false
         return System.currentTimeMillis() - lastLoad < 10_000L
