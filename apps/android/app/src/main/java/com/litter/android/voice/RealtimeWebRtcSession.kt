@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -60,7 +61,10 @@ class RealtimeWebRtcSession(private val context: Context) {
         val factory = sharedFactory(context)
         val rtcConfig = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            // The initial SDP is sent as a complete, non-trickle offer. Continuous
+            // gathering never transitions to COMPLETE on some Android devices,
+            // which leaves start() suspended before signaling can begin.
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
         }
 
         Log.i(TAG, "start: creating PeerConnection")
@@ -108,7 +112,15 @@ class RealtimeWebRtcSession(private val context: Context) {
         }
 
         Log.i(TAG, "start: awaiting ICE gathering complete")
-        awaitIceGatheringComplete(connection)
+        val iceGatheringCompleted = withTimeoutOrNull(ICE_GATHERING_TIMEOUT_MS) {
+            awaitIceGatheringComplete(connection)
+            true
+        } == true
+        if (!iceGatheringCompleted) {
+            // A host candidate is normally present by now. Prefer sending the
+            // best available offer to hanging the entire realtime start flow.
+            Log.w(TAG, "start: ICE gathering timed out; using current local description")
+        }
 
         if (isClosed.get() || peerConnection !== connection) {
             Log.w(TAG, "start: session closed while awaiting ICE gathering")
@@ -311,6 +323,7 @@ class RealtimeWebRtcSession(private val context: Context) {
 
     companion object {
         private const val TAG = "RealtimeWebRtc"
+        private const val ICE_GATHERING_TIMEOUT_MS = 5_000L
 
         @Volatile
         private var sharedFactoryInstance: PeerConnectionFactory? = null

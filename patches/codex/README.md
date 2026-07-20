@@ -62,9 +62,9 @@ Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/{common.rs
 The TUI hunks are no-op match arms required only because upstream's `ServerNotification` matches are exhaustive. Upstream moved the consolidated `handle_server_notification` match from `tui/src/chatwidget.rs` into `tui/src/chatwidget/protocol.rs`; this patch targets the new location.
 
 ## `realtime-webrtc-env-apikey.patch`
-For WebRTC realtime sessions, populate the request headers with the API key obtained from `realtime_api_key(auth, provider)`. Without this, the WebRTC peer connection fails to authenticate when the user is signed in via env-key auth.
+For WebRTC realtime sessions, populate the request headers with the API key obtained from `realtime_api_key(auth, provider)`. When ChatGPT auth falls back to that key, build a clean public OpenAI provider instead of retaining the ChatGPT backend URL. Without this, the WebRTC peer connection fails to authenticate or targets a backend call route the API key cannot access.
 
-Touches `core/src/realtime_conversation.rs`.
+Touches `core/src/{client.rs,realtime_conversation.rs,realtime_conversation_tests.rs}`.
 
 ---
 
