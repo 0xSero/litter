@@ -2063,9 +2063,13 @@ final class AppModel {
 
     private func hasCompleteModelCatalog(_ server: AppServerSnapshot) -> Bool {
         guard let models = server.availableModels else { return false }
+        let hasControllerOnlyLocalStudio = server.serverId.hasPrefix("alleycat:local-studio:")
         let requiredRuntimeKinds = Set(
             server.agentRuntimes
-                .filter { $0.available && $0.kind != "shell" }
+                .filter {
+                    $0.available && $0.kind != "shell" &&
+                        !(hasControllerOnlyLocalStudio && $0.kind == "local-studio")
+                }
                 .map(\.kind)
         )
         let loadedRuntimeKinds = Set(models.map(\.agentRuntimeKind))

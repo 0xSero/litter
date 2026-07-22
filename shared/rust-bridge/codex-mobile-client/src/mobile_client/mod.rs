@@ -1833,6 +1833,7 @@ impl MobileClient {
                 available: true,
             })
             .collect::<Vec<_>>();
+        let has_local_studio_controller = !controller_infos.is_empty();
         let runtime_agents = if requested_agents.is_empty() {
             if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
                 self.app_store
@@ -2053,6 +2054,10 @@ impl MobileClient {
             session.runtime_kinds()
         );
 
+        if has_local_studio_controller {
+            self.local_studio_targets
+                .register(server_id.clone(), params.clone());
+        }
         self.attach_remote_session(&server_id, session, runtime_infos.clone());
 
         // Preserve the user's *intent* in the saved-server record rather

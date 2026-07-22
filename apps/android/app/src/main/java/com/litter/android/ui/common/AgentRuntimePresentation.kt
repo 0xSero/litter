@@ -79,11 +79,14 @@ val AgentRuntimeKind.isBeta: Boolean
 
 /** Whether this runtime accepts client-side thread permission overrides. */
 val AgentRuntimeKind.supportsThreadPermissionOverrides: Boolean
-    get() = this != "pi" && (metadata?.capabilities?.supportsThreadPermissionOverrides ?: true)
+    get() = !hasFixedFullAccess && (metadata?.capabilities?.supportsThreadPermissionOverrides ?: true)
 
 /** Whether this runtime reports effective permissions as authoritative state. */
 val AgentRuntimeKind.reportsEffectiveThreadPermissions: Boolean
-    get() = this != "pi" && (metadata?.capabilities?.reportsEffectiveThreadPermissions ?: true)
+    get() = !hasFixedFullAccess && (metadata?.capabilities?.reportsEffectiveThreadPermissions ?: true)
+
+val AgentRuntimeKind.hasFixedFullAccess: Boolean
+    get() = this == "pi" || this == "local-studio"
 
 /** Picker callers that only know `name` / `displayName` from a probe. */
 fun isBetaAgentName(name: String, displayName: String): Boolean {

@@ -106,6 +106,7 @@ import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.hasFixedFullAccess
 import com.litter.android.ui.scaled
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.launch
@@ -179,7 +180,10 @@ fun ComposerBar(
 ) {
     val appModel = LocalAppModel.current
     val appSnapshot by appModel.snapshot.collectAsState()
-    val hasFixedFullAccess = appSnapshot?.threads?.firstOrNull { it.key == threadKey }?.agentRuntimeKind == "pi"
+    val hasFixedFullAccess = appSnapshot?.threads
+        ?.firstOrNull { it.key == threadKey }
+        ?.agentRuntimeKind
+        ?.hasFixedFullAccess == true
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val composerPrefillRequest by appModel.composerPrefillRequest.collectAsState()

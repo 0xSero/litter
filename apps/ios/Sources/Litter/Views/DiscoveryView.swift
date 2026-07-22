@@ -10,8 +10,7 @@ struct DiscoveryView: View {
     @State private var pendingSSHServer: DiscoveredServer?
     @State private var sshAgentContext: SSHBridgeAgentContext?
     @State private var showManualEntry = false
-    @State private var showAlleycatSheet = false
-    @State private var alleycatPairingMode: AlleycatPairingMode = .kittylitter
+    @State private var alleycatPairingMode: AlleycatPairingMode?
     @State private var showSlingshotHosts = false
     @State private var slingshotEnvironments: [AppSlingshotEnvironment] = []
     @State private var slingshotIsLoading = false
@@ -158,13 +157,13 @@ struct DiscoveryView: View {
         .sheet(isPresented: $showSlingshotHosts) {
             slingshotHostsSheet
         }
-        .sheet(isPresented: $showAlleycatSheet) {
+        .sheet(item: $alleycatPairingMode) { pairingMode in
             AlleycatAddServerSheet(
                 appModel: appModel,
-                startScanningOnAppear: true,
-                pairingMode: alleycatPairingMode,
+                startScanningOnAppear: pairingMode == .kittylitter,
+                pairingMode: pairingMode,
                 onConnected: { result in
-                    showAlleycatSheet = false
+                    alleycatPairingMode = nil
                     Task { await connectAlleycatTarget(result) }
                 }
             )
@@ -269,7 +268,6 @@ struct DiscoveryView: View {
                     accessibilityID: "discovery.chooser.kittylitter"
                 ) {
                     alleycatPairingMode = .kittylitter
-                    showAlleycatSheet = true
                 }
 
                 chooserCard(
@@ -282,7 +280,6 @@ struct DiscoveryView: View {
                     accessibilityID: "discovery.chooser.local-studio"
                 ) {
                     alleycatPairingMode = .localStudio
-                    showAlleycatSheet = true
                 }
 
                 chooserCard(

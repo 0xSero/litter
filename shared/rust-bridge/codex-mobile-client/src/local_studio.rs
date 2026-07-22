@@ -691,6 +691,19 @@ pub(crate) struct LocalStudioTargetRegistry {
 }
 
 impl LocalStudioTargetRegistry {
+    pub(crate) fn register(&self, server_id: String, target: ParsedPairPayload) {
+        match self.targets.write() {
+            Ok(mut guard) => {
+                guard.insert(server_id, TargetEntry::Unique(target));
+            }
+            Err(error) => {
+                error
+                    .into_inner()
+                    .insert(server_id, TargetEntry::Unique(target));
+            }
+        }
+    }
+
     pub(crate) fn sync(&self, servers: &[SavedServerRecord]) {
         let mut targets = HashMap::new();
         for server in servers {
@@ -2893,6 +2906,17 @@ mod tests {
         assert!(validate_nonce("short").is_err());
         assert!(validate_percentage(f64::NAN, "gpu").is_err());
         assert!(validate_percentage(101.0, "gpu").is_err());
+
+        let target = ParsedPairPayload {
+            version: 2,
+            node_id: "node".into(),
+            token: "token".into(),
+            relay: None,
+            host_name: None,
+        };
+        let registry = LocalStudioTargetRegistry::default();
+        registry.register("server".into(), target.clone());
+        assert_eq!(registry.resolve("server").unwrap(), target);
     }
 
     #[tokio::test]

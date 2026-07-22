@@ -1441,7 +1441,9 @@ private struct ConversationInputBar: View {
     }
 
     private var hasFixedFullAccess: Bool {
-        appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind == "pi"
+        guard let runtime = appModel.snapshot?.threads
+            .first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind else { return false }
+        return String.hasFixedFullAccess(runtime)
     }
 
     private var pendingModelOverride: String? {

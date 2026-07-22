@@ -11,9 +11,11 @@ struct AlleycatConnectedTarget: Equatable {
     let agentWire: AppAlleycatAgentWire
 }
 
-enum AlleycatPairingMode: Equatable {
+enum AlleycatPairingMode: String, Equatable, Identifiable {
     case kittylitter
     case localStudio
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -118,9 +120,6 @@ struct AlleycatAddServerSheet: View {
                 },
                 onCancel: {
                     showScanner = false
-                    if startScanningOnAppear, parsedParams == nil {
-                        dismiss()
-                    }
                 },
                 onPermissionDenied: {
                     showScanner = false
@@ -755,8 +754,9 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if captureSession.isRunning {
-            captureSession.stopRunning()
+        metadataQueue.async { [weak self] in
+            guard let self, self.captureSession.isRunning else { return }
+            self.captureSession.stopRunning()
         }
     }
 
@@ -811,8 +811,8 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
             .stringValue
         else { return }
         didReportScan = true
+        captureSession.stopRunning()
         DispatchQueue.main.async { [weak self] in
-            self?.captureSession.stopRunning()
             self?.onScan?(payload)
         }
     }

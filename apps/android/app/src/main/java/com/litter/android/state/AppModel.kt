@@ -1573,8 +1573,12 @@ class AppModel private constructor(context: android.content.Context) {
 
     private fun hasCompleteModelCatalog(server: AppServerSnapshot): Boolean {
         val models = server.availableModels ?: return false
+        val hasControllerOnlyLocalStudio = server.serverId.startsWith("alleycat:local-studio:")
         val requiredRuntimeKinds = server.agentRuntimes
-            .filter { it.available && it.kind != "shell" }
+            .filter {
+                it.available && it.kind != "shell" &&
+                    !(hasControllerOnlyLocalStudio && it.kind == "local-studio")
+            }
             .mapTo(mutableSetOf<String>()) { it.kind }
         val loadedRuntimeKinds = models.mapTo(mutableSetOf<String>()) { it.agentRuntimeKind }
         return loadedRuntimeKinds.containsAll(requiredRuntimeKinds)

@@ -1224,22 +1224,23 @@ impl AppClient {
                     Ok(crate::local_studio::LocalStudioControllerLoadResult::Loaded {
                         snapshot,
                         ..
-                    }) => snapshot
-                        .sections
-                        .status
-                        .value
-                        .map(|status| status.active_model_ids)
-                        .unwrap_or_default(),
+                    }) => match snapshot.sections.status.value {
+                        Some(status) => status.active_model_ids,
+                        None => {
+                            tracing::warn!("Local Studio model scope status unavailable");
+                            return Ok(());
+                        }
+                    },
                     Ok(crate::local_studio::LocalStudioControllerLoadResult::Error { error }) => {
                         tracing::warn!(
                             "Local Studio model scope unavailable: {}",
                             error.error.message
                         );
-                        Vec::new()
+                        return Ok(());
                     }
                     Err(error) => {
                         tracing::warn!("Local Studio model scope failed: {error}");
-                        Vec::new()
+                        return Ok(());
                     }
                 };
                 retain_local_studio_controller_models(&mut models, &active_model_ids);

@@ -84,13 +84,19 @@ extension AgentRuntimeKind {
     /// Older daemons did not advertise the capability, so default to the
     /// historical behaviour until a runtime explicitly opts out.
     var supportsThreadPermissionOverrides: Bool {
-        self != "pi" && (metadata?.capabilities?.supportsThreadPermissionOverrides ?? true)
+        !Self.hasFixedFullAccess(self) &&
+            (metadata?.capabilities?.supportsThreadPermissionOverrides ?? true)
     }
 
     /// Whether this runtime reports effective thread permissions that the UI
     /// can present as authoritative runtime state.
     var reportsEffectiveThreadPermissions: Bool {
-        self != "pi" && (metadata?.capabilities?.reportsEffectiveThreadPermissions ?? true)
+        !Self.hasFixedFullAccess(self) &&
+            (metadata?.capabilities?.reportsEffectiveThreadPermissions ?? true)
+    }
+
+    static func hasFixedFullAccess(_ runtime: String) -> Bool {
+        runtime == "pi" || runtime == "local-studio"
     }
 
     /// Asset catalog name for this agent's bundled icon, by convention
