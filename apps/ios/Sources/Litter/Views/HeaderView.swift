@@ -500,6 +500,61 @@ func modelPickerDisplayName(_ model: ModelInfo) -> String {
     return model.displayName.isEmpty ? model.id : model.displayName
 }
 
+private struct ModelProviderGroup: Identifiable {
+    let key: String
+    let name: String
+    let models: [ModelInfo]
+
+    var id: String { key }
+}
+
+private func modelProviderName(_ model: ModelInfo) -> String {
+    guard let provider = model.providerId else { return model.agentRuntimeKind.titleDisplayLabel }
+    switch provider.lowercased() {
+    case "ai21": return "AI21"
+    case "arcee-ai": return "Arcee AI"
+    case "bytedance-seed": return "ByteDance"
+    case "deepseek": return "DeepSeek"
+    case "meta-llama": return "Meta"
+    case "mistralai": return "Mistral AI"
+    case "moonshotai": return "Moonshot AI"
+    case "openai": return "OpenAI"
+    case "openrouter": return "OpenRouter"
+    case "x-ai": return "xAI"
+    default:
+        return provider.split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .map { $0.capitalized }.joined(separator: " ")
+    }
+}
+
+private func modelNameWithinProvider(_ model: ModelInfo) -> String {
+    var name = modelPickerDisplayName(model)
+    if model.id.contains("/"), let catalog = model.id.split(separator: "/", maxSplits: 1).first {
+        let suffix = " (\(catalog))"
+        if name.lowercased().hasSuffix(suffix.lowercased()) {
+            name.removeLast(suffix.count)
+        }
+    }
+    if let providerId = model.providerId, name.hasPrefix("\(providerId)/") {
+        name = String(name.dropFirst(providerId.count + 1))
+    }
+    return name
+}
+
+private func modelProviderGroups(for models: [ModelInfo]) -> [ModelProviderGroup] {
+    Dictionary(grouping: models) {
+        $0.providerId.map { "provider:\($0)" } ?? "runtime:\($0.agentRuntimeKind)"
+    }
+        .map { key, groupModels in
+            ModelProviderGroup(
+                key: key,
+                name: groupModels.first.map(modelProviderName) ?? key,
+                models: groupModels
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
 private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
     guard let modes = visibleModeNames(for: model.agentRuntimeKind) else {
         return true
@@ -621,60 +676,69 @@ struct InlineModelSelectorView: View {
                             .padding(.vertical, 24)
                     }
 
-                    let lastModelID = visibleModels.last?.id
-                    ForEach(visibleModels) { model in
-                        Button {
-                            selectedModel = model.id
-                            selectedAgentRuntimeKind = model.agentRuntimeKind
-                            if isReasoningEffortLocked && visibleModeNames(for: model.agentRuntimeKind) != nil {
-                                reasoningEffort = ""
-                            } else {
-                                reasoningEffort = defaultReasoningEffortSelection(for: model)
-                            }
-                            // Auto-dismiss only in the thread-scoped popover
-                            // context. In the home sheet (no thread yet) we
-                            // let the user pick a model AND change plan or
-                            // permissions before hitting Done.
-                            if threadKey != nil { onDismiss() }
-                        } label: {
-                            HStack {
-                                ModelRuntimeIcon(kind: model.agentRuntimeKind)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text(modelPickerDisplayName(model))
-                                            .litterFont(.footnote)
-                                            .foregroundColor(LitterTheme.textPrimary)
-                                        if model.isDefault {
-                                            Text("default")
-                                                .litterFont(.caption2, weight: .medium)
-                                                .foregroundColor(LitterTheme.accent)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 1)
-                                                .background(LitterTheme.accent.opacity(0.15))
-                                                .clipShape(Capsule())
-                                        }
-                                    }
-                                    Text(model.description)
-                                        .litterFont(.caption2)
-                                        .foregroundColor(LitterTheme.textSecondary)
-                                }
-                                Spacer()
-                                if modelMatchesSelection(
-                                    model,
-                                    selectedModel,
-                                    runtime: selectedAgentRuntimeKind
-                                ) {
-                                    Image(systemName: "checkmark")
-                                        .litterFont(size: 12, weight: .medium)
-                                        .foregroundColor(LitterTheme.accent)
-                                }
-                            }
+                    ForEach(modelProviderGroups(for: visibleModels)) { group in
+                        Text(group.name.uppercased())
+                            .litterFont(.caption2, weight: .semibold)
+                            .foregroundColor(LitterTheme.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                        }
-                        if model.id != lastModelID {
-                            Divider().background(LitterTheme.separator).padding(.leading, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 4)
+
+                        ForEach(group.models) { model in
+                            Button {
+                                selectedModel = model.id
+                                selectedAgentRuntimeKind = model.agentRuntimeKind
+                                if isReasoningEffortLocked && visibleModeNames(for: model.agentRuntimeKind) != nil {
+                                    reasoningEffort = ""
+                                } else {
+                                    reasoningEffort = defaultReasoningEffortSelection(for: model)
+                                }
+                                // Auto-dismiss only in the thread-scoped popover
+                                // context. In the home sheet (no thread yet) we
+                                // let the user pick a model AND change plan or
+                                // permissions before hitting Done.
+                                if threadKey != nil { onDismiss() }
+                            } label: {
+                                HStack {
+                                    ModelRuntimeIcon(kind: model.agentRuntimeKind)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text(modelNameWithinProvider(model))
+                                                .litterFont(.footnote)
+                                                .foregroundColor(LitterTheme.textPrimary)
+                                            if model.isDefault {
+                                                Text("default")
+                                                    .litterFont(.caption2, weight: .medium)
+                                                    .foregroundColor(LitterTheme.accent)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 1)
+                                                    .background(LitterTheme.accent.opacity(0.15))
+                                                    .clipShape(Capsule())
+                                            }
+                                        }
+                                        Text(model.description)
+                                            .litterFont(.caption2)
+                                            .foregroundColor(LitterTheme.textSecondary)
+                                    }
+                                    Spacer()
+                                    if modelMatchesSelection(
+                                        model,
+                                        selectedModel,
+                                        runtime: selectedAgentRuntimeKind
+                                    ) {
+                                        Image(systemName: "checkmark")
+                                            .litterFont(size: 12, weight: .medium)
+                                            .foregroundColor(LitterTheme.accent)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                            }
+                            if model.id != group.models.last?.id {
+                                Divider().background(LitterTheme.separator).padding(.leading, 16)
+                            }
                         }
                     }
                 }
@@ -952,54 +1016,66 @@ struct ModelSelectorSheet: View {
                         .padding(.vertical, 24)
                 }
 
-                ForEach(visibleModels) { model in
-                    Button {
-                        selectedModel = model.id
-                        selectedAgentRuntimeKind = model.agentRuntimeKind
-                        let usesModes = visibleModeNames(for: model.agentRuntimeKind) != nil
-                        if isReasoningEffortLocked && usesModes {
-                            reasoningEffort = ""
-                        } else {
-                            reasoningEffort = defaultReasoningEffortSelection(for: model)
-                        }
-                    } label: {
-                        HStack {
-                            ModelRuntimeIcon(kind: model.agentRuntimeKind)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(modelPickerDisplayName(model))
-                                        .litterFont(.footnote)
-                                        .foregroundColor(LitterTheme.textPrimary)
-                                    if model.isDefault {
-                                        Text("default")
-                                            .litterFont(.caption2, weight: .medium)
-                                            .foregroundColor(LitterTheme.accent)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 1)
-                                            .background(LitterTheme.accent.opacity(0.15))
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                                Text(model.description)
-                                    .litterFont(.caption2)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                            }
-                            Spacer()
-                            if modelMatchesSelection(
-                                model,
-                                selectedModel,
-                                runtime: selectedAgentRuntimeKind
-                            ) {
-                                Image(systemName: "checkmark")
-                                    .litterFont(size: 12, weight: .medium)
-                                    .foregroundColor(LitterTheme.accent)
-                            }
-                        }
+                ForEach(modelProviderGroups(for: visibleModels)) { group in
+                    Text(group.name.uppercased())
+                        .litterFont(.caption2, weight: .semibold)
+                        .foregroundColor(LitterTheme.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+
+                    ForEach(group.models) { model in
+                        Button {
+                            selectedModel = model.id
+                            selectedAgentRuntimeKind = model.agentRuntimeKind
+                            let usesModes = visibleModeNames(for: model.agentRuntimeKind) != nil
+                            if isReasoningEffortLocked && usesModes {
+                                reasoningEffort = ""
+                            } else {
+                                reasoningEffort = defaultReasoningEffortSelection(for: model)
+                            }
+                        } label: {
+                            HStack {
+                                ModelRuntimeIcon(kind: model.agentRuntimeKind)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(modelNameWithinProvider(model))
+                                            .litterFont(.footnote)
+                                            .foregroundColor(LitterTheme.textPrimary)
+                                        if model.isDefault {
+                                            Text("default")
+                                                .litterFont(.caption2, weight: .medium)
+                                                .foregroundColor(LitterTheme.accent)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 1)
+                                                .background(LitterTheme.accent.opacity(0.15))
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                    Text(model.description)
+                                        .litterFont(.caption2)
+                                        .foregroundColor(LitterTheme.textSecondary)
+                                }
+                                Spacer()
+                                if modelMatchesSelection(
+                                    model,
+                                    selectedModel,
+                                    runtime: selectedAgentRuntimeKind
+                                ) {
+                                    Image(systemName: "checkmark")
+                                        .litterFont(size: 12, weight: .medium)
+                                        .foregroundColor(LitterTheme.accent)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                        }
+                        if model.id != group.models.last?.id {
+                            Divider().background(LitterTheme.separator).padding(.leading, 20)
+                        }
                     }
-                    Divider().background(LitterTheme.separator).padding(.leading, 20)
                 }
 
                 if isReasoningEffortLocked && selectedModelIsAmp {

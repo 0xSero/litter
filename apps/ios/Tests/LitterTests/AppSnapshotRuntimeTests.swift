@@ -411,7 +411,9 @@ final class AppSnapshotRuntimeTests: XCTestCase {
                 lastError: nil,
                 transcriptEntries: [],
                 handoffThreadKey: nil
-            )
+            ),
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 

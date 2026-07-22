@@ -144,6 +144,7 @@ fun DiscoveryScreen(
 
     var showManualEntry by remember { mutableStateOf(false) }
     var showAlleycatSheet by remember { mutableStateOf(false) }
+    var alleycatPairingMode by remember { mutableStateOf(AlleycatPairingMode.Kittylitter) }
     var showSlingshotComputers by remember { mutableStateOf(false) }
     var slingshotEnvironments by remember { mutableStateOf<List<AppSlingshotEnvironment>>(emptyList()) }
     var slingshotIsLoading by remember { mutableStateOf(false) }
@@ -570,7 +571,23 @@ fun DiscoveryScreen(
                 icon = Icons.Default.QrCodeScanner,
                 supportedAgents = KittylitterAgents,
                 isRecommended = true,
-                onClick = { showAlleycatSheet = true },
+                onClick = {
+                    alleycatPairingMode = AlleycatPairingMode.Kittylitter
+                    showAlleycatSheet = true
+                },
+            )
+
+            ChooserCard(
+                title = "Local Studio",
+                subtitle = "Scan the QR from Local Studio Profile, or paste Copy connection JSON.",
+                badge = null,
+                icon = Icons.Outlined.DeveloperBoard,
+                supportedAgents = listOf("local-studio", "pi"),
+                isRecommended = false,
+                onClick = {
+                    alleycatPairingMode = AlleycatPairingMode.LocalStudio
+                    showAlleycatSheet = true
+                },
             )
 
             ChooserCard(
@@ -832,6 +849,8 @@ fun DiscoveryScreen(
                         source = "ssh",
                         hasCodexServer = true,
                         preferredConnectionMode = "ssh",
+                        alleycatAgentName = selectedKinds.joinToString(","),
+                        alleycatAgentWire = "ssh-bridge",
                     )
                     appModel.sshSessionStore.record(result.serverId, agentContext.sessionId)
                     SavedServerStore.remember(context, server)
@@ -897,6 +916,7 @@ fun DiscoveryScreen(
             AlleycatAddServerSheet(
                 onDismiss = { showAlleycatSheet = false },
                 startScanningOnAppear = true,
+                pairingMode = alleycatPairingMode,
                 onConnected = { result ->
                     showAlleycatSheet = false
                     scope.launch {
@@ -1747,7 +1767,11 @@ private fun SSHAgentPickerDialog(
         availableSshBridgeKinds(context.availability)
     }
     var selectedKinds by remember(context.sessionId) {
-        mutableStateOf(availableKinds.filterNot { it.isBeta }.toSet())
+        mutableStateOf(
+            availableKinds
+                .filterNot { it.isBeta || (it == "pi" && "local-studio" in availableKinds) }
+                .toSet(),
+        )
     }
     var isConnecting by remember(context.sessionId) { mutableStateOf(false) }
     var errorMessage by remember(context.sessionId) { mutableStateOf<String?>(null) }
@@ -1777,7 +1801,12 @@ private fun SSHAgentPickerDialog(
                                 selectedKinds = if (agent.kind in selectedKinds) {
                                     selectedKinds - agent.kind
                                 } else {
-                                    selectedKinds + agent.kind
+                                    val withoutAlias = when (agent.kind) {
+                                        "local-studio" -> selectedKinds - "pi"
+                                        "pi" -> selectedKinds - "local-studio"
+                                        else -> selectedKinds
+                                    }
+                                    withoutAlias + agent.kind
                                 }
                             }
                             .padding(vertical = 4.dp),
@@ -1874,7 +1903,8 @@ private fun availableSshBridgeKinds(agents: List<RemoteAgentAvailability>): List
         .sortedBy(::sshRuntimeSortRank)
 
 private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean =
-    kind.metadata?.capabilities?.supportsSshBridge ?: false
+    kind.metadata?.capabilities?.supportsSshBridge
+        ?: (kind in setOf("claude", "pi", "opencode", "local-studio"))
 
 private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = kind.runtimeLabel
 

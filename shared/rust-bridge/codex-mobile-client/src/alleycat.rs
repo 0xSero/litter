@@ -21,7 +21,7 @@ use crate::types::AgentRuntimeKind;
 
 pub const ALLEYCAT_PROTOCOL_VERSION: u32 = 1;
 pub const ALLEYCAT_ALPN: &[u8] = b"alleycat/1";
-const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPairPayload {
@@ -46,6 +46,7 @@ pub struct AgentInfo {
     /// SSH-bridge eligibility, direct-Codex-port routing) without litter
     /// branching on the agent name.
     pub capabilities: Option<AgentCapabilities>,
+    pub local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -284,6 +285,8 @@ pub enum AlleycatError {
     InvalidPayload(String),
     #[error("protocol version mismatch: payload={payload} client={client}")]
     ProtocolMismatch { payload: u32, client: u32 },
+    #[error("host rejected request: {0}")]
+    Rejected(String),
     #[error("transport error: {0}")]
     Transport(String),
 }
@@ -360,6 +363,8 @@ struct AgentInfoWire {
     presentation: Option<AgentPresentationWire>,
     #[serde(default)]
     capabilities: Option<AgentCapabilitiesWire>,
+    #[serde(default)]
+    local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -496,6 +501,7 @@ pub async fn list_agents(
             available: agent.available,
             presentation: agent.presentation.map(Into::into),
             capabilities: agent.capabilities.map(Into::into),
+            local_studio: agent.local_studio,
         })
         .collect())
 }
@@ -789,7 +795,10 @@ fn validate_response(response: &Response) -> Result<(), AlleycatError> {
         });
     }
     if !response.ok {
-        return Err(AlleycatError::Transport(
+        // Host-side refusals (invalid pairing credentials, unavailable agent,
+        // authorization denial) are deterministic: callers must not retry them like
+        // transport failures.
+        return Err(AlleycatError::Rejected(
             response
                 .error
                 .clone()

@@ -487,6 +487,7 @@ pub fn reasoning_effort_string(value: crate::types::ReasoningEffort) -> String {
         crate::types::ReasoningEffort::High => "high".to_string(),
         crate::types::ReasoningEffort::XHigh => "xhigh".to_string(),
         crate::types::ReasoningEffort::Max => "max".to_string(),
+        crate::types::ReasoningEffort::Ultra => "ultra".to_string(),
     }
 }
 
@@ -499,6 +500,7 @@ pub fn reasoning_effort_from_string(value: &str) -> Option<crate::types::Reasoni
         "high" => Some(crate::types::ReasoningEffort::High),
         "xhigh" => Some(crate::types::ReasoningEffort::XHigh),
         "max" => Some(crate::types::ReasoningEffort::Max),
+        "ultra" => Some(crate::types::ReasoningEffort::Ultra),
         _ => None,
     }
 }
@@ -519,7 +521,8 @@ pub(super) fn core_reasoning_effort_from_mobile(
         crate::types::ReasoningEffort::XHigh => {
             codex_protocol::openai_models::ReasoningEffort::XHigh
         }
-        crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::XHigh,
+        crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::Max,
+        crate::types::ReasoningEffort::Ultra => codex_protocol::openai_models::ReasoningEffort::Ultra,
     }
 }
 

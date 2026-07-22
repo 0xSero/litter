@@ -103,6 +103,7 @@ pub struct MobileClient {
     /// launch reuses the same `EndpointId` (faster relay re-association,
     /// stable peer identity).
     alleycat_secret_key: Arc<StdMutex<Option<[u8; 32]>>>,
+    pub(crate) local_studio_targets: crate::local_studio::LocalStudioTargetRegistry,
     /// In-flight guided-SSH-connect flows, keyed by server_id. Held on
     /// `MobileClient` so repeated connect attempts can reuse the same
     /// bootstrap task.
@@ -689,6 +690,13 @@ fn alleycat_requested_runtime_kinds(
         .collect()
 }
 
+fn is_local_studio_controller_agent(
+    runtime_kind: &str,
+    agent: &AlleycatAgentInfo,
+) -> bool {
+    runtime_kind == crate::local_studio::RUNTIME_KIND || agent.local_studio.is_some()
+}
+
 impl MobileClient {
     /// Create a new `MobileClient`.
     pub fn new() -> Self {
@@ -718,6 +726,7 @@ impl MobileClient {
             thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
+            local_studio_targets: crate::local_studio::LocalStudioTargetRegistry::default(),
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             alleycat_restart_targets: Arc::new(StdMutex::new(HashMap::new())),
             terminal_sessions: Arc::new(StdMutex::new(HashMap::new())),
@@ -1058,6 +1067,7 @@ impl MobileClient {
     ) {
         let supports_permission_overrides =
             self.runtime_supports_thread_permission_overrides(&runtime_kind);
+        let defaults_to_full_access = runtime_kind == "pi" || runtime_kind == "local-studio";
         match request {
             upstream::ClientRequest::ThreadStart { params, .. } => {
                 self.normalize_thread_model_for_runtime(
@@ -1068,6 +1078,9 @@ impl MobileClient {
                 if !supports_permission_overrides {
                     params.approval_policy = None;
                     params.sandbox = None;
+                } else if defaults_to_full_access {
+                    params.approval_policy = Some(upstream::AskForApproval::Never);
+                    params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
                 }
             }
             upstream::ClientRequest::ThreadResume { params, .. } => {
@@ -1079,6 +1092,9 @@ impl MobileClient {
                 if !supports_permission_overrides {
                     params.approval_policy = None;
                     params.sandbox = None;
+                } else if defaults_to_full_access {
+                    params.approval_policy = Some(upstream::AskForApproval::Never);
+                    params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
                 }
             }
             upstream::ClientRequest::ThreadFork { params, .. } => {
@@ -1090,6 +1106,9 @@ impl MobileClient {
                 if !supports_permission_overrides {
                     params.approval_policy = None;
                     params.sandbox = None;
+                } else if defaults_to_full_access {
+                    params.approval_policy = Some(upstream::AskForApproval::Never);
+                    params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
                 }
             }
             upstream::ClientRequest::TurnStart { params, .. } => {
@@ -1102,6 +1121,9 @@ impl MobileClient {
                 if !supports_permission_overrides {
                     params.approval_policy = None;
                     params.sandbox_policy = None;
+                } else if defaults_to_full_access {
+                    params.approval_policy = Some(upstream::AskForApproval::Never);
+                    params.sandbox_policy = Some(upstream::SandboxPolicy::DangerFullAccess);
                 }
             }
             _ => {}
@@ -1700,7 +1722,56 @@ impl MobileClient {
         Ok(agents)
     }
 
+    pub(crate) async fn load_local_studio_controller(
+        &self,
+        server_id: &str,
+    ) -> Result<
+        crate::local_studio::LocalStudioControllerLoadResult,
+        crate::local_studio::LocalStudioClientError,
+    > {
+        let target = self.local_studio_targets.resolve(server_id)?;
+        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
+            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
+        })?;
+        crate::local_studio::load_local_studio_controller(&endpoint, target).await
+    }
+
+    pub(crate) async fn list_local_studio_sessions(
+        &self,
+        server_id: &str,
+        limit: u64,
+    ) -> Result<
+        crate::local_studio::LocalStudioSessionListResult,
+        crate::local_studio::LocalStudioClientError,
+    > {
+        let target = self.local_studio_targets.resolve(server_id)?;
+        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
+            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
+        })?;
+        crate::local_studio::list_local_studio_sessions(&endpoint, target, limit).await
+    }
+
+    pub(crate) async fn continue_local_studio_session_list(
+        &self,
+        server_id: &str,
+        cursor: &crate::local_studio::LocalStudioSessionListCursor,
+        limit: u64,
+    ) -> Result<
+        crate::local_studio::LocalStudioSessionListResult,
+        crate::local_studio::LocalStudioClientError,
+    > {
+        let target = self.local_studio_targets.resolve(server_id)?;
+        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
+            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
+        })?;
+        crate::local_studio::continue_local_studio_session_list(&endpoint, target, cursor, limit)
+            .await
+    }
+
     fn runtime_supports_thread_permission_overrides(&self, runtime_kind: &str) -> bool {
+        if matches!(runtime_kind, "pi" | "local-studio") {
+            return true;
+        }
         self.agent_metadata
             .get(runtime_kind)
             .and_then(|metadata| metadata.capabilities)
@@ -1728,6 +1799,10 @@ impl MobileClient {
             .into_iter()
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>();
+        let selected_agent_intent = selected_agent_names.join(",");
+        let selected_agent_names = selected_agent_names
+            .into_iter()
             .collect::<std::collections::HashSet<_>>();
         let mut seen_runtime_kinds = std::collections::HashSet::new();
         let requested_agents = self
@@ -1746,6 +1821,18 @@ impl MobileClient {
                 (agent.available).then_some((runtime_kind, agent))
             })
             .collect::<Vec<_>>();
+        let controller_infos = requested_agents
+            .iter()
+            .filter(|(runtime_kind, agent)| {
+                is_local_studio_controller_agent(runtime_kind, agent)
+            })
+            .map(|(runtime_kind, agent)| AgentRuntimeInfo {
+                kind: runtime_kind.clone(),
+                name: agent.name.clone(),
+                display_name: agent.display_name.clone(),
+                available: true,
+            })
+            .collect::<Vec<_>>();
         let runtime_agents = if requested_agents.is_empty() {
             if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
                 self.app_store
@@ -1754,9 +1841,16 @@ impl MobileClient {
                     "no selected Alleycat runtime streams are available".to_string(),
                 ));
             }
+            let runtime_kind = crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
+                .unwrap_or("codex".to_string());
+            if runtime_kind == crate::local_studio::RUNTIME_KIND {
+                return Err(TransportError::ConnectionFailed(
+                    "Local Studio exposes controller data, not a chat stream; select Pi to chat"
+                        .to_string(),
+                ));
+            }
             vec![(
-                crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
-                    .unwrap_or("codex".to_string()),
+                runtime_kind,
                 AlleycatAgentInfo {
                     name: agent_name.clone(),
                     display_name: display_name.clone(),
@@ -1764,13 +1858,25 @@ impl MobileClient {
                     available: true,
                     presentation: None,
                     capabilities: None,
+                    local_studio: None,
                 },
             )]
         } else {
             requested_agents
+                .into_iter()
+                .filter(|(runtime_kind, agent)| {
+                    !is_local_studio_controller_agent(runtime_kind, agent)
+                })
+                .collect()
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
+        // Preserve selection intent even when a runtime is briefly unavailable.
+        let persisted_agent_names = if selected_agent_intent.is_empty() {
+            requested_agent_names.clone()
+        } else {
+            selected_agent_intent
+        };
         let visible_server_id = format!("alleycat:{}", params.node_id);
         let server_id = if server_id.starts_with(&visible_server_id) {
             visible_server_id
@@ -1803,7 +1909,7 @@ impl MobileClient {
                     return Ok(AlleycatConnectOutcome {
                         server_id,
                         node_id: params.node_id.clone(),
-                        agent_name: requested_agent_names,
+                        agent_name: persisted_agent_names,
                     });
                 }
                 info!(
@@ -1854,7 +1960,7 @@ impl MobileClient {
         };
 
         let mut runtime_resources = Vec::new();
-        let mut runtime_infos = Vec::new();
+        let mut runtime_infos = controller_infos;
         for (runtime_kind, agent) in runtime_agents {
             let reconnect_transport = AlleycatReconnectTransport::new(
                 params.clone(),
@@ -1862,17 +1968,28 @@ impl MobileClient {
                 agent.wire,
                 endpoint.clone(),
             );
-            let (remote_client, alleycat_session) =
-                match reconnect_transport.connect_initial().await {
-                    Ok(result) => result,
-                    Err(error) => {
-                        warn!(
-                            "MobileClient: alleycat connect failed server_id={} agent={} error={}",
-                            server_id, agent.name, error
-                        );
-                        continue;
-                    }
+            let mut dialed = reconnect_transport.connect_initial().await;
+            for attempt in 1..3 {
+                // Only transport-class failures are transient; payload and
+                // protocol errors are deterministic, and retrying them would
+                // just delay dialing the remaining runtimes.
+                let Err(crate::alleycat::AlleycatError::Transport(error)) = &dialed else {
+                    break;
                 };
+                warn!(
+                    "MobileClient: retrying Alleycat agent={} attempt={} error={}",
+                    agent.name, attempt, error
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+                dialed = reconnect_transport.connect_initial().await;
+            }
+            let (remote_client, alleycat_session) = match dialed {
+                Ok(result) => result,
+                Err(error) => {
+                    warn!("MobileClient: alleycat connect failed server_id={} agent={} error={}", server_id, agent.name, error);
+                    continue;
+                }
+            };
             // Register the freshly-built session with the transport so
             // `close_current_connection()` can target this Connection
             // before the worker has had to call `reconnect()`.
@@ -1946,8 +2063,8 @@ impl MobileClient {
         // silently shrink to the survivors. Falls back to the connected
         // set if the user didn't explicitly select anything (legacy
         // single-agent callers).
-        let persisted_agents = if !requested_agent_names.is_empty() {
-            requested_agent_names
+        let persisted_agents = if !persisted_agent_names.is_empty() {
+            persisted_agent_names
         } else {
             runtime_infos
                 .iter()

@@ -58,6 +58,7 @@ tracks parity between iOS (UIKit + Metal) and Android (Compose + SurfaceView).
 | Resize on rotation / keyboard show-hide | `layoutSubviews` plus `UIResponder.keyboardWillChangeFrame` triggers | `onSizeChanged` re-fires through Compose's `imePadding` insets |
 | Mouse-tracking apps (vim / htop) | Single-finger drag forwards to Ghostty when `mouseCaptured` | Same |
 | Alleycat remote host | Discovery toolbar QR button opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses the Alleycat payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; after token-authenticated pairing the sheet calls `serverBridge.listAlleycatAgents`, lets the user choose Codex/Pi/OpenCode, connects with `serverBridge.connectRemoteOverAlleycat`, and persists the token through `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes `{node_id, relay?, agent}` records, reconnect attaches the encrypted-store token directly, and legacy Alleycat records require a new QR scan. | Same |
+| Local Studio controller host | Local Studio URL QR opens the existing SSH login and agent picker; selecting Local Studio launches the shared Pi bridge with Local Studio's `pi-agent/models.json`, so the standard model selector, chat/tool timeline, and remote filesystem UI are reused. Settings opens the saved web dashboard and the signed Alleycat controller dashboard for status, GPUs, active models, and Pi sessions. | Same |
 
 ## Plugin `@`-mention parity (follow-up)
 

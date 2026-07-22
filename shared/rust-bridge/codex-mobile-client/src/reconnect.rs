@@ -799,6 +799,7 @@ fn parse_ssh_bridge_runtime_kinds(value: Option<&str>) -> Vec<AgentRuntimeKind> 
         .filter_map(|part| match part.trim().to_ascii_lowercase().as_str() {
             "codex" => Some("codex".to_string()),
             "claude" => Some("claude".to_string()),
+            "local-studio" | "local_studio" => Some("local-studio".to_string()),
             "pi" => Some("pi".to_string()),
             "opencode" | "open-code" | "open_code" => Some("opencode".to_string()),
             _ => None,
@@ -832,6 +833,7 @@ async fn resolve_ssh_bridge_runtime_kinds(
 
     let candidates = if requested.is_empty() {
         vec![
+            "local-studio".to_string(),
             "claude".to_string(),
             "pi".to_string(),
             "opencode".to_string(),
@@ -1309,6 +1311,29 @@ mod tests {
                 );
             }
             other => panic!("expected ssh bridge reconnect plan, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plan_ssh_bridge_preserves_local_studio_runtime() {
+        let mut s = base_server();
+        s.id = "ssh-bridge:studio".into();
+        s.hostname = "studio".into();
+        s.port = 0;
+        s.codex_ports = vec![];
+        s.ssh_port = Some(22);
+        s.preferred_connection_mode = Some("ssh".into());
+        s.alleycat_agent_name = Some("local-studio".into());
+        s.alleycat_agent_wire = Some("ssh-bridge".into());
+        let cred = ssh_credential();
+
+        let plan = compute_reconnect_plan(&s, Some(&cred), false, true);
+
+        match plan {
+            Some(ReconnectPlan::SshBridge { runtime_kinds, .. }) => {
+                assert_eq!(runtime_kinds, vec!["local-studio".to_string()]);
+            }
+            other => panic!("expected Local Studio SSH bridge reconnect plan, got {other:?}"),
         }
     }
 

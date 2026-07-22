@@ -35,6 +35,7 @@ pub struct AppAlleycatAgentInfo {
     /// Behavioral capability flags surfaced to platform UI so it can
     /// branch without hardcoding agent names. Absent on legacy hosts.
     pub capabilities: Option<AppAgentCapabilities>,
+    pub local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -107,6 +108,9 @@ pub(crate) fn map_alleycat_error(error: AlleycatError) -> ClientError {
         AlleycatError::ProtocolMismatch { payload, client } => ClientError::InvalidParams(format!(
             "alleycat protocol mismatch: payload={payload} client={client}"
         )),
+        // Rejections keep the prior Transport surface so platform-side
+        // message handling stays unchanged.
+        AlleycatError::Rejected(message) => ClientError::Transport(message),
         AlleycatError::Transport(message) => ClientError::Transport(message),
     }
 }
@@ -164,6 +168,7 @@ impl From<AgentInfo> for AppAlleycatAgentInfo {
             available: value.available,
             presentation: value.presentation.map(Into::into),
             capabilities: value.capabilities.map(Into::into),
+            local_studio: value.local_studio,
         }
     }
 }

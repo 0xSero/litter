@@ -90,12 +90,18 @@ data class AlleycatConnectedTarget(
     val agentWire: AppAlleycatAgentWire,
 )
 
+enum class AlleycatPairingMode {
+    Kittylitter,
+    LocalStudio,
+}
+
 private const val LOG_TAG = "AlleycatSheet"
 
 @Composable
 fun AlleycatAddServerSheet(
     onDismiss: () -> Unit,
     onConnected: (AlleycatConnectedTarget) -> Unit,
+    pairingMode: AlleycatPairingMode = AlleycatPairingMode.Kittylitter,
     startScanningOnAppear: Boolean = false,
 ) {
     val appModel = LocalAppModel.current
@@ -132,10 +138,7 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded
-                        .filter { it.available && !isBetaAgentName(it.name, it.displayName) }
-                        .map { it.name }
-                        .toSet()
+                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
@@ -156,7 +159,7 @@ fun AlleycatAddServerSheet(
         try {
             val params = alleycatBridge.parsePairPayload(trimmed)
             parsedParams = params
-            displayName = suggestedDisplayName(params)
+            displayName = resolvedSuggestedDisplayName(params, pairingMode)
             agents = emptyList()
             selectedAgentNames = emptySet()
             parseError = null
@@ -204,10 +207,14 @@ fun AlleycatAddServerSheet(
     fun connect() {
         val params = parsedParams ?: return
         val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
-        val fallbackAgent = selectedAgents.firstOrNull() ?: return
+        val fallbackAgent = selectedAgents.firstOrNull {
+            pairingMode != AlleycatPairingMode.LocalStudio || it.name.equals("pi", ignoreCase = true)
+        } ?: return
         val trimmedDisplay = displayName.trim()
-        val resolvedName = trimmedDisplay.ifEmpty { suggestedDisplayName(params) }
-        val serverId = "alleycat:${params.nodeId}"
+        val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
+        val serverId = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+            "alleycat:local-studio:${params.nodeId}"
+        } else "alleycat:${params.nodeId}"
 
         isConnecting = true
         connectError = null
@@ -251,10 +258,12 @@ fun AlleycatAddServerSheet(
 
     val availableAgents = agents.filter { it.available }
     val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
-    val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
+    val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty() &&
+        (pairingMode != AlleycatPairingMode.LocalStudio || selectedAgents.any { it.name.equals("pi", ignoreCase = true) })
 
     if (showScanner) {
         QrScannerScreen(
+            pairingMode = pairingMode,
             onScanned = { payload ->
                 showScanner = false
                 handleScannedPayload(payload)
@@ -274,7 +283,11 @@ fun AlleycatAddServerSheet(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Add Remote Host",
+                text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                    "Connect Local Studio"
+                } else {
+                    "Add Remote Host"
+                },
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -286,6 +299,15 @@ fun AlleycatAddServerSheet(
         }
 
         SectionHeader(label = "Pairing")
+        Text(
+            text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                "In Local Studio, open Profile → Phone connection. Scan its QR code or paste Copy connection JSON."
+            } else {
+                "Run npx kittylitter on the host, then scan its QR code or paste the JSON it prints."
+            },
+            color = LitterTheme.textSecondary,
+            fontSize = 12.sp,
+        )
         OutlinedButton(
             onClick = ::requestCameraAndScan,
             modifier = Modifier.fillMaxWidth(),
@@ -488,6 +510,21 @@ fun AlleycatAddServerSheet(
     }
 }
 
+private fun resolvedSuggestedDisplayName(
+    params: AppAlleycatPairPayload,
+    pairingMode: AlleycatPairingMode,
+): String {
+    val suggested = suggestedDisplayName(params)
+    return if (
+        pairingMode == AlleycatPairingMode.LocalStudio &&
+        !suggested.contains("local studio", ignoreCase = true)
+    ) {
+        "Local Studio · $suggested"
+    } else {
+        suggested
+    }
+}
+
 @Composable
 private fun AgentRow(
     agent: AppAlleycatAgentInfo,
@@ -617,6 +654,7 @@ private const val PAIR_COMMAND = "npx kittylitter"
 
 @Composable
 private fun QrScannerScreen(
+    pairingMode: AlleycatPairingMode,
     onScanned: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -710,7 +748,7 @@ private fun QrScannerScreen(
                 }
             }
 
-            InstructionsCard()
+            InstructionsCard(pairingMode)
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -720,7 +758,7 @@ private fun QrScannerScreen(
 }
 
 @Composable
-private fun InstructionsCard() {
+private fun InstructionsCard(pairingMode: AlleycatPairingMode) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -732,14 +770,21 @@ private fun InstructionsCard() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Pair with kittylitter",
+            text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                "Scan Local Studio Profile QR"
+            } else "Pair with kittylitter",
             color = androidx.compose.ui.graphics.Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        StepRow(number = "1", title = "On the host you want to connect to, run:")
-        CommandRow()
-        StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+        if (pairingMode == AlleycatPairingMode.LocalStudio) {
+            StepRow(number = "1", title = "In Local Studio, open Profile → Phone connection.")
+            StepRow(number = "2", title = "Point this camera at the Profile QR code.")
+        } else {
+            StepRow(number = "1", title = "On the host you want to connect to, run:")
+            CommandRow()
+            StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+        }
     }
 }
 

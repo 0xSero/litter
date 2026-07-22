@@ -8,6 +8,7 @@ use base64::Engine;
 use codex_app_server_protocol as upstream;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use url::Url;
 
 async fn rpc<T: serde::de::DeserializeOwned>(
@@ -52,6 +53,7 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
+const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn normalize_amp_mode_name(value: &str) -> String {
     value
@@ -127,6 +129,7 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
                 supports_personality: false,
                 is_default: mode == "smart",
                 agent_runtime_kind: "amp".to_string(),
+                provider_id: None,
             }
         })
         .collect()
@@ -155,6 +158,8 @@ fn normalize_model_info_for_runtime(
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
     let is_amp = runtime_kind == "amp";
+    let is_pi = runtime_kind == "pi";
+    let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
     model_info.agent_runtime_kind = runtime_kind;
     if is_amp {
         let id_mode = normalize_amp_mode_name(&model_info.id);
@@ -176,12 +181,66 @@ fn normalize_model_info_for_runtime(
         model_info.supported_reasoning_efforts = supported_reasoning_efforts;
         model_info.default_reasoning_effort = default_reasoning_effort;
         model_info.is_default = mode == "smart";
+    } else if has_qualified_catalog {
+        if let Some(provider_id) = derive_model_provider_id(&model_info.id) {
+            model_info.provider_id = Some(provider_id.to_string());
+        }
+    }
+    if is_pi
+        && !model_info
+            .supported_reasoning_efforts
+            .iter()
+            .any(|option| option.reasoning_effort == types::ReasoningEffort::Max)
+    {
+        model_info
+            .supported_reasoning_efforts
+            .push(types::ReasoningEffortOption {
+                reasoning_effort: types::ReasoningEffort::Max,
+                description: "Maximum reasoning depth.".to_string(),
+            });
     }
     true
 }
 
+fn runtime_kind_uses_qualified_catalog(runtime_kind: &str) -> bool {
+    matches!(runtime_kind, "pi" | "local-studio" | "opencode")
+}
+
+fn derive_model_provider_id(id: &str) -> Option<&str> {
+    let mut segments = id.split('/');
+    let first = segments.next().filter(|segment| !segment.is_empty())?;
+    let second = segments.next().filter(|segment| !segment.is_empty())?;
+    if first == "openrouter" && segments.next().is_some() {
+        return Some(second);
+    }
+    Some(first)
+}
+
 fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
-    !matches!(runtime_kind, "shell")
+    runtime_kind != "shell"
+}
+
+fn retain_local_studio_controller_models(
+    models: &mut Vec<types::ModelInfo>,
+    active_model_ids: &[String],
+) {
+    let active = active_model_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    models.retain(|model| {
+        if !matches!(model.agent_runtime_kind.as_str(), "pi" | "local-studio") {
+            return true;
+        }
+        active.iter().any(|id| {
+            model.id == *id
+                || model.model == *id
+                || (!id.contains('/')
+                    && (model.id.rsplit('/').next() == Some(*id)
+                        || model.model.rsplit('/').next() == Some(*id)))
+        })
+    });
 }
 
 fn append_cached_models_for_failed_runtimes(
@@ -343,6 +402,42 @@ impl AppClient {
     /// cold start.
     pub fn all_agent_metadata(&self) -> Vec<crate::store::AppAgentMetadata> {
         self.inner.agent_metadata.all_sorted()
+    }
+
+    pub async fn load_local_studio_controller(
+        &self,
+        server_id: String,
+    ) -> Result<crate::local_studio::LocalStudioControllerLoadResult, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.load_local_studio_controller(&server_id)
+                .await
+                .map_err(|error| ClientError::Transport(error.to_string()))
+        })
+    }
+
+    pub async fn list_local_studio_sessions(
+        &self,
+        server_id: String,
+        limit: u64,
+    ) -> Result<crate::local_studio::LocalStudioSessionListResult, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.list_local_studio_sessions(&server_id, limit)
+                .await
+                .map_err(|error| ClientError::Transport(error.to_string()))
+        })
+    }
+
+    pub async fn continue_local_studio_session_list(
+        &self,
+        server_id: String,
+        cursor: crate::local_studio::LocalStudioSessionListCursor,
+        limit: u64,
+    ) -> Result<crate::local_studio::LocalStudioSessionListResult, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.continue_local_studio_session_list(&server_id, &cursor, limit)
+                .await
+                .map_err(|error| ClientError::Transport(error.to_string()))
+        })
     }
 
     // ── Thread lifecycle ─────────────────────────────────────────────────
@@ -1039,16 +1134,19 @@ impl AppClient {
                 }
                 let mut request_params = params.clone();
                 loop {
-                    let page: upstream::ModelListResponse = match rpc_runtime(
-                        c.as_ref(),
-                        &server_id,
-                        runtime_kind.clone(),
-                        req!(server_id, ModelList, request_params.clone()),
+                    let response = tokio::time::timeout(
+                        MODEL_LIST_RUNTIME_TIMEOUT,
+                        rpc_runtime(
+                            c.as_ref(),
+                            &server_id,
+                            runtime_kind.clone(),
+                            req!(server_id, ModelList, request_params.clone()),
+                        ),
                     )
-                    .await
-                    {
-                        Ok(page) => page,
-                        Err(error) if runtime_kind == "amp" => {
+                    .await;
+                    let page: upstream::ModelListResponse = match response {
+                        Ok(Ok(page)) => page,
+                        Ok(Err(error)) if runtime_kind == "amp" => {
                             tracing::warn!(
                                 "model/list failed for Amp runtime on server {}: {}; using built-in Amp modes",
                                 server_id,
@@ -1057,13 +1155,30 @@ impl AppClient {
                             append_missing_amp_mode_models(&mut models);
                             break;
                         }
-                        Err(error) => {
+                        Ok(Err(error)) => {
                             failed_runtime_kinds.insert(runtime_kind.clone());
                             tracing::warn!(
                                 "model/list failed for runtime {} on server {}: {}; skipping runtime",
                                 runtime_kind,
                                 server_id,
                                 error
+                            );
+                            break;
+                        }
+                        Err(_) if runtime_kind == "amp" => {
+                            tracing::warn!(
+                                "model/list timed out for Amp runtime on server {}; using built-in Amp modes",
+                                server_id
+                            );
+                            append_missing_amp_mode_models(&mut models);
+                            break;
+                        }
+                        Err(_) => {
+                            failed_runtime_kinds.insert(runtime_kind.clone());
+                            tracing::warn!(
+                                "model/list timed out for runtime {} on server {}; skipping runtime",
+                                runtime_kind,
+                                server_id
                             );
                             break;
                         }
@@ -1103,6 +1218,31 @@ impl AppClient {
                         &failed_runtime_kinds,
                     );
                 }
+            }
+            if server_id.starts_with("alleycat:local-studio:") {
+                let active_model_ids = match c.load_local_studio_controller(&server_id).await {
+                    Ok(crate::local_studio::LocalStudioControllerLoadResult::Loaded {
+                        snapshot,
+                        ..
+                    }) => snapshot
+                        .sections
+                        .status
+                        .value
+                        .map(|status| status.active_model_ids)
+                        .unwrap_or_default(),
+                    Ok(crate::local_studio::LocalStudioControllerLoadResult::Error { error }) => {
+                        tracing::warn!(
+                            "Local Studio model scope unavailable: {}",
+                            error.error.message
+                        );
+                        Vec::new()
+                    }
+                    Err(error) => {
+                        tracing::warn!("Local Studio model scope failed: {error}");
+                        Vec::new()
+                    }
+                };
+                retain_local_studio_controller_models(&mut models, &active_model_ids);
             }
             c.app_store.update_server_models(&server_id, Some(models));
             Ok(())
@@ -2956,6 +3096,7 @@ fn inherited_settings_for_origin(
             "high" => Some(ReasoningEffort::High),
             "xhigh" | "x-high" => Some(ReasoningEffort::XHigh),
             "max" => Some(ReasoningEffort::Max),
+            "ultra" => Some(ReasoningEffort::Ultra),
             _ => None,
         }
     });
@@ -2996,7 +3137,8 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
+        normalize_model_info_for_runtime, normalized_image_path,
+        retain_local_studio_controller_models, runtime_exposes_model_choices,
         splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
@@ -3075,6 +3217,7 @@ mod tests {
             supports_personality: false,
             is_default: false,
             agent_runtime_kind: runtime_kind,
+            provider_id: None,
         }
     }
 
@@ -3086,6 +3229,42 @@ mod tests {
                 .collect::<HashMap<_, _>>(),
             ..AppSnapshot::default()
         }
+    }
+
+    #[test]
+    fn model_picker_queries_every_chat_runtime() {
+        assert!(runtime_exposes_model_choices("codex"));
+        assert!(runtime_exposes_model_choices("pi"));
+        assert!(runtime_exposes_model_choices("local-studio"));
+        assert!(!runtime_exposes_model_choices("shell"));
+        let mut pi = test_model("openrouter/ai21/jamba", "pi".to_string());
+        assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string()));
+        assert_eq!(pi.provider_id.as_deref(), Some("ai21"));
+        assert!(
+            pi.supported_reasoning_efforts
+                .iter()
+                .any(|option| { option.reasoning_effort == ReasoningEffort::Max })
+        );
+        let mut codex = test_model("openai/gpt-6-codex", "codex".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut codex,
+            "codex".to_string()
+        ));
+        assert_eq!(codex.provider_id, None);
+
+        let mut scoped = vec![
+            test_model("openai/gpt-oss-120b", "pi".to_string()),
+            test_model("anthropic/claude-sonnet", "pi".to_string()),
+            test_model("gpt-5.6-sol", "codex".to_string()),
+        ];
+        retain_local_studio_controller_models(&mut scoped, &["gpt-oss-120b".to_string()]);
+        assert_eq!(
+            scoped
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["openai/gpt-oss-120b", "gpt-5.6-sol"]
+        );
     }
 
     #[test]

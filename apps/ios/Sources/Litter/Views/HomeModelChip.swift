@@ -19,6 +19,7 @@ struct HomeModelChip: View {
 
     @State private var showSheet = false
     @State private var selectedDetent: PresentationDetent = .large
+    @State private var autoSelectedModelKey: String?
 
     /// Whether the user has escalated the pre-thread launch permissions to
     /// the equivalent of the header's "Full Access" preset.
@@ -40,6 +41,33 @@ struct HomeModelChip: View {
         return appModel.availableModels(for: serverId)
     }
 
+    private var metadataLoadID: String {
+        guard let serverId,
+              let server = appModel.snapshot?.serverSnapshot(for: serverId) else {
+            return serverId ?? "none"
+        }
+        let runtimes = server.agentRuntimes
+            .filter(\.available)
+            .map(\.kind)
+            .sorted()
+            .joined(separator: ",")
+        return "\(serverId)|\(runtimes)"
+    }
+
+    private var fallbackModel: ModelInfo? {
+        availableModels.first { $0.agentRuntimeKind == .codex && $0.isDefault }
+            ?? availableModels.first { $0.isDefault }
+            ?? availableModels.first
+    }
+
+    private var selectedModel: ModelInfo? {
+        let trimmed = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallbackModel }
+        return availableModels.first {
+            modelMatchesSelection($0, trimmed, runtime: appState.preferredAgentRuntimeKind)
+        } ?? fallbackModel
+    }
+
     private var selectedModelLabel: String {
         let trimmed = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
@@ -54,8 +82,8 @@ struct HomeModelChip: View {
             }
             return trimmed
         }
-        if let defaultModel = availableModels.first(where: { $0.isDefault }) {
-            return modelPickerDisplayName(defaultModel)
+        if let selectedModel {
+            return modelPickerDisplayName(selectedModel)
         }
         return "model"
     }
@@ -159,9 +187,33 @@ struct HomeModelChip: View {
         .onChange(of: showSheet) { _, isPresented in
             onSheetStateChange(isPresented)
         }
-        .task(id: serverId) {
+        .task(id: metadataLoadID) {
             guard let serverId else { return }
+            let shouldReplaceSelection = !selectionMatchesAvailableModels()
+                || autoSelectedModelKey == currentSelectionKey
             await appModel.loadConversationMetadataIfNeeded(serverId: serverId)
+            synchronizeSelection(forceFallback: shouldReplaceSelection)
         }
+    }
+
+    private var currentSelectionKey: String {
+        "\(appState.preferredAgentRuntimeKind ?? ""):\(appState.preferredModel)"
+    }
+
+    private func selectionMatchesAvailableModels() -> Bool {
+        let current = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !current.isEmpty else { return false }
+        return availableModels.contains {
+            modelMatchesSelection($0, current, runtime: appState.preferredAgentRuntimeKind)
+        }
+    }
+
+    private func synchronizeSelection(forceFallback: Bool) {
+        guard let selectedModel else { return }
+        guard forceFallback || !selectionMatchesAvailableModels() else { return }
+        appState.preferredModel = selectedModel.id
+        appState.preferredAgentRuntimeKind = selectedModel.agentRuntimeKind
+        appState.preferredReasoningEffort = ""
+        autoSelectedModelKey = "\(selectedModel.agentRuntimeKind):\(selectedModel.id)"
     }
 }

@@ -419,6 +419,7 @@
 		9FCDDF2CEBF27362F1026DC6 /* PushProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17B9830779CEF4EA2F95D85E /* PushProxyClient.swift */; };
 		9FD939F0750F200724294851 /* StreamingPiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7531CE3B68A17C62F235ACE6 /* StreamingPiPController.swift */; };
 		A0A3C87E80A5AE660B36CC55 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBE8C3705FCC98F7E1642771 /* SettingsView.swift */; };
+		A0D6C3D906BA3F97C80F1DFD /* LocalStudioControllerDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE43A1CE60A15E63EA768D3 /* LocalStudioControllerDashboard.swift */; };
 		A0EA733BCB33952BADC2FE57 /* SwiftSshCredentialProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 782D870FCEA68BB3752F965F /* SwiftSshCredentialProvider.swift */; };
 		A0F302E6D893FB45DB4E16CB /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ABFE016B445D1A4398CFE2A5 /* Localizable.strings */; };
 		A1CE15DDBA14EE90777DE92C /* usgc-reticle.json in Resources */ = {isa = PBXBuildFile; fileRef = F28181DFD5B0FC796FD292C8 /* usgc-reticle.json */; };
@@ -518,6 +519,7 @@
 		C7AD6C6C225FF4C139C81B89 /* CodeBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */; };
 		C866847E4BEBA8A05A0D1EB1 /* HomeDashboardSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB206863136DF3B8FA50457 /* HomeDashboardSupport.swift */; };
 		C87E14EF9EE09B6990C255AC /* PluginMentionEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */; };
+		C88AEC7B9B04ED43B856A9EA /* LocalStudioControllerDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE43A1CE60A15E63EA768D3 /* LocalStudioControllerDashboard.swift */; };
 		C89B541EEA82E751FFA04897 /* cat_transmission_02.png in Resources */ = {isa = PBXBuildFile; fileRef = 37F784707298B3B10132B107 /* cat_transmission_02.png */; };
 		C93588F488F685B4777132FE /* CrossServerToolResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */; };
 		CA41DDEC724CC91E47583700 /* ProjectChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5294396A986F27242D0F814 /* ProjectChip.swift */; };
@@ -838,6 +840,7 @@
 		3C8EDED60CA4813F9382FD0E /* WatchDeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeepLinkRouter.swift; sourceTree = "<group>"; };
 		3CB07F43FD670F05B9A43C55 /* BerkeleyMono-Bold-Oblique.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Bold-Oblique.otf"; sourceTree = "<group>"; };
 		3E1172327AFBD0CF0947468A /* CatalystRuntimeStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystRuntimeStubs.swift; sourceTree = "<group>"; };
+		3EE43A1CE60A15E63EA768D3 /* LocalStudioControllerDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStudioControllerDashboard.swift; sourceTree = "<group>"; };
 		4065D6B859C111A7181A049D /* AppLifecycleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleController.swift; sourceTree = "<group>"; };
 		41B0E2A4F7ED660B3B053076 /* TranscriptTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTurn.swift; sourceTree = "<group>"; };
 		4215329CF98636F31978500E /* RealtimeVoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceScreen.swift; sourceTree = "<group>"; };
@@ -1306,6 +1309,7 @@
 				FED26E02E71D5675B5DFB9CE /* Bridge */,
 				8281D55E244D63BFA69DA67F /* CarPlay */,
 				ABFE016B445D1A4398CFE2A5 /* Localizable.strings */,
+				D19CCF08C556B72B4A1ED4D8 /* LocalStudio */,
 				46F161826F1FE16E72808B49 /* MacCommands */,
 				F95E1C01613709EE37B7714E /* Models */,
 				8D774DCB32F73498E21FBB1A /* Resources */,
@@ -1411,6 +1415,14 @@
 				A865AC79A6E0831D5F80A7E7 /* VoiceScreen.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		D19CCF08C556B72B4A1ED4D8 /* LocalStudio */ = {
+			isa = PBXGroup;
+			children = (
+				3EE43A1CE60A15E63EA768D3 /* LocalStudioControllerDashboard.swift */,
+			);
+			path = LocalStudio;
 			sourceTree = "<group>";
 		};
 		D807F7275D146FE16B978FCA /* Models */ = {
@@ -2384,6 +2396,7 @@
 				63693B9E11A54EA462F89306 /* LitterServerListPayload.swift in Sources */,
 				8162FA999156618F9B3D7ADF /* LiveActivityPreview.swift in Sources */,
 				040DA1C4B152364555F79660 /* LocalCodexBootstrap.swift in Sources */,
+				C88AEC7B9B04ED43B856A9EA /* LocalStudioControllerDashboard.swift in Sources */,
 				568C0B1181B1ACFFBD7B165D /* LockScreenCardView.swift in Sources */,
 				5380A526444F33B701903335 /* MacCommands.swift in Sources */,
 				3DF0608B87554BEBB44D6C91 /* MacPairingHost.swift in Sources */,
@@ -2578,6 +2591,7 @@
 				DDDBAC7DC8C46B69B63EC8F5 /* LitterPalette.swift in Sources */,
 				4DA3C30A27C7B36F36947F83 /* LitterPlatform.swift in Sources */,
 				B2E94DB79FAB25F0F5AB3C86 /* LocalCodexBootstrap.swift in Sources */,
+				A0D6C3D906BA3F97C80F1DFD /* LocalStudioControllerDashboard.swift in Sources */,
 				BCA65492090DEDCFF7BB9A54 /* MacCommands.swift in Sources */,
 				7008C0C79F55B5441642BDED /* MacPairingHost.swift in Sources */,
 				5F8720FFBD0E99012B4921E0 /* MessageBubbleView.swift in Sources */,

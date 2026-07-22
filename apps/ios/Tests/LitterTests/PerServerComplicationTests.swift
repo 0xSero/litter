@@ -257,7 +257,9 @@ final class PerServerComplicationTests: XCTestCase {
                 lastError: nil,
                 transcriptEntries: [],
                 handoffThreadKey: nil
-            )
+            ),
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 }

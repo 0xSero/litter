@@ -11,9 +11,31 @@ struct AlleycatConnectedTarget: Equatable {
     let agentWire: AppAlleycatAgentWire
 }
 
+enum AlleycatPairingMode: Equatable {
+    case kittylitter
+    case localStudio
+
+    var title: String {
+        switch self {
+        case .kittylitter: "Add Remote Host"
+        case .localStudio: "Connect Local Studio"
+        }
+    }
+
+    var instructions: String {
+        switch self {
+        case .kittylitter:
+            "Run \(AlleycatAddServerSheet.pairCommandLabel) on the host you want to connect to, then scan its QR code or paste the JSON it prints."
+        case .localStudio:
+            "In Local Studio, open Profile → Phone connection. Scan its QR code or paste Copy connection JSON."
+        }
+    }
+}
+
 struct AlleycatAddServerSheet: View {
     let appModel: AppModel
     let startScanningOnAppear: Bool
+    let pairingMode: AlleycatPairingMode
     let onConnected: (AlleycatConnectedTarget) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -39,10 +61,12 @@ struct AlleycatAddServerSheet: View {
     init(
         appModel: AppModel,
         startScanningOnAppear: Bool = false,
+        pairingMode: AlleycatPairingMode = .kittylitter,
         onConnected: @escaping (AlleycatConnectedTarget) -> Void
     ) {
         self.appModel = appModel
         self.startScanningOnAppear = startScanningOnAppear
+        self.pairingMode = pairingMode
         self.onConnected = onConnected
     }
 
@@ -69,7 +93,7 @@ struct AlleycatAddServerSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Add Remote Host")
+            .navigationTitle(pairingMode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -87,6 +111,7 @@ struct AlleycatAddServerSheet: View {
         // neither presentation ever fires.
         .fullScreenCover(isPresented: $showScanner) {
             QRScannerScreen(
+                pairingMode: pairingMode,
                 onScan: { scanned in
                     showScanner = false
                     handleScannedPayload(scanned)
@@ -111,7 +136,7 @@ struct AlleycatAddServerSheet: View {
                 Button("Cancel", role: .cancel) {}
             },
             message: {
-                Text("Allow camera access in Settings to scan an Alleycat pairing QR code.")
+                Text("Allow camera access in Settings to scan the pairing QR code.")
             }
         )
     }
@@ -128,6 +153,11 @@ struct AlleycatAddServerSheet: View {
 
     private var pairingSection: some View {
         Section {
+            Text(pairingMode.instructions)
+                .litterFont(.caption)
+                .foregroundColor(LitterTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             // Mac (Catalyst + iOS-on-Mac) shows paste-JSON only; iOS shows
             // QR scanning first, with paste available as a production fallback
             // for users who already copied the pairing payload.
@@ -145,11 +175,6 @@ struct AlleycatAddServerSheet: View {
 
     @ViewBuilder
     private var pasteJSONPairingControls: some View {
-        Text("Run \(Self.pairCommandLabel) on the host you want to connect to, then paste the JSON it prints below.")
-            .litterFont(.caption)
-            .foregroundColor(LitterTheme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-
         pasteJSONEntryControls(minHeight: 110)
     }
 
@@ -218,7 +243,7 @@ struct AlleycatAddServerSheet: View {
         }
     }
 
-    private static let pairCommandLabel = "npx kittylitter"
+    fileprivate static let pairCommandLabel = "npx kittylitter"
 
     private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
@@ -367,6 +392,7 @@ struct AlleycatAddServerSheet: View {
 
     private var canConnect: Bool {
         !isConnecting && !isLoadingAgents && parsedParams != nil && !selectedAgents.isEmpty
+            && (pairingMode != .localStudio || selectedAgents.contains { $0.name.caseInsensitiveCompare("pi") == .orderedSame })
     }
 
     private func toggleAgentSelection(_ agent: AppAlleycatAgentInfo) {
@@ -383,7 +409,7 @@ struct AlleycatAddServerSheet: View {
         do {
             let params = try alleycat.parsePairPayload(json: trimmed)
             parsedParams = params
-            displayName = suggestedDisplayName(for: params)
+            displayName = resolvedSuggestedDisplayName(for: params)
             parseError = nil
             connectError = nil
             agentError = nil
@@ -406,11 +432,7 @@ struct AlleycatAddServerSheet: View {
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = loaded
-                    selectedAgentNames = Set(
-                        loaded
-                            .filter { $0.available && !AgentRuntimeKind.isBetaAgentName($0.name, displayName: $0.displayName) }
-                            .map(\.name)
-                    )
+                    selectedAgentNames = Set(loaded.filter(\.available).map(\.name))
                     isLoadingAgents = false
                     agentError = nil
                 }
@@ -427,11 +449,16 @@ struct AlleycatAddServerSheet: View {
     }
 
     private func connect() {
-        guard let params = parsedParams, let fallbackAgent = selectedAgents.first else { return }
+        guard let params = parsedParams,
+              let fallbackAgent = selectedAgents.first(where: {
+                  pairingMode != .localStudio || $0.name.caseInsensitiveCompare("pi") == .orderedSame
+              }) else { return }
         let trimmedDisplay = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedName = trimmedDisplay.isEmpty ? suggestedDisplayName(for: params) : trimmedDisplay
+        let resolvedName = trimmedDisplay.isEmpty ? resolvedSuggestedDisplayName(for: params) : trimmedDisplay
         let selectedNames = selectedAgents.map(\.name)
-        let serverId = "alleycat:\(params.nodeId)"
+        let serverId = pairingMode == .localStudio
+            ? "alleycat:local-studio:\(params.nodeId)"
+            : "alleycat:\(params.nodeId)"
 
         isConnecting = true
         connectError = nil
@@ -479,6 +506,12 @@ struct AlleycatAddServerSheet: View {
                 }
             }
         }
+    }
+
+    private func resolvedSuggestedDisplayName(for params: AppAlleycatPairPayload) -> String {
+        let suggested = suggestedDisplayName(for: params)
+        guard pairingMode == .localStudio else { return suggested }
+        return suggested.lowercased().contains("local studio") ? suggested : "Local Studio · \(suggested)"
     }
 
     private func requestCameraAndScan() {
@@ -535,6 +568,7 @@ struct AlleycatAddServerSheet: View {
 // MARK: - QR Scanner
 
 private struct QRScannerScreen: View {
+    let pairingMode: AlleycatPairingMode
     let onScan: (String) -> Void
     let onCancel: () -> Void
     let onPermissionDenied: () -> Void
@@ -593,13 +627,18 @@ private struct QRScannerScreen: View {
 
     private var instructionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pair with kittylitter")
+            Text(pairingMode == .localStudio ? "Scan Local Studio Profile QR" : "Pair with kittylitter")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
 
-            stepRow(number: "1", title: "On the host you want to connect to, run:")
-            commandRow
-            stepRow(number: "2", title: "Point this camera at the QR code it prints.")
+            if pairingMode == .localStudio {
+                stepRow(number: "1", title: "In Local Studio, open Profile → Phone connection.")
+                stepRow(number: "2", title: "Point this camera at the Profile QR code.")
+            } else {
+                stepRow(number: "1", title: "On the host you want to connect to, run:")
+                commandRow
+                stepRow(number: "2", title: "Point this camera at the QR code it prints.")
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

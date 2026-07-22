@@ -380,4 +380,5 @@ private fun effortLabelLocal(value: uniffi.codex_mobile_client.ReasoningEffort):
         uniffi.codex_mobile_client.ReasoningEffort.HIGH -> "high"
         uniffi.codex_mobile_client.ReasoningEffort.X_HIGH -> "xhigh"
         uniffi.codex_mobile_client.ReasoningEffort.MAX -> "max"
+        uniffi.codex_mobile_client.ReasoningEffort.ULTRA -> "ultra"
     }

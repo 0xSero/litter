@@ -17,6 +17,24 @@ pub(crate) mod shared;
 mod ssh;
 mod terminal;
 
+pub use crate::local_studio::{
+    LocalStudioAdvertisement, LocalStudioAgentRuntimeSection, LocalStudioAgentRuntimeStats,
+    LocalStudioAttachmentAvailability, LocalStudioAttachmentDescriptor, LocalStudioBridgeError,
+    LocalStudioCapabilitiesManifest, LocalStudioCapability, LocalStudioComponentState,
+    LocalStudioContentHashAlgorithm, LocalStudioContentHashes, LocalStudioControllerActionKind,
+    LocalStudioControllerHealth, LocalStudioControllerLoadResult, LocalStudioControllerSections,
+    LocalStudioControllerSnapshot, LocalStudioControllerStatus, LocalStudioErrorCode,
+    LocalStudioErrorDetails, LocalStudioErrorResult, LocalStudioExternalSessionIdentity,
+    LocalStudioFreshness, LocalStudioGpuDevice, LocalStudioGpuSnapshot, LocalStudioGpusSection,
+    LocalStudioHashReference, LocalStudioHealthSection, LocalStudioMessageDescriptor,
+    LocalStudioMessagePart, LocalStudioMessageRole, LocalStudioMetrics, LocalStudioMetricsSection,
+    LocalStudioSectionName, LocalStudioSessionAuthority, LocalStudioSessionDescriptor,
+    LocalStudioSessionIdentityKind, LocalStudioSessionListCursor, LocalStudioSessionListCursorKind,
+    LocalStudioSessionListPage, LocalStudioSessionListResult, LocalStudioSessionMetadata,
+    LocalStudioSessionOrigin, LocalStudioSessionPage, LocalStudioSessionReadResult,
+    LocalStudioSnapshotState, LocalStudioStatusSection, LocalStudioToolDescriptor,
+    LocalStudioToolState, LocalStudioTransferCursor, LocalStudioTransferCursorKind,
+};
 pub use crate::ssh_bridge::{AgentAvailabilityStatus, RemoteAgentAvailability, SshBridgeTransport};
 pub use alleycat::{
     AlleycatBridge, AppAlleycatAgentInfo, AppAlleycatAgentWire, AppAlleycatConnectResult,

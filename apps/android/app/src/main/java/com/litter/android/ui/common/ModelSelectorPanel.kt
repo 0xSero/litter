@@ -94,12 +94,20 @@ fun ModelSelectorPanel(
     val visibleModels = remember(availableModels) {
         availableModels.filter { it.isVisibleModelOption() }
     }
+    val fallbackModel = visibleModels.firstOrNull { it.agentRuntimeKind == "codex" && it.isDefault }
+        ?: visibleModels.firstOrNull { it.isDefault }
+        ?: visibleModels.firstOrNull()
+    val pendingModel = launchState.selectedModel.takeIf { it.isNotBlank() }
+    val pendingRuntime = launchState.selectedAgentRuntimeKind
+    val pendingModelDefinition = pendingModel?.let { model ->
+        visibleModels.firstOrNull { it.matchesModelSelection(model, pendingRuntime) }
+    }
     val selectedModel = launchState.selectedModel
-        .takeIf { it.isNotBlank() }
+        .takeIf { pendingModelDefinition != null }
         ?: thread?.model
-        ?: visibleModels.firstOrNull { it.isDefault }?.id
-        ?: visibleModels.firstOrNull()?.id
+        ?: fallbackModel?.id
     val selectedRuntime = launchState.selectedAgentRuntimeKind
+        .takeIf { pendingModelDefinition != null }
         ?: thread?.agentRuntimeKind
         ?: visibleModels.firstOrNull { it.id == selectedModel || it.model == selectedModel }?.agentRuntimeKind
     val selectedRuntimeSupportsPermissionOverrides =
@@ -115,6 +123,16 @@ fun ModelSelectorPanel(
     val selectedRuntimeFilter = runtimeBuckets.firstOrNull {
         it.kind == selectedRuntimeFilterName
     }?.kind
+
+    LaunchedEffect(thread, pendingModel, pendingRuntime, fallbackModel) {
+        if (thread == null && pendingModel != null && pendingModelDefinition == null && fallbackModel != null) {
+            appModel.launchState.updateSelectedModel(
+                fallbackModel.id,
+                agentRuntimeKind = fallbackModel.agentRuntimeKind,
+            )
+            appModel.launchState.updateReasoningEffort(null)
+        }
+    }
 
     LaunchedEffect(selectedRuntime, runtimeBuckets) {
         if (!initializedRuntimeFilter) {
@@ -140,6 +158,9 @@ fun ModelSelectorPanel(
     }
     val filteredModels = remember(modelSearchIndex, modelSearchQuery) {
         modelSearchIndex.results(modelSearchQuery)
+    }
+    val providerGroups = remember(filteredModels) {
+        modelProviderGroups(filteredModels)
     }
     val selectedModelDefinition by remember(selectedModel, selectedRuntime, visibleModels) {
         derivedStateOf {
@@ -284,25 +305,36 @@ fun ModelSelectorPanel(
                 .heightIn(max = 320.dp)
                 .padding(vertical = 4.dp),
         ) {
-            items(filteredModels, key = { "${it.agentRuntimeKind}:${it.id}" }) { model ->
-                val isSelected = model.matchesModelSelection(selectedModel, selectedRuntime)
-                ModelOptionRow(
-                    model = model,
-                    selected = isSelected,
-                    onClick = {
-                        appModel.launchState.updateSelectedModel(
-                            model.id,
-                            agentRuntimeKind = model.agentRuntimeKind,
-                        )
-                        appModel.launchState.updateReasoningEffort(
-                            if (ampEffortLocked && model.agentRuntimeKind == "amp") {
-                                null
-                            } else {
-                                model.defaultReasoningEffortSelection()
-                            },
-                        )
-                    },
-                )
+            providerGroups.forEach { group ->
+                item(key = group.key) {
+                    Text(
+                        text = group.name.uppercase(Locale.ROOT),
+                        color = LitterTheme.textMuted,
+                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 1.dp),
+                    )
+                }
+                items(group.models, key = { "${it.agentRuntimeKind}:${it.id}" }) { model ->
+                    val isSelected = model.matchesModelSelection(selectedModel, selectedRuntime)
+                    ModelOptionRow(
+                        model = model,
+                        selected = isSelected,
+                        onClick = {
+                            appModel.launchState.updateSelectedModel(
+                                model.id,
+                                agentRuntimeKind = model.agentRuntimeKind,
+                            )
+                            appModel.launchState.updateReasoningEffort(
+                                if (ampEffortLocked && model.agentRuntimeKind == "amp") {
+                                    null
+                                } else {
+                                    model.defaultReasoningEffortSelection()
+                                },
+                            )
+                        },
+                    )
+                }
             }
         }
 
@@ -458,6 +490,7 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
     ReasoningEffort.HIGH -> "high"
     ReasoningEffort.X_HIGH -> "xhigh"
     ReasoningEffort.MAX -> "max"
+    ReasoningEffort.ULTRA -> "ultra"
 }
 
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
@@ -491,6 +524,57 @@ private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,
     val count: Int,
 )
+
+private data class ModelProviderGroup(
+    val key: String,
+    val name: String,
+    val models: List<ModelInfo>,
+)
+
+private fun ModelInfo.providerName(): String {
+    val provider = providerId ?: return agentRuntimeKind.runtimeLabel
+    return when (provider.lowercase(Locale.ROOT)) {
+        "ai21" -> "AI21"
+        "arcee-ai" -> "Arcee AI"
+        "bytedance-seed" -> "ByteDance"
+        "deepseek" -> "DeepSeek"
+        "meta-llama" -> "Meta"
+        "mistralai" -> "Mistral AI"
+        "moonshotai" -> "Moonshot AI"
+        "openai" -> "OpenAI"
+        "openrouter" -> "OpenRouter"
+        "x-ai" -> "xAI"
+        else -> provider.split('-', '_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+    }
+}
+
+private fun modelProviderGroups(models: List<ModelInfo>): List<ModelProviderGroup> =
+    models
+        .groupBy { model ->
+            model.providerId?.takeIf(String::isNotEmpty)?.let { "provider:$it" }
+                ?: "runtime:${model.agentRuntimeKind}"
+        }
+        .map { (key, entries) ->
+            ModelProviderGroup(
+                key,
+                entries.first().providerName(),
+                entries,
+            )
+        }
+        .sortedBy { it.name.lowercase(Locale.ROOT) }
+
+private fun ModelInfo.modelNameWithinProvider(): String {
+    var name = modelPickerDisplayName()
+    val catalog = id.substringBefore('/', "")
+    if (catalog.isNotEmpty() && name.endsWith(" ($catalog)", ignoreCase = true)) {
+        name = name.dropLast(catalog.length + 3)
+    }
+    val provider = providerId
+    if (!provider.isNullOrEmpty() && name.startsWith("$provider/")) {
+        name = name.removePrefix("$provider/")
+    }
+    return name
+}
 
 private const val MaxModelSearchResults = 80
 
@@ -589,7 +673,7 @@ private fun ModelOptionRow(
     } else {
         LitterTheme.textMuted.copy(alpha = 0.32f)
     }
-    val title = model.modelPickerDisplayName()
+    val title = model.modelNameWithinProvider()
     val detail = model.description
         .takeIf { it.isNotBlank() }
         ?: model.model.takeIf { it.isNotBlank() && it != title && it != model.id }

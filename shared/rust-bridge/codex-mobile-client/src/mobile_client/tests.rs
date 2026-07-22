@@ -91,6 +91,7 @@ mod mobile_client_tests {
             supports_personality: false,
             is_default: false,
             agent_runtime_kind: runtime_kind,
+            provider_id: None,
         }
     }
 
@@ -117,6 +118,14 @@ mod mobile_client_tests {
         assert_eq!(
             reasoning_effort_from_string(" high "),
             Some(crate::types::ReasoningEffort::High)
+        );
+        assert_eq!(
+            reasoning_effort_from_string("max"),
+            Some(crate::types::ReasoningEffort::Max)
+        );
+        assert_eq!(
+            reasoning_effort_from_string("ULTRA"),
+            Some(crate::types::ReasoningEffort::Ultra)
         );
         assert_eq!(reasoning_effort_from_string(""), None);
     }
@@ -425,6 +434,7 @@ mod mobile_client_tests {
                     available: true,
                     presentation: None,
                     capabilities: None,
+                    local_studio: None,
                 },
             ),
             (
@@ -436,6 +446,7 @@ mod mobile_client_tests {
                     available: true,
                     presentation: None,
                     capabilities: None,
+                    local_studio: None,
                 },
             ),
             (
@@ -447,6 +458,7 @@ mod mobile_client_tests {
                     available: true,
                     presentation: None,
                     capabilities: None,
+                    local_studio: None,
                 },
             ),
         ];
@@ -464,6 +476,27 @@ mod mobile_client_tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn pi_thread_start_defaults_to_full_access() {
+        let client = MobileClient::new();
+        let mut request = upstream::ClientRequest::ThreadStart {
+            request_id: upstream::RequestId::Integer(1),
+            params: upstream::ThreadStartParams {
+                approval_policy: Some(upstream::AskForApproval::OnRequest),
+                sandbox: Some(upstream::SandboxMode::WorkspaceWrite),
+                ..Default::default()
+            },
+        };
+
+        client.normalize_model_selection_for_request("srv", "pi".to_string(), &mut request);
+
+        let upstream::ClientRequest::ThreadStart { params, .. } = request else {
+            panic!("expected thread/start");
+        };
+        assert_eq!(params.approval_policy, Some(upstream::AskForApproval::Never));
+        assert_eq!(params.sandbox, Some(upstream::SandboxMode::DangerFullAccess));
     }
 
     #[test]

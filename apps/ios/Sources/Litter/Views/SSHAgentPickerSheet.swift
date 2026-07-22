@@ -58,7 +58,7 @@ struct SSHAgentPickerSheet: View {
         self.onUseCodex = onUseCodex
         self.onCancel = onCancel
         _selectedKinds = State(initialValue: Set(
-            Self.availableBridgeKinds(in: context.availability).filter { !$0.isBeta }
+            Self.defaultBridgeKinds(in: context.availability)
         ))
     }
 
@@ -122,6 +122,8 @@ struct SSHAgentPickerSheet: View {
                     if selectedKinds.contains(agent.kind) {
                         selectedKinds.remove(agent.kind)
                     } else {
+                        if agent.kind == "local-studio" { selectedKinds.remove("pi") }
+                        if agent.kind == "pi" { selectedKinds.remove("local-studio") }
                         selectedKinds.insert(agent.kind)
                     }
                 } label: {
@@ -244,6 +246,13 @@ struct SSHAgentPickerSheet: View {
             .map(\.kind)
             .sorted { runtimeSortRank($0) < runtimeSortRank($1) }
     }
+
+    private static func defaultBridgeKinds(in availability: [RemoteAgentAvailability]) -> Set<AgentRuntimeKind> {
+        let available = availableBridgeKinds(in: availability)
+        return Set(available.filter { kind in
+            !kind.isBeta && !(kind == "pi" && available.contains("local-studio"))
+        })
+    }
 }
 
 private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
@@ -254,7 +263,7 @@ private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
         return supports
     }
     switch kind {
-    case "codex", "claude", "pi", "opencode":
+    case "codex", "claude", "pi", "opencode", "local-studio":
         return true
     default:
         return false
@@ -271,12 +280,13 @@ private func runtimeSortRank(_ kind: AgentRuntimeKind) -> Int {
     // the most common SSH-bootstrap target.
     switch kind {
     case "claude": return 0
-    case "pi": return 1
-    case "opencode": return 2
-    case "codex": return 3
-    case "amp": return 4
-    case "droid": return 5
-    case "hermes": return 6
+    case "local-studio": return 1
+    case "pi": return 2
+    case "opencode": return 3
+    case "codex": return 4
+    case "amp": return 5
+    case "droid": return 6
+    case "hermes": return 7
     default: return Int.max
     }
 }

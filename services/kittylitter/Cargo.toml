@@ -22,9 +22,8 @@ name = "kittylitter"
 path = "src/main.rs"
 
 [dependencies]
-# Tracks dnakov/alleycat main. `./tools/scripts/update-alleycat-main.sh`
-# refreshes Cargo.lock to whatever `main` points at before build/release lanes.
-alleycat = { git = "https://github.com/dnakov/alleycat.git", branch = "main" }
+# Keep the daemon and mobile client on the same signed Local Studio bridge wire.
+alleycat = { git = "https://github.com/dnakov/alleycat.git", branch = "codex/litter-local-bridge" }
 anyhow = "1"
 
 # cargo-dist builds with `cargo build --profile dist`. Mirrors the

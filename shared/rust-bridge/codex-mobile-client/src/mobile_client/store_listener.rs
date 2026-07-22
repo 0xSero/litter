@@ -211,18 +211,18 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
         return;
     };
 
-    let next = thread.queued_follow_up_drafts.first().cloned();
-    let Some(draft) = next else {
+    let Some(draft) = app_store.claim_first_queued_follow_up_draft(&key) else {
         return;
     };
     let response = session.request(
         "turn/start",
         serde_json::json!({
             "threadId": key.thread_id,
-            "input": draft.inputs,
+            "input": draft.inputs.clone(),
         }),
     );
     if let Err(error) = response.await {
+        app_store.restore_queued_follow_up_draft_front(&key, draft);
         warn!(
             "MobileClient: failed to autosend queued follow-up for {} thread {}: {}",
             key.server_id, key.thread_id, error

@@ -1223,7 +1223,9 @@ final class WatchProjectionTests: XCTestCase {
             activeThread: nil,
             pendingApprovals: [],
             pendingUserInputs: [],
-            voiceSession: voiceSession
+            voiceSession: voiceSession,
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 

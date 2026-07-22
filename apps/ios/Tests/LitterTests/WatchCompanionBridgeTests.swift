@@ -763,7 +763,9 @@ final class WatchCompanionBridgeTests: XCTestCase {
                 lastError: nil,
                 transcriptEntries: [],
                 handoffThreadKey: nil
-            )
+            ),
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 }

@@ -1440,6 +1440,10 @@ private struct ConversationInputBar: View {
         return appState.isPendingUserInputDismissed(id: request.id) ? nil : request
     }
 
+    private var hasFixedFullAccess: Bool {
+        appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind == "pi"
+    }
+
     private var pendingModelOverride: String? {
         let trimmed = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -2048,6 +2052,7 @@ private struct ConversationInputBar: View {
             activeSlashToken = slashToken
         }
         let suggestions = filterSlashCommands(slashToken.query)
+            .filter { !hasFixedFullAccess || $0 != .permissions }
         if slashSuggestions != suggestions {
             slashSuggestions = suggestions
         }
@@ -2075,7 +2080,7 @@ private struct ConversationInputBar: View {
         case .model:
             showModelSelector = true
         case .permissions:
-            showPermissionsSheet = true
+            if !hasFixedFullAccess { showPermissionsSheet = true }
         case .experimental:
             showExperimentalSheet = true
             Task { await loadExperimentalFeatures() }
@@ -2651,6 +2656,8 @@ private func collaborationModeEffortLabel(_ effort: ReasoningEffort) -> String {
         return "XHigh"
     case .max:
         return "Max"
+    case .ultra:
+        return "Ultra"
     }
 }
 

@@ -74,9 +74,35 @@ fun HomeModelChip(
             ?: selectedId.ifBlank { "model" }
     }
 
-    LaunchedEffect(serverId) {
+    var autoSelectedModelKey by remember { mutableStateOf<String?>(null) }
+    val availableRuntimeKinds = server?.agentRuntimes
+        ?.filter { it.available }
+        ?.map { it.kind }
+        ?.sorted()
+        .orEmpty()
+
+    LaunchedEffect(serverId, availableRuntimeKinds) {
         if (!serverId.isNullOrBlank()) {
+            val shouldReplaceSelection = availableModels.none {
+                it.matchesModelSelection(launchState.selectedModel, launchState.selectedAgentRuntimeKind)
+            } || autoSelectedModelKey == "${launchState.selectedAgentRuntimeKind.orEmpty()}:${launchState.selectedModel}"
             runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
+            val loadedModels = appModel.snapshot.value?.servers
+                ?.firstOrNull { it.serverId == serverId }
+                ?.availableModels
+                .orEmpty()
+            val fallbackModel = loadedModels.firstOrNull {
+                it.agentRuntimeKind == "codex" && it.isDefault
+            } ?: loadedModels.firstOrNull { it.isDefault }
+                ?: loadedModels.firstOrNull()
+            if (shouldReplaceSelection && fallbackModel != null) {
+                appModel.launchState.updateSelectedModel(
+                    fallbackModel.id,
+                    agentRuntimeKind = fallbackModel.agentRuntimeKind,
+                )
+                appModel.launchState.updateReasoningEffort(null)
+                autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
+            }
         }
     }
 

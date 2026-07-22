@@ -699,6 +699,53 @@ impl AppStoreReducer {
         }
     }
 
+    /// Claims the next message draft before an automatic turn/start request.
+    /// Event notifications must never consume queue entries: the request path
+    /// owns exactly one draft and restores it if delivery fails.
+    pub(crate) fn claim_first_queued_follow_up_draft(
+        &self,
+        key: &ThreadKey,
+    ) -> Option<QueuedFollowUpDraft> {
+        let draft = self
+            .mutate_thread_with_result(key, |thread| {
+                let position = thread.queued_follow_up_drafts.iter().position(|draft| {
+                    draft.preview.kind == super::snapshot::AppQueuedFollowUpKind::Message
+                })?;
+                let draft = thread.queued_follow_up_drafts.remove(position);
+                sync_thread_follow_up_projection(thread);
+                Some(draft)
+            })
+            .flatten();
+        if draft.is_some() {
+            self.emit_thread_metadata_changed(key);
+        }
+        draft
+    }
+
+    pub(crate) fn restore_queued_follow_up_draft_front(
+        &self,
+        key: &ThreadKey,
+        draft: QueuedFollowUpDraft,
+    ) {
+        if self
+            .mutate_thread_with_result(key, |thread| {
+                if thread
+                    .queued_follow_up_drafts
+                    .iter()
+                    .any(|existing| existing.preview.id == draft.preview.id)
+                {
+                    return false;
+                }
+                thread.queued_follow_up_drafts.insert(0, draft);
+                sync_thread_follow_up_projection(thread);
+                true
+            })
+            .unwrap_or(false)
+        {
+            self.emit_thread_metadata_changed(key);
+        }
+    }
+
     pub(crate) fn stage_local_user_message_overlay(
         &self,
         key: &ThreadKey,
@@ -1528,7 +1575,6 @@ impl AppStoreReducer {
             UiEvent::TurnStarted { key, turn_id } => {
                 if self
                     .mutate_thread_with_result(key, |thread| {
-                        remove_first_queued_follow_up(thread);
                         thread.active_turn_id = Some(turn_id.clone());
                         thread.active_plan_progress = None;
                         thread.pending_plan_implementation_turn_id = None;
@@ -2523,19 +2569,9 @@ impl AppStoreReducer {
             thread
                 .local_overlay_items
                 .retain(|existing| !is_superseded_overlay_item(existing, &item, active_turn_id));
-            let queued_count_before = thread.queued_follow_ups.len();
             let mutation = classify_item_mutation(existing.as_ref(), &item);
-            let clears_queued_follow_up = item.is_from_user_turn_boundary
-                && matches!(&item.content, HydratedConversationItemContent::User(_));
             upsert_item(thread, item);
-            if clears_queued_follow_up {
-                remove_first_queued_follow_up(thread);
-            }
-            (
-                mutation,
-                queued_count_before != thread.queued_follow_ups.len(),
-                removed_overlay_ids,
-            )
+            (mutation, false, removed_overlay_ids)
         });
         if result.is_none() && is_user_message {
             tracing::warn!(
@@ -3481,17 +3517,6 @@ fn sync_thread_follow_up_projection(thread: &mut ThreadSnapshot) {
         .iter()
         .map(|draft| draft.preview.clone())
         .collect();
-}
-
-pub(crate) fn remove_first_queued_follow_up(thread: &mut ThreadSnapshot) {
-    if !thread.queued_follow_up_drafts.is_empty() {
-        thread.queued_follow_up_drafts.remove(0);
-        sync_thread_follow_up_projection(thread);
-        return;
-    }
-    if !thread.queued_follow_ups.is_empty() {
-        thread.queued_follow_ups.remove(0);
-    }
 }
 
 fn is_duplicate_overlay_item(
@@ -5188,7 +5213,7 @@ mod tests {
     }
 
     #[test]
-    fn turn_started_consumes_first_queued_follow_up_preview() {
+    fn claimed_follow_up_is_not_double_consumed_by_turn_events() {
         let reducer = AppStoreReducer::new();
         let key = ThreadKey {
             server_id: "srv".to_string(),
@@ -5213,10 +5238,29 @@ mod tests {
             },
         );
 
+        let claimed = reducer
+            .claim_first_queued_follow_up_draft(&key)
+            .expect("first draft claimed before request");
+        assert_eq!(claimed.preview.id, "queued-1");
+
         reducer.apply_ui_event(&UiEvent::TurnStarted {
             key: key.clone(),
             turn_id: "turn-2".to_string(),
         });
+        reducer.apply_item_update(
+            &key,
+            HydratedConversationItem {
+                id: "user-1".to_string(),
+                content: HydratedConversationItemContent::User(HydratedUserMessageData {
+                    text: "first".to_string(),
+                    image_data_uris: Vec::new(),
+                }),
+                source_turn_id: Some("turn-2".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            },
+        );
 
         let snapshot = reducer.snapshot();
         let thread = snapshot.threads.get(&key).expect("thread exists");
@@ -5566,7 +5610,7 @@ mod tests {
     }
 
     #[test]
-    fn user_turn_boundary_item_consumes_stale_queued_follow_up_preview() {
+    fn failed_follow_up_claim_restores_original_queue_order() {
         let reducer = AppStoreReducer::new();
         let key = ThreadKey {
             server_id: "srv".to_string(),
@@ -5582,27 +5626,30 @@ mod tests {
                 text: "queued follow-up".to_string(),
             },
         );
-
-        reducer.apply_item_update(
+        reducer.enqueue_thread_follow_up_preview(
             &key,
-            HydratedConversationItem {
-                id: "user-1".to_string(),
-                content: HydratedConversationItemContent::User(
-                    crate::conversation_uniffi::HydratedUserMessageData {
-                        text: "queued follow-up".to_string(),
-                        image_data_uris: Vec::new(),
-                    },
-                ),
-                source_turn_id: Some("turn-2".to_string()),
-                source_turn_index: None,
-                timestamp: None,
-                is_from_user_turn_boundary: true,
+            AppQueuedFollowUpPreview {
+                id: "queued-2".to_string(),
+                kind: crate::store::snapshot::AppQueuedFollowUpKind::Message,
+                text: "second follow-up".to_string(),
             },
         );
 
+        let claimed = reducer
+            .claim_first_queued_follow_up_draft(&key)
+            .expect("first draft claimed");
+        reducer.restore_queued_follow_up_draft_front(&key, claimed);
+
         let snapshot = reducer.snapshot();
         let thread = snapshot.threads.get(&key).expect("thread exists");
-        assert!(thread.queued_follow_ups.is_empty());
+        assert_eq!(
+            thread
+                .queued_follow_ups
+                .iter()
+                .map(|preview| preview.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["queued-1", "queued-2"]
+        );
     }
 
     // ── SW-R3: streaming dynamic tool call argument deltas ───────────

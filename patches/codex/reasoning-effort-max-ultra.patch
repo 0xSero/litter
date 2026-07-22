@@ -1,0 +1,32 @@
+diff --git a/codex-rs/model-provider/src/amazon_bedrock/catalog.rs b/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
+index d6fe1de..cfec60b 100644
+--- a/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
++++ b/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
+@@ -139,6 +139,8 @@ fn reasoning_effort_preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
+             ReasoningEffort::Medium => "Balances speed and reasoning depth for everyday tasks",
+             ReasoningEffort::High => "Greater reasoning depth for complex problems",
+             ReasoningEffort::XHigh => "Extra high reasoning depth for complex problems",
++            ReasoningEffort::Max => "Maximum reasoning depth for the hardest problems",
++            ReasoningEffort::Ultra => "Maximum reasoning with automatic task delegation",
+         }
+         .to_string(),
+     }
+diff --git a/codex-rs/protocol/src/openai_models.rs b/codex-rs/protocol/src/openai_models.rs
+index d51e70d..6ee5b9b 100644
+--- a/codex-rs/protocol/src/openai_models.rs
++++ b/codex-rs/protocol/src/openai_models.rs
+@@ -49,4 +49,6 @@ pub enum ReasoningEffort {
+     Medium,
+     High,
+     XHigh,
++    Max,
++    Ultra,
+ }
+@@ -546,5 +548,7 @@ fn effort_rank(effort: ReasoningEffort) -> i32 {
+         ReasoningEffort::Medium => 3,
+         ReasoningEffort::High => 4,
+         ReasoningEffort::XHigh => 5,
++        ReasoningEffort::Max => 6,
++        ReasoningEffort::Ultra => 7,
+     }
+ }

@@ -109,7 +109,6 @@ final class AppModel {
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: Set<String> = []
     @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
-    @ObservationIgnored private var recentConversationMetadataLoads: [String: Date] = [:]
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
     @ObservationIgnored private var pendingThreadRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
@@ -1811,12 +1810,11 @@ final class AppModel {
         }
         await loadAvailableModelsIfNeeded(serverId: serverId)
         await loadRateLimitsIfNeeded(serverId: serverId)
-        recentConversationMetadataLoads[serverId] = Date()
     }
 
     func loadAvailableModelsIfNeeded(serverId: String) async {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
-        guard server.availableModels == nil else { return }
+        guard !hasCompleteModelCatalog(server) else { return }
         guard !loadingModelServerIds.contains(serverId) else { return }
         loadingModelServerIds.insert(serverId)
         defer { loadingModelServerIds.remove(serverId) }
@@ -2058,14 +2056,20 @@ final class AppModel {
 
     private func hasFreshConversationMetadata(for serverId: String) -> Bool {
         guard let server = snapshot?.serverSnapshot(for: serverId) else { return false }
-        let hasModels = server.availableModels != nil
+        let hasModels = hasCompleteModelCatalog(server)
         let hasRateLimits = server.account == nil || server.rateLimits != nil
-        if hasModels && hasRateLimits {
-            return true
-        }
+        return hasModels && hasRateLimits
+    }
 
-        guard let lastLoad = recentConversationMetadataLoads[serverId] else { return false }
-        return Date().timeIntervalSince(lastLoad) < 10
+    private func hasCompleteModelCatalog(_ server: AppServerSnapshot) -> Bool {
+        guard let models = server.availableModels else { return false }
+        let requiredRuntimeKinds = Set(
+            server.agentRuntimes
+                .filter { $0.available && $0.kind != "shell" }
+                .map(\.kind)
+        )
+        let loadedRuntimeKinds = Set(models.map(\.agentRuntimeKind))
+        return requiredRuntimeKinds.isSubset(of: loadedRuntimeKinds)
     }
 
     private func restoreCachedThreadSnapshotIfNeeded(for key: ThreadKey?) {

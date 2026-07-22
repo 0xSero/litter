@@ -27,17 +27,28 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-ALLEYCAT_MAIN_SHA="$(
-  git ls-remote https://github.com/dnakov/alleycat.git refs/heads/main \
+alleycat_branch() {
+  local manifest="$1"
+  sed -nE 's/.*dnakov\/alleycat\.git.*branch = "([^"]+)".*/\1/p' "$manifest" | head -1
+}
+
+SHARED_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/shared/rust-bridge/Cargo.toml")"
+KITTYLITTER_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/services/kittylitter/Cargo.toml")"
+
+resolve_alleycat_sha() {
+  local branch="$1"
+  git ls-remote https://github.com/dnakov/alleycat.git "refs/heads/$branch" \
     | awk '{ print $1; exit }'
-)"
-if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
-  echo "error: could not resolve dnakov/alleycat main" >&2
-  exit 1
-fi
+}
 
 update_shared() {
-  echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
+  local sha
+  sha="$(resolve_alleycat_sha "$SHARED_ALLEYCAT_BRANCH")"
+  if [ -z "$sha" ]; then
+    echo "error: could not resolve dnakov/alleycat $SHARED_ALLEYCAT_BRANCH" >&2
+    exit 1
+  fi
+  echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat $SHARED_ALLEYCAT_BRANCH ($sha)..."
   for package in \
     alleycat-bridge-core \
     alleycat-pi-bridge \
@@ -48,17 +59,23 @@ update_shared() {
       --quiet \
       --manifest-path "$REPO_DIR/shared/rust-bridge/Cargo.toml" \
       -p "$package" \
-      --precise "$ALLEYCAT_MAIN_SHA"
+      --precise "$sha"
   done
 }
 
 update_kittylitter() {
-  echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
+  local sha
+  sha="$(resolve_alleycat_sha "$KITTYLITTER_ALLEYCAT_BRANCH")"
+  if [ -z "$sha" ]; then
+    echo "error: could not resolve dnakov/alleycat $KITTYLITTER_ALLEYCAT_BRANCH" >&2
+    exit 1
+  fi
+  echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat $KITTYLITTER_ALLEYCAT_BRANCH ($sha)..."
   cargo update \
     --quiet \
     --manifest-path "$REPO_DIR/services/kittylitter/Cargo.toml" \
     -p alleycat \
-    --precise "$ALLEYCAT_MAIN_SHA"
+    --precise "$sha"
 }
 
 case "$MODE" in

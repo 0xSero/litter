@@ -20,6 +20,7 @@ import uniffi.codex_mobile_client.AppMinigameRequest
 import uniffi.codex_mobile_client.AppMinigameResult
 import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppSessionSummary
+import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppSortDirection
 import uniffi.codex_mobile_client.AppStore
@@ -182,7 +183,6 @@ class AppModel private constructor(context: android.content.Context) {
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val loadingModelServerIds = mutableSetOf<String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
-    private val recentConversationMetadataLoads = mutableMapOf<String, Long>()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
@@ -543,13 +543,12 @@ class AppModel private constructor(context: android.content.Context) {
         if (hasFreshConversationMetadata(serverId)) return
         loadAvailableModelsIfNeeded(serverId)
         loadRateLimitsIfNeeded(serverId)
-        recentConversationMetadataLoads[serverId] = System.currentTimeMillis()
     }
 
     suspend fun loadAvailableModelsIfNeeded(serverId: String) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (server.availableModels != null) return
+        if (hasCompleteModelCatalog(server)) return
         if (!loadingModelServerIds.add(serverId)) return
         try {
             client.refreshModels(
@@ -1567,12 +1566,18 @@ class AppModel private constructor(context: android.content.Context) {
 
     private fun hasFreshConversationMetadata(serverId: String): Boolean {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
-        val hasModels = server.availableModels != null
+        val hasModels = hasCompleteModelCatalog(server)
         val hasRateLimits = server.account == null || server.rateLimits != null
-        if (hasModels && hasRateLimits) return true
+        return hasModels && hasRateLimits
+    }
 
-        val lastLoad = recentConversationMetadataLoads[serverId] ?: return false
-        return System.currentTimeMillis() - lastLoad < 10_000L
+    private fun hasCompleteModelCatalog(server: AppServerSnapshot): Boolean {
+        val models = server.availableModels ?: return false
+        val requiredRuntimeKinds = server.agentRuntimes
+            .filter { it.available && it.kind != "shell" }
+            .mapTo(mutableSetOf<String>()) { it.kind }
+        val loadedRuntimeKinds = models.mapTo(mutableSetOf<String>()) { it.agentRuntimeKind }
+        return loadedRuntimeKinds.containsAll(requiredRuntimeKinds)
     }
 
     private fun restoreCachedThreadSnapshotIfNeeded(key: ThreadKey?) {

@@ -373,7 +373,9 @@ final class HomeDashboardSupportTests: XCTestCase {
             activeThread: activeThread,
             pendingApprovals: [],
             pendingUserInputs: [],
-            voiceSession: inactiveVoiceSession()
+            voiceSession: inactiveVoiceSession(),
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 
