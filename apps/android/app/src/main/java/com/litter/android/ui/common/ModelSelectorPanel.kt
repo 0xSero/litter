@@ -458,6 +458,7 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
     ReasoningEffort.HIGH -> "high"
     ReasoningEffort.X_HIGH -> "xhigh"
     ReasoningEffort.MAX -> "max"
+    ReasoningEffort.ULTRA -> "ultra"
 }
 
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =

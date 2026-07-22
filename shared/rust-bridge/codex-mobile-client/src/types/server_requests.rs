@@ -79,10 +79,10 @@ pub(crate) fn reasoning_effort_into_upstream(value: ReasoningEffort) -> CoreReas
         ReasoningEffort::Medium => CoreReasoningEffort::Medium,
         ReasoningEffort::High => CoreReasoningEffort::High,
         ReasoningEffort::XHigh => CoreReasoningEffort::XHigh,
-        // The committed codex submodule does not expose a Max effort. Keep the
-        // mobile value for runtime-specific UI, but degrade to the strongest
-        // upstream effort available for Codex requests.
-        ReasoningEffort::Max => CoreReasoningEffort::XHigh,
+        // Parsing keeps this source compatible before the Codex compatibility
+        // patch is applied; older checkouts safely degrade to XHigh.
+        ReasoningEffort::Max => "max".parse().unwrap_or(CoreReasoningEffort::XHigh),
+        ReasoningEffort::Ultra => "ultra".parse().unwrap_or(CoreReasoningEffort::XHigh),
     }
 }
 

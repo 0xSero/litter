@@ -746,10 +746,12 @@ pub enum ReasoningEffort {
     High,
     XHigh,
     Max,
+    Ultra,
 }
 
 impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
     fn from(value: codex_protocol::openai_models::ReasoningEffort) -> Self {
+        let wire_value = value.to_string();
         match value {
             codex_protocol::openai_models::ReasoningEffort::None => Self::None,
             codex_protocol::openai_models::ReasoningEffort::Minimal => Self::Minimal,
@@ -757,10 +759,12 @@ impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
             codex_protocol::openai_models::ReasoningEffort::Medium => Self::Medium,
             codex_protocol::openai_models::ReasoningEffort::High => Self::High,
             codex_protocol::openai_models::ReasoningEffort::XHigh => Self::XHigh,
-            // Newer/local codex checkouts may expose Max before the pinned
-            // submodule advances. Do not name that upstream variant here, so
-            // clean checkouts at the committed gitlink still compile.
+            // The pinned Codex compatibility patch accepts Max, Ultra, and an
+            // unknown-value sentinel. Match Ultra by its wire value so this
+            // bridge still compiles against both older and newer checkouts;
+            // everything else degrades to Max without blocking model/list.
             #[allow(unreachable_patterns)]
+            _ if wire_value == "ultra" => Self::Ultra,
             _ => Self::Max,
         }
     }
@@ -1499,6 +1503,17 @@ impl From<upstream::ThreadRealtimeSdpNotification> for AppRealtimeSdpNotificatio
 mod tests {
     use super::*;
     use crate::types::enums::ThreadSummaryStatus;
+
+    #[test]
+    fn reasoning_effort_accepts_ultra_and_degrades_future_values() {
+        let ultra: codex_protocol::openai_models::ReasoningEffort =
+            serde_json::from_str("\"ultra\"").expect("ultra should deserialize");
+        assert_eq!(ReasoningEffort::from(ultra), ReasoningEffort::Ultra);
+
+        let future: codex_protocol::openai_models::ReasoningEffort =
+            serde_json::from_str("\"future-effort\"").expect("future values should deserialize");
+        assert_eq!(ReasoningEffort::from(future), ReasoningEffort::Max);
+    }
 
     #[test]
     fn thread_info_roundtrip() {

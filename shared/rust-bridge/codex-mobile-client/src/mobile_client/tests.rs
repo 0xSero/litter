@@ -118,6 +118,10 @@ mod mobile_client_tests {
             reasoning_effort_from_string(" high "),
             Some(crate::types::ReasoningEffort::High)
         );
+        assert_eq!(
+            reasoning_effort_from_string("ULTRA"),
+            Some(crate::types::ReasoningEffort::Ultra)
+        );
         assert_eq!(reasoning_effort_from_string(""), None);
     }
 

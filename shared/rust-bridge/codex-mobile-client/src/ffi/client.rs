@@ -2956,6 +2956,7 @@ fn inherited_settings_for_origin(
             "high" => Some(ReasoningEffort::High),
             "xhigh" | "x-high" => Some(ReasoningEffort::XHigh),
             "max" => Some(ReasoningEffort::Max),
+            "ultra" => Some(ReasoningEffort::Ultra),
             _ => None,
         }
     });

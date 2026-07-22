@@ -2651,6 +2651,8 @@ private func collaborationModeEffortLabel(_ effort: ReasoningEffort) -> String {
         return "XHigh"
     case .max:
         return "Max"
+    case .ultra:
+        return "Ultra"
     }
 }
 

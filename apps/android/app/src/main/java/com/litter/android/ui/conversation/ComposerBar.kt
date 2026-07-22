@@ -1377,6 +1377,7 @@ private fun reasoningEffortFromServerValue(value: String): ReasoningEffort? =
         "high" -> ReasoningEffort.HIGH
         "xhigh" -> ReasoningEffort.X_HIGH
         "max" -> ReasoningEffort.MAX
+        "ultra" -> ReasoningEffort.ULTRA
         else -> null
     }
 
