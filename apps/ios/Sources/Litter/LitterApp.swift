@@ -1318,12 +1318,7 @@ private struct HomeNavigationView: View {
             return
         }
 
-        guard let resolvedKey = await appModel.ensureThreadLoaded(key: startedKey)
-            ?? appModel.snapshot?.threadSnapshot(for: startedKey)?.key else {
-            actionErrorMessage = appModel.lastError ?? "Failed to load the new session."
-            return
-        }
-
+        let resolvedKey = appModel.snapshot?.threadSnapshot(for: startedKey)?.key ?? startedKey
         openConversation(resolvedKey)
     }
 
@@ -1539,7 +1534,7 @@ private struct HomeNavigationView: View {
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
             onOpenProjectPicker: { showProjectPicker = true },
-            onThreadCreated: { key in homeDashboardModel.pinThread(key) },
+            onThreadCreated: { key in homeDashboardModel.pinThread(key); openConversation(key) },
             onShowSettings: { appState.showSettings = true },
             onShowApps: savedAppsStore.apps.isEmpty ? nil : { navigationPath.append(.appsList) },
             onShowTerminal: terminalLauncher,

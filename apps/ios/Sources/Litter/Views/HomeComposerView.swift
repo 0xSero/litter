@@ -261,6 +261,7 @@ struct HomeComposerView: View {
                     )
                 )
                 RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
+                onThreadCreated(threadKey)
                 let preparedAttachment = image.flatMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
                 let mentionsToSend = collectPluginMentionsForSubmission(text)
@@ -287,7 +288,6 @@ struct HomeComposerView: View {
                 )
                 try await appModel.startTurn(key: threadKey, payload: payload)
                 await appModel.refreshThreadSnapshot(key: threadKey)
-                onThreadCreated(threadKey)
             } catch {
                 errorMessage = error.localizedDescription
             }
