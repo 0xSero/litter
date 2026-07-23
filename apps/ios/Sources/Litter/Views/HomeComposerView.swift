@@ -260,8 +260,8 @@ struct HomeComposerView: View {
                         dynamicTools: appModel.localGenerativeUiToolSpecs(for: project.serverId)
                     )
                 )
-                RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
                 onThreadCreated(threadKey)
+                RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
                 let preparedAttachment = image.flatMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
                 let mentionsToSend = collectPluginMentionsForSubmission(text)
