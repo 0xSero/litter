@@ -1,7 +1,6 @@
 package com.litter.android.ui.settings
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,7 +76,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.auth.ChatGPTOAuthActivity
-import com.litter.android.localstudio.LocalStudioControllerDialog
 import com.litter.android.state.ChatGPTOAuth
 import com.litter.android.state.ChatGPTOAuthTokenStore
 import com.litter.android.state.DebugSettings
@@ -183,7 +181,6 @@ private fun SettingsTopLevel(
     val collapseTurns = ConversationPrefs.areTurnsCollapsed
     var renameTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var renameText by remember { mutableStateOf("") }
-    var localStudioControllerServerId by remember { mutableStateOf<String?>(null) }
 
     val currentServer = remember(snapshot) {
         val activeServerId = snapshot?.activeThread?.serverId
@@ -335,7 +332,6 @@ private fun SettingsTopLevel(
             item { SettingsRow(label = "No servers connected") }
         } else {
             items(servers, key = { it.serverId }) { server ->
-                val savedServer = SavedServerStore.load(context).firstOrNull { it.id == server.serverId }
                 ServerSettingsRow(
                     server = server,
                     onRename = {
@@ -344,15 +340,6 @@ private fun SettingsTopLevel(
                     },
                     onEdit = {
                         editTarget = server
-                    },
-                    onOpenLocalStudio = null,
-                    onShowLocalStudioController = if (
-                        savedServer?.alleycatNodeId != null &&
-                        server.agentRuntimes.any { it.kind == "local-studio" }
-                    ) {
-                        { localStudioControllerServerId = server.serverId }
-                    } else {
-                        null
                     },
                     onRemove = {
                         scope.launch {
@@ -367,14 +354,6 @@ private fun SettingsTopLevel(
         }
 
         item { Spacer(Modifier.height(32.dp)) }
-    }
-
-    localStudioControllerServerId?.let { serverId ->
-        LocalStudioControllerDialog(
-            appModel = appModel,
-            serverId = serverId,
-            onDismiss = { localStudioControllerServerId = null },
-        )
     }
 
     renameTarget?.let { server ->
@@ -485,8 +464,6 @@ private fun ServerSettingsRow(
     server: AppServerSnapshot,
     onRename: (() -> Unit)?,
     onEdit: (() -> Unit)?,
-    onOpenLocalStudio: (() -> Unit)?,
-    onShowLocalStudioController: (() -> Unit)?,
     onRemove: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -525,24 +502,6 @@ private fun ServerSettingsRow(
         }
 
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            if (onShowLocalStudioController != null) {
-                DropdownMenuItem(
-                    text = { Text("Controller dashboard") },
-                    onClick = {
-                        showMenu = false
-                        onShowLocalStudioController()
-                    },
-                )
-            }
-            if (onOpenLocalStudio != null) {
-                DropdownMenuItem(
-                    text = { Text("Local Studio dashboard") },
-                    onClick = {
-                        showMenu = false
-                        onOpenLocalStudio()
-                    },
-                )
-            }
             if (onEdit != null) {
                 DropdownMenuItem(
                     text = { Text("Edit") },

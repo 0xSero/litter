@@ -5,7 +5,6 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.textScale) private var textScale
-    @Environment(\.openURL) private var openURL
     @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     @AppStorage("collapseTurns") private var collapseTurns = false
     @AppStorage(ConversationDisplayPreferenceKey.reasoning) private var reasoningDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
@@ -13,7 +12,6 @@ struct SettingsView: View {
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var activeServerSheet: SettingsServerSheet?
     @State private var serverEditError: String?
-    @State private var localStudioControllerServerId: String?
 
     private var localServer: AppServerSnapshot? {
         // Account management (ChatGPT login / API key) is local-only, always.
@@ -85,15 +83,6 @@ struct SettingsView: View {
                             Task { await reconnectViaSSH(server: server, host: host, credentials: credentials) }
                         }
                     }
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: { localStudioControllerServerId != nil },
-                set: { if !$0 { localStudioControllerServerId = nil } }
-            )) {
-                if let serverId = localStudioControllerServerId {
-                    LocalStudioControllerDashboard(serverId: serverId)
-                        .environment(appModel)
                 }
             }
             .alert("Server Update Failed", isPresented: Binding(
@@ -361,13 +350,6 @@ struct SettingsView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        if hasSignedLocalStudioController(conn) {
-                            Button { localStudioControllerServerId = conn.id } label: {
-                                Image(systemName: "gauge.with.dots.needle.67percent")
-                            }
-                            .accessibilityLabel("Show Local Studio controller")
-                            .buttonStyle(.borderless)
-                        }
                         Button("Remove") {
                             removeServer(conn)
                         }
@@ -403,11 +385,6 @@ struct SettingsView: View {
         SavedServerStore.remove(serverId: server.id)
         Task { await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh) }
         appModel.serverBridge.disconnectServer(serverId: server.id)
-    }
-
-    private func hasSignedLocalStudioController(_ server: HomeDashboardServer) -> Bool {
-        server.agentRuntimes.contains(where: { $0.kind == .localStudio })
-            && SavedServerStore.load().first(where: { $0.id == server.id })?.alleycatNodeId != nil
     }
 
     private func saveServerConfiguration(

@@ -103,7 +103,6 @@ pub struct MobileClient {
     /// launch reuses the same `EndpointId` (faster relay re-association,
     /// stable peer identity).
     alleycat_secret_key: Arc<StdMutex<Option<[u8; 32]>>>,
-    pub(crate) local_studio_targets: crate::local_studio::LocalStudioTargetRegistry,
     /// In-flight guided-SSH-connect flows, keyed by server_id. Held on
     /// `MobileClient` so repeated connect attempts can reuse the same
     /// bootstrap task.
@@ -690,13 +689,6 @@ fn alleycat_requested_runtime_kinds(
         .collect()
 }
 
-fn is_local_studio_controller_agent(
-    runtime_kind: &str,
-    agent: &AlleycatAgentInfo,
-) -> bool {
-    runtime_kind == crate::local_studio::RUNTIME_KIND || agent.local_studio.is_some()
-}
-
 impl MobileClient {
     /// Create a new `MobileClient`.
     pub fn new() -> Self {
@@ -726,7 +718,6 @@ impl MobileClient {
             thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
-            local_studio_targets: crate::local_studio::LocalStudioTargetRegistry::default(),
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             alleycat_restart_targets: Arc::new(StdMutex::new(HashMap::new())),
             terminal_sessions: Arc::new(StdMutex::new(HashMap::new())),
@@ -1067,6 +1058,8 @@ impl MobileClient {
     ) {
         let supports_permission_overrides =
             self.runtime_supports_thread_permission_overrides(&runtime_kind);
+        // Pi runtimes are always full access. Their permission policy is fixed
+        // at the shared boundary and is not exposed as a mobile setting.
         let defaults_to_full_access = runtime_kind == "pi" || runtime_kind == "local-studio";
         match request {
             upstream::ClientRequest::ThreadStart { params, .. } => {
@@ -1075,12 +1068,12 @@ impl MobileClient {
                     runtime_kind.clone(),
                     &mut params.model,
                 );
-                if !supports_permission_overrides {
-                    params.approval_policy = None;
-                    params.sandbox = None;
-                } else if defaults_to_full_access {
+                if defaults_to_full_access {
                     params.approval_policy = Some(upstream::AskForApproval::Never);
                     params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
+                } else if !supports_permission_overrides {
+                    params.approval_policy = None;
+                    params.sandbox = None;
                 }
             }
             upstream::ClientRequest::ThreadResume { params, .. } => {
@@ -1089,12 +1082,12 @@ impl MobileClient {
                     runtime_kind.clone(),
                     &mut params.model,
                 );
-                if !supports_permission_overrides {
-                    params.approval_policy = None;
-                    params.sandbox = None;
-                } else if defaults_to_full_access {
+                if defaults_to_full_access {
                     params.approval_policy = Some(upstream::AskForApproval::Never);
                     params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
+                } else if !supports_permission_overrides {
+                    params.approval_policy = None;
+                    params.sandbox = None;
                 }
             }
             upstream::ClientRequest::ThreadFork { params, .. } => {
@@ -1103,12 +1096,12 @@ impl MobileClient {
                     runtime_kind.clone(),
                     &mut params.model,
                 );
-                if !supports_permission_overrides {
-                    params.approval_policy = None;
-                    params.sandbox = None;
-                } else if defaults_to_full_access {
+                if defaults_to_full_access {
                     params.approval_policy = Some(upstream::AskForApproval::Never);
                     params.sandbox = Some(upstream::SandboxMode::DangerFullAccess);
+                } else if !supports_permission_overrides {
+                    params.approval_policy = None;
+                    params.sandbox = None;
                 }
             }
             upstream::ClientRequest::TurnStart { params, .. } => {
@@ -1118,12 +1111,12 @@ impl MobileClient {
                 {
                     params.model = Some(resolved);
                 }
-                if !supports_permission_overrides {
-                    params.approval_policy = None;
-                    params.sandbox_policy = None;
-                } else if defaults_to_full_access {
+                if defaults_to_full_access {
                     params.approval_policy = Some(upstream::AskForApproval::Never);
                     params.sandbox_policy = Some(upstream::SandboxPolicy::DangerFullAccess);
+                } else if !supports_permission_overrides {
+                    params.approval_policy = None;
+                    params.sandbox_policy = None;
                 }
             }
             _ => {}
@@ -1722,55 +1715,9 @@ impl MobileClient {
         Ok(agents)
     }
 
-    pub(crate) async fn load_local_studio_controller(
-        &self,
-        server_id: &str,
-    ) -> Result<
-        crate::local_studio::LocalStudioControllerLoadResult,
-        crate::local_studio::LocalStudioClientError,
-    > {
-        let target = self.local_studio_targets.resolve(server_id)?;
-        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
-            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
-        })?;
-        crate::local_studio::load_local_studio_controller(&endpoint, target).await
-    }
-
-    pub(crate) async fn list_local_studio_sessions(
-        &self,
-        server_id: &str,
-        limit: u64,
-    ) -> Result<
-        crate::local_studio::LocalStudioSessionListResult,
-        crate::local_studio::LocalStudioClientError,
-    > {
-        let target = self.local_studio_targets.resolve(server_id)?;
-        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
-            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
-        })?;
-        crate::local_studio::list_local_studio_sessions(&endpoint, target, limit).await
-    }
-
-    pub(crate) async fn continue_local_studio_session_list(
-        &self,
-        server_id: &str,
-        cursor: &crate::local_studio::LocalStudioSessionListCursor,
-        limit: u64,
-    ) -> Result<
-        crate::local_studio::LocalStudioSessionListResult,
-        crate::local_studio::LocalStudioClientError,
-    > {
-        let target = self.local_studio_targets.resolve(server_id)?;
-        let endpoint = self.alleycat_endpoint().await.map_err(|error| {
-            crate::local_studio::LocalStudioClientError::Transport(error.to_string())
-        })?;
-        crate::local_studio::continue_local_studio_session_list(&endpoint, target, cursor, limit)
-            .await
-    }
-
     fn runtime_supports_thread_permission_overrides(&self, runtime_kind: &str) -> bool {
         if matches!(runtime_kind, "pi" | "local-studio") {
-            return true;
+            return false;
         }
         self.agent_metadata
             .get(runtime_kind)
@@ -1821,19 +1768,6 @@ impl MobileClient {
                 (agent.available).then_some((runtime_kind, agent))
             })
             .collect::<Vec<_>>();
-        let controller_infos = requested_agents
-            .iter()
-            .filter(|(runtime_kind, agent)| {
-                is_local_studio_controller_agent(runtime_kind, agent)
-            })
-            .map(|(runtime_kind, agent)| AgentRuntimeInfo {
-                kind: runtime_kind.clone(),
-                name: agent.name.clone(),
-                display_name: agent.display_name.clone(),
-                available: true,
-            })
-            .collect::<Vec<_>>();
-        let has_local_studio_controller = !controller_infos.is_empty();
         let runtime_agents = if requested_agents.is_empty() {
             if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
                 self.app_store
@@ -1844,12 +1778,6 @@ impl MobileClient {
             }
             let runtime_kind = crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
                 .unwrap_or("codex".to_string());
-            if runtime_kind == crate::local_studio::RUNTIME_KIND {
-                return Err(TransportError::ConnectionFailed(
-                    "Local Studio exposes controller data, not a chat stream; select Pi to chat"
-                        .to_string(),
-                ));
-            }
             vec![(
                 runtime_kind,
                 AlleycatAgentInfo {
@@ -1859,16 +1787,10 @@ impl MobileClient {
                     available: true,
                     presentation: None,
                     capabilities: None,
-                    local_studio: None,
                 },
             )]
         } else {
             requested_agents
-                .into_iter()
-                .filter(|(runtime_kind, agent)| {
-                    !is_local_studio_controller_agent(runtime_kind, agent)
-                })
-                .collect()
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
@@ -1961,7 +1883,7 @@ impl MobileClient {
         };
 
         let mut runtime_resources = Vec::new();
-        let mut runtime_infos = controller_infos;
+        let mut runtime_infos = Vec::new();
         for (runtime_kind, agent) in runtime_agents {
             let reconnect_transport = AlleycatReconnectTransport::new(
                 params.clone(),
@@ -1987,7 +1909,10 @@ impl MobileClient {
             let (remote_client, alleycat_session) = match dialed {
                 Ok(result) => result,
                 Err(error) => {
-                    warn!("MobileClient: alleycat connect failed server_id={} agent={} error={}", server_id, agent.name, error);
+                    warn!(
+                        "MobileClient: alleycat connect failed server_id={} agent={} error={}",
+                        server_id, agent.name, error
+                    );
                     continue;
                 }
             };
@@ -2054,10 +1979,6 @@ impl MobileClient {
             session.runtime_kinds()
         );
 
-        if has_local_studio_controller {
-            self.local_studio_targets
-                .register(server_id.clone(), params.clone());
-        }
         self.attach_remote_session(&server_id, session, runtime_infos.clone());
 
         // Preserve the user's *intent* in the saved-server record rather

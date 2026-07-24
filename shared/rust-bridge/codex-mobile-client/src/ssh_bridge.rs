@@ -1278,7 +1278,8 @@ mod local_studio_tests {
 
     #[test]
     fn probe_parser_exposes_ready_local_studio_catalog() {
-        let agents = parse_agent_probe("local-studio\t/home/test/.local-studio/pi-agent\npi\t/usr/bin/pi\n");
+        let agents =
+            parse_agent_probe("local-studio\t/home/test/.local-studio/pi-agent\npi\t/usr/bin/pi\n");
         assert_eq!(agents[0].kind, "local-studio");
         assert_eq!(agents[0].status, AgentAvailabilityStatus::Available);
     }

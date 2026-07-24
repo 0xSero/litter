@@ -138,7 +138,11 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
+                    selectedAgentNames = loaded.filter {
+                        it.available &&
+                            (pairingMode != AlleycatPairingMode.LocalStudio ||
+                                it.name.equals("local-studio", ignoreCase = true))
+                    }.map { it.name }.toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
@@ -207,9 +211,7 @@ fun AlleycatAddServerSheet(
     fun connect() {
         val params = parsedParams ?: return
         val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
-        val fallbackAgent = selectedAgents.firstOrNull {
-            pairingMode != AlleycatPairingMode.LocalStudio || it.name.equals("pi", ignoreCase = true)
-        } ?: return
+        val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
         val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
         val serverId = if (pairingMode == AlleycatPairingMode.LocalStudio) {
@@ -256,10 +258,14 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val availableAgents = agents.filter { it.available }
-    val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
-    val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty() &&
-        (pairingMode != AlleycatPairingMode.LocalStudio || selectedAgents.any { it.name.equals("pi", ignoreCase = true) })
+    val availableAgents = agents.filter {
+        it.available &&
+            (pairingMode != AlleycatPairingMode.LocalStudio ||
+                it.name.equals("local-studio", ignoreCase = true))
+    }
+    val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
+    val canConnect =
+        !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
 
     if (showScanner) {
         QrScannerScreen(
@@ -461,7 +467,7 @@ fun AlleycatAddServerSheet(
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp),
                     )
-                    else -> agents.forEach { agent ->
+                    else -> availableAgents.forEach { agent ->
                         AgentRow(
                             agent = agent,
                             selected = agent.name in selectedAgentNames,

@@ -160,7 +160,7 @@ struct DiscoveryView: View {
         .sheet(item: $alleycatPairingMode) { pairingMode in
             AlleycatAddServerSheet(
                 appModel: appModel,
-                startScanningOnAppear: pairingMode == .kittylitter,
+                startScanningOnAppear: true,
                 pairingMode: pairingMode,
                 onConnected: { result in
                     alleycatPairingMode = nil

@@ -158,7 +158,7 @@ fn normalize_model_info_for_runtime(
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
     let is_amp = runtime_kind == "amp";
-    let is_pi = runtime_kind == "pi";
+    let is_pi = matches!(runtime_kind.as_str(), "pi" | "local-studio");
     let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
     model_info.agent_runtime_kind = runtime_kind;
     if is_amp {
@@ -218,29 +218,6 @@ fn derive_model_provider_id(id: &str) -> Option<&str> {
 
 fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
     runtime_kind != "shell"
-}
-
-fn retain_local_studio_controller_models(
-    models: &mut Vec<types::ModelInfo>,
-    active_model_ids: &[String],
-) {
-    let active = active_model_ids
-        .iter()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-        .collect::<Vec<_>>();
-    models.retain(|model| {
-        if !matches!(model.agent_runtime_kind.as_str(), "pi" | "local-studio") {
-            return true;
-        }
-        active.iter().any(|id| {
-            model.id == *id
-                || model.model == *id
-                || (!id.contains('/')
-                    && (model.id.rsplit('/').next() == Some(*id)
-                        || model.model.rsplit('/').next() == Some(*id)))
-        })
-    });
 }
 
 fn append_cached_models_for_failed_runtimes(
@@ -402,42 +379,6 @@ impl AppClient {
     /// cold start.
     pub fn all_agent_metadata(&self) -> Vec<crate::store::AppAgentMetadata> {
         self.inner.agent_metadata.all_sorted()
-    }
-
-    pub async fn load_local_studio_controller(
-        &self,
-        server_id: String,
-    ) -> Result<crate::local_studio::LocalStudioControllerLoadResult, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            c.load_local_studio_controller(&server_id)
-                .await
-                .map_err(|error| ClientError::Transport(error.to_string()))
-        })
-    }
-
-    pub async fn list_local_studio_sessions(
-        &self,
-        server_id: String,
-        limit: u64,
-    ) -> Result<crate::local_studio::LocalStudioSessionListResult, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            c.list_local_studio_sessions(&server_id, limit)
-                .await
-                .map_err(|error| ClientError::Transport(error.to_string()))
-        })
-    }
-
-    pub async fn continue_local_studio_session_list(
-        &self,
-        server_id: String,
-        cursor: crate::local_studio::LocalStudioSessionListCursor,
-        limit: u64,
-    ) -> Result<crate::local_studio::LocalStudioSessionListResult, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            c.continue_local_studio_session_list(&server_id, &cursor, limit)
-                .await
-                .map_err(|error| ClientError::Transport(error.to_string()))
-        })
     }
 
     // ── Thread lifecycle ─────────────────────────────────────────────────
@@ -1218,32 +1159,6 @@ impl AppClient {
                         &failed_runtime_kinds,
                     );
                 }
-            }
-            if server_id.starts_with("alleycat:local-studio:") {
-                let active_model_ids = match c.load_local_studio_controller(&server_id).await {
-                    Ok(crate::local_studio::LocalStudioControllerLoadResult::Loaded {
-                        snapshot,
-                        ..
-                    }) => match snapshot.sections.status.value {
-                        Some(status) => status.active_model_ids,
-                        None => {
-                            tracing::warn!("Local Studio model scope status unavailable");
-                            return Ok(());
-                        }
-                    },
-                    Ok(crate::local_studio::LocalStudioControllerLoadResult::Error { error }) => {
-                        tracing::warn!(
-                            "Local Studio model scope unavailable: {}",
-                            error.error.message
-                        );
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        tracing::warn!("Local Studio model scope failed: {error}");
-                        return Ok(());
-                    }
-                };
-                retain_local_studio_controller_models(&mut models, &active_model_ids);
             }
             c.app_store.update_server_models(&server_id, Some(models));
             Ok(())
@@ -3138,8 +3053,7 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        normalize_model_info_for_runtime, normalized_image_path,
-        retain_local_studio_controller_models, runtime_exposes_model_choices,
+        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
         splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
@@ -3253,18 +3167,16 @@ mod tests {
         ));
         assert_eq!(codex.provider_id, None);
 
-        let mut scoped = vec![
-            test_model("openai/gpt-oss-120b", "pi".to_string()),
-            test_model("anthropic/claude-sonnet", "pi".to_string()),
-            test_model("gpt-5.6-sol", "codex".to_string()),
-        ];
-        retain_local_studio_controller_models(&mut scoped, &["gpt-oss-120b".to_string()]);
-        assert_eq!(
-            scoped
+        let mut local_studio = test_model("controller/qwen3-coder", "local-studio".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut local_studio,
+            "local-studio".to_string()
+        ));
+        assert!(
+            local_studio
+                .supported_reasoning_efforts
                 .iter()
-                .map(|model| model.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["openai/gpt-oss-120b", "gpt-5.6-sol"]
+                .any(|option| option.reasoning_effort == ReasoningEffort::Max)
         );
     }
 

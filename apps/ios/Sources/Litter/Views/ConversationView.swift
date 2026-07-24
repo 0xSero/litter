@@ -180,10 +180,14 @@ struct ConversationView: View {
             Text(messageActionError ?? "Unknown error")
         }
         .onAppear {
+            consumePendingHandoffTurnError()
             guard !hasLoggedFirstRender else { return }
             hasLoggedFirstRender = true
             os_signpost(.event, log: conversationViewSignpostLog, name: "ConversationFirstRender")
             appState.hydratePermissions(from: thread)
+        }
+        .onChange(of: appModel.pendingHandoffTurnErrors[activeThreadKey]) { _, _ in
+            consumePendingHandoffTurnError()
         }
         .onChange(of: thread) { _, newThread in
             appState.hydratePermissions(from: newThread)
@@ -240,6 +244,12 @@ struct ConversationView: View {
                 messageActionError = error.localizedDescription
             }
         }
+    }
+
+    private func consumePendingHandoffTurnError() {
+        guard let pending = appModel.pendingHandoffTurnErrors[activeThreadKey] else { return }
+        appModel.clearHandoffTurnError(for: activeThreadKey)
+        messageActionError = pending
     }
 
     private func sendWidgetPrompt(_ text: String) {

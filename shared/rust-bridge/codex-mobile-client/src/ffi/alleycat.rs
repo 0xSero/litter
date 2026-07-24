@@ -35,7 +35,6 @@ pub struct AppAlleycatAgentInfo {
     /// Behavioral capability flags surfaced to platform UI so it can
     /// branch without hardcoding agent names. Absent on legacy hosts.
     pub capabilities: Option<AppAgentCapabilities>,
-    pub local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -168,7 +167,6 @@ impl From<AgentInfo> for AppAlleycatAgentInfo {
             available: value.available,
             presentation: value.presentation.map(Into::into),
             capabilities: value.capabilities.map(Into::into),
-            local_studio: value.local_studio,
         }
     }
 }

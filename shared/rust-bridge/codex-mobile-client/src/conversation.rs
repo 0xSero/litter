@@ -59,6 +59,16 @@ pub fn hydrate_turns(turns: &[Turn], opts: &HydrationOptions) -> Vec<HydratedCon
                 items.push(conv);
             }
         }
+        if let Some(error) = &turn.error {
+            let message = error.message.trim();
+            if !message.is_empty() {
+                items.push(make_error_item(
+                    format!("turn-error-{}", turn.id),
+                    message.to_string(),
+                    None,
+                ));
+            }
+        }
     }
     items
 }
@@ -1931,6 +1941,27 @@ mod tests {
                 assert!(data.image_data_uris.is_empty());
             }
             _ => panic!("expected User content"),
+        }
+    }
+
+    #[test]
+    fn test_failed_turn_surfaces_error_message() {
+        let mut turn = make_turn("failed-turn", Vec::new());
+        turn.status = TurnStatus::Failed;
+        turn.error = Some(codex_app_server_protocol::TurnError {
+            message: "Model is not running".into(),
+            codex_error_info: None,
+            additional_details: None,
+        });
+
+        let items = hydrate_turns(&[turn], &HydrationOptions::default());
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "turn-error-failed-turn");
+        match &items[0].content {
+            HydratedConversationItemContent::Error(data) => {
+                assert_eq!(data.message, "Model is not running");
+            }
+            _ => panic!("expected Error content"),
         }
     }
 

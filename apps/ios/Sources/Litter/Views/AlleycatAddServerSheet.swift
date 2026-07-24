@@ -275,12 +275,12 @@ struct AlleycatAddServerSheet: View {
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
-            } else if agents.isEmpty {
+            } else if availableAgents.isEmpty {
                 Text("No agents are available on this host.")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
             } else {
-                ForEach(agents, id: \.name) { agent in
+                ForEach(availableAgents, id: \.name) { agent in
                     Button {
                         guard agent.available else { return }
                         toggleAgentSelection(agent)
@@ -382,16 +382,19 @@ struct AlleycatAddServerSheet: View {
     }
 
     private var availableAgents: [AppAlleycatAgentInfo] {
-        agents.filter(\.available)
+        agents.filter {
+            $0.available
+                && (pairingMode != .localStudio
+                    || $0.name.caseInsensitiveCompare("local-studio") == .orderedSame)
+        }
     }
 
     private var selectedAgents: [AppAlleycatAgentInfo] {
-        agents.filter { $0.available && selectedAgentNames.contains($0.name) }
+        availableAgents.filter { selectedAgentNames.contains($0.name) }
     }
 
     private var canConnect: Bool {
         !isConnecting && !isLoadingAgents && parsedParams != nil && !selectedAgents.isEmpty
-            && (pairingMode != .localStudio || selectedAgents.contains { $0.name.caseInsensitiveCompare("pi") == .orderedSame })
     }
 
     private func toggleAgentSelection(_ agent: AppAlleycatAgentInfo) {
@@ -431,7 +434,13 @@ struct AlleycatAddServerSheet: View {
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = loaded
-                    selectedAgentNames = Set(loaded.filter(\.available).map(\.name))
+                    selectedAgentNames = Set(
+                        loaded.filter {
+                            $0.available
+                                && (pairingMode != .localStudio
+                                    || $0.name.caseInsensitiveCompare("local-studio") == .orderedSame)
+                        }.map(\.name)
+                    )
                     isLoadingAgents = false
                     agentError = nil
                 }
@@ -449,9 +458,7 @@ struct AlleycatAddServerSheet: View {
 
     private func connect() {
         guard let params = parsedParams,
-              let fallbackAgent = selectedAgents.first(where: {
-                  pairingMode != .localStudio || $0.name.caseInsensitiveCompare("pi") == .orderedSame
-              }) else { return }
+              let fallbackAgent = selectedAgents.first else { return }
         let trimmedDisplay = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName = trimmedDisplay.isEmpty ? resolvedSuggestedDisplayName(for: params) : trimmedDisplay
         let selectedNames = selectedAgents.map(\.name)

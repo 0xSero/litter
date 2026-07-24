@@ -1767,11 +1767,7 @@ private fun SSHAgentPickerDialog(
         availableSshBridgeKinds(context.availability)
     }
     var selectedKinds by remember(context.sessionId) {
-        mutableStateOf(
-            availableKinds
-                .filterNot { it.isBeta || (it == "pi" && "local-studio" in availableKinds) }
-                .toSet(),
-        )
+        mutableStateOf(availableKinds.toSet())
     }
     var isConnecting by remember(context.sessionId) { mutableStateOf(false) }
     var errorMessage by remember(context.sessionId) { mutableStateOf<String?>(null) }
@@ -1801,12 +1797,7 @@ private fun SSHAgentPickerDialog(
                                 selectedKinds = if (agent.kind in selectedKinds) {
                                     selectedKinds - agent.kind
                                 } else {
-                                    val withoutAlias = when (agent.kind) {
-                                        "local-studio" -> selectedKinds - "pi"
-                                        "pi" -> selectedKinds - "local-studio"
-                                        else -> selectedKinds
-                                    }
-                                    withoutAlias + agent.kind
+                                    selectedKinds + agent.kind
                                 }
                             }
                             .padding(vertical = 4.dp),

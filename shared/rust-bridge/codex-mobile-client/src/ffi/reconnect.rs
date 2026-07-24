@@ -132,7 +132,6 @@ impl ReconnectController {
     }
 
     pub fn sync_saved_servers(&self, servers: Vec<SavedServerRecord>) {
-        self.inner.local_studio_targets.sync(&servers);
         match self.saved_servers.write() {
             Ok(mut guard) => *guard = servers,
             Err(e) => *e.into_inner() = servers,

@@ -109,6 +109,7 @@ final class AppModel {
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: Set<String> = []
     @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
+    @ObservationIgnored private var recentConversationMetadataLoads: [String: Date] = [:]
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
     @ObservationIgnored private var pendingThreadRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
@@ -120,6 +121,17 @@ final class AppModel {
     @ObservationIgnored private var pendingCommandRowMutationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
     @ObservationIgnored private var loadingTurnPageThreadKeys: Set<ThreadKey> = []
+    /// First-turn send failures that happened after navigation already moved to the
+    /// conversation; the conversation view consumes these for its own thread key.
+    private(set) var pendingHandoffTurnErrors: [ThreadKey: String] = [:]
+
+    func reportHandoffTurnError(key: ThreadKey, message: String) {
+        pendingHandoffTurnErrors[key] = message
+    }
+
+    func clearHandoffTurnError(for key: ThreadKey) {
+        pendingHandoffTurnErrors.removeValue(forKey: key)
+    }
 
     init(
         store: AppStore? = nil,
@@ -1810,6 +1822,7 @@ final class AppModel {
         }
         await loadAvailableModelsIfNeeded(serverId: serverId)
         await loadRateLimitsIfNeeded(serverId: serverId)
+        recentConversationMetadataLoads[serverId] = Date()
     }
 
     func loadAvailableModelsIfNeeded(serverId: String) async {
@@ -2058,18 +2071,21 @@ final class AppModel {
         guard let server = snapshot?.serverSnapshot(for: serverId) else { return false }
         let hasModels = hasCompleteModelCatalog(server)
         let hasRateLimits = server.account == nil || server.rateLimits != nil
-        return hasModels && hasRateLimits
+        if hasModels && hasRateLimits {
+            return true
+        }
+        // A runtime that legitimately never reports models would keep the catalog
+        // incomplete forever; back off between retries instead of refiring the
+        // refresh RPC on every view re-entry.
+        guard let lastLoad = recentConversationMetadataLoads[serverId] else { return false }
+        return Date().timeIntervalSince(lastLoad) < 10
     }
 
     private func hasCompleteModelCatalog(_ server: AppServerSnapshot) -> Bool {
         guard let models = server.availableModels else { return false }
-        let hasControllerOnlyLocalStudio = server.serverId.hasPrefix("alleycat:local-studio:")
         let requiredRuntimeKinds = Set(
             server.agentRuntimes
-                .filter {
-                    $0.available && $0.kind != "shell" &&
-                        !(hasControllerOnlyLocalStudio && $0.kind == "local-studio")
-                }
+                .filter { $0.available && $0.kind != "shell" }
                 .map(\.kind)
         )
         let loadedRuntimeKinds = Set(models.map(\.agentRuntimeKind))

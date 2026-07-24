@@ -46,7 +46,6 @@ pub struct AgentInfo {
     /// SSH-bridge eligibility, direct-Codex-port routing) without litter
     /// branching on the agent name.
     pub capabilities: Option<AgentCapabilities>,
-    pub local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -363,8 +362,6 @@ struct AgentInfoWire {
     presentation: Option<AgentPresentationWire>,
     #[serde(default)]
     capabilities: Option<AgentCapabilitiesWire>,
-    #[serde(default)]
-    local_studio: Option<crate::local_studio::LocalStudioAdvertisement>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -501,7 +498,6 @@ pub async fn list_agents(
             available: agent.available,
             presentation: agent.presentation.map(Into::into),
             capabilities: agent.capabilities.map(Into::into),
-            local_studio: agent.local_studio,
         })
         .collect())
 }

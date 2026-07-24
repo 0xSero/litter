@@ -32,8 +32,15 @@ alleycat_branch() {
   sed -nE 's/.*dnakov\/alleycat\.git.*branch = "([^"]+)".*/\1/p' "$manifest" | head -1
 }
 
+alleycat_rev() {
+  local manifest="$1"
+  sed -nE 's/.*dnakov\/alleycat\.git.*rev = "([^"]+)".*/\1/p' "$manifest" | head -1
+}
+
 SHARED_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/shared/rust-bridge/Cargo.toml")"
+SHARED_ALLEYCAT_REV="$(alleycat_rev "$REPO_DIR/shared/rust-bridge/Cargo.toml")"
 KITTYLITTER_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/services/kittylitter/Cargo.toml")"
+KITTYLITTER_ALLEYCAT_REV="$(alleycat_rev "$REPO_DIR/services/kittylitter/Cargo.toml")"
 
 resolve_alleycat_sha() {
   local branch="$1"
@@ -42,6 +49,10 @@ resolve_alleycat_sha() {
 }
 
 update_shared() {
+  if [ -n "$SHARED_ALLEYCAT_REV" ]; then
+    echo "==> shared Rust Alleycat deps are pinned to rev $SHARED_ALLEYCAT_REV; skipping refresh (bump the rev in shared/rust-bridge/Cargo.toml to update)"
+    return 0
+  fi
   local sha
   sha="$(resolve_alleycat_sha "$SHARED_ALLEYCAT_BRANCH")"
   if [ -z "$sha" ]; then
@@ -64,6 +75,10 @@ update_shared() {
 }
 
 update_kittylitter() {
+  if [ -n "$KITTYLITTER_ALLEYCAT_REV" ]; then
+    echo "==> kittylitter Alleycat dep is pinned to rev $KITTYLITTER_ALLEYCAT_REV; skipping refresh (bump the rev in services/kittylitter/Cargo.toml to update)"
+    return 0
+  fi
   local sha
   sha="$(resolve_alleycat_sha "$KITTYLITTER_ALLEYCAT_BRANCH")"
   if [ -z "$sha" ]; then

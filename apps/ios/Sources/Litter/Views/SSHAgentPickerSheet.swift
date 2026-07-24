@@ -58,7 +58,7 @@ struct SSHAgentPickerSheet: View {
         self.onUseCodex = onUseCodex
         self.onCancel = onCancel
         _selectedKinds = State(initialValue: Set(
-            Self.defaultBridgeKinds(in: context.availability)
+            Self.availableBridgeKinds(in: context.availability)
         ))
     }
 
@@ -122,8 +122,6 @@ struct SSHAgentPickerSheet: View {
                     if selectedKinds.contains(agent.kind) {
                         selectedKinds.remove(agent.kind)
                     } else {
-                        if agent.kind == "local-studio" { selectedKinds.remove("pi") }
-                        if agent.kind == "pi" { selectedKinds.remove("local-studio") }
                         selectedKinds.insert(agent.kind)
                     }
                 } label: {
@@ -247,12 +245,6 @@ struct SSHAgentPickerSheet: View {
             .sorted { runtimeSortRank($0) < runtimeSortRank($1) }
     }
 
-    private static func defaultBridgeKinds(in availability: [RemoteAgentAvailability]) -> Set<AgentRuntimeKind> {
-        let available = availableBridgeKinds(in: availability)
-        return Set(available.filter { kind in
-            !kind.isBeta && !(kind == "pi" && available.contains("local-studio"))
-        })
-    }
 }
 
 private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
