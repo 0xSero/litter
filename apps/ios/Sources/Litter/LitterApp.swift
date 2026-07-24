@@ -60,6 +60,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             OpenAIApiKeyStore.shared.applyToEnvironment()
             guard let appRuntime = self?.appRuntime else { return }
             Task { @MainActor in
+                await appRuntime.reconnectSavedServers()
                 await appRuntime.restoreMissingLocalAuthStateIfNeeded()
             }
         }
@@ -370,7 +371,12 @@ struct LitterApp: App {
                     voiceRuntime.bind(appModel: appModel)
                     appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
                     appDelegate.appRuntime = appRuntime
-                    appRuntime.appDidBecomeActive()
+                    // Background and protected-data launches are not foreground
+                    // recovery. Wait for the real active transition so a locked
+                    // launch cannot consume the cold-reconnect attempt.
+                    if scenePhase == .active {
+                        appRuntime.appDidBecomeActive()
+                    }
                     #if targetEnvironment(macCatalyst)
                     LocalCodexBootstrap.shared.startIfNeeded(appModel: appModel)
                     #endif
