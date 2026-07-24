@@ -346,6 +346,13 @@ fun HeaderBar(
             com.litter.android.ui.common.ModelSelectorPanel(
                 thread = thread,
                 availableModels = server?.availableModels ?: emptyList(),
+                catalogLoaded = server?.availableModels != null,
+                catalogError = server?.serverId?.let(appModel::modelCatalogError),
+                onRetryModels = {
+                    server?.serverId?.let { serverId ->
+                        scope.launch { appModel.loadAvailableModelsIfNeeded(serverId, force = true) }
+                    }
+                },
                 onToggleMode = { mode ->
                     thread?.let { t ->
                         scope.launch {

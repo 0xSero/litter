@@ -182,8 +182,8 @@ class AppModel private constructor(context: android.content.Context) {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val loadingModelServerIds = mutableSetOf<String>()
+    private val modelCatalogErrorsByServer = mutableMapOf<String, String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
-    private val recentConversationMetadataLoads = mutableMapOf<String, Long>()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
@@ -541,25 +541,28 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     suspend fun loadConversationMetadataIfNeeded(serverId: String) {
-        if (hasFreshConversationMetadata(serverId)) return
         loadAvailableModelsIfNeeded(serverId)
         loadRateLimitsIfNeeded(serverId)
-        recentConversationMetadataLoads[serverId] = System.currentTimeMillis()
     }
 
-    suspend fun loadAvailableModelsIfNeeded(serverId: String) {
+    fun modelCatalogError(serverId: String): String? = modelCatalogErrorsByServer[serverId]
+
+    suspend fun loadAvailableModelsIfNeeded(serverId: String, force: Boolean = false) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (hasCompleteModelCatalog(server)) return
+        if (!force && server.availableModels != null) return
         if (!loadingModelServerIds.add(serverId)) return
+        modelCatalogErrorsByServer.remove(serverId)
         try {
             client.refreshModels(
                 serverId,
                 AppRefreshModelsRequest(cursor = null, limit = null, includeHidden = false),
             )
+            modelCatalogErrorsByServer.remove(serverId)
             refreshSnapshot()
         } catch (e: Exception) {
-            _lastError.value = e.message
+            modelCatalogErrorsByServer[serverId] = e.message ?: "Models could not be loaded."
+            refreshSnapshot()
         } finally {
             loadingModelServerIds.remove(serverId)
         }
@@ -1565,28 +1568,6 @@ class AppModel private constructor(context: android.content.Context) {
 
     fun threadSnapshot(key: ThreadKey): AppThreadSnapshot? =
         _snapshot.value?.threads?.firstOrNull { it.key == key } ?: cachedThreadSnapshots[key]
-
-    private fun hasFreshConversationMetadata(serverId: String): Boolean {
-        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
-        val hasModels = hasCompleteModelCatalog(server)
-        val hasRateLimits = server.account == null || server.rateLimits != null
-        if (hasModels && hasRateLimits) return true
-
-        // A runtime that legitimately never reports models would keep the catalog
-        // incomplete forever; back off between retries instead of refiring the
-        // refresh RPC on every screen re-entry.
-        val lastLoad = recentConversationMetadataLoads[serverId] ?: return false
-        return System.currentTimeMillis() - lastLoad < 10_000L
-    }
-
-    private fun hasCompleteModelCatalog(server: AppServerSnapshot): Boolean {
-        val models = server.availableModels ?: return false
-        val requiredRuntimeKinds = server.agentRuntimes
-            .filter { it.available && it.kind != "shell" }
-            .mapTo(mutableSetOf<String>()) { it.kind }
-        val loadedRuntimeKinds = models.mapTo(mutableSetOf<String>()) { it.agentRuntimeKind }
-        return loadedRuntimeKinds.containsAll(requiredRuntimeKinds)
-    }
 
     private fun restoreCachedThreadSnapshotIfNeeded(key: ThreadKey?) {
         if (key == null) return

@@ -273,9 +273,23 @@ struct ConversationModelPickerPanel: View {
         appModel.availableModels(for: thread.key.serverId)
     }
 
+    private var server: AppServerSnapshot? {
+        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+    }
+
     var body: some View {
         InlineModelSelectorView(
             models: availableModels,
+            catalogLoaded: server?.availableModels != nil,
+            catalogError: appModel.modelCatalogError(for: thread.key.serverId),
+            onRetryModels: {
+                Task {
+                    await appModel.loadAvailableModelsIfNeeded(
+                        serverId: thread.key.serverId,
+                        force: true
+                    )
+                }
+            },
             selectedModel: selectedModelBinding,
             selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
             reasoningEffort: reasoningEffortBinding,
@@ -543,16 +557,49 @@ private func modelNameWithinProvider(_ model: ModelInfo) -> String {
 
 private func modelProviderGroups(for models: [ModelInfo]) -> [ModelProviderGroup] {
     Dictionary(grouping: models) {
-        $0.providerId.map { "provider:\($0)" } ?? "runtime:\($0.agentRuntimeKind)"
+        let provider = $0.providerId.flatMap { $0.isEmpty ? nil : "provider:\($0)" } ?? "runtime"
+        return "\($0.agentRuntimeKind):\(provider)"
     }
         .map { key, groupModels in
-            ModelProviderGroup(
+            let model = groupModels[0]
+            return ModelProviderGroup(
                 key: key,
-                name: groupModels.first.map(modelProviderName) ?? key,
+                name: model.providerId?.isEmpty != false
+                    ? model.agentRuntimeKind.titleDisplayLabel
+                    : "\(model.agentRuntimeKind.titleDisplayLabel) · \(modelProviderName(model))",
                 models: groupModels
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+}
+
+@ViewBuilder
+private func modelCatalogNotice(
+    loaded: Bool,
+    error: String?,
+    hasModels: Bool,
+    horizontalPadding: CGFloat,
+    onRetry: @escaping () -> Void
+) -> some View {
+    let message = error ?? (!loaded ? "Loading models..." : (hasModels ? nil : "No models available"))
+    if let message {
+        VStack(spacing: 8) {
+            Text(message)
+                .litterFont(.caption)
+                .foregroundColor(LitterTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+            if error != nil {
+                Button("Retry", action: onRetry)
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.accent)
+                    .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, 16)
+    }
 }
 
 private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
@@ -564,6 +611,9 @@ private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
 
 struct InlineModelSelectorView: View {
     let models: [ModelInfo]
+    var catalogLoaded = false
+    var catalogError: String?
+    var onRetryModels: () -> Void = {}
     @Binding var selectedModel: String
     @Binding var selectedAgentRuntimeKind: AgentRuntimeKind?
     @Binding var reasoningEffort: String
@@ -660,14 +710,15 @@ struct InlineModelSelectorView: View {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if self.visibleModels.isEmpty {
-                        Text("Loading models...")
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 24)
-                    } else if visibleModels.isEmpty {
+                    modelCatalogNotice(
+                        loaded: catalogLoaded,
+                        error: catalogError,
+                        hasModels: !self.visibleModels.isEmpty,
+                        horizontalPadding: 16,
+                        onRetry: onRetryModels
+                    )
+
+                    if !self.visibleModels.isEmpty && visibleModels.isEmpty {
                         Text("No matching models")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
@@ -685,7 +736,7 @@ struct InlineModelSelectorView: View {
                             .padding(.top, 12)
                             .padding(.bottom, 4)
 
-                        ForEach(group.models) { model in
+                        ForEach(group.models, id: \.runtimeScopedID) { model in
                             Button {
                                 selectedModel = model.id
                                 selectedAgentRuntimeKind = model.agentRuntimeKind
@@ -939,6 +990,9 @@ private struct InAppSafariView: UIViewControllerRepresentable {
 
 struct ModelSelectorSheet: View {
     let models: [ModelInfo]
+    var catalogLoaded = false
+    var catalogError: String?
+    var onRetryModels: () -> Void = {}
     @Binding var selectedModel: String
     @Binding var selectedAgentRuntimeKind: AgentRuntimeKind?
     @Binding var reasoningEffort: String
@@ -1000,14 +1054,15 @@ struct ModelSelectorSheet: View {
                 modelSearchField
                 runtimeFilterRow
 
-                if self.visibleModels.isEmpty {
-                    Text("Loading models...")
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 24)
-                } else if visibleModels.isEmpty {
+                modelCatalogNotice(
+                    loaded: catalogLoaded,
+                    error: catalogError,
+                    hasModels: !self.visibleModels.isEmpty,
+                    horizontalPadding: 20,
+                    onRetry: onRetryModels
+                )
+
+                if !self.visibleModels.isEmpty && visibleModels.isEmpty {
                     Text("No matching models")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
@@ -1025,7 +1080,7 @@ struct ModelSelectorSheet: View {
                         .padding(.top, 12)
                         .padding(.bottom, 4)
 
-                    ForEach(group.models) { model in
+                    ForEach(group.models, id: \.runtimeScopedID) { model in
                         Button {
                             selectedModel = model.id
                             selectedAgentRuntimeKind = model.agentRuntimeKind

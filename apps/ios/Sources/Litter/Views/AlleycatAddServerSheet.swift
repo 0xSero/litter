@@ -113,13 +113,11 @@ struct AlleycatAddServerSheet: View {
         // neither presentation ever fires.
         .fullScreenCover(isPresented: $showScanner) {
             QRScannerScreen(
+                isPresented: $showScanner,
                 pairingMode: pairingMode,
                 onScan: { scanned in
                     showScanner = false
                     handleScannedPayload(scanned)
-                },
-                onCancel: {
-                    showScanner = false
                 },
                 onPermissionDenied: {
                     showScanner = false
@@ -574,21 +572,23 @@ struct AlleycatAddServerSheet: View {
 // MARK: - QR Scanner
 
 private struct QRScannerScreen: View {
+    @Binding var isPresented: Bool
     let pairingMode: AlleycatPairingMode
     let onScan: (String) -> Void
-    let onCancel: () -> Void
     let onPermissionDenied: () -> Void
 
     private static let pairCommand = "npx kittylitter"
 
     @State private var copied = false
+    @State private var isFinishing = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             QRCaptureSheet(
                 onScan: onScan,
-                onCancel: onCancel,
+                onCancel: cancelScanner,
+                onPaste: pairingMode == .localStudio ? pasteConnectionJSON : nil,
                 onPermissionDenied: onPermissionDenied
             )
             .ignoresSafeArea()
@@ -604,7 +604,7 @@ private struct QRScannerScreen: View {
             .allowsHitTesting(false)
 
             VStack(spacing: 16) {
-                topBar
+                Color.clear.frame(height: 34)
                 instructionsCard
                 Spacer()
                 framingHint
@@ -615,27 +615,16 @@ private struct QRScannerScreen: View {
         }
     }
 
-    private var topBar: some View {
-        HStack {
-            Spacer()
-            Button(action: onCancel) {
-                Text("Cancel")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.black.opacity(0.45), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("alleycat.scanner.cancelButton")
-        }
-    }
-
     private var instructionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(pairingMode == .localStudio ? "Scan Local Studio Profile QR" : "Pair with kittylitter")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
+            HStack(spacing: 10) {
+                if pairingMode == .localStudio {
+                    AgentIconView(kind: .localStudio, size: 28)
+                }
+                Text(pairingMode == .localStudio ? "Scan Local Studio Profile QR" : "Pair with kittylitter")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+            }
 
             if pairingMode == .localStudio {
                 stepRow(number: "1", title: "In Local Studio, open Profile → Phone connection.")
@@ -717,17 +706,35 @@ private struct QRScannerScreen: View {
             withAnimation(.easeOut(duration: 0.15)) { copied = false }
         }
     }
+
+    private func cancelScanner() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        isPresented = false
+    }
+
+    private func pasteConnectionJSON() {
+        guard !isFinishing,
+              let payload = UIPasteboard.general.string?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !payload.isEmpty else { return }
+        isFinishing = true
+        isPresented = false
+        onScan(payload)
+    }
 }
 
 private struct QRCaptureSheet: UIViewControllerRepresentable {
     let onScan: (String) -> Void
     let onCancel: () -> Void
+    let onPaste: (() -> Void)?
     let onPermissionDenied: () -> Void
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.onScan = onScan
         controller.onCancel = onCancel
+        controller.onPaste = onPaste
         controller.onPermissionDenied = onPermissionDenied
         return controller
     }
@@ -738,6 +745,7 @@ private struct QRCaptureSheet: UIViewControllerRepresentable {
 private final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    var onPaste: (() -> Void)?
     var onPermissionDenied: (() -> Void)?
 
     private let captureSession = AVCaptureSession()
@@ -749,6 +757,7 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         super.viewDidLoad()
         view.backgroundColor = .black
         configureSession()
+        configureControls()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -804,6 +813,52 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         preview.videoGravity = .resizeAspectFill
         view.layer.addSublayer(preview)
         previewLayer = preview
+    }
+
+    private func configureControls() {
+        let cancel = UIButton(type: .system)
+        cancel.configuration = controlConfiguration(title: "Cancel", symbol: nil)
+        cancel.accessibilityIdentifier = "alleycat.scanner.cancelButton"
+        cancel.addAction(UIAction { [weak self] _ in
+            self?.dismiss(animated: true)
+            self?.onCancel?()
+        }, for: .touchUpInside)
+
+        let controls = UIStackView(arrangedSubviews: onPaste == nil ? [cancel] : [
+            {
+                let paste = UIButton(type: .system)
+                paste.configuration = controlConfiguration(
+                    title: "Paste connection JSON",
+                    symbol: "doc.on.clipboard"
+                )
+                paste.accessibilityIdentifier = "alleycat.scanner.pasteConnectionJSONButton"
+                paste.addAction(UIAction { [weak self] _ in
+                    self?.dismiss(animated: true)
+                    self?.onPaste?()
+                }, for: .touchUpInside)
+                return paste
+            }(),
+            cancel,
+        ])
+        controls.axis = .horizontal
+        controls.spacing = 8
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(controls)
+        NSLayoutConstraint.activate([
+            controls.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            controls.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+        ])
+    }
+
+    private func controlConfiguration(title: String, symbol: String?) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = title
+        configuration.image = symbol.flatMap { UIImage(systemName: $0) }
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        configuration.cornerStyle = .capsule
+        return configuration
     }
 
     func metadataOutput(

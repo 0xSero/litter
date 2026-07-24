@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import com.litter.android.ui.common.matchesModelSelection
 import com.litter.android.ui.common.modelPickerDisplayName
 import com.litter.android.ui.conversation.HeaderOverrides
 import com.litter.android.ui.scaled
+import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ModelInfo
 
 /**
@@ -55,6 +57,7 @@ fun HomeModelChip(
     val appModel = LocalAppModel.current
     val snapshot by appModel.snapshot.collectAsState()
     val launchState by appModel.launchState.snapshot.collectAsState()
+    val scope = rememberCoroutineScope()
 
     val server = remember(snapshot, serverId) {
         snapshot?.servers?.firstOrNull { it.serverId == serverId }
@@ -168,6 +171,13 @@ fun HomeModelChip(
             ModelSelectorPanel(
                 thread = null,
                 availableModels = availableModels,
+                catalogLoaded = server?.availableModels != null,
+                catalogError = serverId?.let(appModel::modelCatalogError),
+                onRetryModels = {
+                    serverId?.let {
+                        scope.launch { appModel.loadAvailableModelsIfNeeded(it, force = true) }
+                    }
+                },
                 onToggleMode = null,
                 fastMode = HeaderOverrides.pendingFastMode,
                 onFastModeChange = { HeaderOverrides.pendingFastMode = it },

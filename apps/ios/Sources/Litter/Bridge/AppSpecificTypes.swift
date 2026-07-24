@@ -123,7 +123,9 @@ extension ExperimentalFeature: Identifiable {
     public var id: String { name }
 }
 
-extension ModelInfo: Identifiable {}
+extension ModelInfo: Identifiable {
+    var runtimeScopedID: String { "\(agentRuntimeKind):\(id)" }
+}
 
 extension RateLimitSnapshot: Identifiable {
     public var id: String { limitId ?? UUID().uuidString }

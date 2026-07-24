@@ -24,7 +24,7 @@ path = "src/main.rs"
 [dependencies]
 # Keep the daemon and mobile client on the same Local Studio app-server runtime.
 # Keep this rev in lockstep with shared/rust-bridge/Cargo.toml.
-alleycat = { git = "https://github.com/dnakov/alleycat.git", rev = "8b0d9754229da02151deceff29dbb227a5952f96" }
+alleycat = { git = "https://github.com/dnakov/alleycat.git", rev = "c38227b8a5862535723abeb40f3934ca9b57655c" }
 anyhow = "1"
 
 # cargo-dist builds with `cargo build --profile dist`. Mirrors the

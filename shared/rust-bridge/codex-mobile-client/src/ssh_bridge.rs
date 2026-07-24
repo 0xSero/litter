@@ -496,27 +496,37 @@ async fn connect_app_server_client_via_ssh_with_close(
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?
         }
         "pi" | crate::local_studio::RUNTIME_KIND => {
-            let bin = resolve_remote_cli(
-                &ssh,
-                shell,
-                &cli_candidates(&["pi-coding-agent", "pi"], bin_override.as_deref()),
-            )
-            .await?;
-            info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
-            let local_studio_agent_dir = if kind == crate::local_studio::RUNTIME_KIND {
-                crate::local_studio::resolve_agent_dir(&ssh, shell)
-                    .await?
-                    .ok_or_else(|| {
-                        SshBridgeError::BridgeStartupFailed(
-                            "Local Studio controller catalog was not found on the SSH host".into(),
-                        )
-                    })?
-                    .into()
+            let local_studio_runtime = if kind == crate::local_studio::RUNTIME_KIND {
+                Some(
+                    crate::local_studio::resolve_runtime(&ssh, shell)
+                        .await?
+                        .ok_or_else(|| {
+                            SshBridgeError::BridgeStartupFailed(
+                                "Local Studio controller runtime was not found on the SSH host"
+                                    .into(),
+                            )
+                        })?,
+                )
             } else {
                 None
             };
-            let pi_launcher = match local_studio_agent_dir.as_deref() {
-                Some(agent_dir) => crate::local_studio::launcher(Arc::clone(&launcher), agent_dir),
+            let bin = match local_studio_runtime.as_ref() {
+                Some(runtime) => runtime.program.clone(),
+                None => {
+                    resolve_remote_cli(
+                        &ssh,
+                        shell,
+                        &cli_candidates(&["pi-coding-agent", "pi"], bin_override.as_deref()),
+                    )
+                    .await?
+                }
+            };
+            info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
+            let local_studio_agent_dir = local_studio_runtime
+                .as_ref()
+                .map(|runtime| runtime.agent_dir.as_str());
+            let pi_launcher = match local_studio_runtime.as_ref() {
+                Some(runtime) => crate::local_studio::launcher(Arc::clone(&launcher), runtime),
                 None => Arc::clone(&launcher),
             };
             let hydrator =

@@ -179,6 +179,16 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             .sheet(isPresented: $showModelSelector) {
                 ModelSelectorSheet(
                     models: snapshot.availableModels,
+                    catalogLoaded: appModel.snapshot?.serverSnapshot(for: snapshot.threadKey.serverId)?.availableModels != nil,
+                    catalogError: appModel.modelCatalogError(for: snapshot.threadKey.serverId),
+                    onRetryModels: {
+                        Task {
+                            await appModel.loadAvailableModelsIfNeeded(
+                                serverId: snapshot.threadKey.serverId,
+                                force: true
+                            )
+                        }
+                    },
                     selectedModel: selectedModelBinding,
                     selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
                     reasoningEffort: reasoningEffortBinding,

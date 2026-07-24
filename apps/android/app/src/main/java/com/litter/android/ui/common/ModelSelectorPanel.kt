@@ -82,6 +82,9 @@ import java.util.Locale
 fun ModelSelectorPanel(
     thread: AppThreadSnapshot?,
     availableModels: List<ModelInfo>,
+    catalogLoaded: Boolean = false,
+    catalogError: String? = null,
+    onRetryModels: () -> Unit = {},
     onToggleMode: ((AppModeKind) -> Unit)? = null,
     fastMode: Boolean,
     onFastModeChange: (Boolean) -> Unit,
@@ -94,6 +97,10 @@ fun ModelSelectorPanel(
     val visibleModels = remember(availableModels) {
         availableModels.filter { it.isVisibleModelOption() }
     }
+    val catalogMessage = catalogError
+        ?: if (!catalogLoaded) "Loading models..."
+        else if (visibleModels.isEmpty()) "No models available"
+        else null
     val fallbackModel = visibleModels.firstOrNull { it.agentRuntimeKind == "codex" && it.isDefault }
         ?: visibleModels.firstOrNull { it.isDefault }
         ?: visibleModels.firstOrNull()
@@ -338,14 +345,26 @@ fun ModelSelectorPanel(
             }
         }
 
-        if (visibleModels.isEmpty()) {
-            Text(
-                text = "Loading models...",
-                color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.caption2.scaled,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        } else if (filteredModels.isEmpty()) {
+        if (catalogMessage != null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = catalogMessage,
+                    color = LitterTheme.textMuted,
+                    fontSize = LitterTextStyle.caption2.scaled,
+                    maxLines = 3,
+                )
+                if (catalogError != null) {
+                    Text(
+                        text = "Retry",
+                        color = LitterTheme.accent,
+                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable(onClick = onRetryModels).padding(vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        if (visibleModels.isNotEmpty() && filteredModels.isEmpty()) {
             Text(
                 text = "No matching models",
                 color = LitterTheme.textMuted,
@@ -551,13 +570,16 @@ private fun ModelInfo.providerName(): String {
 private fun modelProviderGroups(models: List<ModelInfo>): List<ModelProviderGroup> =
     models
         .groupBy { model ->
-            model.providerId?.takeIf(String::isNotEmpty)?.let { "provider:$it" }
-                ?: "runtime:${model.agentRuntimeKind}"
+            val provider = model.providerId?.takeIf(String::isNotEmpty)?.let { "provider:$it" }
+                ?: "runtime"
+            "${model.agentRuntimeKind}:$provider"
         }
         .map { (key, entries) ->
+            val model = entries.first()
             ModelProviderGroup(
                 key,
-                entries.first().providerName(),
+                if (model.providerId.isNullOrEmpty()) model.agentRuntimeKind.runtimeLabel
+                else "${model.agentRuntimeKind.runtimeLabel} · ${model.providerName()}",
                 entries,
             )
         }

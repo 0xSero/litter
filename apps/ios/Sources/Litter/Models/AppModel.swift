@@ -108,8 +108,8 @@ final class AppModel {
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: Set<String> = []
+    @ObservationIgnored private var modelCatalogErrorsByServer: [String: String] = [:]
     @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
-    @ObservationIgnored private var recentConversationMetadataLoads: [String: Date] = [:]
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
     @ObservationIgnored private var pendingThreadRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
@@ -1800,6 +1800,10 @@ final class AppModel {
         snapshot?.serverSnapshot(for: serverId)?.availableModels ?? []
     }
 
+    func modelCatalogError(for serverId: String) -> String? {
+        modelCatalogErrorsByServer[serverId]
+    }
+
     func rateLimits(for serverId: String) -> RateLimitSnapshot? {
         snapshot?.serverSnapshot(for: serverId)?.rateLimits
     }
@@ -1817,28 +1821,27 @@ final class AppModel {
     }
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
-        if hasFreshConversationMetadata(for: serverId) {
-            return
-        }
         await loadAvailableModelsIfNeeded(serverId: serverId)
         await loadRateLimitsIfNeeded(serverId: serverId)
-        recentConversationMetadataLoads[serverId] = Date()
     }
 
-    func loadAvailableModelsIfNeeded(serverId: String) async {
+    func loadAvailableModelsIfNeeded(serverId: String, force: Bool = false) async {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
-        guard !hasCompleteModelCatalog(server) else { return }
+        guard force || server.availableModels == nil else { return }
         guard !loadingModelServerIds.contains(serverId) else { return }
         loadingModelServerIds.insert(serverId)
         defer { loadingModelServerIds.remove(serverId) }
+        modelCatalogErrorsByServer.removeValue(forKey: serverId)
         do {
             _ = try await client.refreshModels(
                 serverId: serverId,
                 params: AppRefreshModelsRequest(cursor: nil, limit: nil, includeHidden: false)
             )
+            modelCatalogErrorsByServer.removeValue(forKey: serverId)
             await refreshSnapshot()
         } catch {
-            lastError = error.localizedDescription
+            modelCatalogErrorsByServer[serverId] = error.localizedDescription
+            await refreshSnapshot()
         }
     }
 
@@ -2065,31 +2068,6 @@ final class AppModel {
             approvalPolicy: thread.effectiveApprovalPolicy,
             sandboxPolicy: thread.effectiveSandboxPolicy
         )
-    }
-
-    private func hasFreshConversationMetadata(for serverId: String) -> Bool {
-        guard let server = snapshot?.serverSnapshot(for: serverId) else { return false }
-        let hasModels = hasCompleteModelCatalog(server)
-        let hasRateLimits = server.account == nil || server.rateLimits != nil
-        if hasModels && hasRateLimits {
-            return true
-        }
-        // A runtime that legitimately never reports models would keep the catalog
-        // incomplete forever; back off between retries instead of refiring the
-        // refresh RPC on every view re-entry.
-        guard let lastLoad = recentConversationMetadataLoads[serverId] else { return false }
-        return Date().timeIntervalSince(lastLoad) < 10
-    }
-
-    private func hasCompleteModelCatalog(_ server: AppServerSnapshot) -> Bool {
-        guard let models = server.availableModels else { return false }
-        let requiredRuntimeKinds = Set(
-            server.agentRuntimes
-                .filter { $0.available && $0.kind != "shell" }
-                .map(\.kind)
-        )
-        let loadedRuntimeKinds = Set(models.map(\.agentRuntimeKind))
-        return requiredRuntimeKinds.isSubset(of: loadedRuntimeKinds)
     }
 
     private func restoreCachedThreadSnapshotIfNeeded(for key: ThreadKey?) {

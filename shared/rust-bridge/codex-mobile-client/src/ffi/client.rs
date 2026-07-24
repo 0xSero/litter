@@ -1061,107 +1061,93 @@ impl AppClient {
         params: types::AppRefreshModelsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let runtime_kinds = c
+            let mut runtime_kinds = c
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?
-                .runtime_kinds();
+                .runtime_kinds()
+                .into_iter()
+                .filter(|runtime_kind| runtime_exposes_model_choices(runtime_kind))
+                .collect::<Vec<_>>();
+            runtime_kinds.sort();
+            runtime_kinds.dedup();
             let params: upstream::ModelListParams = params.into();
-            let mut models = Vec::new();
-            let mut seen_model_ids = HashSet::new();
-            let mut failed_runtime_kinds = HashSet::new();
-            for runtime_kind in runtime_kinds {
-                if !runtime_exposes_model_choices(&runtime_kind) {
-                    continue;
-                }
+            let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
+                let client = Arc::clone(&c);
+                let server_id = server_id.clone();
                 let mut request_params = params.clone();
-                loop {
-                    let response = tokio::time::timeout(
-                        MODEL_LIST_RUNTIME_TIMEOUT,
-                        rpc_runtime(
-                            c.as_ref(),
-                            &server_id,
-                            runtime_kind.clone(),
-                            req!(server_id, ModelList, request_params.clone()),
-                        ),
-                    )
-                    .await;
-                    let page: upstream::ModelListResponse = match response {
-                        Ok(Ok(page)) => page,
-                        Ok(Err(error)) if runtime_kind == "amp" => {
-                            tracing::warn!(
-                                "model/list failed for Amp runtime on server {}: {}; using built-in Amp modes",
-                                server_id,
-                                error
-                            );
-                            append_missing_amp_mode_models(&mut models);
-                            break;
+                async move {
+                    let fetch = async {
+                        let mut models = Vec::new();
+                        loop {
+                            let page: upstream::ModelListResponse = rpc_runtime(
+                                client.as_ref(),
+                                &server_id,
+                                runtime_kind.clone(),
+                                req!(server_id, ModelList, request_params.clone()),
+                            )
+                            .await?;
+                            models.extend(page.data.into_iter().filter_map(|model| {
+                                let mut model = types::ModelInfo::from(model);
+                                normalize_model_info_for_runtime(&mut model, runtime_kind.clone())
+                                    .then_some(model)
+                            }));
+                            let Some(cursor) = page.next_cursor else {
+                                break;
+                            };
+                            request_params.cursor = Some(cursor);
                         }
-                        Ok(Err(error)) => {
-                            failed_runtime_kinds.insert(runtime_kind.clone());
-                            tracing::warn!(
-                                "model/list failed for runtime {} on server {}: {}; skipping runtime",
-                                runtime_kind,
-                                server_id,
-                                error
-                            );
-                            break;
-                        }
-                        Err(_) if runtime_kind == "amp" => {
-                            tracing::warn!(
-                                "model/list timed out for Amp runtime on server {}; using built-in Amp modes",
-                                server_id
-                            );
-                            append_missing_amp_mode_models(&mut models);
-                            break;
-                        }
-                        Err(_) => {
-                            failed_runtime_kinds.insert(runtime_kind.clone());
-                            tracing::warn!(
-                                "model/list timed out for runtime {} on server {}; skipping runtime",
-                                runtime_kind,
-                                server_id
-                            );
-                            break;
-                        }
+                        Ok::<_, ClientError>(models)
                     };
-                    for model in page.data {
-                        let mut model_info = types::ModelInfo::from(model);
-                        if !normalize_model_info_for_runtime(&mut model_info, runtime_kind.clone())
-                        {
-                            continue;
-                        }
-                        let dedupe_key = (runtime_kind.clone(), model_info.id.clone());
-                        if seen_model_ids.insert(dedupe_key) {
-                            models.push(model_info);
+                    let result = tokio::time::timeout(MODEL_LIST_RUNTIME_TIMEOUT, fetch).await;
+                    (runtime_kind, result)
+                }
+            });
+            let mut models = Vec::new();
+            let mut failures = Vec::new();
+            let mut failed_runtime_kinds = HashSet::new();
+            for (runtime_kind, result) in futures::future::join_all(tasks).await {
+                match result {
+                    Ok(Ok(runtime_models)) => {
+                        models.extend(runtime_models);
+                        if runtime_kind == "amp" {
+                            append_missing_amp_mode_models(&mut models);
                         }
                     }
-                    let Some(next_cursor) = page.next_cursor else {
-                        break;
-                    };
-                    request_params.cursor = Some(next_cursor);
-                }
-                if runtime_kind == "amp" {
-                    append_missing_amp_mode_models(&mut models);
+                    _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
+                    Ok(Err(error)) => {
+                        failed_runtime_kinds.insert(runtime_kind.clone());
+                        failures.push(format!("{runtime_kind}: {error}"));
+                    }
+                    Err(_) => {
+                        failed_runtime_kinds.insert(runtime_kind.clone());
+                        failures.push(format!("{runtime_kind}: model/list timed out"));
+                    }
                 }
             }
-            if !failed_runtime_kinds.is_empty() {
-                let cached_models = c
-                    .app_store
-                    .snapshot()
-                    .servers
-                    .get(&server_id)
-                    .and_then(|server| server.available_models.clone());
-                if let Some(cached_models) = cached_models {
-                    append_cached_models_for_failed_runtimes(
-                        &mut models,
-                        &mut seen_model_ids,
-                        &cached_models,
-                        &failed_runtime_kinds,
-                    );
-                }
+            let mut seen_model_ids = HashSet::new();
+            models.retain(|model| {
+                seen_model_ids.insert((model.agent_runtime_kind.clone(), model.id.clone()))
+            });
+            let cached = c
+                .app_store
+                .snapshot()
+                .servers
+                .get(&server_id)
+                .and_then(|server| server.available_models.clone());
+            if let Some(cached) = cached {
+                append_cached_models_for_failed_runtimes(
+                    &mut models,
+                    &mut seen_model_ids,
+                    &cached,
+                    &failed_runtime_kinds,
+                );
             }
             c.app_store.update_server_models(&server_id, Some(models));
-            Ok(())
+            if failures.is_empty() {
+                Ok(())
+            } else {
+                Err(ClientError::Rpc(failures.join("; ")))
+            }
         })
     }
 

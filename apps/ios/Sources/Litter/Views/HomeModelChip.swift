@@ -37,8 +37,12 @@ struct HomeModelChip: View {
     }
 
     private var availableModels: [ModelInfo] {
-        guard let serverId else { return [] }
-        return appModel.availableModels(for: serverId)
+        server?.availableModels ?? []
+    }
+
+    private var server: AppServerSnapshot? {
+        guard let serverId else { return nil }
+        return appModel.snapshot?.serverSnapshot(for: serverId)
     }
 
     private var metadataLoadID: String {
@@ -172,6 +176,12 @@ struct HomeModelChip: View {
         .sheet(isPresented: $showSheet) {
             ConversationOptionsSheet(
                 models: availableModels,
+                catalogLoaded: server?.availableModels != nil,
+                catalogError: serverId.flatMap(appModel.modelCatalogError),
+                onRetryModels: {
+                    guard let serverId else { return }
+                    Task { await appModel.loadAvailableModelsIfNeeded(serverId: serverId, force: true) }
+                },
                 selectedModel: selectedModelBinding,
                 selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
                 reasoningEffort: reasoningEffortBinding,
