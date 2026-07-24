@@ -138,15 +138,11 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded.filter {
-                        it.available &&
-                            (pairingMode != AlleycatPairingMode.LocalStudio ||
-                                it.name.equals("local-studio", ignoreCase = true))
-                    }.map { it.name }.toSet()
+                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
-                Log.w(LOG_TAG, "listAlleycatAgents failed", e)
+                Log.w(LOG_TAG, "listAlleycatAgents failed")
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = emptyList()
                     selectedAgentNames = emptySet()
@@ -234,11 +230,7 @@ fun AlleycatAddServerSheet(
                         wire = fallbackAgent.wire,
                     )
                 }
-                runCatching {
-                    credentialStore.saveToken(params.nodeId, params.token)
-                }.onFailure {
-                    Log.w(LOG_TAG, "Alleycat token save failed", it)
-                }
+                credentialStore.saveToken(params.nodeId, params.token)
                 isConnecting = false
                 onConnected(
                     AlleycatConnectedTarget(
@@ -251,18 +243,14 @@ fun AlleycatAddServerSheet(
                     )
                 )
             } catch (e: Exception) {
-                Log.w(LOG_TAG, "connectRemoteOverAlleycat failed", e)
+                Log.w(LOG_TAG, "connectRemoteOverAlleycat failed")
                 isConnecting = false
                 connectError = e.message ?: "Unable to connect"
             }
         }
     }
 
-    val availableAgents = agents.filter {
-        it.available &&
-            (pairingMode != AlleycatPairingMode.LocalStudio ||
-                it.name.equals("local-studio", ignoreCase = true))
-    }
+    val availableAgents = agents.filter { it.available }
     val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
     val canConnect =
         !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
@@ -754,7 +742,24 @@ private fun QrScannerScreen(
                 }
             }
 
-            InstructionsCard(pairingMode)
+            InstructionsCard(
+                pairingMode = pairingMode,
+                onPasteConnectionJSON = {
+                    if (!scanned) {
+                        val payload = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                            .let { it as? android.content.ClipboardManager }
+                            ?.primaryClip
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            ?.trim()
+                        if (!payload.isNullOrEmpty()) {
+                            scanned = true
+                            onScanned(payload)
+                        }
+                    }
+                },
+            )
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -764,7 +769,10 @@ private fun QrScannerScreen(
 }
 
 @Composable
-private fun InstructionsCard(pairingMode: AlleycatPairingMode) {
+private fun InstructionsCard(
+    pairingMode: AlleycatPairingMode,
+    onPasteConnectionJSON: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -775,17 +783,33 @@ private fun InstructionsCard(pairingMode: AlleycatPairingMode) {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
-                "Scan Local Studio Profile QR"
-            } else "Pair with kittylitter",
-            color = androidx.compose.ui.graphics.Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                AgentIconView(kind = "local-studio", sizeDp = 28)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                    "Scan Local Studio Profile QR"
+                } else "Pair with kittylitter",
+                color = androidx.compose.ui.graphics.Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         if (pairingMode == AlleycatPairingMode.LocalStudio) {
             StepRow(number = "1", title = "In Local Studio, open Profile → Phone connection.")
             StepRow(number = "2", title = "Point this camera at the Profile QR code.")
+            TextButton(onClick = onPasteConnectionJSON) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Paste connection JSON", color = androidx.compose.ui.graphics.Color.White)
+            }
         } else {
             StepRow(number = "1", title = "On the host you want to connect to, run:")
             CommandRow()

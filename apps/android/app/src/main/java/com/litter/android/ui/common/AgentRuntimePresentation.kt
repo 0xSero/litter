@@ -120,7 +120,7 @@ fun AgentIconView(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val resName = "agent_${kind.lowercase()}"
+    val resName = "agent_${kind.lowercase().replace("-", "_")}"
     val resId = context.resources.getIdentifier(resName, "drawable", context.packageName)
     if (resId != 0) {
         Image(

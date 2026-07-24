@@ -380,11 +380,7 @@ struct AlleycatAddServerSheet: View {
     }
 
     private var availableAgents: [AppAlleycatAgentInfo] {
-        agents.filter {
-            $0.available
-                && (pairingMode != .localStudio
-                    || $0.name.caseInsensitiveCompare("local-studio") == .orderedSame)
-        }
+        agents.filter(\.available)
     }
 
     private var selectedAgents: [AppAlleycatAgentInfo] {
@@ -433,11 +429,7 @@ struct AlleycatAddServerSheet: View {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = loaded
                     selectedAgentNames = Set(
-                        loaded.filter {
-                            $0.available
-                                && (pairingMode != .localStudio
-                                    || $0.name.caseInsensitiveCompare("local-studio") == .orderedSame)
-                        }.map(\.name)
+                        loaded.filter(\.available).map(\.name)
                     )
                     isLoadingAgents = false
                     agentError = nil
@@ -477,11 +469,7 @@ struct AlleycatAddServerSheet: View {
                     selectedAgentNames: selectedNames,
                     wire: fallbackAgent.wire
                 )
-                do {
-                    try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
-                } catch {
-                    NSLog("[ALLEYCAT_CREDENTIALS] keychain save failed: %@", error.localizedDescription)
-                }
+                try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
                 // First successful alleycat pair triggers the iroh
                 // endpoint bind. Persist the freshly-generated device
                 // secret key so the next cold launch reuses the same
@@ -587,8 +575,6 @@ private struct QRScannerScreen: View {
             Color.black.ignoresSafeArea()
             QRCaptureSheet(
                 onScan: onScan,
-                onCancel: cancelScanner,
-                onPaste: pairingMode == .localStudio ? pasteConnectionJSON : nil,
                 onPermissionDenied: onPermissionDenied
             )
             .ignoresSafeArea()
@@ -604,7 +590,7 @@ private struct QRScannerScreen: View {
             .allowsHitTesting(false)
 
             VStack(spacing: 16) {
-                Color.clear.frame(height: 34)
+                topBar
                 instructionsCard
                 Spacer()
                 framingHint
@@ -613,6 +599,34 @@ private struct QRScannerScreen: View {
             .padding(.top, 8)
             .padding(.bottom, 24)
         }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            if pairingMode == .localStudio {
+                scannerButton(title: "Paste connection JSON", symbol: "doc.on.clipboard", action: pasteConnectionJSON)
+                    .accessibilityIdentifier("alleycat.scanner.pasteConnectionJSONButton")
+            }
+            scannerButton(title: "Cancel", action: cancelScanner)
+                .accessibilityIdentifier("alleycat.scanner.cancelButton")
+        }
+    }
+
+    private func scannerButton(
+        title: String,
+        symbol: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            if let symbol { Label(title, systemImage: symbol) } else { Text(title) }
+        }
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundColor(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.55), in: Capsule())
+        .buttonStyle(.plain)
     }
 
     private var instructionsCard: some View {
@@ -726,15 +740,11 @@ private struct QRScannerScreen: View {
 
 private struct QRCaptureSheet: UIViewControllerRepresentable {
     let onScan: (String) -> Void
-    let onCancel: () -> Void
-    let onPaste: (() -> Void)?
     let onPermissionDenied: () -> Void
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.onScan = onScan
-        controller.onCancel = onCancel
-        controller.onPaste = onPaste
         controller.onPermissionDenied = onPermissionDenied
         return controller
     }
@@ -744,8 +754,6 @@ private struct QRCaptureSheet: UIViewControllerRepresentable {
 
 private final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
-    var onCancel: (() -> Void)?
-    var onPaste: (() -> Void)?
     var onPermissionDenied: (() -> Void)?
 
     private let captureSession = AVCaptureSession()
@@ -757,7 +765,6 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         super.viewDidLoad()
         view.backgroundColor = .black
         configureSession()
-        configureControls()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -813,52 +820,6 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         preview.videoGravity = .resizeAspectFill
         view.layer.addSublayer(preview)
         previewLayer = preview
-    }
-
-    private func configureControls() {
-        let cancel = UIButton(type: .system)
-        cancel.configuration = controlConfiguration(title: "Cancel", symbol: nil)
-        cancel.accessibilityIdentifier = "alleycat.scanner.cancelButton"
-        cancel.addAction(UIAction { [weak self] _ in
-            self?.dismiss(animated: true)
-            self?.onCancel?()
-        }, for: .touchUpInside)
-
-        let controls = UIStackView(arrangedSubviews: onPaste == nil ? [cancel] : [
-            {
-                let paste = UIButton(type: .system)
-                paste.configuration = controlConfiguration(
-                    title: "Paste connection JSON",
-                    symbol: "doc.on.clipboard"
-                )
-                paste.accessibilityIdentifier = "alleycat.scanner.pasteConnectionJSONButton"
-                paste.addAction(UIAction { [weak self] _ in
-                    self?.dismiss(animated: true)
-                    self?.onPaste?()
-                }, for: .touchUpInside)
-                return paste
-            }(),
-            cancel,
-        ])
-        controls.axis = .horizontal
-        controls.spacing = 8
-        controls.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(controls)
-        NSLayoutConstraint.activate([
-            controls.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            controls.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-        ])
-    }
-
-    private func controlConfiguration(title: String, symbol: String?) -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = title
-        configuration.image = symbol.flatMap { UIImage(systemName: $0) }
-        configuration.imagePadding = 7
-        configuration.baseForegroundColor = .white
-        configuration.background.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        configuration.cornerStyle = .capsule
-        return configuration
     }
 
     func metadataOutput(
