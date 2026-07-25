@@ -13,6 +13,7 @@
 #   5  resume-desktop    a session created in Local Studio's own UI is readable
 #   6  filesystem        the session can execute shell commands and search files
 #   7  handoff-to-studio a phone-created session lands in Local Studio's own store
+#   8  mid-turn-reconnect a detached tool keeps running and rehydrates on reconnect
 #
 # Usage:  tools/scripts/local-studio-e2e-proof.sh [output-dir]
 set -uo pipefail
@@ -58,7 +59,7 @@ echo "  evidence: $OUT_DIR"
 echo
 
 # ---------------------------------------------------------------- 1 availability
-echo "[1/7] agent availability"
+echo "[1/8] agent availability"
 "$BIN" probe --linger-secs 1 --timeout-secs 25 \
   >"$OUT_DIR/01-availability.json" 2>&1
 record availability "$OUT_DIR/01-availability.json" \
@@ -66,7 +67,7 @@ record availability "$OUT_DIR/01-availability.json" \
   '"name": "local-studio"'
 
 # ------------------------------------------------------------------- 2 catalog
-echo "[2/7] controller-scoped model catalog"
+echo "[2/8] controller-scoped model catalog"
 "$BIN" probe --agent local-studio --method model/list \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/02-model-list.json" 2>&1
@@ -76,7 +77,7 @@ record catalog "$OUT_DIR/02-model-list.json" \
 
 # --------------------------------------------------------------------- 3 start
 # A phone starting a fresh Local Studio session and completing one turn.
-echo "[3/7] start session + complete a turn"
+echo "[3/8] start session + complete a turn"
 "$BIN" probe --agent local-studio \
   --start-thread-params "{\"cwd\":\"$CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
   --method turn/start \
@@ -96,7 +97,7 @@ echo "        thread: ${NEW_THREAD_ID:-<none>}"
 # Simulates backgrounding the app and reconnecting: a second connect on the same
 # endpoint identity carrying the highest observed `_alleycat_seq`. The host must
 # reattach rather than mint a fresh session.
-echo "[4/7] leave and return (reconnect from cursor)"
+echo "[4/8] leave and return (reconnect from cursor)"
 LAST_SEQ="$(grep -oE '"_alleycat_seq"[[:space:]]*:[[:space:]]*[0-9]+' "$OUT_DIR/03-start-turn.json" \
   | tail -1 | grep -oE '[0-9]+$')"
 LAST_SEQ="${LAST_SEQ:-1}"
@@ -116,7 +117,7 @@ record leave-return "$OUT_DIR/04-reattach.txt" \
 
 # ------------------------------------------------------------ 5 resume desktop
 # A session that Local Studio's own UI created, read back over the phone path.
-echo "[5/7] resume a desktop-created session"
+echo "[5/8] resume a desktop-created session"
 "$BIN" probe --agent local-studio --method thread/list --params '{}' \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/05a-thread-list.json" 2>&1
@@ -208,7 +209,7 @@ else
 fi
 
 # ---------------------------------------------------------------- 6 filesystem
-echo "[6/7] filesystem access"
+echo "[6/8] filesystem access"
 "$BIN" probe --agent local-studio \
   --start-thread-params "{\"cwd\":\"$CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
   --method turn/start \
@@ -233,7 +234,7 @@ record fs-search "$OUT_DIR/06b-fs-search.json" \
 # phone→desktop by showing the session created in scenario 3 is now listed with
 # a path inside Local Studio's own pi-agent session store — the same store the
 # desktop UI reads — so it is resumable there.
-echo "[7/7] phone-created session is visible to Local Studio"
+echo "[7/8] phone-created session is visible to Local Studio"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   "$BIN" probe --agent local-studio --method thread/list --params '{}' \
     --linger-secs 1 --timeout-secs 30 \
@@ -294,6 +295,57 @@ PY
 else
   echo "  FAIL  handoff-to-studio  scenario 3 produced no thread id"
   FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------- 8 mid-turn reconnect
+# Disconnect immediately after turn/start, while the shell command still has
+# several seconds left. A fresh connection must see the canonical thread and
+# turn as active, then later hydrate the completed command output and final
+# assistant response without the original client remaining attached.
+echo "[8/8] mid-turn disconnect + reconnect hydration"
+"$BIN" probe --agent local-studio \
+  --start-thread-params "{\"cwd\":\"$CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
+  --method turn/start \
+  --params '{"input":[{"type":"text","text":"Run the shell command `sleep 10; echo MIDTURN_SERVER_OK` exactly once, then reply with exactly MIDTURN_FINISHED."}]}' \
+  --until-method turn/started \
+  --linger-secs 1 --timeout-secs 45 \
+  >"$OUT_DIR/08a-midturn-start.json" 2>&1
+
+MIDTURN_THREAD_ID="$(grep -oE '"threadId"[[:space:]]*:[[:space:]]*"[^"]+"' "$OUT_DIR/08a-midturn-start.json" \
+  | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
+echo "        thread: ${MIDTURN_THREAD_ID:-<none>}"
+
+if [ -n "$MIDTURN_THREAD_ID" ]; then
+  "$BIN" probe --agent local-studio --method thread/read \
+    --params "{\"threadId\":\"$MIDTURN_THREAD_ID\",\"includeTurns\":true}" \
+    --linger-secs 1 --timeout-secs 30 \
+    >"$OUT_DIR/08b-midturn-active.json" 2>&1
+  record midturn-active "$OUT_DIR/08b-midturn-active.json" \
+    "a fresh client sees the detached turn still active" \
+    '"type"[[:space:]]*:[[:space:]]*"active"'
+
+  : >"$OUT_DIR/08c-midturn-finished.json"
+  for _attempt in 1 2 3 4 5 6 7 8; do
+    "$BIN" probe --agent local-studio --method thread/read \
+      --params "{\"threadId\":\"$MIDTURN_THREAD_ID\",\"includeTurns\":true}" \
+      --linger-secs 1 --timeout-secs 30 \
+      >"$OUT_DIR/08c-midturn-finished.json" 2>&1
+    if grep -q 'MIDTURN_FINISHED' "$OUT_DIR/08c-midturn-finished.json"; then
+      break
+    fi
+    sleep 2
+  done
+  record midturn-output "$OUT_DIR/08c-midturn-finished.json" \
+    "the detached shell command completed server-side" \
+    'MIDTURN_SERVER_OK'
+  record midturn-finished "$OUT_DIR/08c-midturn-finished.json" \
+    "the final assistant response rehydrated on a fresh client" \
+    'MIDTURN_FINISHED'
+else
+  echo "  FAIL  midturn-active    scenario produced no thread id"
+  echo "  FAIL  midturn-output    scenario produced no thread id"
+  echo "  FAIL  midturn-finished  scenario produced no thread id"
+  FAIL=$((FAIL + 3))
 fi
 
 echo

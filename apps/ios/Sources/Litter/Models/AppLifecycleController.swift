@@ -232,6 +232,15 @@ final class AppLifecycleController {
         // path still uses `onLongResume` because there iroh's per-path
         // idle has plausibly killed the path silently.
         await reconnectSavedServers(appModel: appModel)
+        // refreshTrackedThreads uses the force-authoritative path so the
+        // store reconciles `active_turn_id` against the server's view and
+        // repairs items whose events crossed the transport while iOS was
+        // suspended. On paginated remotes the resume runs with
+        // `excludeTurns: true`, followed by a tiny status probe and a
+        // bounded repair page for a previously active turn; on legacy
+        // remotes the resume falls back to the embedded turn list. The
+        // RPC also re-attaches the new `ConnectionId` to the per-thread
+        // subscription set so subsequent live events route correctly.
         let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
         if !reloadKeys.isEmpty {
             await refreshTrackedThreads(
@@ -448,6 +457,10 @@ final class AppLifecycleController {
             notificationActivationAge: notificationActivationAge
         )
         if !reloadKeys.isEmpty {
+            // A long iOS suspension may miss both item events and the
+            // terminal turn event. Reconcile the active-turn status, then
+            // repair the bounded current page so running tools and completed
+            // output reappear immediately.
             await refreshTrackedThreads(
                 appModel: appModel,
                 keys: Array(reloadKeys),

@@ -2947,6 +2947,12 @@ impl MobileClient {
     /// On the authoritative refresh path (`force_refresh_thread_authoritative`)
     /// for paginated remotes, run a small `thread/turns/list` query that
     /// returns turn skeletons only (no item bodies). The result is fed into
+    /// `reconcile_active_turn`, then a bounded full page repairs item bodies
+    /// for a turn that was active before the disconnect. That second read is
+    /// necessary even when the turn is still running: tool-start and output
+    /// events may have crossed the transport while iOS was suspended.
+    /// Failures here are logged and ignored — the next streamed event or
+    /// foreground refresh gets another chance to reconcile.
     async fn reconcile_active_turn_via_turn_list_probe(
         &self,
         server_id: &str,
