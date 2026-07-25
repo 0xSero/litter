@@ -12,6 +12,7 @@
 #   4  leave-return      reconnect from a cursor reattaches the same session
 #   5  resume-desktop    a session created in Local Studio's own UI is readable
 #   6  filesystem        the session can execute shell commands and search files
+#   7  handoff-to-studio a phone-created session lands in Local Studio's own store
 #
 # Usage:  tools/scripts/local-studio-e2e-proof.sh [output-dir]
 set -uo pipefail
@@ -57,7 +58,7 @@ echo "  evidence: $OUT_DIR"
 echo
 
 # ---------------------------------------------------------------- 1 availability
-echo "[1/6] agent availability"
+echo "[1/7] agent availability"
 "$BIN" probe --linger-secs 1 --timeout-secs 25 \
   >"$OUT_DIR/01-availability.json" 2>&1
 record availability "$OUT_DIR/01-availability.json" \
@@ -65,7 +66,7 @@ record availability "$OUT_DIR/01-availability.json" \
   '"name": "local-studio"'
 
 # ------------------------------------------------------------------- 2 catalog
-echo "[2/6] controller-scoped model catalog"
+echo "[2/7] controller-scoped model catalog"
 "$BIN" probe --agent local-studio --method model/list \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/02-model-list.json" 2>&1
@@ -75,7 +76,7 @@ record catalog "$OUT_DIR/02-model-list.json" \
 
 # --------------------------------------------------------------------- 3 start
 # A phone starting a fresh Local Studio session and completing one turn.
-echo "[3/6] start session + complete a turn"
+echo "[3/7] start session + complete a turn"
 "$BIN" probe --agent local-studio \
   --start-thread-params "{\"cwd\":\"$CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
   --method turn/start \
@@ -95,7 +96,7 @@ echo "        thread: ${NEW_THREAD_ID:-<none>}"
 # Simulates backgrounding the app and reconnecting: a second connect on the same
 # endpoint identity carrying the highest observed `_alleycat_seq`. The host must
 # reattach rather than mint a fresh session.
-echo "[4/6] leave and return (reconnect from cursor)"
+echo "[4/7] leave and return (reconnect from cursor)"
 LAST_SEQ="$(grep -oE '"_alleycat_seq"[[:space:]]*:[[:space:]]*[0-9]+' "$OUT_DIR/03-start-turn.json" \
   | tail -1 | grep -oE '[0-9]+$')"
 LAST_SEQ="${LAST_SEQ:-1}"
@@ -115,7 +116,7 @@ record leave-return "$OUT_DIR/04-reattach.txt" \
 
 # ------------------------------------------------------------ 5 resume desktop
 # A session that Local Studio's own UI created, read back over the phone path.
-echo "[5/6] resume a desktop-created session"
+echo "[5/7] resume a desktop-created session"
 "$BIN" probe --agent local-studio --method thread/list --params '{}' \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/05a-thread-list.json" 2>&1
@@ -207,7 +208,7 @@ else
 fi
 
 # ---------------------------------------------------------------- 6 filesystem
-echo "[6/6] filesystem access"
+echo "[6/7] filesystem access"
 "$BIN" probe --agent local-studio \
   --start-thread-params "{\"cwd\":\"$CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
   --method turn/start \
@@ -226,6 +227,74 @@ record fs-exec "$OUT_DIR/06a-fs-exec.json" \
 record fs-search "$OUT_DIR/06b-fs-search.json" \
   "fuzzy file search returns repository paths" \
   'local_studio|"files"|"result"'
+
+# ------------------------------------------------------- 7 handoff to Local Studio
+# The reverse of scenario 5. Scenario 5 proved desktop→phone; this proves
+# phone→desktop by showing the session created in scenario 3 is now listed with
+# a path inside Local Studio's own pi-agent session store — the same store the
+# desktop UI reads — so it is resumable there.
+echo "[7/7] phone-created session is visible to Local Studio"
+if [ -n "${NEW_THREAD_ID:-}" ]; then
+  "$BIN" probe --agent local-studio --method thread/list --params '{}' \
+    --linger-secs 1 --timeout-secs 30 \
+    >"$OUT_DIR/07-handoff-list.json" 2>&1
+
+  python3 - "$OUT_DIR/07-handoff-list.json" "$NEW_THREAD_ID" \
+    >"$OUT_DIR/07-handoff-path.txt" 2>/dev/null <<'PY'
+import json, sys
+
+raw = open(sys.argv[1], errors="replace").read()
+wanted = sys.argv[2]
+
+
+def json_objects(text):
+    depth = 0
+    start = None
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        yield json.loads(text[start:i + 1])
+                    except Exception:
+                        pass
+                    start = None
+
+
+for doc in json_objects(raw):
+    result = doc.get("result") or {}
+    for t in result.get("data") or result.get("threads") or []:
+        if t.get("id") == wanted:
+            print(t.get("path") or "")
+            sys.exit()
+PY
+
+  HANDOFF_PATH="$(cat "$OUT_DIR/07-handoff-path.txt" 2>/dev/null)"
+  echo "        path: ${HANDOFF_PATH:-<not listed>}"
+  record handoff-to-studio "$OUT_DIR/07-handoff-path.txt" \
+    "the phone-created session is stored in Local Studio's session store" \
+    '/pi-agent/sessions/.*\.jsonl$'
+else
+  echo "  FAIL  handoff-to-studio  scenario 3 produced no thread id"
+  FAIL=$((FAIL + 1))
+fi
 
 echo
 echo "----------------------------------------"
