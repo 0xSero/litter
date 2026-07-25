@@ -466,6 +466,11 @@ struct AlleycatAddServerSheet: View {
                     selectedAgentNames: selectedNames,
                     wire: fallbackAgent.wire
                 )
+                // The RPC above already succeeded, so the host considers this
+                // device paired. A keychain write failure must not discard that
+                // pairing: swallow it here and let `onConnected` persist the
+                // saved-server record. Reconnect re-reads the token and surfaces
+                // a re-pair prompt if it is genuinely missing.
                 do {
                     try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
                 } catch {

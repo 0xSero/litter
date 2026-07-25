@@ -83,6 +83,10 @@ pub(crate) async fn resolve_runtime(
     ssh: &SshClient,
     shell: RemoteShell,
 ) -> Result<Option<Runtime>, SshError> {
+    // `probe_remote_agents` runs its probe under `PROFILE_INIT`, so the PATH
+    // fallback tier (`command -v pi-coding-agent || command -v pi`) can resolve
+    // during discovery. Resolving without the same login profile here would
+    // report Local Studio as available in the picker and then fail to launch it.
     let result = ssh
         .exec_shell(
             &format!("{PROFILE_INIT}\n{FIND_AGENT_DIR}\n{FIND_RUNTIME}\nfind_local_studio_runtime"),
@@ -165,6 +169,224 @@ impl ProcessLauncher for RuntimeLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Captures the [`ProcessSpec`] it is handed and always fails the launch.
+    /// The decorator's contract is the spec rewrite, not the spawn.
+    struct CapturingLauncher {
+        captured: Mutex<Option<ProcessSpec>>,
+    }
+
+    impl CapturingLauncher {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                captured: Mutex::new(None),
+            })
+        }
+
+        fn take(&self) -> ProcessSpec {
+            self.captured
+                .lock()
+                .expect("capture mutex poisoned")
+                .take()
+                .expect("launcher was never invoked")
+        }
+    }
+
+    impl ProcessLauncher for CapturingLauncher {
+        fn launch(
+            &self,
+            spec: ProcessSpec,
+        ) -> BoxFuture<'_, std::io::Result<Box<dyn ChildProcess>>> {
+            *self.captured.lock().expect("capture mutex poisoned") = Some(spec);
+            Box::pin(async {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "capturing launcher does not spawn",
+                ))
+            })
+        }
+    }
+
+    fn bundled_runtime() -> Runtime {
+        Runtime {
+            agent_dir: "/Users/test/Library/Application Support/Local Studio/pi-agent".to_owned(),
+            program: "/Applications/Local Studio.app/Contents/MacOS/Local Studio".to_owned(),
+            prefix_arg: Some("/Applications/Local Studio.app/Contents/Resources/pi cli.js".to_owned()),
+            electron_node: true,
+        }
+    }
+
+    fn env_value<'a>(spec: &'a ProcessSpec, key: &str) -> Option<&'a OsStr> {
+        spec.env
+            .iter()
+            .find(|(candidate, _)| candidate == key)
+            .map(|(_, value)| value.as_os_str())
+    }
+
+    async fn launch_capturing(runtime: &Runtime, spec: ProcessSpec) -> ProcessSpec {
+        let inner = CapturingLauncher::new();
+        let decorated = launcher(Arc::clone(&inner) as Arc<dyn ProcessLauncher>, runtime);
+        let _ = decorated.launch(spec).await;
+        inner.take()
+    }
+
+    #[tokio::test]
+    async fn agent_launch_uses_the_bundled_electron_runtime() {
+        let runtime = bundled_runtime();
+        let mut spec = ProcessSpec::new("/usr/bin/pi");
+        spec.role = alleycat_bridge_core::ProcessRole::Agent;
+        spec.args = vec![OsString::from("--mode"), OsString::from("rpc")];
+
+        let launched = launch_capturing(&runtime, spec).await;
+
+        assert_eq!(
+            launched.program.to_str(),
+            Some("/Applications/Local Studio.app/Contents/MacOS/Local Studio"),
+            "the agent program must be replaced by the Local Studio runtime"
+        );
+        assert_eq!(
+            launched.args.first().and_then(|arg| arg.to_str()),
+            Some("/Applications/Local Studio.app/Contents/Resources/pi cli.js"),
+            "the bundled CLI must be prepended ahead of the original args"
+        );
+        assert_eq!(
+            launched.args.iter().filter_map(|arg| arg.to_str()).collect::<Vec<_>>(),
+            vec![
+                "/Applications/Local Studio.app/Contents/Resources/pi cli.js",
+                "--mode",
+                "rpc"
+            ],
+            "original args must be preserved after the prefix"
+        );
+        assert_eq!(
+            env_value(&launched, "ELECTRON_RUN_AS_NODE"),
+            Some(OsStr::new("1"))
+        );
+        assert_eq!(
+            env_value(&launched, "PI_CODING_AGENT_DIR"),
+            Some(OsStr::new(
+                "/Users/test/Library/Application Support/Local Studio/pi-agent"
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_commands_get_the_agent_dir_but_keep_their_program() {
+        let runtime = bundled_runtime();
+        let mut spec = ProcessSpec::new("/bin/sh");
+        spec.role = alleycat_bridge_core::ProcessRole::ToolCommand;
+        spec.args = vec![OsString::from("-c"), OsString::from("pwd")];
+
+        let launched = launch_capturing(&runtime, spec).await;
+
+        assert_eq!(
+            launched.program.to_str(),
+            Some("/bin/sh"),
+            "tool commands must not be rewritten to the agent runtime"
+        );
+        assert_eq!(
+            launched.args.iter().filter_map(|arg| arg.to_str()).collect::<Vec<_>>(),
+            vec!["-c", "pwd"],
+            "tool command args must not gain the CLI prefix"
+        );
+        assert_eq!(
+            env_value(&launched, "PI_CODING_AGENT_DIR"),
+            Some(OsStr::new(
+                "/Users/test/Library/Application Support/Local Studio/pi-agent"
+            )),
+            "tool commands still need to resolve Local Studio's Pi home"
+        );
+        assert!(
+            env_value(&launched, "ELECTRON_RUN_AS_NODE").is_none(),
+            "ELECTRON_RUN_AS_NODE is an agent-only concern"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_explicit_agent_dir_is_never_overridden() {
+        let runtime = bundled_runtime();
+        let mut spec = ProcessSpec::new("/usr/bin/pi");
+        spec.role = alleycat_bridge_core::ProcessRole::Agent;
+        spec.env.push((
+            OsString::from("PI_CODING_AGENT_DIR"),
+            OsString::from("/explicit/override"),
+        ));
+
+        let launched = launch_capturing(&runtime, spec).await;
+
+        assert_eq!(
+            env_value(&launched, "PI_CODING_AGENT_DIR"),
+            Some(OsStr::new("/explicit/override"))
+        );
+        assert_eq!(
+            launched
+                .env
+                .iter()
+                .filter(|(key, _)| key == "PI_CODING_AGENT_DIR")
+                .count(),
+            1,
+            "the decorator must not append a duplicate agent-dir entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn path_fallback_runtime_adds_no_prefix_or_electron_flag() {
+        let runtime = Runtime {
+            agent_dir: "/home/test/.local-studio/pi-agent".to_owned(),
+            program: "/usr/bin/pi".to_owned(),
+            prefix_arg: None,
+            electron_node: false,
+        };
+        let mut spec = ProcessSpec::new("/somewhere/else/pi");
+        spec.role = alleycat_bridge_core::ProcessRole::Agent;
+        spec.args = vec![OsString::from("--mode"), OsString::from("rpc")];
+
+        let launched = launch_capturing(&runtime, spec).await;
+
+        assert_eq!(launched.program.to_str(), Some("/usr/bin/pi"));
+        assert_eq!(
+            launched.args.iter().filter_map(|arg| arg.to_str()).collect::<Vec<_>>(),
+            vec!["--mode", "rpc"]
+        );
+        assert!(env_value(&launched, "ELECTRON_RUN_AS_NODE").is_none());
+    }
+
+    #[test]
+    fn probe_script_reports_only_the_agent_dir() {
+        let script = probe_script();
+        assert!(
+            script.contains("printf 'local-studio\\t%s\\n'"),
+            "probe must emit the agent-probe wire line"
+        );
+        assert!(
+            script.contains("${runtime%%\t*}"),
+            "probe must report the first tab-separated field (agent dir) only"
+        );
+        assert!(
+            script.contains("printf 'local-studio\\t\\n'"),
+            "probe must still emit an unavailable line when no runtime resolves"
+        );
+    }
+
+    #[test]
+    fn session_scan_prefix_quotes_directories_with_spaces() {
+        let prefix =
+            session_scan_prefix("/Users/test/Library/Application Support/Local Studio/pi-agent");
+        assert!(
+            prefix.contains("'/Users/test/Library/Application Support/Local Studio/pi-agent'"),
+            "agent dir must be POSIX-quoted, got: {prefix}"
+        );
+        assert!(prefix.contains("export PI_CODING_AGENT_DIR"));
+    }
+
+    #[test]
+    fn parse_runtime_rejects_incomplete_lines() {
+        assert!(parse_runtime("").is_none());
+        assert!(parse_runtime("\t/usr/bin/pi\t\t0").is_none(), "empty agent dir");
+        assert!(parse_runtime("/agent/dir\t\t\t0").is_none(), "empty program");
+        assert!(parse_runtime("/agent/dir").is_none(), "missing fields");
+    }
 
     #[test]
     fn parses_bundled_runtime_with_spaces() {
