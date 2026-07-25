@@ -234,6 +234,13 @@ fun AlleycatAddServerSheet(
                     )
                 }
                 credentialStore.saveToken(params.nodeId, params.token)
+                // The first successful alleycat pair is what triggers the iroh
+                // endpoint bind, so the device secret key only exists in Rust
+                // from this point on. Persist it now: waiting for the next
+                // background/resume cycle loses the `EndpointId` if the app is
+                // killed straight after pairing, and the host then rejects the
+                // device as unknown on the next cold launch. Off the main
+                // dispatcher because this reads Rust and writes encrypted prefs.
                 withContext(Dispatchers.IO) { appModel.persistAlleycatSecretKeyIfNeeded() }
                 isConnecting = false
                 onConnected(
