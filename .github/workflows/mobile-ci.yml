@@ -102,6 +102,14 @@ jobs:
           cd shared/rust-bridge
           ./generate-bindings.sh
 
+      # The shared Rust crate is the only implementation of session, thread,
+      # streaming, hydration, discovery and reconnect logic; both platforms are
+      # thin projections over it. Compiling it is not evidence that it works.
+      - name: Shared Rust tests
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client
+
       - name: Package shared mobile sources
         run: |
           mkdir -p apps/ios/GeneratedRust/Headers .ci-prep/shared
@@ -223,6 +231,20 @@ jobs:
       - name: Assemble debug
         run: apps/android/gradlew -p apps/android :app:assembleDebug
 
+      # There is no Android toolchain on the primary development machine, so
+      # this job is the only place Android behavior is ever exercised. Keep it
+      # running tests, not just compiling.
+      - name: Unit tests
+        run: apps/android/gradlew -p apps/android :app:testDebugUnitTest
+
+      - name: Upload Android test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-report
+          path: apps/android/app/build/reports/tests/testDebugUnitTest
+          retention-days: 7
+
   ios:
     needs: shared-prep
     runs-on: macos-26
@@ -328,7 +350,10 @@ jobs:
           fi
           echo "IOS_SIMULATOR_UDID=$SIMULATOR_UDID" >> "$GITHUB_ENV"
 
-      - name: Build (Litter)
+      # `build-for-testing` compiles the app target and the test bundles in one
+      # pass, so this still proves the app builds while also producing something
+      # runnable. Splitting build from run keeps the failure attributable.
+      - name: Build (Litter + tests)
         run: |
           xcodebuild \
             -project apps/ios/Litter.xcodeproj \
@@ -337,4 +362,16 @@ jobs:
             -destination "id=$IOS_SIMULATOR_UDID" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
-            build
+            build-for-testing
+
+      - name: Test (LitterTests)
+        run: |
+          xcodebuild \
+            -project apps/ios/Litter.xcodeproj \
+            -scheme Litter \
+            -configuration Debug \
+            -destination "id=$IOS_SIMULATOR_UDID" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            -only-testing:LitterTests \
+            test-without-building
