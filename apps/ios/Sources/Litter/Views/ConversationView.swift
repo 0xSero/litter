@@ -963,23 +963,7 @@ private struct ConversationMessageList: View {
             return
         }
 
-        let lastTurnItemCountGrew = {
-            guard let currentLast = transcriptTurns.last,
-                  let nextLast = nextTurns.last,
-                  currentLast.id == nextLast.id,
-                  nextLast.items.count > currentLast.items.count else {
-                return false
-            }
-            return true
-        }()
-
-        if lastTurnItemCountGrew {
-            withAnimation(.spring(duration: 0.4, bounce: 0.08)) {
-                applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
-            }
-        } else {
-            applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
-        }
+        applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
     }
 
     private func makeTranscriptBuildKey() -> Int {
