@@ -2,7 +2,10 @@ package com.litter.android.ui.discovery
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -231,6 +234,13 @@ fun AlleycatAddServerSheet(
                     )
                 }
                 credentialStore.saveToken(params.nodeId, params.token)
+                // The first successful alleycat pair is what triggers the iroh
+                // endpoint bind, so the device secret key only exists in Rust
+                // from this point on. Persist it now: waiting for the next
+                // background/resume cycle loses the `EndpointId` if the app is
+                // killed straight after pairing, and the host then rejects the
+                // device as unknown on the next cold launch.
+                appModel.persistAlleycatSecretKeyIfNeeded()
                 isConnecting = false
                 onConnected(
                     AlleycatConnectedTarget(
@@ -320,9 +330,20 @@ fun AlleycatAddServerSheet(
         }
         if (cameraDenied) {
             Text(
-                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below.",
+                text = "Camera permission is required to scan a pairing QR. Open Settings to grant access, or paste the JSON below.",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
+            )
+            // A second denial is permanently sticky on Android, so the
+            // permission launcher stops prompting. Without a route into app
+            // settings this state is a dead end for anyone who cannot paste.
+            Text(
+                text = "Open Settings",
+                color = LitterTheme.accent,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clickable { openAppSettings(context) },
             )
         }
 
@@ -449,7 +470,7 @@ fun AlleycatAddServerSheet(
                         Spacer(Modifier.width(8.dp))
                         Text("Loading agents", color = LitterTheme.textSecondary, fontSize = 12.sp)
                     }
-                    agents.isEmpty() -> Text(
+                    availableAgents.isEmpty() -> Text(
                         text = "No agents are available on this host.",
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
@@ -637,6 +658,22 @@ private fun suggestedDisplayName(params: AppAlleycatPairPayload): String =
 private fun wireLabel(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.WEBSOCKET -> "websocket"
     AppAlleycatAgentWire.JSONL -> "jsonl"
+}
+
+/**
+ * Open this app's system settings page so a user who permanently denied the
+ * camera can still re-grant it. `FLAG_ACTIVITY_NEW_TASK` is required because
+ * [context] may be an application context here.
+ */
+private fun openAppSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.onFailure { Log.w(LOG_TAG, "unable to open app settings", it) }
 }
 
 fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {

@@ -469,7 +469,16 @@ struct AlleycatAddServerSheet: View {
                     selectedAgentNames: selectedNames,
                     wire: fallbackAgent.wire
                 )
-                try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
+                // The RPC above already succeeded, so the host considers this
+                // device paired. A keychain write failure must not discard that
+                // pairing: swallow it here and let `onConnected` persist the
+                // saved-server record. Reconnect re-reads the token and surfaces
+                // a re-pair prompt if it is genuinely missing.
+                do {
+                    try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
+                } catch {
+                    LLog.error("alleycat", "keychain save failed after successful pair", error: error)
+                }
                 // First successful alleycat pair triggers the iroh
                 // endpoint bind. Persist the freshly-generated device
                 // secret key so the next cold launch reuses the same
