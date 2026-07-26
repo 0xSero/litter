@@ -377,7 +377,7 @@ struct AlleycatAddServerSheet: View {
     }
 
     private var availableAgents: [AppAlleycatAgentInfo] {
-        agents.filter(\.available)
+        agents.filter { $0.available && (pairingMode != .localStudio || $0.runtimeKind == "local-studio") }
     }
 
     private var selectedAgents: [AppAlleycatAgentInfo] {

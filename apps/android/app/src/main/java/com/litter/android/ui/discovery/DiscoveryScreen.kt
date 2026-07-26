@@ -582,7 +582,7 @@ fun DiscoveryScreen(
                 subtitle = "Scan the QR from Local Studio Profile, or paste Copy connection JSON.",
                 badge = null,
                 icon = Icons.Outlined.DeveloperBoard,
-                supportedAgents = listOf("local-studio", "pi"),
+                supportedAgents = listOf("local-studio"),
                 isRecommended = false,
                 onClick = {
                     alleycatPairingMode = AlleycatPairingMode.LocalStudio

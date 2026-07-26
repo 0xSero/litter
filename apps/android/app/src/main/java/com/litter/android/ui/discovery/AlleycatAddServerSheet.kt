@@ -209,7 +209,7 @@ fun AlleycatAddServerSheet(
 
     fun connect() {
         val params = parsedParams ?: return
-        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
+        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
         val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
         val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
@@ -254,7 +254,7 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val availableAgents = agents.filter { it.available }
+    val availableAgents = agents.filter { it.available && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
     val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
     val canConnect =
         !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()

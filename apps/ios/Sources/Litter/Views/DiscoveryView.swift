@@ -275,7 +275,7 @@ struct DiscoveryView: View {
                     subtitle: "Scan the QR from Local Studio Profile, or paste Copy connection JSON.",
                     badge: nil,
                     icon: "server.rack",
-                    supportedAgents: ["local-studio", "pi"],
+                    supportedAgents: ["local-studio"],
                     isRecommended: false,
                     accessibilityID: "discovery.chooser.local-studio"
                 ) {
