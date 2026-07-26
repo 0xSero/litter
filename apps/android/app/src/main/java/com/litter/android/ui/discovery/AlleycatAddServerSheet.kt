@@ -145,7 +145,7 @@ fun AlleycatAddServerSheet(
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
-                Log.w(LOG_TAG, "listAlleycatAgents failed")
+                Log.w(LOG_TAG, "listAlleycatAgents failed", e)
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = emptyList()
                     selectedAgentNames = emptySet()
@@ -247,7 +247,7 @@ fun AlleycatAddServerSheet(
                     )
                 )
             } catch (e: Exception) {
-                Log.w(LOG_TAG, "connectRemoteOverAlleycat failed")
+                Log.w(LOG_TAG, "connectRemoteOverAlleycat failed", e)
                 isConnecting = false
                 connectError = e.message ?: "Unable to connect"
             }

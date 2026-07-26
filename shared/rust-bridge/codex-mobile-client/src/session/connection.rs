@@ -1720,7 +1720,7 @@ async fn send_remote_request(
             .and_then(|method| method.as_str().map(str::to_owned))
     });
     let timeout = match method.as_deref() {
-        Some("thread/list") => Some(Duration::from_secs(3)),
+        Some("thread/list") => Some(Duration::from_secs(10)),
         Some("model/list") => Some(Duration::from_secs(20)),
         _ => None,
     };

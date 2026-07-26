@@ -1203,13 +1203,13 @@ struct SessionsScreen: View {
     private func resumeSession(_ thread: AppSessionSummary) async {
         guard resumingKey == nil else { return }
         resumingKey = thread.key
+        defer { resumingKey = nil }
         sessionActionErrorMessage = nil
         workDir = thread.cwd
         appState.currentCwd = thread.cwd
         let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
             ?? thread.key
         appModel.activateThread(resumeKey)
-        resumingKey = nil
         onOpenConversation(resumeKey)
 
         do {

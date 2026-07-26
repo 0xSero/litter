@@ -1013,6 +1013,7 @@ impl AppClient {
                 .collect::<Vec<_>>();
             runtime_kinds.sort();
             runtime_kinds.dedup();
+            let runtime_count = runtime_kinds.len();
             let params: upstream::ModelListParams = params.into();
             let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
                 let client = Arc::clone(&c);
@@ -1086,7 +1087,7 @@ impl AppClient {
                 );
             }
             c.app_store.update_server_models(&server_id, Some(models));
-            if failures.is_empty() {
+            if failures.is_empty() || failed_runtime_kinds.len() < runtime_count {
                 Ok(())
             } else {
                 Err(ClientError::Rpc(failures.join("; ")))
