@@ -1209,7 +1209,6 @@ pub struct ModelInfo {
     pub is_default: bool,
     #[serde(default = "default_agent_runtime_kind")]
     pub agent_runtime_kind: AgentRuntimeKind,
-    /// Catalog provider key; absent when the runtime itself is the provider.
     #[serde(default)]
     #[uniffi(default = None)]
     pub provider_id: Option<String>,

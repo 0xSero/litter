@@ -1204,13 +1204,15 @@ struct SessionsScreen: View {
         guard resumingKey == nil else { return }
         resumingKey = thread.key
         sessionActionErrorMessage = nil
-        await conversationWarmup.prewarmIfNeeded()
         workDir = thread.cwd
         appState.currentCwd = thread.cwd
-        let openedKey: ThreadKey?
+        let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
+            ?? thread.key
+        appModel.activateThread(resumeKey)
+        resumingKey = nil
+        onOpenConversation(resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
-                ?? thread.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
@@ -1219,18 +1221,13 @@ struct SessionsScreen: View {
             if !thread.cwd.isEmpty {
                 RecentDirectoryStore.shared.record(path: thread.cwd, for: thread.key.serverId)
             }
-            appModel.activateThread(nextKey)
-            openedKey = nextKey
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                onOpenConversation(nextKey)
+            }
         } catch {
             sessionActionErrorMessage = error.localizedDescription
-            openedKey = nil
         }
-        resumingKey = nil
-        guard let openedKey else {
-            sessionActionErrorMessage = sessionActionErrorMessage ?? "Failed to open conversation."
-            return
-        }
-        onOpenConversation(openedKey)
     }
 
     private func startNewSession(serverId: String, cwd: String) async {

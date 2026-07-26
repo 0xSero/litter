@@ -448,10 +448,6 @@ final class AppLifecycleController {
             notificationActivationAge: notificationActivationAge
         )
         if !reloadKeys.isEmpty {
-            // A long iOS suspension may miss both item events and the
-            // terminal turn event. Reconcile the active-turn status, then
-            // repair the bounded current page so running tools and completed
-            // output reappear immediately.
             await refreshTrackedThreads(
                 appModel: appModel,
                 keys: Array(reloadKeys),

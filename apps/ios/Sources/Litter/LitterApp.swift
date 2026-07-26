@@ -1227,21 +1227,25 @@ private struct HomeNavigationView: View {
         guard openingRecentSessionKey == nil else { return }
         openingRecentSessionKey = summary.key
         actionErrorMessage = nil
-        defer { openingRecentSessionKey = nil }
 
-        await conversationWarmup.prewarmIfNeeded()
         workDir = summary.cwd
         appState.currentCwd = summary.cwd
+        let resumeKey = await appModel.hydrateThreadPermissions(for: summary.key, appState: appState)
+            ?? summary.key
+        appModel.activateThread(resumeKey)
+        openingRecentSessionKey = nil
+        replaceTopConversation(with: resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: summary.key, appState: appState)
-                ?? summary.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: summary.cwd
             )
-            appModel.activateThread(nextKey)
-            replaceTopConversation(with: nextKey)
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                replaceTopConversation(with: nextKey)
+            }
         } catch {
             actionErrorMessage = error.localizedDescription
         }
@@ -1252,31 +1256,28 @@ private struct HomeNavigationView: View {
 
         openingRecentSessionKey = thread.key
         actionErrorMessage = nil
-        defer { openingRecentSessionKey = nil }
 
-        await conversationWarmup.prewarmIfNeeded()
         workDir = thread.cwd
         appState.currentCwd = thread.cwd
-        let openedKey: ThreadKey?
+        let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
+            ?? thread.key
+        appModel.activateThread(resumeKey)
+        openingRecentSessionKey = nil
+        openConversation(resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
-                ?? thread.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: thread.cwd
             )
-            appModel.activateThread(nextKey)
-            openedKey = nextKey
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                openConversation(nextKey)
+            }
         } catch {
             actionErrorMessage = error.localizedDescription
-            openedKey = nil
         }
-        guard let openedKey else {
-            actionErrorMessage = actionErrorMessage ?? "Failed to open conversation."
-            return
-        }
-        openConversation(openedKey)
     }
 
     private func startNewSession(serverId: String, cwd: String) async {

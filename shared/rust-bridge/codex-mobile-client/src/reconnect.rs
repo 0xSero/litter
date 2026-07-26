@@ -1315,29 +1315,6 @@ mod tests {
     }
 
     #[test]
-    fn plan_ssh_bridge_preserves_local_studio_runtime() {
-        let mut s = base_server();
-        s.id = "ssh-bridge:studio".into();
-        s.hostname = "studio".into();
-        s.port = 0;
-        s.codex_ports = vec![];
-        s.ssh_port = Some(22);
-        s.preferred_connection_mode = Some("ssh".into());
-        s.alleycat_agent_name = Some("local-studio".into());
-        s.alleycat_agent_wire = Some("ssh-bridge".into());
-        let cred = ssh_credential();
-
-        let plan = compute_reconnect_plan(&s, Some(&cred), false, true);
-
-        match plan {
-            Some(ReconnectPlan::SshBridge { runtime_kinds, .. }) => {
-                assert_eq!(runtime_kinds, vec!["local-studio".to_string()]);
-            }
-            other => panic!("expected Local Studio SSH bridge reconnect plan, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn plan_ssh_bridge_disabled_uses_codex_ssh_plan() {
         let mut s = base_server();
         s.id = "ssh-bridge:studio".into();

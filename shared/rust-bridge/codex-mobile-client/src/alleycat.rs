@@ -791,9 +791,6 @@ fn validate_response(response: &Response) -> Result<(), AlleycatError> {
         });
     }
     if !response.ok {
-        // Host-side refusals (invalid pairing credentials, unavailable agent,
-        // authorization denial) are deterministic: callers must not retry them like
-        // transport failures.
         return Err(AlleycatError::Rejected(
             response
                 .error

@@ -22,8 +22,6 @@ name = "kittylitter"
 path = "src/main.rs"
 
 [dependencies]
-# Keep the daemon and mobile client on the same Local Studio app-server runtime.
-# Keep this rev in lockstep with shared/rust-bridge/Cargo.toml.
 alleycat = { git = "https://github.com/dnakov/alleycat.git", rev = "8ad165c185621cbcd58e63d999cc9eb6462864b0" }
 anyhow = "1"
 
