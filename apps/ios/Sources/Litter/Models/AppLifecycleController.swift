@@ -232,15 +232,6 @@ final class AppLifecycleController {
         // path still uses `onLongResume` because there iroh's per-path
         // idle has plausibly killed the path silently.
         await reconnectSavedServers(appModel: appModel)
-        // refreshTrackedThreads uses the force-authoritative path so the
-        // store reconciles `active_turn_id` against the server's view and
-        // repairs items whose events crossed the transport while iOS was
-        // suspended. On paginated remotes the resume runs with
-        // `excludeTurns: true`, followed by a tiny status probe and a
-        // bounded repair page for a previously active turn; on legacy
-        // remotes the resume falls back to the embedded turn list. The
-        // RPC also re-attaches the new `ConnectionId` to the per-thread
-        // subscription set so subsequent live events route correctly.
         let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
         if !reloadKeys.isEmpty {
             await refreshTrackedThreads(
@@ -443,13 +434,6 @@ final class AppLifecycleController {
         }
         await appModel.restoreMissingLocalAuthStateIfNeeded()
 
-        if needsInitialReconnect {
-            let retryResults = await appModel.reconnectController.reconnectSavedServers()
-            for result in retryResults where result.needsLocalAuthRestore {
-                await appModel.restoreStoredLocalAuthState(serverId: result.serverId)
-            }
-            await appModel.refreshSnapshot()
-        }
         guard !Task.isCancelled else { return }
 
         let trustedLiveKeys = Set(keysToRefresh.filter {

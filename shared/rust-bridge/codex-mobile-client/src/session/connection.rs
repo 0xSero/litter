@@ -1615,16 +1615,7 @@ fn spawn_remote_runtime_worker(
                     match command {
                         SessionCommand::Request { request, response_tx } => {
                             let request_retry = request.clone();
-                            let mut result = match client.request(request).await {
-                                Ok(Ok(value)) => Ok(value),
-                                Ok(Err(error)) => Err(RpcError::Server {
-                                    code: error.code,
-                                    message: error.message,
-                                }),
-                                Err(error) => Err(RpcError::Transport(
-                                    TransportError::SendFailed(error.to_string()),
-                                )),
-                            };
+                            let mut result = send_remote_request(&client, request).await;
                             if matches!(result, Err(RpcError::Transport(_)))
                                 && reconnect_remote_client(
                                     &mut client,
@@ -1636,16 +1627,7 @@ fn spawn_remote_runtime_worker(
                                 )
                                 .await
                             {
-                                result = match client.request(request_retry).await {
-                                    Ok(Ok(value)) => Ok(value),
-                                    Ok(Err(error)) => Err(RpcError::Server {
-                                        code: error.code,
-                                        message: error.message,
-                                    }),
-                                    Err(error) => Err(RpcError::Transport(
-                                        TransportError::SendFailed(error.to_string()),
-                                    )),
-                                };
+                                result = send_remote_request(&client, request_retry).await;
                             }
                             let _ = response_tx.send(result);
                         }
@@ -1726,6 +1708,34 @@ fn spawn_remote_runtime_worker(
         // resources (e.g. an iroh Connection) are dropped only after the worker exits.
         drop(keepalive);
     })
+}
+
+async fn send_remote_request(
+    client: &AppServerClient,
+    request: ClientRequest,
+) -> Result<JsonValue, RpcError> {
+    let method = serde_json::to_value(&request).ok().and_then(|value| {
+        value
+            .get("method")
+            .and_then(|method| method.as_str().map(str::to_owned))
+    });
+    let timeout = match method.as_deref() {
+        Some("thread/list") => Some(Duration::from_secs(3)),
+        Some("model/list") => Some(Duration::from_secs(20)),
+        _ => None,
+    };
+    let response = match timeout {
+        Some(duration) => tokio::time::timeout(duration, client.request(request))
+            .await
+            .map_err(|_| RpcError::Timeout)?,
+        None => client.request(request).await,
+    };
+    response
+        .map_err(|error| RpcError::Transport(TransportError::SendFailed(error.to_string())))?
+        .map_err(|error| RpcError::Server {
+            code: error.code,
+            message: error.message,
+        })
 }
 
 // ---------------------------------------------------------------------------

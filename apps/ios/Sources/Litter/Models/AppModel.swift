@@ -321,16 +321,6 @@ final class AppModel {
         return key
     }
 
-    /// Force a fresh resume so the store reconciles `active_turn_id`
-    /// against the server's authoritative view. Use after a long resume /
-    /// push wake — the in-flight turn may have advanced or completed during
-    /// the background window with item or terminal events not delivered.
-    ///
-    /// On v0.125+ remotes this runs `thread/resume` with
-    /// `excludeTurns: true`, then a tiny skeleton probe and a bounded full
-    /// repair page when the local turn was active. Legacy remotes that don't
-    /// implement `thread/turns/list` still get the embedded turn list via
-    /// `excludeTurns: false`.
     func forceRefreshThreadAuthoritative(key: ThreadKey) async throws {
         try await store.forceRefreshThreadAuthoritative(key: key)
     }
@@ -1956,13 +1946,13 @@ final class AppModel {
                 }
             }
 
-            if !readSucceeded {
+            if !readSucceeded && attempt == 0 {
                 do {
                     _ = try await client.listThreads(
                         serverId: currentKey.serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: nil,
+                            limit: 80,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             archived: nil,

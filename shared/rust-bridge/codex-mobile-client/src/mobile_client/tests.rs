@@ -119,14 +119,12 @@ mod mobile_client_tests {
             reasoning_effort_from_string(" high "),
             Some(crate::types::ReasoningEffort::High)
         );
-        assert_eq!(
-            reasoning_effort_from_string("max"),
-            Some(crate::types::ReasoningEffort::Max)
-        );
-        assert_eq!(
-            reasoning_effort_from_string("ULTRA"),
-            Some(crate::types::ReasoningEffort::Ultra)
-        );
+        for (value, expected) in [
+            ("max", crate::types::ReasoningEffort::Max),
+            ("ULTRA", crate::types::ReasoningEffort::Ultra),
+        ] {
+            assert_eq!(reasoning_effort_from_string(value), Some(expected));
+        }
         assert_eq!(reasoning_effort_from_string(""), None);
     }
 
@@ -476,80 +474,38 @@ mod mobile_client_tests {
     }
 
     #[test]
-    fn pi_thread_start_defaults_to_full_access() {
+    fn pi_runtimes_always_start_full_access() {
         let client = MobileClient::new();
-        let mut request = upstream::ClientRequest::ThreadStart {
-            request_id: upstream::RequestId::Integer(1),
-            params: upstream::ThreadStartParams::default(),
-        };
-
-        client.normalize_model_selection_for_request("srv", "pi".to_string(), &mut request);
-
-        let upstream::ClientRequest::ThreadStart { params, .. } = request else {
-            panic!("expected thread/start");
-        };
-        assert_eq!(
-            params.approval_policy,
-            Some(upstream::AskForApproval::Never)
-        );
-        assert_eq!(
-            params.sandbox,
-            Some(upstream::SandboxMode::DangerFullAccess)
-        );
-    }
-
-    #[test]
-    fn pi_thread_start_overrides_stricter_policy_with_full_access() {
-        let client = MobileClient::new();
-        let mut request = upstream::ClientRequest::ThreadStart {
-            request_id: upstream::RequestId::Integer(1),
-            params: upstream::ThreadStartParams {
-                approval_policy: Some(upstream::AskForApproval::OnRequest),
-                sandbox: Some(upstream::SandboxMode::WorkspaceWrite),
-                ..Default::default()
-            },
-        };
-
-        client.normalize_model_selection_for_request("srv", "pi".to_string(), &mut request);
-
-        let upstream::ClientRequest::ThreadStart { params, .. } = request else {
-            panic!("expected thread/start");
-        };
-        assert_eq!(
-            params.approval_policy,
-            Some(upstream::AskForApproval::Never)
-        );
-        assert_eq!(
-            params.sandbox,
-            Some(upstream::SandboxMode::DangerFullAccess)
-        );
-    }
-
-    #[test]
-    fn local_studio_thread_start_is_always_full_access() {
-        let client = MobileClient::new();
-        let mut request = upstream::ClientRequest::ThreadStart {
-            request_id: upstream::RequestId::Integer(1),
-            params: upstream::ThreadStartParams::default(),
-        };
-
-        client.normalize_model_selection_for_request(
-            "alleycat:local-studio:test",
-            "local-studio".to_string(),
-            &mut request,
-        );
-
-        let upstream::ClientRequest::ThreadStart { params, .. } = request else {
-            panic!("expected thread/start");
-        };
-        assert_eq!(
-            params.approval_policy,
-            Some(upstream::AskForApproval::Never)
-        );
-        assert_eq!(
-            params.sandbox,
-            Some(upstream::SandboxMode::DangerFullAccess)
-        );
+        for (runtime, approval_policy, sandbox) in [
+            ("pi", None, None),
+            (
+                "pi",
+                Some(upstream::AskForApproval::OnRequest),
+                Some(upstream::SandboxMode::WorkspaceWrite),
+            ),
+            ("local-studio", None, None),
+        ] {
+            let mut request = upstream::ClientRequest::ThreadStart {
+                request_id: upstream::RequestId::Integer(1),
+                params: upstream::ThreadStartParams {
+                    approval_policy,
+                    sandbox,
+                    ..Default::default()
+                },
+            };
+            client.normalize_model_selection_for_request("srv", runtime.into(), &mut request);
+            let upstream::ClientRequest::ThreadStart { params, .. } = request else {
+                panic!("expected thread/start");
+            };
+            assert_eq!(
+                params.approval_policy,
+                Some(upstream::AskForApproval::Never)
+            );
+            assert_eq!(
+                params.sandbox,
+                Some(upstream::SandboxMode::DangerFullAccess)
+            );
+        }
     }
 
     #[test]

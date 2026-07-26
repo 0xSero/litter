@@ -1082,8 +1082,6 @@ impl MobileClient {
     ) {
         let supports_permission_overrides =
             self.runtime_supports_thread_permission_overrides(&runtime_kind);
-        // Pi runtimes are always full access. Their permission policy is fixed
-        // at the shared boundary and is not exposed as a mobile setting.
         let defaults_to_full_access = runtime_kind == "pi" || runtime_kind == "local-studio";
         match request {
             upstream::ClientRequest::ThreadStart { params, .. } => {
@@ -1818,7 +1816,6 @@ impl MobileClient {
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
-        // Preserve selection intent even when a runtime is briefly unavailable.
         let persisted_agent_names = if selected_agent_intent.is_empty() {
             requested_agent_names.clone()
         } else {
@@ -1906,30 +1903,34 @@ impl MobileClient {
             }
         };
 
-        let mut runtime_resources = Vec::new();
-        let mut runtime_infos = Vec::new();
-        for (runtime_kind, agent) in runtime_agents {
+        let dial_tasks = runtime_agents.into_iter().map(|(runtime_kind, agent)| {
             let reconnect_transport = AlleycatReconnectTransport::new(
                 params.clone(),
                 agent.name.clone(),
                 agent.wire,
                 endpoint.clone(),
             );
-            let mut dialed = reconnect_transport.connect_initial().await;
-            for attempt in 1..3 {
-                // Only transport-class failures are transient; payload and
-                // protocol errors are deterministic, and retrying them would
-                // just delay dialing the remaining runtimes.
-                let Err(crate::alleycat::AlleycatError::Transport(error)) = &dialed else {
-                    break;
-                };
-                warn!(
-                    "MobileClient: retrying Alleycat agent={} attempt={} error={}",
-                    agent.name, attempt, error
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
-                dialed = reconnect_transport.connect_initial().await;
+            async move {
+                let mut dialed = reconnect_transport.connect_initial().await;
+                for attempt in 1..3 {
+                    let Err(crate::alleycat::AlleycatError::Transport(error)) = &dialed else {
+                        break;
+                    };
+                    warn!(
+                        "MobileClient: retrying Alleycat agent={} attempt={} error={}",
+                        agent.name, attempt, error
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+                    dialed = reconnect_transport.connect_initial().await;
+                }
+                (runtime_kind, agent, reconnect_transport, dialed)
             }
+        });
+        let mut runtime_resources = Vec::new();
+        let mut runtime_infos = Vec::new();
+        for (runtime_kind, agent, reconnect_transport, dialed) in
+            futures::future::join_all(dial_tasks).await
+        {
             let (remote_client, alleycat_session) = match dialed {
                 Ok(result) => result,
                 Err(error) => {
@@ -2645,9 +2646,6 @@ impl MobileClient {
     /// embedded turn list (`exclude_turns: false`), since there is no
     /// other way to learn turn status there.
     ///
-    /// Use after a long resume / push wake — the in-flight turn the
-    /// client believes is still running may have completed during the
-    /// background window with no `TurnCompleted` event delivered.
     pub async fn force_refresh_thread_authoritative(
         &self,
         server_id: &str,
@@ -2949,12 +2947,6 @@ impl MobileClient {
     /// On the authoritative refresh path (`force_refresh_thread_authoritative`)
     /// for paginated remotes, run a small `thread/turns/list` query that
     /// returns turn skeletons only (no item bodies). The result is fed into
-    /// `reconcile_active_turn`, then a bounded full page repairs item bodies
-    /// for a turn that was active before the disconnect. That second read is
-    /// necessary even when the turn is still running: tool-start and output
-    /// events may have crossed the transport while iOS was suspended.
-    /// Failures here are logged and ignored — the next streamed event or
-    /// foreground refresh gets another chance to reconcile.
     async fn reconcile_active_turn_via_turn_list_probe(
         &self,
         server_id: &str,
@@ -4034,28 +4026,6 @@ pub(super) fn runtime_kinds_support_account_sync(runtime_kinds: &[AgentRuntimeKi
         .any(|runtime_kind| runtime_kind == "codex")
 }
 
-/// Re-establish per-thread subscriptions on the server after a remote
-/// transport reconnect.
-///
-/// Upstream codex routes per-turn events (`TurnStarted`, `Item*`,
-/// `TurnCompleted`) only to the connections currently in each thread's
-/// subscription set. When `AlleycatReconnectTransport::reconnect()` swaps
-/// in a fresh `AppServerClient`, the server sees a brand-new
-/// `ConnectionId` that isn't subscribed to anything; the old one was
-/// already unregistered when its connection dropped. The mobile client's
-/// `external_resume_thread` short-circuits via the `direct_resumed_threads`
-/// marker set during the previous (now-dead) connection, so without
-/// intervention the new connection never re-subscribes — and turn-stream
-/// events go missing until the user manually navigates.
-///
-/// On a Disconnected→Connected transition we therefore:
-///   1. Clear the direct-resume markers for this server (they're stale —
-///      the live `ConnectionId` has changed).
-///   2. Re-issue `external_resume_thread` for the active thread plus every
-///      thread on this server that already had loaded turns. Each call
-///      ends up routing through `thread/resume`, which calls
-///      `try_add_connection_to_thread` server-side and replays any
-///      in-flight requests for the new connection.
 pub(super) fn run_post_reconnect_resubscribe(app_store: Arc<AppStoreReducer>, server_id: String) {
     MobileClient::spawn_detached(async move {
         let Some(client) = crate::ffi::shared::shared_mobile_client_if_initialized() else {
@@ -4077,7 +4047,7 @@ pub(super) fn run_post_reconnect_resubscribe(app_store: Arc<AppStoreReducer>, se
             if keys_to_resume.iter().any(|k| k == key) {
                 continue;
             }
-            if !thread.items.is_empty() || thread.initial_turns_loaded {
+            if thread.active_turn_id.is_some() || !thread.queued_follow_ups.is_empty() {
                 keys_to_resume.push(key.clone());
             }
         }
@@ -4097,12 +4067,6 @@ pub(super) fn run_post_reconnect_resubscribe(app_store: Arc<AppStoreReducer>, se
         );
 
         for key in keys_to_resume {
-            // Force-authoritative so the response carries the embedded
-            // turn list. Without it `thread/resume` short-circuits via the
-            // direct-resume marker (or returns an empty turn list under
-            // `exclude_turns: true`), and `reconcile_active_turn` keeps
-            // any stale `active_turn_id` whose turn has already completed
-            // server-side.
             match client
                 .force_refresh_thread_authoritative(&key.server_id, &key.thread_id)
                 .await

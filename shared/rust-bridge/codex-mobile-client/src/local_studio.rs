@@ -80,10 +80,6 @@ pub(crate) async fn resolve_runtime(
     ssh: &SshClient,
     shell: RemoteShell,
 ) -> Result<Option<Runtime>, SshError> {
-    // `probe_remote_agents` runs its probe under `PROFILE_INIT`, so the PATH
-    // fallback tier (`command -v pi-coding-agent || command -v pi`) can resolve
-    // during discovery. Resolving without the same login profile here would
-    // report Local Studio as available in the picker and then fail to launch it.
     let result = ssh
         .exec_shell(
             &format!("{PROFILE_INIT}\n{FIND_AGENT_DIR}\n{FIND_RUNTIME}\nfind_local_studio_runtime"),

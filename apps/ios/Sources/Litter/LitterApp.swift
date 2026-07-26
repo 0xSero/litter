@@ -585,6 +585,7 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         .id(themeManager.themeVersion)
         .onAppear {
+            Task { await conversationWarmup.prewarmIfNeeded() }
             if !splashDismissed {
                 splashDismissed = true
                 (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
@@ -1698,7 +1699,7 @@ private struct HomeNavigationView: View {
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: nil,
+                            limit: 80,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,

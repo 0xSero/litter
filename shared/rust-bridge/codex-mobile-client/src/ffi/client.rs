@@ -695,16 +695,6 @@ impl AppClient {
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?;
             let available_runtime_kinds = session.runtime_kinds();
-            tracing::info!(
-                "list_threads: resolve runtimes server_id={} requested={:?} available={:?} search_term={:?} use_state_db_only={} limit={:?} cursor={:?}",
-                server_id,
-                requested_runtime_kinds,
-                available_runtime_kinds,
-                params.search_term,
-                params.use_state_db_only,
-                params.limit,
-                params.cursor
-            );
             let mut runtime_kinds = match requested_runtime_kinds {
                 Some(requested) if !requested.is_empty() => requested
                     .into_iter()
@@ -720,21 +710,6 @@ impl AppClient {
                         .to_string(),
                 ));
             }
-            tracing::info!(
-                "list_threads: fanout start server_id={} runtime_kinds={:?}",
-                server_id,
-                runtime_kinds
-            );
-
-            // Fan out per-runtime concurrently. The previous sequential loop
-            // exhausted Codex's full cursor pagination before non-Codex runtimes
-            // ever got their first page, so a Codex inbox with many threads
-            // would starve the other providers — the user would see only
-            // Codex threads while other runtimes were silently waiting their
-            // turn. By spawning each runtime's pagination as its own future
-            // and joining them, every provider's first page lands in
-            // parallel and the UI gets representative threads from each
-            // immediately.
             let mut codex_visited = false;
             let mut tasks = Vec::new();
             for runtime_kind in runtime_kinds {
@@ -752,31 +727,18 @@ impl AppClient {
                     let mut request_params = initial_params;
                     let mut ids = Vec::new();
                     let mut completed = true;
-                    tracing::info!(
-                        "list_threads: runtime start server_id={} runtime={:?} initial_limit={:?} search_term={:?} use_state_db_only={}",
-                        server_id,
-                        runtime_kind,
-                        request_params.limit,
-                        request_params.search_term,
-                        request_params.use_state_db_only
-                    );
                     loop {
-                        // 10s per-page timeout: a stalled agent (e.g.
-                        // opencode mid-restart) must not wedge the join.
                         let response: upstream::ThreadListResponse =
-                            match tokio::time::timeout(
-                                std::time::Duration::from_secs(10),
-                                rpc_runtime::<upstream::ThreadListResponse>(
-                                    client.as_ref(),
-                                    &server_id,
-                                    runtime_kind.clone(),
-                                    req!(server_id, ThreadList, request_params.clone()),
-                                ),
+                            match rpc_runtime::<upstream::ThreadListResponse>(
+                                client.as_ref(),
+                                &server_id,
+                                runtime_kind.clone(),
+                                req!(server_id, ThreadList, request_params.clone()),
                             )
                             .await
                             {
-                                Ok(Ok(response)) => response,
-                                Ok(Err(error)) => {
+                                Ok(response) => response,
+                                Err(error) => {
                                     tracing::warn!(
                                         "list_threads: thread/list failed for runtime {:?} on server {}: {}",
                                         runtime_kind, server_id, error
@@ -784,22 +746,7 @@ impl AppClient {
                                     completed = false;
                                     break;
                                 }
-                                Err(_) => {
-                                    tracing::warn!(
-                                        "list_threads: thread/list timed out after 10s for runtime {:?} on server {}",
-                                        runtime_kind, server_id
-                                    );
-                                    completed = false;
-                                    break;
-                                }
                             };
-                        tracing::info!(
-                            "list_threads: runtime page server_id={} runtime={:?} count={} next_cursor_present={}",
-                            server_id,
-                            runtime_kind,
-                            response.data.len(),
-                            response.next_cursor.is_some()
-                        );
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
                             runtime_kind.clone(),
@@ -814,26 +761,16 @@ impl AppClient {
                         }
                         request_params.cursor = Some(next_cursor);
                     }
-                    tracing::info!(
-                        "list_threads: runtime complete server_id={} runtime={:?} completed={} upserted_ids={}",
-                        server_id,
-                        runtime_kind,
-                        completed,
-                        ids.len()
-                    );
                     (runtime_kind, ids, completed)
                 });
             }
 
             let results = futures::future::join_all(tasks).await;
-            tracing::info!(
-                "list_threads: fanout complete server_id={} results={:?}",
-                server_id,
-                results
-                    .iter()
-                    .map(|(runtime, ids, completed)| (runtime.clone(), ids.len(), *completed))
-                    .collect::<Vec<_>>()
-            );
+            if results.iter().all(|(_, _, completed)| !completed) {
+                return Err(ClientError::Rpc(
+                    "thread list failed for every runtime".into(),
+                ));
+            }
             // Only prune if every runtime finished cleanly. A partial
             // result (one runtime timed out / errored) means we don't
             // know its true thread set yet, and `finalize_thread_list_sync`

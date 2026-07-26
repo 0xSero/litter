@@ -1150,21 +1150,29 @@ struct SessionsScreen: View {
         defer { isSessionLoadInFlight = false }
 
         isLoading = true
-        for serverId in connectedServerIds {
-            _ = try? await appModel.client.listThreads(
-                serverId: serverId,
-                params: AppListThreadsRequest(
-                    cursor: nil,
-                    limit: Self.sessionListPageLimit,
-                    sortKey: .updatedAt,
-                    sortDirection: .desc,
-                    archived: nil,
-                    cwd: nil,
-                    searchTerm: nil,
-                    useStateDbOnly: false,
-                    runtimeKinds: nil
-                )
-            )
+        let serverIds = selectedServerFilterId.map { [$0] } ?? connectedServerIds
+        let runtimeKinds = selectedRuntimeKindFilter.map { [$0] }
+        let client = appModel.client
+        let failures = await withTaskGroup(of: String?.self) { group in
+            for serverId in serverIds {
+                group.addTask {
+                    do {
+                        try await client.listThreads(
+                            serverId: serverId,
+                            params: AppListThreadsRequest(limit: Self.sessionListPageLimit, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
+                        )
+                        return nil
+                    } catch {
+                        return error.localizedDescription
+                    }
+                }
+            }
+            return await group.reduce(into: [String]()) { errors, error in
+                if let error { errors.append(error) }
+            }
+        }
+        if failures.count == serverIds.count {
+            sessionActionErrorMessage = failures.first
         }
         await appModel.refreshSnapshot()
 
