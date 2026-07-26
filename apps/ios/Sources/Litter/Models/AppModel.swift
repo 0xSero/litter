@@ -1462,6 +1462,7 @@ final class AppModel {
     }
 
     private func shouldAttemptDeferredHydration(for thread: AppThreadSnapshot) -> Bool {
+        guard thread.agentRuntimeKind.reportsEffectiveThreadPermissions else { return false }
         guard thread.hydratedConversationItems.isEmpty else { return false }
         let preview = thread.info.preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let title = thread.info.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1860,14 +1861,17 @@ final class AppModel {
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
         if let existing = threadSnapshot(for: key) {
             appState.hydratePermissions(from: existing)
-            if !hasAuthoritativePermissions(existing) {
+            if existing.agentRuntimeKind.reportsEffectiveThreadPermissions,
+               !hasAuthoritativePermissions(existing) {
                 scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
             }
             return key
         }
 
-        if snapshot?.sessionSummary(for: key) != nil {
-            scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
+        if let summary = snapshot?.sessionSummary(for: key) {
+            if summary.agentRuntimeKind.reportsEffectiveThreadPermissions {
+                scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
+            }
             return key
         }
 
