@@ -39,8 +39,6 @@ final class AlleycatCredentialStore {
             guard let token = String(data: data, encoding: .utf8), !token.isEmpty else {
                 throw AlleycatCredentialStoreError.decodingFailed
             }
-            // Upgrade older pairings in place so background reconnect can
-            // read them after the device has been unlocked once.
             let updates = [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
             _ = SecItemUpdate(baseQuery(nodeId: nodeId) as CFDictionary, updates as CFDictionary)
             return token

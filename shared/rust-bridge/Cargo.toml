@@ -29,10 +29,10 @@ codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolu
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # Pinned to the Local Studio runtime split on `codex/litter-local-bridge`
 # so mobile and the host daemon share the same app-server contract.
-alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "84cb3428376e790944d801f857661c556aedffc3" }
-alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "84cb3428376e790944d801f857661c556aedffc3" }
-alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "84cb3428376e790944d801f857661c556aedffc3" }
-alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "84cb3428376e790944d801f857661c556aedffc3" }
+alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "e7d5bfedeed80ba730363ece45f5c8db85fdffff" }
+alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "e7d5bfedeed80ba730363ece45f5c8db85fdffff" }
+alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "e7d5bfedeed80ba730363ece45f5c8db85fdffff" }
+alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "e7d5bfedeed80ba730363ece45f5c8db85fdffff" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

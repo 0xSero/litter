@@ -515,7 +515,7 @@ class AppModel private constructor(context: android.content.Context) {
                         serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = 80u,
+                            limit = null,
                             sortKey = AppThreadSortKey.UPDATED_AT,
                             sortDirection = AppSortDirection.DESC,
                             modelProviders = null,
@@ -983,7 +983,7 @@ class AppModel private constructor(context: android.content.Context) {
                         currentKey.serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = SESSION_LIST_PAGE_LIMIT,
+                            limit = null,
                             sortKey = AppThreadSortKey.UPDATED_AT,
                             sortDirection = AppSortDirection.DESC,
                             archived = null,

@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex, RwLock};
+use std::sync::{Arc, Mutex as StdMutex, RwLock, Weak};
 use tokio::sync::{Mutex, broadcast};
 use tracing::{debug, info, trace, warn};
 use url::Url;
@@ -82,6 +82,7 @@ pub struct MobileClient {
     /// step-up while the token remains valid.
     pub(crate) slingshot_credentials_directory: Arc<StdMutex<Option<String>>>,
     direct_resumed_threads: Arc<StdMutex<HashSet<ThreadKey>>>,
+    resume_locks: Arc<StdMutex<HashMap<ThreadKey, Weak<tokio::sync::Mutex<()>>>>>,
     thread_runtime_routes: Arc<StdMutex<HashMap<ThreadKey, AgentRuntimeKind>>>,
     /// Single shared iroh `Endpoint` for all alleycat operations. iroh is
     /// designed for one-per-app reuse: `Endpoint::connect(&self, ...)`
@@ -680,6 +681,14 @@ fn missing_runtime_kinds(
     missing
 }
 
+fn can_reuse_waited_resume(
+    waited: bool,
+    force_authoritative: bool,
+    has_direct_resume_marker: bool,
+) -> bool {
+    waited && !force_authoritative && has_direct_resume_marker
+}
+
 fn alleycat_requested_runtime_kinds(
     runtime_agents: &[(AgentRuntimeKind, AlleycatAgentInfo)],
 ) -> HashSet<AgentRuntimeKind> {
@@ -715,6 +724,7 @@ impl MobileClient {
             saved_apps_directory: Arc::new(StdMutex::new(None)),
             slingshot_credentials_directory: Arc::new(StdMutex::new(None)),
             direct_resumed_threads: Arc::new(StdMutex::new(HashSet::new())),
+            resume_locks: Arc::new(StdMutex::new(HashMap::new())),
             thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
@@ -917,6 +927,20 @@ impl MobileClient {
                 error.into_inner()
             }
         }
+    }
+
+    fn resume_lock(&self, key: &ThreadKey) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.resume_locks.lock().unwrap_or_else(|error| {
+            warn!("MobileClient: recovering poisoned resume lock map");
+            error.into_inner()
+        });
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(key.clone(), Arc::downgrade(&lock));
+        lock
     }
 
     fn thread_runtime_routes(
@@ -2594,7 +2618,15 @@ impl MobileClient {
         thread_id: &str,
         host_id: Option<String>,
     ) -> Result<(), RpcError> {
-        self.external_resume_thread_inner(server_id, thread_id, host_id, false)
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let active = self.app_store.thread_snapshot(&key).is_some_and(|thread| {
+            thread.active_turn_id.is_some()
+                || matches!(thread.info.status, ThreadSummaryStatus::Active)
+        });
+        self.external_resume_thread_inner(server_id, thread_id, host_id, active)
             .await
     }
 
@@ -2643,6 +2675,19 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
+        let resume_lock = self.resume_lock(&key);
+        let (waited, _resume_guard) = match resume_lock.try_lock() {
+            Ok(guard) => (false, guard),
+            Err(_) => (true, resume_lock.lock().await),
+        };
+        if can_reuse_waited_resume(
+            waited,
+            force_authoritative,
+            self.has_direct_resume_marker(&key),
+        ) {
+            self.app_store.mark_thread_resumed(&key, true);
+            return Ok(());
+        }
 
         // Force path skips both short-circuits — caller has out-of-band
         // knowledge that the locally-cached snapshot may have missed
@@ -2686,14 +2731,16 @@ impl MobileClient {
                 server_id, thread_id
             );
         }
-        let mut runtime_candidates = vec![self.runtime_for_thread(&key)];
-        for runtime_kind in session.runtime_kinds() {
+        let available_runtimes = session.runtime_kinds();
+        let mut runtime_candidates = Vec::new();
+        let preferred_runtime = self.runtime_for_thread(&key);
+        if available_runtimes.contains(&preferred_runtime) {
+            runtime_candidates.push(preferred_runtime);
+        }
+        for runtime_kind in available_runtimes {
             if !runtime_candidates.contains(&runtime_kind) {
                 runtime_candidates.push(runtime_kind);
             }
-        }
-        if !runtime_candidates.contains(&"codex".to_string()) {
-            runtime_candidates.push("codex".to_string());
         }
 
         let mut lookup_errors = Vec::new();
@@ -2723,7 +2770,14 @@ impl MobileClient {
             {
                 Ok(()) => {
                     self.note_thread_runtime(key.clone(), runtime_kind.clone());
-                    if force_authoritative && supports_pagination {
+                    let post_resume_active = self
+                        .app_store
+                        .thread_snapshot(&key)
+                        .is_some_and(|thread| {
+                            thread.active_turn_id.is_some()
+                                || matches!(thread.info.status, ThreadSummaryStatus::Active)
+                        });
+                    if supports_pagination && (force_authoritative || post_resume_active) {
                         self.reconcile_active_turn_via_turn_list_probe(
                             server_id,
                             thread_id,
@@ -2895,11 +2949,12 @@ impl MobileClient {
     /// On the authoritative refresh path (`force_refresh_thread_authoritative`)
     /// for paginated remotes, run a small `thread/turns/list` query that
     /// returns turn skeletons only (no item bodies). The result is fed into
-    /// `reconcile_active_turn` so a locally-cached `active_turn_id` whose
-    /// underlying turn has already completed server-side gets cleared, even
-    /// though we asked the resume to skip the embedded turn list. Failures
-    /// here are logged and ignored — the worst case is a transient stale
-    /// active-turn indicator until the next streamed event arrives.
+    /// `reconcile_active_turn`, then a bounded full page repairs item bodies
+    /// for a turn that was active before the disconnect. That second read is
+    /// necessary even when the turn is still running: tool-start and output
+    /// events may have crossed the transport while iOS was suspended.
+    /// Failures here are logged and ignored — the next streamed event or
+    /// foreground refresh gets another chance to reconcile.
     async fn reconcile_active_turn_via_turn_list_probe(
         &self,
         server_id: &str,
@@ -2964,25 +3019,27 @@ impl MobileClient {
         let Some(existing) = self.app_store.thread_snapshot(key) else {
             return;
         };
-        let was_active = existing.active_turn_id.is_some();
+        let was_active = existing.active_turn_id.is_some()
+            || matches!(existing.info.status, ThreadSummaryStatus::Active);
         let mut target = existing.clone();
         // Clear the field on the target so reconcile_active_turn can decide
         // whether to restore it from `existing` based on the turn list.
         target.active_turn_id = None;
         reconcile_active_turn(Some(&existing), &mut target, &response.data);
-        let active_turn_cleared = was_active && target.active_turn_id.is_none();
+        let is_active = target.active_turn_id.is_some()
+            || matches!(target.info.status, ThreadSummaryStatus::Active);
         if target.active_turn_id != existing.active_turn_id
             || target.info.status != existing.info.status
         {
             self.app_store.upsert_thread_snapshot(target);
         }
-        if active_turn_cleared
+        if (was_active || is_active)
             && let Err(error) = self
                 .load_thread_turns_page(server_id, thread_id, None, Some(PROBE_LIMIT))
                 .await
         {
             warn!(
-                "force_authoritative: completed-turn repair page failed server={} thread={}: {}",
+                "force_authoritative: active-turn repair page failed server={} thread={}: {}",
                 server_id, thread_id, error
             );
         }

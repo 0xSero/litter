@@ -27,39 +27,25 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-alleycat_branch() {
-  local manifest="$1"
-  sed -nE 's/.*dnakov\/alleycat\.git.*branch = "([^"]+)".*/\1/p' "$manifest" | head -1
-}
-
-alleycat_rev() {
-  local manifest="$1"
-  sed -nE 's/.*dnakov\/alleycat\.git.*rev = "([^"]+)".*/\1/p' "$manifest" | head -1
-}
-
-SHARED_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/shared/rust-bridge/Cargo.toml")"
-SHARED_ALLEYCAT_REV="$(alleycat_rev "$REPO_DIR/shared/rust-bridge/Cargo.toml")"
-KITTYLITTER_ALLEYCAT_BRANCH="$(alleycat_branch "$REPO_DIR/services/kittylitter/Cargo.toml")"
-KITTYLITTER_ALLEYCAT_REV="$(alleycat_rev "$REPO_DIR/services/kittylitter/Cargo.toml")"
-
-resolve_alleycat_sha() {
-  local branch="$1"
-  git ls-remote https://github.com/dnakov/alleycat.git "refs/heads/$branch" \
+ALLEYCAT_MAIN_SHA="$(
+  git ls-remote https://github.com/dnakov/alleycat.git refs/heads/main \
     | awk '{ print $1; exit }'
+)"
+if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
+  echo "error: could not resolve dnakov/alleycat main" >&2
+  exit 1
+fi
+
+alleycat_is_pinned() {
+  grep -q 'dnakov/alleycat\.git.*rev = ' "$1"
 }
 
 update_shared() {
-  if [ -n "$SHARED_ALLEYCAT_REV" ]; then
-    echo "==> shared Rust Alleycat deps are pinned to rev $SHARED_ALLEYCAT_REV; skipping refresh (bump the rev in shared/rust-bridge/Cargo.toml to update)"
-    return 0
+  if alleycat_is_pinned "$REPO_DIR/shared/rust-bridge/Cargo.toml"; then
+    echo "==> shared Rust Alleycat dependencies are revision-pinned; skipping"
+    return
   fi
-  local sha
-  sha="$(resolve_alleycat_sha "$SHARED_ALLEYCAT_BRANCH")"
-  if [ -z "$sha" ]; then
-    echo "error: could not resolve dnakov/alleycat $SHARED_ALLEYCAT_BRANCH" >&2
-    exit 1
-  fi
-  echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat $SHARED_ALLEYCAT_BRANCH ($sha)..."
+  echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   for package in \
     alleycat-bridge-core \
     alleycat-pi-bridge \
@@ -70,27 +56,21 @@ update_shared() {
       --quiet \
       --manifest-path "$REPO_DIR/shared/rust-bridge/Cargo.toml" \
       -p "$package" \
-      --precise "$sha"
+      --precise "$ALLEYCAT_MAIN_SHA"
   done
 }
 
 update_kittylitter() {
-  if [ -n "$KITTYLITTER_ALLEYCAT_REV" ]; then
-    echo "==> kittylitter Alleycat dep is pinned to rev $KITTYLITTER_ALLEYCAT_REV; skipping refresh (bump the rev in services/kittylitter/Cargo.toml to update)"
-    return 0
+  if alleycat_is_pinned "$REPO_DIR/services/kittylitter/Cargo.toml"; then
+    echo "==> kittylitter Alleycat dependency is revision-pinned; skipping"
+    return
   fi
-  local sha
-  sha="$(resolve_alleycat_sha "$KITTYLITTER_ALLEYCAT_BRANCH")"
-  if [ -z "$sha" ]; then
-    echo "error: could not resolve dnakov/alleycat $KITTYLITTER_ALLEYCAT_BRANCH" >&2
-    exit 1
-  fi
-  echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat $KITTYLITTER_ALLEYCAT_BRANCH ($sha)..."
+  echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   cargo update \
     --quiet \
     --manifest-path "$REPO_DIR/services/kittylitter/Cargo.toml" \
     -p alleycat \
-    --precise "$sha"
+    --precise "$ALLEYCAT_MAIN_SHA"
 }
 
 case "$MODE" in

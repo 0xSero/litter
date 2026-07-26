@@ -118,10 +118,6 @@ struct AlleycatAddServerSheet: View {
                 onScan: { scanned in
                     showScanner = false
                     handleScannedPayload(scanned)
-                },
-                onPermissionDenied: {
-                    showScanner = false
-                    cameraDenied = true
                 }
             )
         }
@@ -188,6 +184,7 @@ struct AlleycatAddServerSheet: View {
                     .foregroundColor(LitterTheme.accent)
             }
         }
+        .accessibilityIdentifier("alleycat.pair.scanButton")
 
         DisclosureGroup(
             isExpanded: $showPaste,
@@ -469,7 +466,11 @@ struct AlleycatAddServerSheet: View {
                     selectedAgentNames: selectedNames,
                     wire: fallbackAgent.wire
                 )
-                try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
+                do {
+                    try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
+                } catch {
+                    LLog.error("alleycat", "keychain save failed after successful pair", error: error)
+                }
                 // First successful alleycat pair triggers the iroh
                 // endpoint bind. Persist the freshly-generated device
                 // secret key so the next cold launch reuses the same
@@ -563,7 +564,6 @@ private struct QRScannerScreen: View {
     @Binding var isPresented: Bool
     let pairingMode: AlleycatPairingMode
     let onScan: (String) -> Void
-    let onPermissionDenied: () -> Void
 
     private static let pairCommand = "npx kittylitter"
 
@@ -573,11 +573,9 @@ private struct QRScannerScreen: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            QRCaptureSheet(
-                onScan: onScan,
-                onPermissionDenied: onPermissionDenied
-            )
+            QRCaptureSheet(onScan: onScan)
             .ignoresSafeArea()
+            .allowsHitTesting(false)
 
             LinearGradient(
                 colors: [Color.black.opacity(0.55), Color.black.opacity(0.0)],
@@ -740,12 +738,10 @@ private struct QRScannerScreen: View {
 
 private struct QRCaptureSheet: UIViewControllerRepresentable {
     let onScan: (String) -> Void
-    let onPermissionDenied: () -> Void
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.onScan = onScan
-        controller.onPermissionDenied = onPermissionDenied
         return controller
     }
 
@@ -754,7 +750,6 @@ private struct QRCaptureSheet: UIViewControllerRepresentable {
 
 private final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
-    var onPermissionDenied: (() -> Void)?
 
     private let captureSession = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -769,7 +764,7 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        guard !captureSession.isRunning else { return }
+        guard !captureSession.inputs.isEmpty, !captureSession.isRunning else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession.startRunning()
         }
@@ -790,17 +785,14 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
 
     private func configureSession() {
         guard let device = AVCaptureDevice.default(for: .video) else {
-            onPermissionDenied?()
             return
         }
         guard let input = try? AVCaptureDeviceInput(device: device) else {
-            onPermissionDenied?()
             return
         }
         if captureSession.canAddInput(input) {
             captureSession.addInput(input)
         } else {
-            onPermissionDenied?()
             return
         }
 
@@ -812,7 +804,6 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
                 output.metadataObjectTypes = [.qr]
             }
         } else {
-            onPermissionDenied?()
             return
         }
 

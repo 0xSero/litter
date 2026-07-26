@@ -681,7 +681,6 @@ impl AppClient {
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             let requested_runtime_kinds = params.runtime_kinds.clone();
-            let has_requested_runtime_kinds = requested_runtime_kinds.is_some();
             let drain_all_pages = params.cursor.is_none()
                 && params.limit.is_none()
                 && params
@@ -709,17 +708,18 @@ impl AppClient {
             let mut runtime_kinds = match requested_runtime_kinds {
                 Some(requested) if !requested.is_empty() => requested
                     .into_iter()
-                    .filter(|kind| {
-                        *kind == "codex".to_string() || available_runtime_kinds.contains(kind)
-                    })
+                    .filter(|kind| available_runtime_kinds.contains(kind))
                     .collect::<Vec<_>>(),
                 _ => available_runtime_kinds,
             };
-            if !has_requested_runtime_kinds && !runtime_kinds.contains(&"codex".to_string()) {
-                runtime_kinds.push("codex".to_string());
-            }
             runtime_kinds.sort();
             runtime_kinds.dedup();
+            if runtime_kinds.is_empty() {
+                return Err(ClientError::Rpc(
+                    "none of the requested agent runtimes are available on this controller"
+                        .to_string(),
+                ));
+            }
             tracing::info!(
                 "list_threads: fanout start server_id={} runtime_kinds={:?}",
                 server_id,

@@ -121,8 +121,6 @@ final class AppModel {
     @ObservationIgnored private var pendingCommandRowMutationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
     @ObservationIgnored private var loadingTurnPageThreadKeys: Set<ThreadKey> = []
-    /// First-turn send failures that happened after navigation already moved to the
-    /// conversation; the conversation view consumes these for its own thread key.
     private(set) var pendingHandoffTurnErrors: [ThreadKey: String] = [:]
 
     func reportHandoffTurnError(key: ThreadKey, message: String) {
@@ -325,18 +323,14 @@ final class AppModel {
 
     /// Force a fresh resume so the store reconciles `active_turn_id`
     /// against the server's authoritative view. Use after a long resume /
-    /// push wake — the in-flight turn the local snapshot shows as running
-    /// may have completed during the background window with no
-    /// `TurnCompleted` event delivered.
+    /// push wake — the in-flight turn may have advanced or completed during
+    /// the background window with item or terminal events not delivered.
     ///
     /// On v0.125+ remotes this runs `thread/resume` with
-    /// `excludeTurns: true` and then a tiny `thread/turns/list` probe
-    /// (`limit: 5`, `itemsView: notLoaded`) — turn skeletons only — to feed
-    /// `reconcile_active_turn`. Pulling the full embedded turn list here
-    /// would OOM on long threads. Legacy remotes that don't implement
-    /// `thread/turns/list` still get the embedded turn list via
-    /// `excludeTurns: false`, since there is no other way to learn turn
-    /// status there.
+    /// `excludeTurns: true`, then a tiny skeleton probe and a bounded full
+    /// repair page when the local turn was active. Legacy remotes that don't
+    /// implement `thread/turns/list` still get the embedded turn list via
+    /// `excludeTurns: false`.
     func forceRefreshThreadAuthoritative(key: ThreadKey) async throws {
         try await store.forceRefreshThreadAuthoritative(key: key)
     }
@@ -1968,7 +1962,7 @@ final class AppModel {
                         serverId: currentKey.serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             archived: nil,

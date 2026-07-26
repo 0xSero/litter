@@ -747,6 +747,35 @@ mod mobile_client_tests {
         assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
     }
 
+    #[test]
+    fn authoritative_completed_turn_clears_stale_active_status_and_id() {
+        let existing = thread_snapshot_with_active_turn("srv", "thread-1", "turn-1");
+        let mut target = existing.clone();
+        target.active_turn_id = None;
+        let turns: Vec<upstream::Turn> = serde_json::from_value(json!([{
+            "id": "turn-1",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1,
+            "completedAt": 2,
+            "durationMs": 1
+        }]))
+        .expect("completed turn skeleton should deserialize");
+
+        reconcile_active_turn(Some(&existing), &mut target, &turns);
+
+        assert_eq!(target.active_turn_id, None);
+        assert_eq!(target.info.status, ThreadSummaryStatus::Idle);
+    }
+
+    #[test]
+    fn force_authoritative_waiter_does_not_reuse_normal_resume_marker() {
+        assert!(!can_reuse_waited_resume(true, true, true));
+        assert!(can_reuse_waited_resume(true, false, true));
+    }
+
     #[tokio::test]
     async fn external_resume_thread_falls_back_to_metadata_read_after_worker_channel_closes() {
         let client = MobileClient::new();

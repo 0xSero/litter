@@ -371,9 +371,6 @@ struct LitterApp: App {
                     voiceRuntime.bind(appModel: appModel)
                     appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
                     appDelegate.appRuntime = appRuntime
-                    // Background and protected-data launches are not foreground
-                    // recovery. Wait for the real active transition so a locked
-                    // launch cannot consume the cold-reconnect attempt.
                     if scenePhase == .active {
                         appRuntime.appDidBecomeActive()
                     }
@@ -1694,14 +1691,14 @@ private struct HomeNavigationView: View {
                 LLog.info(
                     "home",
                     "repairing pinned thread listing",
-                    fields: ["serverId": serverId, "limit": 80]
+                    fields: ["serverId": serverId]
                 )
                 do {
                     try await appModel.client.listThreads(
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,
@@ -1897,7 +1894,7 @@ private struct HomeNavigationView: View {
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,

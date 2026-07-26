@@ -524,21 +524,8 @@ private struct ModelProviderGroup: Identifiable {
 
 private func modelProviderName(_ model: ModelInfo) -> String {
     guard let provider = model.providerId else { return model.agentRuntimeKind.titleDisplayLabel }
-    switch provider.lowercased() {
-    case "ai21": return "AI21"
-    case "arcee-ai": return "Arcee AI"
-    case "bytedance-seed": return "ByteDance"
-    case "deepseek": return "DeepSeek"
-    case "meta-llama": return "Meta"
-    case "mistralai": return "Mistral AI"
-    case "moonshotai": return "Moonshot AI"
-    case "openai": return "OpenAI"
-    case "openrouter": return "OpenRouter"
-    case "x-ai": return "xAI"
-    default:
-        return provider.split(whereSeparator: { $0 == "-" || $0 == "_" })
-            .map { $0.capitalized }.joined(separator: " ")
-    }
+    return provider.split(whereSeparator: { $0 == "-" || $0 == "_" })
+        .map { $0.capitalized }.joined(separator: " ")
 }
 
 private func modelNameWithinProvider(_ model: ModelInfo) -> String {
@@ -745,10 +732,6 @@ struct InlineModelSelectorView: View {
                                 } else {
                                     reasoningEffort = defaultReasoningEffortSelection(for: model)
                                 }
-                                // Auto-dismiss only in the thread-scoped popover
-                                // context. In the home sheet (no thread yet) we
-                                // let the user pick a model AND change plan or
-                                // permissions before hitting Done.
                                 if threadKey != nil { onDismiss() }
                             } label: {
                                 HStack {

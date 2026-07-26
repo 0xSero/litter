@@ -292,8 +292,6 @@ struct HomeComposerView: View {
                 await appModel.refreshThreadSnapshot(key: threadKey)
             } catch {
                 if let createdThreadKey {
-                    // Navigation already moved to the conversation; surface the failed
-                    // first send there instead of on this no-longer-visible composer.
                     appModel.reportHandoffTurnError(
                         key: createdThreadKey,
                         message: error.localizedDescription

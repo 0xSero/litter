@@ -825,6 +825,14 @@ pub fn reconcile_active_turn(
         target.info.status = ThreadSummaryStatus::Active;
         return;
     }
+    if let Some(remote_id) = active_turn_id_from_turns(upstream_turns) {
+        target.active_turn_id = Some(remote_id);
+        target.info.status = ThreadSummaryStatus::Active;
+        return;
+    }
+    if !upstream_turns.is_empty() && matches!(target.info.status, ThreadSummaryStatus::Active) {
+        target.info.status = ThreadSummaryStatus::Idle;
+    }
     let Some(local_id) = existing.and_then(|t| t.active_turn_id.clone()) else {
         return;
     };
