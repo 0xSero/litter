@@ -220,6 +220,22 @@ fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
     runtime_kind != "shell"
 }
 
+fn list_runtime_kinds(
+    requested: Option<Vec<types::AgentRuntimeKind>>,
+    available: &[types::AgentRuntimeKind],
+) -> Vec<types::AgentRuntimeKind> {
+    let mut runtimes = match requested {
+        Some(requested) if !requested.is_empty() => requested
+            .into_iter()
+            .filter(|kind| available.contains(kind))
+            .collect(),
+        _ => available.to_vec(),
+    };
+    runtimes.sort();
+    runtimes.dedup();
+    runtimes
+}
+
 fn append_cached_models_for_failed_runtimes(
     models: &mut Vec<types::ModelInfo>,
     seen_model_ids: &mut HashSet<(types::AgentRuntimeKind, String)>,
@@ -698,21 +714,39 @@ impl AppClient {
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?;
             let available_runtime_kinds = session.runtime_kinds();
-            let mut runtime_kinds = match requested_runtime_kinds {
-                Some(requested) if !requested.is_empty() => requested
-                    .into_iter()
-                    .filter(|kind| available_runtime_kinds.contains(kind))
-                    .collect::<Vec<_>>(),
-                _ => available_runtime_kinds,
-            };
-            runtime_kinds.sort();
-            runtime_kinds.dedup();
+            tracing::info!(
+                "list_threads: resolve runtimes server_id={} requested={:?} available={:?} search_term={:?} use_state_db_only={} limit={:?} cursor={:?}",
+                server_id,
+                requested_runtime_kinds,
+                available_runtime_kinds,
+                params.search_term,
+                params.use_state_db_only,
+                params.limit,
+                params.cursor
+            );
+            let runtime_kinds =
+                list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
             if runtime_kinds.is_empty() {
                 return Err(ClientError::Rpc(
                     "none of the requested agent runtimes are available on this controller"
                         .to_string(),
                 ));
             }
+            tracing::info!(
+                "list_threads: fanout start server_id={} runtime_kinds={:?}",
+                server_id,
+                runtime_kinds
+            );
+
+            // Fan out per-runtime concurrently. The previous sequential loop
+            // exhausted Codex's full cursor pagination before non-Codex runtimes
+            // ever got their first page, so a Codex inbox with many threads
+            // would starve the other providers — the user would see only
+            // Codex threads while other runtimes were silently waiting their
+            // turn. By spawning each runtime's pagination as its own future
+            // and joining them, every provider's first page lands in
+            // parallel and the UI gets representative threads from each
+            // immediately.
             let mut codex_visited = false;
             let mut tasks = Vec::new();
             for runtime_kind in runtime_kinds {
@@ -2980,6 +3014,7 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
+        list_runtime_kinds,
         normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
         splice_generative_ui_preamble,
     };
@@ -3105,6 +3140,13 @@ mod tests {
                 .iter()
                 .any(|option| option.reasoning_effort == ReasoningEffort::Max)
         );
+    }
+
+    #[test]
+    fn thread_list_only_queries_runtimes_the_controller_exposes() {
+        let local_studio = vec!["local-studio".to_string()];
+        assert_eq!(list_runtime_kinds(None, &local_studio), local_studio);
+        assert!(list_runtime_kinds(Some(vec!["codex".to_string()]), &local_studio).is_empty());
     }
 
     #[test]

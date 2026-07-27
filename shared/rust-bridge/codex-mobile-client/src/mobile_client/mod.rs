@@ -2623,11 +2623,11 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
-        let active = self.app_store.thread_snapshot(&key).is_some_and(|thread| {
+        let reconcile_active_items = self.app_store.thread_snapshot(&key).is_some_and(|thread| {
             thread.active_turn_id.is_some()
                 || matches!(thread.info.status, ThreadSummaryStatus::Active)
         });
-        self.external_resume_thread_inner(server_id, thread_id, host_id, active)
+        self.external_resume_thread_inner(server_id, thread_id, host_id, reconcile_active_items)
             .await
     }
 

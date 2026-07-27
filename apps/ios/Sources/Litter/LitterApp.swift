@@ -1700,7 +1700,7 @@ private struct HomeNavigationView: View {
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,

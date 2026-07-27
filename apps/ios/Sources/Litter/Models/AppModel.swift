@@ -1966,7 +1966,7 @@ final class AppModel {
                         serverId: currentKey.serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             archived: nil,

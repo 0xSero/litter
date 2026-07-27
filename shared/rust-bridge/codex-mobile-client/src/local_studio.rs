@@ -12,6 +12,7 @@ const FIND_AGENT_DIR: &str = r#"find_local_studio_agent_dir() {
   for candidate in \
     "${LOCAL_STUDIO_DATA_DIR:+$LOCAL_STUDIO_DATA_DIR/pi-agent}" \
     "$HOME/Library/Application Support/Local Studio/pi-agent" \
+    "$HOME/Library/Application Support/Local Studio "*/pi-agent \
     "$HOME/.vllm-studio/pi-agent" \
     "$HOME/.local-studio/pi-agent"
   do
@@ -27,14 +28,32 @@ const FIND_AGENT_DIR: &str = r#"find_local_studio_agent_dir() {
 const FIND_RUNTIME: &str = r#"find_local_studio_runtime() {
   agent_dir=$(find_local_studio_agent_dir 2>/dev/null || true)
   [ -n "$agent_dir" ] || return 1
-  for app in "/Applications/Local Studio.app" "$HOME/Applications/Local Studio.app"; do
-    program="$app/Contents/MacOS/Local Studio"
+  try_local_studio_bundle() {
+    app="$1"
+    product="$2"
+    program="$app/Contents/MacOS/$product"
     cli="$app/Contents/Resources/app/frontend/.next/standalone/frontend/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
     if [ -x "$program" ] && [ -f "$cli" ]; then
       printf '%s\t%s\t%s\t1\n' "$agent_dir" "$program" "$cli"
       return 0
     fi
-  done
+    return 1
+  }
+
+  # A named channel (for example Local Studio Dev) must launch its matching
+  # app bundle. Falling back to the release bundle makes discovery succeed but
+  # starts Pi with a different runtime than the one that owns the agent dir.
+  channel_dir=${agent_dir%/pi-agent}
+  case "$channel_dir" in
+    "$HOME/Library/Application Support/Local Studio"|"$HOME/Library/Application Support/Local Studio "*)
+      product=${channel_dir##*/}
+      try_local_studio_bundle "/Applications/$product.app" "$product" && return 0
+      try_local_studio_bundle "$HOME/Applications/$product.app" "$product" && return 0
+      ;;
+  esac
+
+  try_local_studio_bundle "/Applications/Local Studio.app" "Local Studio" && return 0
+  try_local_studio_bundle "$HOME/Applications/Local Studio.app" "Local Studio" && return 0
   metadata="${agent_dir%/pi-agent}/litter-bridge.json"
   pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$metadata" 2>/dev/null | head -n 1)
   if [ -n "$pid" ] && [ -x "/proc/$pid/exe" ]; then
@@ -353,15 +372,19 @@ mod tests {
     }
 
     #[test]
-    fn probe_script_reports_only_the_agent_dir() {
+    fn probe_script_supports_named_local_studio_channels() {
         let script = probe_script();
         assert!(
-            script.contains("printf 'local-studio\\t%s\\n'"),
-            "probe must emit the agent-probe wire line"
+            script.contains("Local Studio \"*/pi-agent"),
+            "probe must search named Local Studio channels such as Local Studio Dev"
         );
         assert!(
-            script.contains("${runtime%%\t*}"),
-            "probe must report the first tab-separated field (agent dir) only"
+            script.contains("try_local_studio_bundle \"/Applications/$product.app\" \"$product\""),
+            "named channels must launch their matching app bundle"
+        );
+        assert!(
+            script.contains("printf 'local-studio\\t1\\n'"),
+            "probe must emit the agent-probe wire line"
         );
         assert!(
             script.contains("printf 'local-studio\\t\\n'"),

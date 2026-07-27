@@ -7,8 +7,6 @@ private let sessionsScreenSignpostLog = OSLog(
 )
 
 struct SessionsScreen: View {
-    private static let sessionListPageLimit: UInt32 = 80
-
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
     @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
@@ -1159,7 +1157,7 @@ struct SessionsScreen: View {
                     do {
                         try await client.listThreads(
                             serverId: serverId,
-                            params: AppListThreadsRequest(limit: Self.sessionListPageLimit, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
+                            params: AppListThreadsRequest(limit: nil, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
                         )
                         return nil
                     } catch {

@@ -1331,7 +1331,7 @@ mod mobile_client_tests {
     }
 
     #[tokio::test]
-    async fn force_refresh_repairs_items_for_turn_still_running_after_disconnect() {
+    async fn reopening_active_thread_repairs_items_missed_while_away() {
         let client = MobileClient::new();
         let server_id = "srv";
         let thread_id = "thread-running";
@@ -1444,10 +1444,11 @@ mod mobile_client_tests {
             .expect("sessions lock should not be poisoned")
             .insert(server_id.to_string(), session);
 
+        client.mark_direct_resumed_thread(key.clone());
         client
-            .force_refresh_thread_authoritative(server_id, thread_id)
+            .external_resume_thread(server_id, thread_id, None)
             .await
-            .expect("force refresh should repair the active turn");
+            .expect("reopening should repair the active turn");
 
         let requests = requests
             .lock()
