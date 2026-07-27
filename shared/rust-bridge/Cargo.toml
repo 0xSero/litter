@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "codex-bridge",
     "codex-slingshot",
     "codex-mobile-client",
     "uniffi-bindgen",

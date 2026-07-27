@@ -2307,21 +2307,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-bridge"
-version = "0.1.0"
-dependencies = [
- "codex-app-server-protocol",
- "codex-apply-patch",
- "codex-core",
- "codex-mobile-client",
- "jni 0.21.1",
- "openssl-sys",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "codex-chatgpt"
 version = "0.132.0"
 dependencies = [

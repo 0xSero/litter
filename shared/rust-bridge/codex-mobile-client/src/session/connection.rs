@@ -144,7 +144,7 @@ impl Default for InProcessConfig {
 }
 
 #[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
-static IOS_CACERT_PEM: &[u8] = include_bytes!("../../../codex-bridge/src/cacert.pem");
+static IOS_CACERT_PEM: &[u8] = include_bytes!("../cacert.pem");
 
 #[allow(unused_mut)]
 fn prepare_in_process_config(
