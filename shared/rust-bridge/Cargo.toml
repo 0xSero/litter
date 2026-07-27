@@ -1,12 +1,9 @@
 [workspace]
 members = [
     "codex-bridge",
-    "codex-debug-cli",
-    "codex-ipc",
     "codex-slingshot",
     "codex-mobile-client",
     "uniffi-bindgen",
-    "codex-tui",
 ]
 resolver = "3"
 

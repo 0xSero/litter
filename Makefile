@@ -213,7 +213,7 @@ $(shell mkdir -p $(STAMPS))
 	test test-rust test-ios test-android \
 	ios-release-prep mac-release-prep testflight mac-testflight mac-direct-dist appstore-release play-upload play-release \
 	clean clean-rust clean-ios clean-android \
-	rebuild-bindings kittylitter kittylitter-restart tui tui-run help
+	rebuild-bindings kittylitter kittylitter-restart help
 
 all: ios android
 
@@ -924,17 +924,3 @@ kittylitter-restart: $(KITTYLITTER_DEV_MANIFEST)
 		echo "kittylitter autostart is not installed; start it with: make kittylitter serve"; \
 	fi
 
-tui:
-	@echo "── Building codex-tui ──"
-	cd shared/rust-bridge && cargo build -p codex-tui --release
-
-tui-run:
-	@echo "── Running codex-tui ──"
-	cd shared/rust-bridge && cargo run -p codex-tui --release
-
-export-fixture:
-	@echo "── Building export-fixture ──"
-	cd shared/rust-bridge && cargo build -p codex-tui --bin export-fixture --release
-
-export-fixture-run:
-	@cd shared/rust-bridge && cargo run -p codex-tui --bin export-fixture --release -- $(ARGS)

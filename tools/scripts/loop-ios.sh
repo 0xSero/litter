@@ -29,7 +29,6 @@ LOCK="/tmp/litter-loop-ios.lock"
 WATCH_DIRS=(
   "$ROOT/shared/rust-bridge/codex-mobile-client"
   "$ROOT/shared/rust-bridge/codex-bridge"
-  "$ROOT/shared/rust-bridge/codex-ipc"
   "$ROOT/apps/ios/Sources"
   "$ROOT/apps/ios/Resources"
   "$ROOT/apps/ios/project.yml"
