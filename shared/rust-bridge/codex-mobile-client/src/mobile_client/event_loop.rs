@@ -437,6 +437,7 @@ impl MobileClient {
     }
 }
 
+#[cfg(test)]
 fn deserialize_typed_response<R>(value: &serde_json::Value) -> Result<R, serde_json::Error>
 where
     R: serde::de::DeserializeOwned,

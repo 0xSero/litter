@@ -20,9 +20,11 @@ use crate::session::connection::ServerConfig;
 use crate::session::events::UiEvent;
 use crate::types::{
     AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
-    PendingApprovalWithSeed, PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest,
+    PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest,
     PendingUserInputSeed, ThreadInfo, ThreadKey, ThreadSummaryStatus,
 };
+#[cfg(test)]
+use crate::types::PendingApprovalWithSeed;
 use crate::types::{
     AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppThreadGoal,
     AppVoiceSessionPhase, AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
@@ -1059,6 +1061,7 @@ impl AppStoreReducer {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn replace_pending_approvals_with_seeds(
         &self,
         approvals: Vec<PendingApprovalWithSeed>,
@@ -3394,18 +3397,6 @@ pub(crate) fn remove_duplicate_local_overlay_items(thread: &mut ThreadSnapshot) 
             .iter()
             .all(|existing| !is_superseded_overlay_item(item, existing, active_turn_id))
     });
-}
-
-pub(crate) fn reconcile_local_overlay_items(thread: &mut ThreadSnapshot) {
-    if let Some(turn_id) = thread.active_turn_id.clone() {
-        for item in &mut thread.local_overlay_items {
-            if item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX) && item.source_turn_id.is_none()
-            {
-                item.source_turn_id = Some(turn_id.clone());
-            }
-        }
-    }
-    remove_duplicate_local_overlay_items(thread);
 }
 
 fn bind_pending_local_user_overlay_to_target_turn(

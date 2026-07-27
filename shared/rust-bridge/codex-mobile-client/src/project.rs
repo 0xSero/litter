@@ -106,7 +106,7 @@ pub fn derive_projects(sessions: Vec<AppSessionSummary>) -> Vec<AppProject> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AgentRuntimeKind, AppSubagentStatus, ThreadKey};
+    use crate::types::{AppSubagentStatus, ThreadKey};
 
     fn session(
         server: &str,

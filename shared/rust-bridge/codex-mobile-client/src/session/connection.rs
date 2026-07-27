@@ -1806,10 +1806,6 @@ fn route_in_process_event(
 
 #[cfg(test)]
 impl ServerSession {
-    pub(crate) fn test_stub(config: ServerConfig) -> Self {
-        Self::test_stub_with_handlers(config, None, None, None)
-    }
-
     pub(crate) fn test_stub_with_handlers(
         config: ServerConfig,
         request_handler: Option<TestRequestHandler>,
