@@ -831,13 +831,18 @@ async fn resolve_ssh_bridge_runtime_kinds(
             })
     };
 
+    // When a saved SSH-bridge server did not record a runtime kind, fall back
+    // to the established precedence (claude/pi/opencode/codex) so existing
+    // servers keep their prior selection. Local Studio is appended, not
+    // prepended, so a host that newly installed Local Studio does not silently
+    // take over a server the user previously ran as claude or pi.
     let candidates = if requested.is_empty() {
         vec![
-            "local-studio".to_string(),
             "claude".to_string(),
             "pi".to_string(),
             "opencode".to_string(),
             "codex".to_string(),
+            "local-studio".to_string(),
         ]
     } else {
         requested.to_vec()

@@ -27,10 +27,13 @@ codex-cloud-requirements = { path = "../third_party/codex/codex-rs/cloud-require
 codex-config = { path = "../third_party/codex/codex-rs/config" }
 codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolute-path" }
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
-alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "b8b0c113e1ca51c510bb40146b61931755e92b80" }
-alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "b8b0c113e1ca51c510bb40146b61931755e92b80" }
-alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "b8b0c113e1ca51c510bb40146b61931755e92b80" }
-alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "b8b0c113e1ca51c510bb40146b61931755e92b80" }
+# Pinned to the same immutable commit as the kittylitter daemon so the phone
+# and host share one alleycat wire-protocol revision. `b8b0c113` was an
+# ancestor of `7aeb38ab`; both consumers now resolve against `7aeb38ab`.
+alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "7aeb38ab0381a56b1bbd86231813efeca9d0d5a2" }
+alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "7aeb38ab0381a56b1bbd86231813efeca9d0d5a2" }
+alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "7aeb38ab0381a56b1bbd86231813efeca9d0d5a2" }
+alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "7aeb38ab0381a56b1bbd86231813efeca9d0d5a2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
