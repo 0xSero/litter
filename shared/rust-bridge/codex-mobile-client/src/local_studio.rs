@@ -56,16 +56,10 @@ const FIND_RUNTIME: &str = r#"find_local_studio_runtime() {
 }"#;
 
 pub(crate) fn probe_script() -> String {
-    format!(
-        r#"{FIND_AGENT_DIR}
+    format!(r#"{FIND_AGENT_DIR}
 {FIND_RUNTIME}
 runtime=$(find_local_studio_runtime 2>/dev/null || true)
-if [ -n "$runtime" ]; then
-  printf 'local-studio\t%s\n' "${{runtime%%	*}}"
-else
-  printf 'local-studio\t\n'
-fi"#
-    )
+printf 'local-studio\t%s\n' "${{runtime%%	*}}""#)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,12 +83,7 @@ pub(crate) async fn resolve_runtime(
     if result.exit_code != 0 {
         return Ok(None);
     }
-    Ok(result
-        .stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .and_then(parse_runtime))
+    Ok(result.stdout.lines().find_map(parse_runtime))
 }
 
 fn parse_runtime(line: &str) -> Option<Runtime> {
@@ -102,7 +91,6 @@ fn parse_runtime(line: &str) -> Option<Runtime> {
     let agent_dir = fields.next()?.trim();
     let program = fields.next()?.trim();
     let prefix_arg = fields.next()?.trim();
-    let electron_node = fields.next()?.trim() == "1";
     if agent_dir.is_empty() || program.is_empty() {
         return None;
     }
@@ -110,7 +98,7 @@ fn parse_runtime(line: &str) -> Option<Runtime> {
         agent_dir: agent_dir.to_owned(),
         program: program.to_owned(),
         prefix_arg: (!prefix_arg.is_empty()).then(|| prefix_arg.to_owned()),
-        electron_node,
+        electron_node: fields.next()?.trim() == "1",
     })
 }
 
@@ -177,14 +165,8 @@ mod tests {
              /Applications/Local Studio.app/Contents/Resources/pi cli.js\t1",
         )
         .unwrap();
-        assert_eq!(
-            runtime.agent_dir,
-            "/Users/test/Library/Application Support/Local Studio/pi-agent"
-        );
-        assert_eq!(
-            runtime.prefix_arg.as_deref(),
-            Some("/Applications/Local Studio.app/Contents/Resources/pi cli.js")
-        );
+        assert_eq!(runtime.agent_dir, "/Users/test/Library/Application Support/Local Studio/pi-agent");
+        assert_eq!(runtime.prefix_arg.as_deref(), Some("/Applications/Local Studio.app/Contents/Resources/pi cli.js"));
         assert!(runtime.electron_node);
     }
 

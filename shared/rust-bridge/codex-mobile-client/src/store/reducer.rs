@@ -699,9 +699,6 @@ impl AppStoreReducer {
         }
     }
 
-    /// Claims the next message draft before an automatic turn/start request.
-    /// Event notifications must never consume queue entries: the request path
-    /// owns exactly one draft and restores it if delivery fails.
     pub(crate) fn claim_first_queued_follow_up_draft(
         &self,
         key: &ThreadKey,

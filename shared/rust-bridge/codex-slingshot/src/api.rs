@@ -435,6 +435,7 @@ impl SlingshotApi {
         let response = self
             .http
             .get(url)
+            .timeout(std::time::Duration::from_secs(10))
             .headers(self.headers(None, false)?)
             .send()
             .await?;

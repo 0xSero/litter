@@ -107,8 +107,6 @@ pub(crate) fn map_alleycat_error(error: AlleycatError) -> ClientError {
         AlleycatError::ProtocolMismatch { payload, client } => ClientError::InvalidParams(format!(
             "alleycat protocol mismatch: payload={payload} client={client}"
         )),
-        // Rejections keep the prior Transport surface so platform-side
-        // message handling stays unchanged.
         AlleycatError::Rejected(message) => ClientError::Transport(message),
         AlleycatError::Transport(message) => ClientError::Transport(message),
     }

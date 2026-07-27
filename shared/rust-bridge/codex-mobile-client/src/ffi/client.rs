@@ -260,9 +260,6 @@ async fn hydrate_thread_goal_if_available(
     server_id: &str,
     key: &types::ThreadKey,
 ) {
-    // Goals are a Codex extension. Pi/Local Studio threads do not implement
-    // thread/goal/get, and probing Codex's command lane while opening one can
-    // delay hydration behind unrelated controller work.
     if client.runtime_for_thread(key) != "codex" {
         return;
     }

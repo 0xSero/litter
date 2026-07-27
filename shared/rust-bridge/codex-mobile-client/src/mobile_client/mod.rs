@@ -170,8 +170,8 @@ const MCP_URL_FINISHED_LABEL: &str = "I finished";
 const SLINGSHOT_CREDENTIALS_DIR_NAME: &str = "slingshot";
 const SLINGSHOT_CREDENTIALS_VERSION: u32 = 1;
 const SLINGSHOT_TOKEN_REFRESH_SKEW_SECS: i64 = 30;
-const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_ATTEMPTS: usize = 3;
-const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_DELAY_SECS: u64 = 5;
+const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_ATTEMPTS: usize = 2;
+const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_DELAY_SECS: u64 = 0;
 
 pub(crate) fn slingshot_user_agent() -> String {
     let arch = slingshot_user_agent_arch();
