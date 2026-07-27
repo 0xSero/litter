@@ -56,12 +56,21 @@ const FIND_RUNTIME: &str = r#"find_local_studio_runtime() {
 }"#;
 
 pub(crate) fn probe_script() -> String {
-    format!(r#"{FIND_AGENT_DIR}
+    // `find_local_studio_runtime` returns the full agent_dir\tprogram\t... line
+    // only when both the agent data directory and the Pi runtime binary resolve.
+    // The probe consumer (`parse_agent_probe`) only checks whether the field is
+    // non-empty to mark `Available`, so emit a constant `1` on success rather
+    // than splitting the runtime line with a bash parameter expansion.
+    format!(
+        r#"{FIND_AGENT_DIR}
 {FIND_RUNTIME}
-runtime=$(find_local_studio_runtime 2>/dev/null || true)
-printf 'local-studio\t%s\n' "${{runtime%%	*}}""#)
+if find_local_studio_runtime >/dev/null 2>&1; then
+  printf 'local-studio\t1\n'
+else
+  printf 'local-studio\t\n'
+fi"#,
+    )
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Runtime {
     pub agent_dir: String,
