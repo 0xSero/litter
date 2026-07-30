@@ -142,7 +142,10 @@ PACKAGE_CARGO_ENV := CARGO_INCREMENTAL=0
 # CARGO_INCREMENTAL=1. Incremental wins for small-change rebuilds. CI calls
 # build-rust.sh directly with its own env, so it bypasses this var.
 DEV_CARGO_ENV := env -u RUSTC_WRAPPER CARGO_INCREMENTAL=1
-KITTYLITTER_CARGO_ENV := $(DEV_CARGO_ENV)
+# The generated KittyLitter development manifest otherwise gets its own
+# `.build-stamps/kittylitter-dev/target` tree.  Point it at the normal Rust
+# target so host dependencies are compiled once and Cargo can reuse them.
+KITTYLITTER_CARGO_ENV := $(DEV_CARGO_ENV) CARGO_TARGET_DIR="$(RUST_TARGET)"
 ifeq ($(firstword $(MAKECMDGOALS)),kittylitter)
   KITTYLITTER_GOAL_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   .PHONY: $(KITTYLITTER_GOAL_ARGS)
@@ -212,8 +215,8 @@ $(shell mkdir -p $(STAMPS))
 	watch watch-sim watch-sim-run watch-device watch-typecheck watch-register \
 	test test-rust test-ios test-android \
 	ios-release-prep mac-release-prep testflight mac-testflight mac-direct-dist appstore-release play-upload play-release \
-	clean clean-rust clean-ios clean-android \
-	rebuild-bindings kittylitter kittylitter-restart help
+	clean clean-rust clean-ios clean-android prune-dev-cache prune-ios-sim-only \
+	rebuild-bindings kittylitter kittylitter-restart tui tui-run help
 
 all: ios android
 
@@ -538,7 +541,9 @@ help:
 		'make android-device-run    fast Android dev build + install + launch with saved logcat under artifacts/android-device-run (override ANDROID_DEVICE_SERIAL; auto-uninstalls on versionCode downgrade; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to also uninstall on signature mismatch)' \
 		'make android-release    Android build using release Rust profile and ARM64 output' \
 		'make rust-check         host cargo check for shared crates' \
-		'make rust-test          host cargo test for shared crates'
+		'make rust-test          host cargo test for shared crates' \
+		'make prune-dev-cache    remove rebuildable Rust incremental output and the legacy KittyLitter target tree' \
+		'make prune-ios-sim-only remove device/Catalyst iOS outputs; retain the simulator staticlib and generated headers'
 
 sync: $(STAMP_SYNC)
 $(STAMP_SYNC):
@@ -844,6 +849,36 @@ clean-ios:
 	@rm -rf $(IOS_FW_DIR)/codex_mobile_client.xcframework $(IOS_FW_DIR)/GhosttyKit.xcframework $(IOS_GENERATED)
 	@rm -rf $(IOS_DIR)/Resources/fs
 	@rm -f $(STAMP_XCGEN) $(STAMP_BINDINGS_S) $(STAMPS)/alpine-fs-* $(STAMPS)/ghostty-ios-*
+
+# Reclaim development cache without destroying the compiled dependency graph.
+# Refuse to run while Cargo holds a target lock; removing a live target is not
+# safe.  This deliberately leaves `deps` in place so the next build is fast.
+prune-dev-cache:
+	@for cache_dir in "$(RUST_TARGET)" "$(KITTYLITTER_DEV_DIR)/target"; do \
+		if [ -d "$$cache_dir" ] && find "$$cache_dir" -type f -name .cargo-lock -exec lsof -t {} \; 2>/dev/null | grep -q .; then \
+			echo "ERROR: Cargo is using $$cache_dir. Wait for it to finish before pruning." >&2; \
+			exit 1; \
+		fi; \
+	done
+	@if [ -d "$(RUST_TARGET)" ]; then \
+		echo "==> Removing Rust incremental artifacts from $(RUST_TARGET)..."; \
+		find "$(RUST_TARGET)" -type d -name incremental -prune -print -exec rm -rf {} +; \
+	else \
+		echo "==> No Rust target directory to prune."; \
+	fi
+	@if [ -d "$(KITTYLITTER_DEV_DIR)/target" ]; then \
+		echo "==> Removing legacy KittyLitter target tree..."; \
+		du -sh "$(KITTYLITTER_DEV_DIR)/target"; \
+		rm -rf "$(KITTYLITTER_DEV_DIR)/target"; \
+	fi
+
+# Keep the active simulator lane small by dropping artifacts it cannot use.
+# Ghostty will be rebuilt by the next iOS build because it is a shared
+# prerequisite; this target is for reclaiming space when that rebuild is okay.
+prune-ios-sim-only:
+	@echo "==> Removing non-simulator iOS development artifacts..."
+	@rm -rf "$(IOS_GENERATED)/ios-device" "$(IOS_GENERATED)/ios-macabi" "$(IOS_GENERATED)/ghostty-build"
+	@rm -f $(STAMPS)/ghostty-ios-*
 
 clean-android:
 	@echo "==> Cleaning Android artifacts..."
