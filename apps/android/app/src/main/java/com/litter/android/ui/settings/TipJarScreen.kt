@@ -53,6 +53,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -138,7 +139,12 @@ fun TipJarScreen(onBack: () -> Unit) {
     val billingClient = remember {
         BillingClient.newBuilder(context)
             .setListener(purchasesUpdatedListener)
-            .enablePendingPurchases()
+            .enableAutoServiceReconnection()
+            .enablePendingPurchases(
+                PendingPurchasesParams.newBuilder()
+                    .enableOneTimeProducts()
+                    .build(),
+            )
             .build()
     }
 
@@ -176,7 +182,8 @@ fun TipJarScreen(onBack: () -> Unit) {
                     .setProductList(productList)
                     .build()
 
-                billingClient.queryProductDetailsAsync(params) { result, detailsList ->
+                billingClient.queryProductDetailsAsync(params) { result, queryResult ->
+                    val detailsList = queryResult.productDetailsList
                     if (result.responseCode != BillingClient.BillingResponseCode.OK) {
                         Log.w(
                             TIP_JAR_TAG,

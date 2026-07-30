@@ -21,7 +21,7 @@ val enableGhosttyJni = System.getenv("LITTER_ENABLE_GHOSTTY_ANDROID")?.asBuildFl
 
 android {
     namespace = "com.litter.android.core.bridge"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = System.getenv("ANDROID_NDK_VERSION")?.takeIf { it.isNotBlank() } ?: "30.0.14904198"
 
     defaultConfig {

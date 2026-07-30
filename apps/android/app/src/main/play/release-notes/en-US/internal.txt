@@ -1,1 +1,1 @@
-Internal testing build with latest Android parity updates and stability fixes.
+Litter 1.6.0 release candidate: Local Studio pairing and Pi agents, durable session resume, Codex and Local Studio stability improvements, Android 16 compatibility, and Play Billing 8.

@@ -13,10 +13,9 @@ TRACK="${LITTER_PLAY_TRACK:-internal}"
 # Each listed track gets its own `promoteReleaseArtifact` invocation with
 # the source `TRACK` as the origin. Empty = upload only, no promotion.
 PROMOTE_TRACK="${LITTER_PLAY_PROMOTE_TRACK:-}"
-# Release status applied to the *final* landing track (promote dest when
-# promoting, else the upload track). The initial upload to the source track
-# always goes out at 100% COMPLETED so internal testers see it immediately.
-RELEASE_STATUS="${LITTER_PLAY_RELEASE_STATUS:-}"
+# Release status applied to the final landing track. A build-only upload
+# defaults to DRAFT; promotion requires a completed source release.
+RELEASE_STATUS="${LITTER_PLAY_RELEASE_STATUS:-draft}"
 USER_FRACTION="${LITTER_PLAY_USER_FRACTION:-}"
 GRADLE_MAX_WORKERS="${GRADLE_MAX_WORKERS:-}"
 EXTRA_GRADLE_TASKS="${EXTRA_GRADLE_TASKS:-}"
@@ -35,11 +34,13 @@ if [[ -n "$GRADLE_EXCLUDED_TASKS" ]]; then
     done
 fi
 
-ENV_FILE="${HOME}/.config/litter/play-upload.env"
-if [[ -f "$ENV_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-fi
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/litter"
+for ENV_FILE in "$CONFIG_DIR/play-upload.env" "$CONFIG_DIR/upload-signing.env"; do
+    if [[ -f "$ENV_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$ENV_FILE"
+    fi
+done
 
 require_env() {
     local name="$1"
@@ -93,11 +94,16 @@ if [[ ! -f "$LITTER_UPLOAD_STORE_FILE" ]]; then
     exit 1
 fi
 
-# ── Step 1: publish to the source track at 100% COMPLETED ───────────────────
-# We always want the source track (e.g. internal) to have a fully-rolled-out
-# release so internal testers and the promotion step both see the build.
+# ── Step 1: publish to the source track ─────────────────────────────────────
+# Promotion requires a completed source release. Upload-only runs respect the
+# requested status and default to DRAFT so preparing an artifact cannot
+# accidentally make it visible to testers.
 PUBLISH_TASK=":app:publish${VARIANT}Bundle"
-echo "==> Publishing $VARIANT bundle to Google Play track '$TRACK' (100% rollout)"
+status_for_upload="$RELEASE_STATUS"
+if [[ -n "$PROMOTE_TRACK" ]]; then
+    status_for_upload="completed"
+fi
+echo "==> Publishing $VARIANT bundle to Google Play track '$TRACK' [status=$status_for_upload]"
 
 declare -a PUBLISH_TASKS=()
 if [[ -n "$EXTRA_GRADLE_TASKS" ]]; then
@@ -108,13 +114,13 @@ fi
 PUBLISH_TASKS+=("$PUBLISH_TASK")
 
 "$GRADLEW" -p "$ANDROID_DIR" "${GRADLE_ARGS[@]}" "${PUBLISH_TASKS[@]}" "${BASE_PROPS[@]}" \
-    -PLITTER_PLAY_RELEASE_STATUS=completed
+    -PLITTER_PLAY_RELEASE_STATUS="$status_for_upload"
 
 # ── Step 2: optionally promote to one or more tracks ───────────────────────
 # Each destination is an independent Play release, so fan out.
 if [[ -n "$PROMOTE_TRACK" ]]; then
     PROMOTE_TASK=":app:promote${VARIANT}Artifact"
-    status_for_promote="${RELEASE_STATUS:-completed}"
+    status_for_promote="$RELEASE_STATUS"
     rollout_info=""
     if [[ "$status_for_promote" == "inProgress" || "$status_for_promote" == "in_progress" ]]; then
         rollout_info=" (staged at userFraction=${USER_FRACTION:-not set})"
