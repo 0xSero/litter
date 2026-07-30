@@ -63,18 +63,33 @@ fun HomeModelChip(
         snapshot?.servers?.firstOrNull { it.serverId == serverId }
     }
     val availableModels: List<ModelInfo> = server?.availableModels.orEmpty()
+    val selectedModelMatches = availableModels.any {
+        it.matchesModelSelection(
+            launchState.selectedModel,
+            launchState.selectedAgentRuntimeKind,
+        )
+    }
+    val usesServerConfiguredDefault = usesServerConfiguredModelDefault(
+        availableModels.map { it.agentRuntimeKind },
+    )
 
     val selectedId = launchState.selectedModel
-        .takeIf { it.isNotBlank() }
-        ?: availableModels.firstOrNull { it.isDefault }?.id
-        ?: availableModels.firstOrNull()?.id
+        .takeIf { it.isNotBlank() && selectedModelMatches }
+        ?: if (usesServerConfiguredDefault) {
+            ""
+        } else {
+            availableModels.firstOrNull { it.isDefault }?.id
+                ?: availableModels.firstOrNull()?.id
+        }
         ?: ""
     val selectedRuntime = launchState.selectedAgentRuntimeKind
         ?: availableModels.firstOrNull { it.id == selectedId || it.model == selectedId }?.agentRuntimeKind
 
     val selectedLabel = remember(selectedId, selectedRuntime, availableModels) {
         availableModels.firstOrNull { it.matchesModelSelection(selectedId, selectedRuntime) }?.modelPickerDisplayName()?.ifBlank { selectedId }
-            ?: selectedId.ifBlank { "model" }
+            ?: selectedId.ifBlank {
+                if (usesServerConfiguredDefault) "server default" else "model"
+            }
     }
 
     var autoSelectedModelKey by remember { mutableStateOf<String?>(null) }
@@ -94,17 +109,26 @@ fun HomeModelChip(
                 ?.firstOrNull { it.serverId == serverId }
                 ?.availableModels
                 .orEmpty()
-            val fallbackModel = loadedModels.firstOrNull {
-                it.agentRuntimeKind == "codex" && it.isDefault
-            } ?: loadedModels.firstOrNull { it.isDefault }
-                ?: loadedModels.firstOrNull()
-            if (shouldReplaceSelection && fallbackModel != null) {
-                appModel.launchState.updateSelectedModel(
-                    fallbackModel.id,
-                    agentRuntimeKind = fallbackModel.agentRuntimeKind,
-                )
+            if (
+                shouldReplaceSelection &&
+                usesServerConfiguredModelDefault(loadedModels.map { it.agentRuntimeKind })
+            ) {
+                appModel.launchState.updateSelectedModel(null)
                 appModel.launchState.updateReasoningEffort(null)
-                autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
+                autoSelectedModelKey = null
+            } else {
+                val fallbackModel = loadedModels.firstOrNull {
+                    it.agentRuntimeKind == "codex" && it.isDefault
+                } ?: loadedModels.firstOrNull { it.isDefault }
+                    ?: loadedModels.firstOrNull()
+                if (shouldReplaceSelection && fallbackModel != null) {
+                    appModel.launchState.updateSelectedModel(
+                        fallbackModel.id,
+                        agentRuntimeKind = fallbackModel.agentRuntimeKind,
+                    )
+                    appModel.launchState.updateReasoningEffort(null)
+                    autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
+                }
             }
         }
     }
@@ -185,3 +209,6 @@ fun HomeModelChip(
         }
     }
 }
+
+internal fun usesServerConfiguredModelDefault(runtimeKinds: List<String>): Boolean =
+    runtimeKinds.isNotEmpty() && runtimeKinds.all { it == "local-studio" }

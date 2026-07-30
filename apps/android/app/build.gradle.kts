@@ -19,6 +19,10 @@ val uploadStorePassword = projectPropOrEnv("LITTER_UPLOAD_STORE_PASSWORD")
 val uploadKeyAlias = projectPropOrEnv("LITTER_UPLOAD_KEY_ALIAS")
 val uploadKeyPassword = projectPropOrEnv("LITTER_UPLOAD_KEY_PASSWORD")
 val hasUploadSigning = listOf(uploadStoreFile, uploadStorePassword, uploadKeyAlias, uploadKeyPassword).all { !it.isNullOrBlank() }
+val supportedAbis = (projectPropOrEnv("ANDROID_ABIS") ?: "arm64-v8a")
+    .split(",")
+    .map(String::trim)
+    .filter(String::isNotEmpty)
 
 android {
     namespace = "com.sigkitten.litter.android"
@@ -37,6 +41,9 @@ android {
         manifestPlaceholders["runtimeStartupMode"] = "hybrid"
         manifestPlaceholders["enableOnDeviceBridge"] = "true"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += supportedAbis
+        }
     }
 
     if (hasUploadSigning) {
@@ -174,13 +181,13 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-transformer:1.4.1")
 
-    implementation("io.github.webrtc-sdk:android:144.7559.04")
+    implementation("io.github.webrtc-sdk:android:144.7559.09")
 
     // Alleycat remote-host pairing QR scanner
-    implementation("androidx.camera:camera-core:1.3.4")
-    implementation("androidx.camera:camera-camera2:1.3.4")
-    implementation("androidx.camera:camera-lifecycle:1.3.4")
-    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.camera:camera-core:1.6.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     implementation("androidx.glance:glance-appwidget:1.1.1")

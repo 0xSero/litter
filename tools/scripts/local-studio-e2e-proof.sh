@@ -22,6 +22,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${1:-$REPO_DIR/artifacts/local-studio-e2e}"
 BIN="${KITTYLITTER_BIN:-$REPO_DIR/.build-stamps/kittylitter-dev/target/debug/kittylitter}"
 CWD="${LOCAL_STUDIO_PROOF_CWD:-$REPO_DIR}"
+ASSERT="$REPO_DIR/tools/scripts/assert-local-studio-proof.py"
 
 mkdir -p "$OUT_DIR"
 
@@ -39,8 +40,26 @@ fi
 PASS=0
 FAIL=0
 
-# record <name> <file> <predicate-description> <grep-pattern>
+# record <name> <file> <predicate-description> <assertion> [expected]
 record() {
+  local name="$1" file="$2" what="$3" assertion="$4" expected="${5:-}"
+  local command=(python3 "$ASSERT" "$assertion" "$file")
+  if [ -n "$expected" ]; then
+    command+=("$expected")
+  fi
+  if "${command[@]}"; then
+    printf '  PASS  %-16s %s\n' "$name" "$what"
+    PASS=$((PASS + 1))
+  else
+    printf '  FAIL  %-16s %s\n' "$name" "$what"
+    echo "        evidence: $file"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# record_grep <name> <file> <predicate-description> <grep-pattern>
+# Used only for plain-text evidence files produced by the harness itself.
+record_grep() {
   local name="$1" file="$2" what="$3" pattern="$4"
   if grep -qE "$pattern" "$file" 2>/dev/null; then
     printf '  PASS  %-16s %s\n' "$name" "$what"
@@ -64,7 +83,7 @@ echo "[1/8] agent availability"
   >"$OUT_DIR/01-availability.json" 2>&1
 record availability "$OUT_DIR/01-availability.json" \
   "local-studio advertised as available" \
-  '"name": "local-studio"'
+  availability
 
 # ------------------------------------------------------------------- 2 catalog
 echo "[2/8] controller-scoped model catalog"
@@ -73,7 +92,7 @@ echo "[2/8] controller-scoped model catalog"
   >"$OUT_DIR/02-model-list.json" 2>&1
 record catalog "$OUT_DIR/02-model-list.json" \
   "model/list returns a catalog" \
-  '"models"|"id":'
+  catalog
 
 # --------------------------------------------------------------------- 3 start
 # A phone starting a fresh Local Studio session and completing one turn.
@@ -86,8 +105,8 @@ echo "[3/8] start session + complete a turn"
   --linger-secs 90 --timeout-secs 45 \
   >"$OUT_DIR/03-start-turn.json" 2>&1
 record start "$OUT_DIR/03-start-turn.json" \
-  "turn/completed observed after thread/start" \
-  'turn/completed'
+  "turn completed successfully with the exact assistant response" \
+  turn-agent LOCAL_STUDIO_START_OK
 
 NEW_THREAD_ID="$(grep -oE '"threadId"[[:space:]]*:[[:space:]]*"[^"]+"' "$OUT_DIR/03-start-turn.json" \
   | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
@@ -111,7 +130,7 @@ echo "        resuming from seq $LAST_SEQ"
 # would still pass.
 grep -a 'probe: connect ok' "$OUT_DIR/04-leave-return.json" \
   | tail -1 >"$OUT_DIR/04-reattach.txt" 2>/dev/null
-record leave-return "$OUT_DIR/04-reattach.txt" \
+record_grep leave-return "$OUT_DIR/04-reattach.txt" \
   "reconnect with a cursor reattached the existing session" \
   'attached=(Resumed|DriftReload)'
 
@@ -200,7 +219,7 @@ if [ -n "$DESKTOP_THREAD_ID" ]; then
     >"$OUT_DIR/05b-thread-read.json" 2>&1
   # Assert the response actually carries the requested session back, not just
   # that some `result` came through.
-  record resume-desktop "$OUT_DIR/05b-thread-read.json" \
+  record_grep resume-desktop "$OUT_DIR/05b-thread-read.json" \
     "a pre-existing Local Studio session is readable over the phone path" \
     "\"(id|threadId|sessionId)\": \"$DESKTOP_THREAD_ID\""
 else
@@ -219,7 +238,7 @@ echo "[6/8] filesystem access"
   >"$OUT_DIR/06a-fs-exec.json" 2>&1
 record fs-exec "$OUT_DIR/06a-fs-exec.json" \
   "shell command executed inside the session cwd" \
-  "$(basename "$CWD")"
+  turn-agent "$CWD"
 
 "$BIN" probe --agent local-studio --method fuzzyFileSearch \
   --params "{\"query\":\"local_studio\",\"roots\":[\"$CWD\"]}" \
@@ -227,7 +246,7 @@ record fs-exec "$OUT_DIR/06a-fs-exec.json" \
   >"$OUT_DIR/06b-fs-search.json" 2>&1
 record fs-search "$OUT_DIR/06b-fs-search.json" \
   "fuzzy file search returns repository paths" \
-  'local_studio|"files"|"result"'
+  files
 
 # ------------------------------------------------------- 7 handoff to Local Studio
 # The reverse of scenario 5. Scenario 5 proved desktop→phone; this proves
@@ -289,7 +308,7 @@ PY
 
   HANDOFF_PATH="$(cat "$OUT_DIR/07-handoff-path.txt" 2>/dev/null)"
   echo "        path: ${HANDOFF_PATH:-<not listed>}"
-  record handoff-to-studio "$OUT_DIR/07-handoff-path.txt" \
+  record_grep handoff-to-studio "$OUT_DIR/07-handoff-path.txt" \
     "the phone-created session is stored in Local Studio's session store" \
     '/pi-agent/sessions/.*\.jsonl$'
 else
@@ -322,7 +341,7 @@ if [ -n "$MIDTURN_THREAD_ID" ]; then
     >"$OUT_DIR/08b-midturn-active.json" 2>&1
   record midturn-active "$OUT_DIR/08b-midturn-active.json" \
     "a fresh client sees the detached turn still active" \
-    '"type"[[:space:]]*:[[:space:]]*"active"'
+    thread-active
 
   : >"$OUT_DIR/08c-midturn-finished.json"
   for _attempt in 1 2 3 4 5 6 7 8; do
@@ -330,17 +349,18 @@ if [ -n "$MIDTURN_THREAD_ID" ]; then
       --params "{\"threadId\":\"$MIDTURN_THREAD_ID\",\"includeTurns\":true}" \
       --linger-secs 1 --timeout-secs 30 \
       >"$OUT_DIR/08c-midturn-finished.json" 2>&1
-    if grep -q 'MIDTURN_FINISHED' "$OUT_DIR/08c-midturn-finished.json"; then
+    if python3 "$ASSERT" thread-agent \
+      "$OUT_DIR/08c-midturn-finished.json" MIDTURN_FINISHED; then
       break
     fi
     sleep 2
   done
   record midturn-output "$OUT_DIR/08c-midturn-finished.json" \
     "the detached shell command completed server-side" \
-    'MIDTURN_SERVER_OK'
+    thread-command MIDTURN_SERVER_OK
   record midturn-finished "$OUT_DIR/08c-midturn-finished.json" \
     "the final assistant response rehydrated on a fresh client" \
-    'MIDTURN_FINISHED'
+    thread-agent MIDTURN_FINISHED
 else
   echo "  FAIL  midturn-active    scenario produced no thread id"
   echo "  FAIL  midturn-output    scenario produced no thread id"
