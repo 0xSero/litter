@@ -13,7 +13,7 @@ static ANDROID_CONTEXT_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// the OS certificate store is not consulted by rustls native roots. Same
 /// bundle as the iOS in-process path in `session::connection`.
 #[cfg(any(target_os = "ios", target_os = "android"))]
-static BUNDLED_CACERT_PEM: &[u8] = include_bytes!("../cacert.pem");
+static BUNDLED_CACERT_PEM: &[u8] = include_bytes!("cacert.pem");
 
 /// Write the bundled CA bundle to `CODEX_HOME/cacert.pem` (if missing) and
 /// point `SSL_CERT_FILE` at it. Idempotent: an existing writable bundle is
