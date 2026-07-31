@@ -1,4 +1,7 @@
-Initial Android release of Litter.
-- On-device and remote runtime support
-- Improved conversation readability and text sizing
-- Stronger server discovery and connection behavior
+Litter 1.6.0
+- Pair with Local Studio and use its Pi agents from mobile
+- See and continue the same sessions in Litter and Local Studio
+- Smoother reasoning, text, and tool-call streaming
+- Create files with tools and keep events in the correct order
+- Improved hydration, compaction, reconnect, and session resume
+- Android 16 and Play Billing 8 compatibility

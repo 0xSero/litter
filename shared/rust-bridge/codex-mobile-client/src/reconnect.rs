@@ -799,6 +799,7 @@ fn parse_ssh_bridge_runtime_kinds(value: Option<&str>) -> Vec<AgentRuntimeKind> 
         .filter_map(|part| match part.trim().to_ascii_lowercase().as_str() {
             "codex" => Some("codex".to_string()),
             "claude" => Some("claude".to_string()),
+            "local-studio" | "local_studio" => Some("local-studio".to_string()),
             "pi" => Some("pi".to_string()),
             "opencode" | "open-code" | "open_code" => Some("opencode".to_string()),
             _ => None,
@@ -836,6 +837,7 @@ async fn resolve_ssh_bridge_runtime_kinds(
             "pi".to_string(),
             "opencode".to_string(),
             "codex".to_string(),
+            "local-studio".to_string(),
         ]
     } else {
         requested.to_vec()

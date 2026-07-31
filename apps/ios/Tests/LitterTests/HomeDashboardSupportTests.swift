@@ -3,6 +3,17 @@ import XCTest
 
 @MainActor
 final class HomeDashboardSupportTests: XCTestCase {
+    func testLocalStudioOnlyCatalogsDeferToServerConfiguredDefault() {
+        XCTAssertTrue(usesServerConfiguredModelDefault([.localStudio]))
+        XCTAssertTrue(
+            usesServerConfiguredModelDefault([.localStudio, .localStudio])
+        )
+        XCTAssertFalse(usesServerConfiguredModelDefault([]))
+        XCTAssertFalse(
+            usesServerConfiguredModelDefault([.localStudio, .codex])
+        )
+    }
+
     func testRecentConnectedSessionsFiltersDisconnectedServersAndLimitsToThreeNewest() {
         let servers = [
             makeServerSnapshot(id: "server-a", name: "Server A"),
@@ -373,7 +384,9 @@ final class HomeDashboardSupportTests: XCTestCase {
             activeThread: activeThread,
             pendingApprovals: [],
             pendingUserInputs: [],
-            voiceSession: inactiveVoiceSession()
+            voiceSession: inactiveVoiceSession(),
+            terminalSessions: [],
+            activeTerminalId: nil
         )
     }
 

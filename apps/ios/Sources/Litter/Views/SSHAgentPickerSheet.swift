@@ -58,7 +58,7 @@ struct SSHAgentPickerSheet: View {
         self.onUseCodex = onUseCodex
         self.onCancel = onCancel
         _selectedKinds = State(initialValue: Set(
-            Self.availableBridgeKinds(in: context.availability).filter { !$0.isBeta }
+            Self.availableBridgeKinds(in: context.availability)
         ))
     }
 
@@ -244,6 +244,7 @@ struct SSHAgentPickerSheet: View {
             .map(\.kind)
             .sorted { runtimeSortRank($0) < runtimeSortRank($1) }
     }
+
 }
 
 private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
@@ -254,7 +255,7 @@ private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
         return supports
     }
     switch kind {
-    case "codex", "claude", "pi", "opencode":
+    case "codex", "claude", "pi", "opencode", "local-studio":
         return true
     default:
         return false
@@ -271,12 +272,13 @@ private func runtimeSortRank(_ kind: AgentRuntimeKind) -> Int {
     // the most common SSH-bootstrap target.
     switch kind {
     case "claude": return 0
-    case "pi": return 1
-    case "opencode": return 2
-    case "codex": return 3
-    case "amp": return 4
-    case "droid": return 5
-    case "hermes": return 6
+    case "local-studio": return 1
+    case "pi": return 2
+    case "opencode": return 3
+    case "codex": return 4
+    case "amp": return 5
+    case "droid": return 6
+    case "hermes": return 7
     default: return Int.max
     }
 }

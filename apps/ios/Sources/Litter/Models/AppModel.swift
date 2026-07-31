@@ -108,8 +108,8 @@ final class AppModel {
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: Set<String> = []
+    @ObservationIgnored private var modelCatalogErrorsByServer: [String: String] = [:]
     @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
-    @ObservationIgnored private var recentConversationMetadataLoads: [String: Date] = [:]
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
     @ObservationIgnored private var pendingThreadRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
@@ -121,6 +121,15 @@ final class AppModel {
     @ObservationIgnored private var pendingCommandRowMutationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
     @ObservationIgnored private var loadingTurnPageThreadKeys: Set<ThreadKey> = []
+    private(set) var pendingHandoffTurnErrors: [ThreadKey: String] = [:]
+
+    func reportHandoffTurnError(key: ThreadKey, message: String) {
+        pendingHandoffTurnErrors[key] = message
+    }
+
+    func clearHandoffTurnError(for key: ThreadKey) {
+        pendingHandoffTurnErrors.removeValue(forKey: key)
+    }
 
     init(
         store: AppStore? = nil,
@@ -314,18 +323,14 @@ final class AppModel {
 
     /// Force a fresh resume so the store reconciles `active_turn_id`
     /// against the server's authoritative view. Use after a long resume /
-    /// push wake — the in-flight turn the local snapshot shows as running
-    /// may have completed during the background window with no
-    /// `TurnCompleted` event delivered.
+    /// push wake — the in-flight turn may have advanced or completed during
+    /// the background window with item or terminal events not delivered.
     ///
     /// On v0.125+ remotes this runs `thread/resume` with
-    /// `excludeTurns: true` and then a tiny `thread/turns/list` probe
-    /// (`limit: 5`, `itemsView: notLoaded`) — turn skeletons only — to feed
-    /// `reconcile_active_turn`. Pulling the full embedded turn list here
-    /// would OOM on long threads. Legacy remotes that don't implement
-    /// `thread/turns/list` still get the embedded turn list via
-    /// `excludeTurns: false`, since there is no other way to learn turn
-    /// status there.
+    /// `excludeTurns: true`, then a tiny skeleton probe and a bounded full
+    /// repair page when the local turn was active. Legacy remotes that don't
+    /// implement `thread/turns/list` still get the embedded turn list via
+    /// `excludeTurns: false`.
     func forceRefreshThreadAuthoritative(key: ThreadKey) async throws {
         try await store.forceRefreshThreadAuthoritative(key: key)
     }
@@ -1467,6 +1472,7 @@ final class AppModel {
     }
 
     private func shouldAttemptDeferredHydration(for thread: AppThreadSnapshot) -> Bool {
+        guard thread.agentRuntimeKind.reportsEffectiveThreadPermissions else { return false }
         guard thread.hydratedConversationItems.isEmpty else { return false }
         let preview = thread.info.preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let title = thread.info.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1789,6 +1795,10 @@ final class AppModel {
         snapshot?.serverSnapshot(for: serverId)?.availableModels ?? []
     }
 
+    func modelCatalogError(for serverId: String) -> String? {
+        modelCatalogErrorsByServer[serverId]
+    }
+
     func rateLimits(for serverId: String) -> RateLimitSnapshot? {
         snapshot?.serverSnapshot(for: serverId)?.rateLimits
     }
@@ -1806,28 +1816,27 @@ final class AppModel {
     }
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
-        if hasFreshConversationMetadata(for: serverId) {
-            return
-        }
         await loadAvailableModelsIfNeeded(serverId: serverId)
         await loadRateLimitsIfNeeded(serverId: serverId)
-        recentConversationMetadataLoads[serverId] = Date()
     }
 
-    func loadAvailableModelsIfNeeded(serverId: String) async {
+    func loadAvailableModelsIfNeeded(serverId: String, force: Bool = false) async {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
-        guard server.availableModels == nil else { return }
+        guard force || server.availableModels == nil else { return }
         guard !loadingModelServerIds.contains(serverId) else { return }
         loadingModelServerIds.insert(serverId)
         defer { loadingModelServerIds.remove(serverId) }
+        modelCatalogErrorsByServer.removeValue(forKey: serverId)
         do {
             _ = try await client.refreshModels(
                 serverId: serverId,
                 params: AppRefreshModelsRequest(cursor: nil, limit: nil, includeHidden: false)
             )
+            modelCatalogErrorsByServer.removeValue(forKey: serverId)
             await refreshSnapshot()
         } catch {
-            lastError = error.localizedDescription
+            modelCatalogErrorsByServer[serverId] = error.localizedDescription
+            await refreshSnapshot()
         }
     }
 
@@ -1862,14 +1871,17 @@ final class AppModel {
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
         if let existing = threadSnapshot(for: key) {
             appState.hydratePermissions(from: existing)
-            if !hasAuthoritativePermissions(existing) {
+            if existing.agentRuntimeKind.reportsEffectiveThreadPermissions,
+               !hasAuthoritativePermissions(existing) {
                 scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
             }
             return key
         }
 
-        if snapshot?.sessionSummary(for: key) != nil {
-            scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
+        if let summary = snapshot?.sessionSummary(for: key) {
+            if summary.agentRuntimeKind.reportsEffectiveThreadPermissions {
+                scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
+            }
             return key
         }
 
@@ -1948,13 +1960,13 @@ final class AppModel {
                 }
             }
 
-            if !readSucceeded {
+            if !readSucceeded && attempt == 0 {
                 do {
                     _ = try await client.listThreads(
                         serverId: currentKey.serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             archived: nil,
@@ -2054,18 +2066,6 @@ final class AppModel {
             approvalPolicy: thread.effectiveApprovalPolicy,
             sandboxPolicy: thread.effectiveSandboxPolicy
         )
-    }
-
-    private func hasFreshConversationMetadata(for serverId: String) -> Bool {
-        guard let server = snapshot?.serverSnapshot(for: serverId) else { return false }
-        let hasModels = server.availableModels != nil
-        let hasRateLimits = server.account == nil || server.rateLimits != nil
-        if hasModels && hasRateLimits {
-            return true
-        }
-
-        guard let lastLoad = recentConversationMetadataLoads[serverId] else { return false }
-        return Date().timeIntervalSince(lastLoad) < 10
     }
 
     private func restoreCachedThreadSnapshotIfNeeded(for key: ThreadKey?) {

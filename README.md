@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Native iOS + Android client for <a href="https://github.com/openai/codex">Codex</a>. Connect to local or remote servers, manage sessions, and run agentic coding workflows from your phone.
+  Native iOS + Android client for <a href="https://github.com/openai/codex">Codex</a> and <a href="https://localstudio.ai">Local Studio</a>. Connect to local or remote servers, manage sessions, and run agentic coding workflows from your phone.
 </p>
 
 <p align="center">

@@ -1192,12 +1192,10 @@ private struct ConversationReasoningRow: View {
                     .foregroundColor(LitterTheme.textSecondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.sectionReveal)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .animation(.spring(duration: 0.32, bounce: 0.12), value: expanded)
         .onChange(of: displayMode) { _, newValue in
             expanded = newValue.defaultExpanded()
         }
@@ -1217,9 +1215,7 @@ private struct ConversationReasoningRow: View {
     }
 
     private func toggleExpanded() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            expanded.toggle()
-        }
+        expanded.toggle()
     }
 }
 

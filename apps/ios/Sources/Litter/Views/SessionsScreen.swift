@@ -7,8 +7,6 @@ private let sessionsScreenSignpostLog = OSLog(
 )
 
 struct SessionsScreen: View {
-    private static let sessionListPageLimit: UInt32 = 80
-
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
     @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
@@ -1150,21 +1148,29 @@ struct SessionsScreen: View {
         defer { isSessionLoadInFlight = false }
 
         isLoading = true
-        for serverId in connectedServerIds {
-            _ = try? await appModel.client.listThreads(
-                serverId: serverId,
-                params: AppListThreadsRequest(
-                    cursor: nil,
-                    limit: Self.sessionListPageLimit,
-                    sortKey: .updatedAt,
-                    sortDirection: .desc,
-                    archived: nil,
-                    cwd: nil,
-                    searchTerm: nil,
-                    useStateDbOnly: false,
-                    runtimeKinds: nil
-                )
-            )
+        let serverIds = selectedServerFilterId.map { [$0] } ?? connectedServerIds
+        let runtimeKinds = selectedRuntimeKindFilter.map { [$0] }
+        let client = appModel.client
+        let failures = await withTaskGroup(of: String?.self) { group in
+            for serverId in serverIds {
+                group.addTask {
+                    do {
+                        try await client.listThreads(
+                            serverId: serverId,
+                            params: AppListThreadsRequest(limit: nil, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
+                        )
+                        return nil
+                    } catch {
+                        return error.localizedDescription
+                    }
+                }
+            }
+            return await group.reduce(into: [String]()) { errors, error in
+                if let error { errors.append(error) }
+            }
+        }
+        if failures.count == serverIds.count {
+            sessionActionErrorMessage = failures.first
         }
         await appModel.refreshSnapshot()
 
@@ -1195,14 +1201,16 @@ struct SessionsScreen: View {
     private func resumeSession(_ thread: AppSessionSummary) async {
         guard resumingKey == nil else { return }
         resumingKey = thread.key
+        defer { resumingKey = nil }
         sessionActionErrorMessage = nil
-        await conversationWarmup.prewarmIfNeeded()
         workDir = thread.cwd
         appState.currentCwd = thread.cwd
-        let openedKey: ThreadKey?
+        let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
+            ?? thread.key
+        appModel.activateThread(resumeKey)
+        onOpenConversation(resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
-                ?? thread.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
@@ -1211,18 +1219,13 @@ struct SessionsScreen: View {
             if !thread.cwd.isEmpty {
                 RecentDirectoryStore.shared.record(path: thread.cwd, for: thread.key.serverId)
             }
-            appModel.activateThread(nextKey)
-            openedKey = nextKey
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                onOpenConversation(nextKey)
+            }
         } catch {
             sessionActionErrorMessage = error.localizedDescription
-            openedKey = nil
         }
-        resumingKey = nil
-        guard let openedKey else {
-            sessionActionErrorMessage = sessionActionErrorMessage ?? "Failed to open conversation."
-            return
-        }
-        onOpenConversation(openedKey)
     }
 
     private func startNewSession(serverId: String, cwd: String) async {

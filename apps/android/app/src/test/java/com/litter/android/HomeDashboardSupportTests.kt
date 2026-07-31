@@ -1,10 +1,29 @@
 package com.litter.android
 
 import com.litter.android.ui.home.HomeDashboardSupport
+import com.litter.android.ui.home.usesServerConfiguredModelDefault
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeDashboardSupportTests {
+
+    @Test
+    fun `Local Studio-only catalogs defer to the server configured default`() {
+        assertTrue(usesServerConfiguredModelDefault(listOf("local-studio")))
+        assertTrue(
+            usesServerConfiguredModelDefault(
+                listOf("local-studio", "local-studio"),
+            ),
+        )
+        assertFalse(usesServerConfiguredModelDefault(emptyList()))
+        assertFalse(
+            usesServerConfiguredModelDefault(
+                listOf("local-studio", "codex"),
+            ),
+        )
+    }
 
     @Test
     fun `workspaceLabel extracts last path component`() {

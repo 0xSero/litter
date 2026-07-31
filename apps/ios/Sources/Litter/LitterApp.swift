@@ -60,6 +60,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             OpenAIApiKeyStore.shared.applyToEnvironment()
             guard let appRuntime = self?.appRuntime else { return }
             Task { @MainActor in
+                await appRuntime.reconnectSavedServers()
                 await appRuntime.restoreMissingLocalAuthStateIfNeeded()
             }
         }
@@ -370,7 +371,9 @@ struct LitterApp: App {
                     voiceRuntime.bind(appModel: appModel)
                     appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
                     appDelegate.appRuntime = appRuntime
-                    appRuntime.appDidBecomeActive()
+                    if scenePhase == .active {
+                        appRuntime.appDidBecomeActive()
+                    }
                     #if targetEnvironment(macCatalyst)
                     LocalCodexBootstrap.shared.startIfNeeded(appModel: appModel)
                     #endif
@@ -582,6 +585,7 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         .id(themeManager.themeVersion)
         .onAppear {
+            Task { await conversationWarmup.prewarmIfNeeded() }
             if !splashDismissed {
                 splashDismissed = true
                 (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
@@ -1223,21 +1227,25 @@ private struct HomeNavigationView: View {
         guard openingRecentSessionKey == nil else { return }
         openingRecentSessionKey = summary.key
         actionErrorMessage = nil
-        defer { openingRecentSessionKey = nil }
 
-        await conversationWarmup.prewarmIfNeeded()
         workDir = summary.cwd
         appState.currentCwd = summary.cwd
+        let resumeKey = await appModel.hydrateThreadPermissions(for: summary.key, appState: appState)
+            ?? summary.key
+        appModel.activateThread(resumeKey)
+        openingRecentSessionKey = nil
+        replaceTopConversation(with: resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: summary.key, appState: appState)
-                ?? summary.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: summary.cwd
             )
-            appModel.activateThread(nextKey)
-            replaceTopConversation(with: nextKey)
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                replaceTopConversation(with: nextKey)
+            }
         } catch {
             actionErrorMessage = error.localizedDescription
         }
@@ -1248,31 +1256,28 @@ private struct HomeNavigationView: View {
 
         openingRecentSessionKey = thread.key
         actionErrorMessage = nil
-        defer { openingRecentSessionKey = nil }
 
-        await conversationWarmup.prewarmIfNeeded()
         workDir = thread.cwd
         appState.currentCwd = thread.cwd
-        let openedKey: ThreadKey?
+        let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
+            ?? thread.key
+        appModel.activateThread(resumeKey)
+        openingRecentSessionKey = nil
+        openConversation(resumeKey)
+
         do {
-            let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
-                ?? thread.key
             let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: thread.cwd
             )
-            appModel.activateThread(nextKey)
-            openedKey = nextKey
+            if nextKey != resumeKey {
+                appModel.activateThread(nextKey)
+                openConversation(nextKey)
+            }
         } catch {
             actionErrorMessage = error.localizedDescription
-            openedKey = nil
         }
-        guard let openedKey else {
-            actionErrorMessage = actionErrorMessage ?? "Failed to open conversation."
-            return
-        }
-        openConversation(openedKey)
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
@@ -1318,12 +1323,7 @@ private struct HomeNavigationView: View {
             return
         }
 
-        guard let resolvedKey = await appModel.ensureThreadLoaded(key: startedKey)
-            ?? appModel.snapshot?.threadSnapshot(for: startedKey)?.key else {
-            actionErrorMessage = appModel.lastError ?? "Failed to load the new session."
-            return
-        }
-
+        let resolvedKey = appModel.snapshot?.threadSnapshot(for: startedKey)?.key ?? startedKey
         openConversation(resolvedKey)
     }
 
@@ -1539,7 +1539,7 @@ private struct HomeNavigationView: View {
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
             onOpenProjectPicker: { showProjectPicker = true },
-            onThreadCreated: { key in homeDashboardModel.pinThread(key) },
+            onThreadCreated: { key in homeDashboardModel.pinThread(key); openConversation(key) },
             onShowSettings: { appState.showSettings = true },
             onShowApps: savedAppsStore.apps.isEmpty ? nil : { navigationPath.append(.appsList) },
             onShowTerminal: terminalLauncher,
@@ -1693,14 +1693,14 @@ private struct HomeNavigationView: View {
                 LLog.info(
                     "home",
                     "repairing pinned thread listing",
-                    fields: ["serverId": serverId, "limit": 80]
+                    fields: ["serverId": serverId]
                 )
                 do {
                     try await appModel.client.listThreads(
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,
@@ -1896,7 +1896,7 @@ private struct HomeNavigationView: View {
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: 80,
+                            limit: nil,
                             sortKey: .updatedAt,
                             sortDirection: .desc,
                             modelProviders: nil,

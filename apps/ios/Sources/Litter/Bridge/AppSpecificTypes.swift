@@ -123,7 +123,9 @@ extension ExperimentalFeature: Identifiable {
     public var id: String { name }
 }
 
-extension ModelInfo: Identifiable {}
+extension ModelInfo: Identifiable {
+    var runtimeScopedID: String { "\(agentRuntimeKind):\(id)" }
+}
 
 extension RateLimitSnapshot: Identifiable {
     public var id: String { limitId ?? UUID().uuidString }
@@ -266,6 +268,8 @@ extension ReasoningEffort {
             self = .xHigh
         case "max":
             self = .max
+        case "ultra":
+            self = .ultra
         default:
             return nil
         }
@@ -280,6 +284,7 @@ extension ReasoningEffort {
         case .high: return "high"
         case .xHigh: return "xhigh"
         case .max: return "max"
+        case .ultra: return "ultra"
         }
     }
 }

@@ -21,7 +21,7 @@ use crate::types::AgentRuntimeKind;
 
 pub const ALLEYCAT_PROTOCOL_VERSION: u32 = 1;
 pub const ALLEYCAT_ALPN: &[u8] = b"alleycat/1";
-const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPairPayload {
@@ -284,6 +284,8 @@ pub enum AlleycatError {
     InvalidPayload(String),
     #[error("protocol version mismatch: payload={payload} client={client}")]
     ProtocolMismatch { payload: u32, client: u32 },
+    #[error("host rejected request: {0}")]
+    Rejected(String),
     #[error("transport error: {0}")]
     Transport(String),
 }
@@ -448,18 +450,48 @@ pub fn parse_pair_payload(json: &str) -> Result<ParsedPairPayload, AlleycatError
     if wire.token.trim().is_empty() {
         return Err(AlleycatError::InvalidPayload("empty token".into()));
     }
-    if let Some(relay) = wire.relay.as_deref() {
-        RelayUrl::from_str(relay).map_err(|error| {
-            AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
-        })?;
-    }
+    let relay = wire
+        .relay
+        .as_deref()
+        .map(normalize_relay_url)
+        .transpose()?;
     Ok(ParsedPairPayload {
         version: wire.v,
         node_id: wire.node_id,
         token: wire.token,
-        relay: wire.relay,
+        relay,
         host_name: normalize_optional_host_name(wire.host_name),
     })
+}
+
+fn normalize_relay_url(relay: &str) -> Result<String, AlleycatError> {
+    let mut parsed = url::Url::parse(relay).map_err(|error| {
+        AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
+    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AlleycatError::InvalidPayload("relay URL has no host".into()))?
+        .to_string();
+    let normalized_host = host.trim_end_matches('.').to_string();
+    if normalized_host.is_empty() {
+        return Err(AlleycatError::InvalidPayload(
+            "relay URL has an empty host".into(),
+        ));
+    }
+    if normalized_host != host {
+        parsed.set_host(Some(&normalized_host)).map_err(|error| {
+            AlleycatError::InvalidPayload(format!("invalid relay URL host: {error}"))
+        })?;
+    }
+    let normalized = if normalized_host == host {
+        relay.to_string()
+    } else {
+        parsed.to_string()
+    };
+    RelayUrl::from_str(&normalized).map_err(|error| {
+        AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
+    })?;
+    Ok(normalized)
 }
 
 fn normalize_optional_host_name(host_name: Option<String>) -> Option<String> {
@@ -789,7 +821,7 @@ fn validate_response(response: &Response) -> Result<(), AlleycatError> {
         });
     }
     if !response.ok {
-        return Err(AlleycatError::Transport(
+        return Err(AlleycatError::Rejected(
             response
                 .error
                 .clone()
@@ -961,6 +993,20 @@ mod tests {
         );
         let parsed = parse_pair_payload(&json).expect("parse");
         assert_eq!(parsed.host_name.as_deref(), Some("studio"));
+    }
+
+    #[test]
+    fn parse_pair_payload_normalizes_trailing_dot_in_relay_host() {
+        let key = iroh::SecretKey::generate();
+        let json = format!(
+            r#"{{"v":1,"node_id":"{}","token":"deadbeef","relay":"https://relay.example.com./"}}"#,
+            key.public()
+        );
+        let parsed = parse_pair_payload(&json).expect("parse");
+        assert_eq!(
+            parsed.relay.as_deref(),
+            Some("https://relay.example.com/")
+        );
     }
 
     #[test]

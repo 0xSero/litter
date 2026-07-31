@@ -10,7 +10,7 @@ struct DiscoveryView: View {
     @State private var pendingSSHServer: DiscoveredServer?
     @State private var sshAgentContext: SSHBridgeAgentContext?
     @State private var showManualEntry = false
-    @State private var showAlleycatSheet = false
+    @State private var alleycatPairingMode: AlleycatPairingMode?
     @State private var showSlingshotHosts = false
     @State private var slingshotEnvironments: [AppSlingshotEnvironment] = []
     @State private var slingshotIsLoading = false
@@ -157,11 +157,16 @@ struct DiscoveryView: View {
         .sheet(isPresented: $showSlingshotHosts) {
             slingshotHostsSheet
         }
-        .sheet(isPresented: $showAlleycatSheet) {
-            AlleycatAddServerSheet(appModel: appModel, startScanningOnAppear: true) { result in
-                showAlleycatSheet = false
-                Task { await connectAlleycatTarget(result) }
-            }
+        .sheet(item: $alleycatPairingMode) { pairingMode in
+            AlleycatAddServerSheet(
+                appModel: appModel,
+                startScanningOnAppear: true,
+                pairingMode: pairingMode,
+                onConnected: { result in
+                    alleycatPairingMode = nil
+                    Task { await connectAlleycatTarget(result) }
+                }
+            )
         }
         .onChange(of: showManualEntry) { _, isPresented in
             guard !isPresented, let pendingSSHServer else { return }
@@ -262,7 +267,19 @@ struct DiscoveryView: View {
                     isRecommended: true,
                     accessibilityID: "discovery.chooser.kittylitter"
                 ) {
-                    showAlleycatSheet = true
+                    alleycatPairingMode = .kittylitter
+                }
+
+                chooserCard(
+                    title: "Local Studio",
+                    subtitle: "Scan the QR from Local Studio Profile, or paste Copy connection JSON.",
+                    badge: nil,
+                    icon: "server.rack",
+                    supportedAgents: ["local-studio"],
+                    isRecommended: false,
+                    accessibilityID: "discovery.chooser.local-studio"
+                ) {
+                    alleycatPairingMode = .localStudio
                 }
 
                 chooserCard(
@@ -1049,7 +1066,7 @@ struct DiscoveryView: View {
                     return supports && $0.kind != "codex"
                 }
                 switch $0.kind {
-                case "claude", "pi", "opencode": return true
+                case "claude", "pi", "opencode", "local-studio": return true
                 default: return false
                 }
             }

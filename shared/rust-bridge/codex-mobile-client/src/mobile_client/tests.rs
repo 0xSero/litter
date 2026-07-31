@@ -91,6 +91,7 @@ mod mobile_client_tests {
             supports_personality: false,
             is_default: false,
             agent_runtime_kind: runtime_kind,
+            provider_id: None,
         }
     }
 
@@ -118,6 +119,12 @@ mod mobile_client_tests {
             reasoning_effort_from_string(" high "),
             Some(crate::types::ReasoningEffort::High)
         );
+        for (value, expected) in [
+            ("max", crate::types::ReasoningEffort::Max),
+            ("ULTRA", crate::types::ReasoningEffort::Ultra),
+        ] {
+            assert_eq!(reasoning_effort_from_string(value), Some(expected));
+        }
         assert_eq!(reasoning_effort_from_string(""), None);
     }
 
@@ -467,6 +474,41 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn pi_runtimes_always_start_full_access() {
+        let client = MobileClient::new();
+        for (runtime, approval_policy, sandbox) in [
+            ("pi", None, None),
+            (
+                "pi",
+                Some(upstream::AskForApproval::OnRequest),
+                Some(upstream::SandboxMode::WorkspaceWrite),
+            ),
+            ("local-studio", None, None),
+        ] {
+            let mut request = upstream::ClientRequest::ThreadStart {
+                request_id: upstream::RequestId::Integer(1),
+                params: upstream::ThreadStartParams {
+                    approval_policy,
+                    sandbox,
+                    ..Default::default()
+                },
+            };
+            client.normalize_model_selection_for_request("srv", runtime.into(), &mut request);
+            let upstream::ClientRequest::ThreadStart { params, .. } = request else {
+                panic!("expected thread/start");
+            };
+            assert_eq!(
+                params.approval_policy,
+                Some(upstream::AskForApproval::Never)
+            );
+            assert_eq!(
+                params.sandbox,
+                Some(upstream::SandboxMode::DangerFullAccess)
+            );
+        }
+    }
+
+    #[test]
     fn thread_runtime_infers_claude_from_existing_thread_model() {
         let client = MobileClient::new();
         let key = ThreadKey {
@@ -659,6 +701,35 @@ mod mobile_client_tests {
 
         assert_eq!(snapshot.active_turn_id, None);
         assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
+    }
+
+    #[test]
+    fn authoritative_completed_turn_clears_stale_active_status_and_id() {
+        let existing = thread_snapshot_with_active_turn("srv", "thread-1", "turn-1");
+        let mut target = existing.clone();
+        target.active_turn_id = None;
+        let turns: Vec<upstream::Turn> = serde_json::from_value(json!([{
+            "id": "turn-1",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1,
+            "completedAt": 2,
+            "durationMs": 1
+        }]))
+        .expect("completed turn skeleton should deserialize");
+
+        reconcile_active_turn(Some(&existing), &mut target, &turns);
+
+        assert_eq!(target.active_turn_id, None);
+        assert_eq!(target.info.status, ThreadSummaryStatus::Idle);
+    }
+
+    #[test]
+    fn force_authoritative_waiter_does_not_reuse_normal_resume_marker() {
+        assert!(!can_reuse_waited_resume(true, true, true));
+        assert!(can_reuse_waited_resume(true, false, true));
     }
 
     #[tokio::test]
@@ -1257,6 +1328,160 @@ mod mobile_client_tests {
         assert_eq!(snapshot.active_turn_id, None);
         assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
         assert!(client.app_store.server_supports_turn_pagination(server_id));
+    }
+
+    #[tokio::test]
+    async fn reopening_active_thread_repairs_items_missed_while_away() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-running";
+        let turn_id = "turn-active";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        client
+            .app_store
+            .upsert_thread_snapshot(thread_snapshot_with_active_turn(
+                server_id, thread_id, turn_id,
+            ));
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let request_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::ThreadResume { params, .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("thread/resume:{}", params.exclude_turns));
+                    Ok(json!({
+                        "thread": {
+                            "id": thread_id,
+                            "preview": "Running",
+                            "ephemeral": false,
+                            "modelProvider": "pi",
+                            "createdAt": 1,
+                            "updatedAt": 2,
+                            "status": { "type": "active", "activeFlags": [] },
+                            "path": "/tmp/thread",
+                            "cwd": "/tmp/thread",
+                            "cliVersion": "1.0.0",
+                            "source": "appServer",
+                            "agentNickname": null,
+                            "agentRole": null,
+                            "gitInfo": null,
+                            "name": "thread",
+                            "turns": []
+                        },
+                        "model": "GLM-5.2",
+                        "modelProvider": "pi",
+                        "cwd": "/tmp/thread",
+                        "approvalPolicy": "never",
+                        "approvalsReviewer": "user",
+                        "sandbox": { "type": "dangerFullAccess" },
+                        "reasoningEffort": "high"
+                    }))
+                }
+                upstream::ClientRequest::ThreadTurnsList { params, .. } => {
+                    let skeleton_only =
+                        matches!(params.items_view, Some(upstream::TurnItemsView::NotLoaded));
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("thread/turns/list:{skeleton_only}"));
+                    let items = if skeleton_only {
+                        json!([])
+                    } else {
+                        json!([{
+                            "id": "tool-running",
+                            "type": "commandExecution",
+                            "command": "sleep 30",
+                            "cwd": "/tmp/thread",
+                            "processId": null,
+                            "source": "agent",
+                            "status": "inProgress",
+                            "commandActions": [],
+                            "aggregatedOutput": null,
+                            "exitCode": null,
+                            "durationMs": null
+                        }])
+                    };
+                    Ok(json!({
+                        "data": [{
+                            "id": turn_id,
+                            "items": items,
+                            "itemsView": if skeleton_only { "notLoaded" } else { "full" },
+                            "status": "inProgress",
+                            "error": null,
+                            "startedAt": 1,
+                            "completedAt": null,
+                            "durationMs": null
+                        }],
+                        "nextCursor": null,
+                        "backwardsCursor": null
+                    }))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request in test: {}",
+                    other.method()
+                ))),
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client.mark_direct_resumed_thread(key.clone());
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("reopening should repair the active turn");
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(
+            requests.as_slice(),
+            [
+                "thread/resume:true",
+                "thread/turns/list:true",
+                "thread/turns/list:false"
+            ]
+        );
+        drop(requests);
+
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("thread snapshot after force refresh");
+        assert_eq!(snapshot.active_turn_id.as_deref(), Some(turn_id));
+        assert_eq!(snapshot.info.status, ThreadSummaryStatus::Active);
+        assert!(
+            snapshot.items.iter().any(|item| {
+                item.id == "tool-running"
+                    && matches!(
+                        item.content,
+                        crate::conversation_uniffi::HydratedConversationItemContent::CommandExecution(_)
+                    )
+            }),
+            "the full repair page should restore the missed command item"
+        );
     }
 
     #[tokio::test]

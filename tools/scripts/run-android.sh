@@ -104,7 +104,7 @@ boot_emulator_if_needed() {
 
   local emulator_log_path="${RUN_DIR}/emulator.log"
   echo "==> No running emulator found; booting AVD ${avd_name}..."
-  nohup emulator -avd "${avd_name}" ${ANDROID_EMULATOR_ARGS:-} >"${emulator_log_path}" 2>&1 &
+  nohup emulator -avd "${avd_name}" -crash-report-mode never ${ANDROID_EMULATOR_ARGS:-} >"${emulator_log_path}" 2>&1 &
 
   local serial=""
   for _ in $(seq 1 180); do

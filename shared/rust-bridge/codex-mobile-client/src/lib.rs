@@ -114,6 +114,7 @@ pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
     }
 }
 
+mod local_studio;
 #[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
 mod mobile_exec_command;
 mod shell_quoting;

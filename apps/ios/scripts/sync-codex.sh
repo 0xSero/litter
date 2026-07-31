@@ -15,6 +15,7 @@ PATCH_FILES=(
     "$REPO_DIR/patches/codex/android-installation-id-lock.patch"
     "$REPO_DIR/patches/codex/dynamic-tool-call-arguments-delta.patch"
     "$REPO_DIR/patches/codex/approval-timestamps-serde-default.patch"
+    "$REPO_DIR/patches/codex/reasoning-effort-max-ultra.patch"
     "$REPO_DIR/patches/codex/realtime-webrtc-env-apikey.patch"
     # Realtime multi-server orchestrator (split from old client-controlled-handoff.patch).
     # Apply order: server-hint adds the realtime_v2_session_tools helper consumed by dynamic-tools.

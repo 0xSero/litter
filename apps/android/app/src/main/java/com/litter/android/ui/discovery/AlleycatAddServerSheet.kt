@@ -2,7 +2,10 @@ package com.litter.android.ui.discovery
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -90,12 +93,18 @@ data class AlleycatConnectedTarget(
     val agentWire: AppAlleycatAgentWire,
 )
 
+enum class AlleycatPairingMode {
+    Kittylitter,
+    LocalStudio,
+}
+
 private const val LOG_TAG = "AlleycatSheet"
 
 @Composable
 fun AlleycatAddServerSheet(
     onDismiss: () -> Unit,
     onConnected: (AlleycatConnectedTarget) -> Unit,
+    pairingMode: AlleycatPairingMode = AlleycatPairingMode.Kittylitter,
     startScanningOnAppear: Boolean = false,
 ) {
     val appModel = LocalAppModel.current
@@ -132,10 +141,7 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded
-                        .filter { it.available && !isBetaAgentName(it.name, it.displayName) }
-                        .map { it.name }
-                        .toSet()
+                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
@@ -156,7 +162,7 @@ fun AlleycatAddServerSheet(
         try {
             val params = alleycatBridge.parsePairPayload(trimmed)
             parsedParams = params
-            displayName = suggestedDisplayName(params)
+            displayName = resolvedSuggestedDisplayName(params, pairingMode)
             agents = emptyList()
             selectedAgentNames = emptySet()
             parseError = null
@@ -203,11 +209,13 @@ fun AlleycatAddServerSheet(
 
     fun connect() {
         val params = parsedParams ?: return
-        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
+        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
         val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
-        val resolvedName = trimmedDisplay.ifEmpty { suggestedDisplayName(params) }
-        val serverId = "alleycat:${params.nodeId}"
+        val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
+        val serverId = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+            "alleycat:local-studio:${params.nodeId}"
+        } else "alleycat:${params.nodeId}"
 
         isConnecting = true
         connectError = null
@@ -225,11 +233,15 @@ fun AlleycatAddServerSheet(
                         wire = fallbackAgent.wire,
                     )
                 }
-                runCatching {
-                    credentialStore.saveToken(params.nodeId, params.token)
-                }.onFailure {
-                    Log.w(LOG_TAG, "Alleycat token save failed", it)
-                }
+                credentialStore.saveToken(params.nodeId, params.token)
+                // The first successful alleycat pair is what triggers the iroh
+                // endpoint bind, so the device secret key only exists in Rust
+                // from this point on. Persist it now: waiting for the next
+                // background/resume cycle loses the `EndpointId` if the app is
+                // killed straight after pairing, and the host then rejects the
+                // device as unknown on the next cold launch. Off the main
+                // dispatcher because this reads Rust and writes encrypted prefs.
+                withContext(Dispatchers.IO) { appModel.persistAlleycatSecretKeyIfNeeded() }
                 isConnecting = false
                 onConnected(
                     AlleycatConnectedTarget(
@@ -249,12 +261,14 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val availableAgents = agents.filter { it.available }
-    val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
-    val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
+    val availableAgents = agents.filter { it.available && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
+    val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
+    val canConnect =
+        !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
 
     if (showScanner) {
         QrScannerScreen(
+            pairingMode = pairingMode,
             onScanned = { payload ->
                 showScanner = false
                 handleScannedPayload(payload)
@@ -274,7 +288,11 @@ fun AlleycatAddServerSheet(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Add Remote Host",
+                text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                    "Connect Local Studio"
+                } else {
+                    "Add Remote Host"
+                },
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -286,6 +304,15 @@ fun AlleycatAddServerSheet(
         }
 
         SectionHeader(label = "Pairing")
+        Text(
+            text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                "In Local Studio, open Profile → Phone connection. Scan its QR code or paste Copy connection JSON."
+            } else {
+                "Run npx kittylitter on the host, then scan its QR code or paste the JSON it prints."
+            },
+            color = LitterTheme.textSecondary,
+            fontSize = 12.sp,
+        )
         OutlinedButton(
             onClick = ::requestCameraAndScan,
             modifier = Modifier.fillMaxWidth(),
@@ -304,9 +331,17 @@ fun AlleycatAddServerSheet(
         }
         if (cameraDenied) {
             Text(
-                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below.",
+                text = "Camera permission is required to scan a pairing QR. Open Settings to grant access, or paste the JSON below.",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
+            )
+            Text(
+                text = "Open Settings",
+                color = LitterTheme.accent,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clickable { openAppSettings(context) },
             )
         }
 
@@ -433,13 +468,13 @@ fun AlleycatAddServerSheet(
                         Spacer(Modifier.width(8.dp))
                         Text("Loading agents", color = LitterTheme.textSecondary, fontSize = 12.sp)
                     }
-                    agents.isEmpty() -> Text(
+                    availableAgents.isEmpty() -> Text(
                         text = "No agents are available on this host.",
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp),
                     )
-                    else -> agents.forEach { agent ->
+                    else -> availableAgents.forEach { agent ->
                         AgentRow(
                             agent = agent,
                             selected = agent.name in selectedAgentNames,
@@ -488,17 +523,27 @@ fun AlleycatAddServerSheet(
     }
 }
 
+private fun resolvedSuggestedDisplayName(
+    params: AppAlleycatPairPayload,
+    pairingMode: AlleycatPairingMode,
+): String {
+    val suggested = suggestedDisplayName(params)
+    return if (
+        pairingMode == AlleycatPairingMode.LocalStudio &&
+        !suggested.contains("local studio", ignoreCase = true)
+    ) {
+        "Local Studio · $suggested"
+    } else {
+        suggested
+    }
+}
+
 @Composable
 private fun AgentRow(
     agent: AppAlleycatAgentInfo,
     selected: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    // Plain clickable Row instead of TextButton — TextButton injects
-    // Material's minimum touch target (~48dp) plus internal content
-    // padding, which made each agent row much taller than the actual
-    // text content needed and forced the agent list to take far more
-    // vertical space than necessary on small screens.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -549,7 +594,6 @@ private fun AgentRow(
         }
     }
 }
-
 
 @Composable
 private fun SectionHeader(label: String, modifier: Modifier = Modifier) {
@@ -608,6 +652,22 @@ private fun wireLabel(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.JSONL -> "jsonl"
 }
 
+/**
+ * Open this app's system settings page so a user who permanently denied the
+ * camera can still re-grant it. `FLAG_ACTIVITY_NEW_TASK` is required because
+ * [context] may be an application context here.
+ */
+private fun openAppSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.onFailure { Log.w(LOG_TAG, "unable to open app settings", it) }
+}
+
 fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.WEBSOCKET -> "websocket"
     AppAlleycatAgentWire.JSONL -> "jsonl"
@@ -617,6 +677,7 @@ private const val PAIR_COMMAND = "npx kittylitter"
 
 @Composable
 private fun QrScannerScreen(
+    pairingMode: AlleycatPairingMode,
     onScanned: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -710,7 +771,24 @@ private fun QrScannerScreen(
                 }
             }
 
-            InstructionsCard()
+            InstructionsCard(
+                pairingMode = pairingMode,
+                onPasteConnectionJSON = {
+                    if (!scanned) {
+                        val payload = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                            .let { it as? android.content.ClipboardManager }
+                            ?.primaryClip
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            ?.trim()
+                        if (!payload.isNullOrEmpty()) {
+                            scanned = true
+                            onScanned(payload)
+                        }
+                    }
+                },
+            )
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -720,7 +798,10 @@ private fun QrScannerScreen(
 }
 
 @Composable
-private fun InstructionsCard() {
+private fun InstructionsCard(
+    pairingMode: AlleycatPairingMode,
+    onPasteConnectionJSON: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -731,15 +812,38 @@ private fun InstructionsCard() {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Pair with kittylitter",
-            color = androidx.compose.ui.graphics.Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        StepRow(number = "1", title = "On the host you want to connect to, run:")
-        CommandRow()
-        StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                AgentIconView(kind = "local-studio", sizeDp = 28)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
+                    "Scan Local Studio Profile QR"
+                } else "Pair with kittylitter",
+                color = androidx.compose.ui.graphics.Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        if (pairingMode == AlleycatPairingMode.LocalStudio) {
+            StepRow(number = "1", title = "In Local Studio, open Profile → Phone connection.")
+            StepRow(number = "2", title = "Point this camera at the Profile QR code.")
+            TextButton(onClick = onPasteConnectionJSON) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Paste connection JSON", color = androidx.compose.ui.graphics.Color.White)
+            }
+        } else {
+            StepRow(number = "1", title = "On the host you want to connect to, run:")
+            CommandRow()
+            StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+        }
     }
 }
 

@@ -218,6 +218,7 @@ pub async fn probe_remote_agents(
     let shell = ssh.detect_remote_shell().await;
     info!("ssh bridge agent probe shell={shell:?}");
     let kinds = [
+        crate::local_studio::RUNTIME_KIND.to_string(),
         "claude".to_string(),
         "pi".to_string(),
         "opencode".to_string(),
@@ -236,7 +237,8 @@ pub async fn probe_remote_agents(
     }
 
     let script = format!(
-        "{PROFILE_INIT}\n{}",
+        "{PROFILE_INIT}\n{}\n{}",
+        crate::local_studio::probe_script(),
         r#"find_cmd() {
   cmd="$1"
   case "$cmd" in
@@ -493,34 +495,68 @@ async fn connect_app_server_client_via_ssh_with_close(
                 .await
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?
         }
-        "pi" => {
-            let bin = resolve_remote_cli(
-                &ssh,
-                shell,
-                &cli_candidates(&["pi-coding-agent", "pi"], bin_override.as_deref()),
-            )
-            .await?;
-            info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
-            let hydrator = match scan_remote_pi_sessions(&ssh, shell).await {
-                Ok(sessions) => {
-                    info!(
-                        count = sessions.len(),
-                        "ssh bridge hydrated remote pi session scan"
-                    );
-                    PiHydrator::with_sessions(sessions)
-                }
-                Err(error) => {
-                    warn!("ssh bridge remote pi session scan failed: {error}");
-                    PiHydrator::with_sessions(Vec::new())
+        "pi" | crate::local_studio::RUNTIME_KIND => {
+            let local_studio_runtime = if kind == crate::local_studio::RUNTIME_KIND {
+                Some(
+                    crate::local_studio::resolve_runtime(&ssh, shell)
+                        .await?
+                        .ok_or_else(|| {
+                            SshBridgeError::BridgeStartupFailed(
+                                "Local Studio controller runtime was not found on the SSH host"
+                                    .into(),
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
+            let bin = match local_studio_runtime.as_ref() {
+                Some(runtime) => runtime.program.clone(),
+                None => {
+                    resolve_remote_cli(
+                        &ssh,
+                        shell,
+                        &cli_candidates(&["pi-coding-agent", "pi"], bin_override.as_deref()),
+                    )
+                    .await?
                 }
             };
-            PiBridge::builder()
+            info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
+            let local_studio_agent_dir = local_studio_runtime
+                .as_ref()
+                .map(|runtime| runtime.agent_dir.as_str());
+            let pi_launcher = match local_studio_runtime.as_ref() {
+                Some(runtime) => crate::local_studio::launcher(Arc::clone(&launcher), runtime),
+                None => Arc::clone(&launcher),
+            };
+            let hydrator =
+                match scan_remote_pi_sessions(&ssh, shell, local_studio_agent_dir.as_deref()).await
+                {
+                    Ok(sessions) => {
+                        info!(
+                            count = sessions.len(),
+                            "ssh bridge hydrated remote pi session scan"
+                        );
+                        PiHydrator::with_sessions(sessions)
+                    }
+                    Err(error) => {
+                        warn!("ssh bridge remote pi session scan failed: {error}");
+                        PiHydrator::with_sessions(Vec::new())
+                    }
+                };
+            let builder = PiBridge::builder()
                 .agent_bin(bin)
-                .launcher(Arc::clone(&launcher))
+                .launcher(pi_launcher)
                 .codex_home(state_dir)
                 .pool_capacity(4)
                 .trust_persisted_cwd(true)
-                .hydrator(hydrator)
+                .hydrator(hydrator);
+            let builder = if kind == crate::local_studio::RUNTIME_KIND {
+                builder.model_provider_prefix(crate::local_studio::RUNTIME_KIND)
+            } else {
+                builder
+            };
+            builder
                 .build()
                 .await
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?
@@ -889,8 +925,12 @@ async fn scan_remote_claude_sessions(
 async fn scan_remote_pi_sessions(
     ssh: &SshClient,
     shell: RemoteShell,
+    agent_dir: Option<&str>,
 ) -> Result<Vec<PiSessionInfo>, SshBridgeError> {
-    let script = format!("{PROFILE_INIT}\n{REMOTE_PI_SESSION_SCAN}");
+    let prefix = agent_dir
+        .map(crate::local_studio::session_scan_prefix)
+        .unwrap_or_default();
+    let script = format!("{PROFILE_INIT}\n{prefix}\n{REMOTE_PI_SESSION_SCAN}");
     let result = ssh.exec_shell(&script, shell).await?;
     if result.exit_code != 0 {
         return Err(SshBridgeError::Transport(nonempty_stderr_or_stdout(result)));
@@ -1149,6 +1189,7 @@ fn parse_agent_probe(stdout: &str) -> Vec<RemoteAgentAvailability> {
             let (cmd, path) = line.split_once('\t').unwrap_or((line, ""));
             let kind = match cmd {
                 "claude" => "claude".to_string(),
+                "local-studio" => crate::local_studio::RUNTIME_KIND.to_string(),
                 "pi" | "pi-coding-agent" => "pi".to_string(),
                 "opencode" => "opencode".to_string(),
                 "codex" => "codex".to_string(),
@@ -1240,5 +1281,28 @@ fn runtime_display_name(kind: &str) -> &str {
     // Fall back to the raw id when no metadata is cached. Real
     // human-facing display strings come from
     // `AgentMetadataStore::get(kind).display_name`.
-    kind
+    if kind == crate::local_studio::RUNTIME_KIND {
+        "Local Studio"
+    } else {
+        kind
+    }
+}
+
+#[cfg(test)]
+mod local_studio_tests {
+    use super::*;
+
+    #[test]
+    fn probe_parser_exposes_ready_local_studio_catalog() {
+        let agents =
+            parse_agent_probe("local-studio\t/home/test/.local-studio/pi-agent\npi\t/usr/bin/pi\n");
+        assert_eq!(agents[0].kind, "local-studio");
+        assert_eq!(agents[0].status, AgentAvailabilityStatus::Available);
+    }
+
+    #[test]
+    fn probe_parser_keeps_missing_catalog_unavailable() {
+        let agents = parse_agent_probe("local-studio\t\n");
+        assert_eq!(agents[0].status, AgentAvailabilityStatus::AgentCliMissing);
+    }
 }

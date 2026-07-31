@@ -1,8 +1,10 @@
 use crate::MobileClient;
 
+#[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
 const IOS_LOCAL_RUNTIME_SENTINEL: &str =
     "You are running inside Litter's local Codex runtime on iOS.";
 
+#[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
 pub(crate) const IOS_LOCAL_RUNTIME_DEVELOPER_INSTRUCTIONS: &str = r#"You are running inside Litter's local Codex runtime on iOS.
 
 The shell tool is backed by a persistent iSH Alpine Linux fakefs, not the iOS host filesystem or ios_system. Treat paths, packages, and command behavior as Alpine Linux inside iSH.

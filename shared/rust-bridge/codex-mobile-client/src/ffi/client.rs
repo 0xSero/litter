@@ -8,6 +8,7 @@ use base64::Engine;
 use codex_app_server_protocol as upstream;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use url::Url;
 
 async fn rpc<T: serde::de::DeserializeOwned>(
@@ -52,6 +53,7 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
+const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn normalize_amp_mode_name(value: &str) -> String {
     value
@@ -127,6 +129,7 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
                 supports_personality: false,
                 is_default: mode == "smart",
                 agent_runtime_kind: "amp".to_string(),
+                provider_id: None,
             }
         })
         .collect()
@@ -155,6 +158,8 @@ fn normalize_model_info_for_runtime(
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
     let is_amp = runtime_kind == "amp";
+    let is_pi = matches!(runtime_kind.as_str(), "pi" | "local-studio");
+    let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
     model_info.agent_runtime_kind = runtime_kind;
     if is_amp {
         let id_mode = normalize_amp_mode_name(&model_info.id);
@@ -176,12 +181,59 @@ fn normalize_model_info_for_runtime(
         model_info.supported_reasoning_efforts = supported_reasoning_efforts;
         model_info.default_reasoning_effort = default_reasoning_effort;
         model_info.is_default = mode == "smart";
+    } else if has_qualified_catalog {
+        if let Some(provider_id) = derive_model_provider_id(&model_info.id) {
+            model_info.provider_id = Some(provider_id.to_string());
+        }
+    }
+    if is_pi
+        && !model_info
+            .supported_reasoning_efforts
+            .iter()
+            .any(|option| option.reasoning_effort == types::ReasoningEffort::Max)
+    {
+        model_info
+            .supported_reasoning_efforts
+            .push(types::ReasoningEffortOption {
+                reasoning_effort: types::ReasoningEffort::Max,
+                description: "Maximum reasoning depth.".to_string(),
+            });
     }
     true
 }
 
+fn runtime_kind_uses_qualified_catalog(runtime_kind: &str) -> bool {
+    matches!(runtime_kind, "pi" | "local-studio" | "opencode")
+}
+
+fn derive_model_provider_id(id: &str) -> Option<&str> {
+    let mut segments = id.split('/');
+    let first = segments.next().filter(|segment| !segment.is_empty())?;
+    let second = segments.next().filter(|segment| !segment.is_empty())?;
+    if first == "openrouter" && segments.next().is_some() {
+        return Some(second);
+    }
+    Some(first)
+}
+
 fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
-    !matches!(runtime_kind, "shell")
+    runtime_kind != "shell"
+}
+
+fn list_runtime_kinds(
+    requested: Option<Vec<types::AgentRuntimeKind>>,
+    available: &[types::AgentRuntimeKind],
+) -> Vec<types::AgentRuntimeKind> {
+    let mut runtimes = match requested {
+        Some(requested) if !requested.is_empty() => requested
+            .into_iter()
+            .filter(|kind| available.contains(kind))
+            .collect(),
+        _ => available.to_vec(),
+    };
+    runtimes.sort();
+    runtimes.dedup();
+    runtimes
 }
 
 fn append_cached_models_for_failed_runtimes(
@@ -224,6 +276,9 @@ async fn hydrate_thread_goal_if_available(
     server_id: &str,
     key: &types::ThreadKey,
 ) {
+    if client.runtime_for_thread(key) != "codex" {
+        return;
+    }
     let response: Result<upstream::ThreadGoalGetResponse, ClientError> = rpc_runtime(
         client,
         server_id,
@@ -645,7 +700,6 @@ impl AppClient {
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             let requested_runtime_kinds = params.runtime_kinds.clone();
-            let has_requested_runtime_kinds = requested_runtime_kinds.is_some();
             let drain_all_pages = params.cursor.is_none()
                 && params.limit.is_none()
                 && params
@@ -670,20 +724,14 @@ impl AppClient {
                 params.limit,
                 params.cursor
             );
-            let mut runtime_kinds = match requested_runtime_kinds {
-                Some(requested) if !requested.is_empty() => requested
-                    .into_iter()
-                    .filter(|kind| {
-                        *kind == "codex".to_string() || available_runtime_kinds.contains(kind)
-                    })
-                    .collect::<Vec<_>>(),
-                _ => available_runtime_kinds,
-            };
-            if !has_requested_runtime_kinds && !runtime_kinds.contains(&"codex".to_string()) {
-                runtime_kinds.push("codex".to_string());
+            let runtime_kinds =
+                list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
+            if runtime_kinds.is_empty() {
+                return Err(ClientError::Rpc(
+                    "none of the requested agent runtimes are available on this controller"
+                        .to_string(),
+                ));
             }
-            runtime_kinds.sort();
-            runtime_kinds.dedup();
             tracing::info!(
                 "list_threads: fanout start server_id={} runtime_kinds={:?}",
                 server_id,
@@ -716,31 +764,18 @@ impl AppClient {
                     let mut request_params = initial_params;
                     let mut ids = Vec::new();
                     let mut completed = true;
-                    tracing::info!(
-                        "list_threads: runtime start server_id={} runtime={:?} initial_limit={:?} search_term={:?} use_state_db_only={}",
-                        server_id,
-                        runtime_kind,
-                        request_params.limit,
-                        request_params.search_term,
-                        request_params.use_state_db_only
-                    );
                     loop {
-                        // 10s per-page timeout: a stalled agent (e.g.
-                        // opencode mid-restart) must not wedge the join.
                         let response: upstream::ThreadListResponse =
-                            match tokio::time::timeout(
-                                std::time::Duration::from_secs(10),
-                                rpc_runtime::<upstream::ThreadListResponse>(
-                                    client.as_ref(),
-                                    &server_id,
-                                    runtime_kind.clone(),
-                                    req!(server_id, ThreadList, request_params.clone()),
-                                ),
+                            match rpc_runtime::<upstream::ThreadListResponse>(
+                                client.as_ref(),
+                                &server_id,
+                                runtime_kind.clone(),
+                                req!(server_id, ThreadList, request_params.clone()),
                             )
                             .await
                             {
-                                Ok(Ok(response)) => response,
-                                Ok(Err(error)) => {
+                                Ok(response) => response,
+                                Err(error) => {
                                     tracing::warn!(
                                         "list_threads: thread/list failed for runtime {:?} on server {}: {}",
                                         runtime_kind, server_id, error
@@ -748,22 +783,7 @@ impl AppClient {
                                     completed = false;
                                     break;
                                 }
-                                Err(_) => {
-                                    tracing::warn!(
-                                        "list_threads: thread/list timed out after 10s for runtime {:?} on server {}",
-                                        runtime_kind, server_id
-                                    );
-                                    completed = false;
-                                    break;
-                                }
                             };
-                        tracing::info!(
-                            "list_threads: runtime page server_id={} runtime={:?} count={} next_cursor_present={}",
-                            server_id,
-                            runtime_kind,
-                            response.data.len(),
-                            response.next_cursor.is_some()
-                        );
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
                             runtime_kind.clone(),
@@ -778,26 +798,16 @@ impl AppClient {
                         }
                         request_params.cursor = Some(next_cursor);
                     }
-                    tracing::info!(
-                        "list_threads: runtime complete server_id={} runtime={:?} completed={} upserted_ids={}",
-                        server_id,
-                        runtime_kind,
-                        completed,
-                        ids.len()
-                    );
                     (runtime_kind, ids, completed)
                 });
             }
 
             let results = futures::future::join_all(tasks).await;
-            tracing::info!(
-                "list_threads: fanout complete server_id={} results={:?}",
-                server_id,
-                results
-                    .iter()
-                    .map(|(runtime, ids, completed)| (runtime.clone(), ids.len(), *completed))
-                    .collect::<Vec<_>>()
-            );
+            if results.iter().all(|(_, _, completed)| !completed) {
+                return Err(ClientError::Rpc(
+                    "thread list failed for every runtime".into(),
+                ));
+            }
             // Only prune if every runtime finished cleanly. A partial
             // result (one runtime timed out / errored) means we don't
             // know its true thread set yet, and `finalize_thread_list_sync`
@@ -1025,87 +1035,94 @@ impl AppClient {
         params: types::AppRefreshModelsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let runtime_kinds = c
+            let mut runtime_kinds = c
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?
-                .runtime_kinds();
+                .runtime_kinds()
+                .into_iter()
+                .filter(|runtime_kind| runtime_exposes_model_choices(runtime_kind))
+                .collect::<Vec<_>>();
+            runtime_kinds.sort();
+            runtime_kinds.dedup();
+            let runtime_count = runtime_kinds.len();
             let params: upstream::ModelListParams = params.into();
-            let mut models = Vec::new();
-            let mut seen_model_ids = HashSet::new();
-            let mut failed_runtime_kinds = HashSet::new();
-            for runtime_kind in runtime_kinds {
-                if !runtime_exposes_model_choices(&runtime_kind) {
-                    continue;
-                }
+            let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
+                let client = Arc::clone(&c);
+                let server_id = server_id.clone();
                 let mut request_params = params.clone();
-                loop {
-                    let page: upstream::ModelListResponse = match rpc_runtime(
-                        c.as_ref(),
-                        &server_id,
-                        runtime_kind.clone(),
-                        req!(server_id, ModelList, request_params.clone()),
-                    )
-                    .await
-                    {
-                        Ok(page) => page,
-                        Err(error) if runtime_kind == "amp" => {
-                            tracing::warn!(
-                                "model/list failed for Amp runtime on server {}: {}; using built-in Amp modes",
-                                server_id,
-                                error
-                            );
-                            append_missing_amp_mode_models(&mut models);
-                            break;
+                async move {
+                    let fetch = async {
+                        let mut models = Vec::new();
+                        loop {
+                            let page: upstream::ModelListResponse = rpc_runtime(
+                                client.as_ref(),
+                                &server_id,
+                                runtime_kind.clone(),
+                                req!(server_id, ModelList, request_params.clone()),
+                            )
+                            .await?;
+                            models.extend(page.data.into_iter().filter_map(|model| {
+                                let mut model = types::ModelInfo::from(model);
+                                normalize_model_info_for_runtime(&mut model, runtime_kind.clone())
+                                    .then_some(model)
+                            }));
+                            let Some(cursor) = page.next_cursor else {
+                                break;
+                            };
+                            request_params.cursor = Some(cursor);
                         }
-                        Err(error) => {
-                            failed_runtime_kinds.insert(runtime_kind.clone());
-                            tracing::warn!(
-                                "model/list failed for runtime {} on server {}: {}; skipping runtime",
-                                runtime_kind,
-                                server_id,
-                                error
-                            );
-                            break;
-                        }
+                        Ok::<_, ClientError>(models)
                     };
-                    for model in page.data {
-                        let mut model_info = types::ModelInfo::from(model);
-                        if !normalize_model_info_for_runtime(&mut model_info, runtime_kind.clone())
-                        {
-                            continue;
-                        }
-                        let dedupe_key = (runtime_kind.clone(), model_info.id.clone());
-                        if seen_model_ids.insert(dedupe_key) {
-                            models.push(model_info);
+                    let result = tokio::time::timeout(MODEL_LIST_RUNTIME_TIMEOUT, fetch).await;
+                    (runtime_kind, result)
+                }
+            });
+            let mut models = Vec::new();
+            let mut failures = Vec::new();
+            let mut failed_runtime_kinds = HashSet::new();
+            for (runtime_kind, result) in futures::future::join_all(tasks).await {
+                match result {
+                    Ok(Ok(runtime_models)) => {
+                        models.extend(runtime_models);
+                        if runtime_kind == "amp" {
+                            append_missing_amp_mode_models(&mut models);
                         }
                     }
-                    let Some(next_cursor) = page.next_cursor else {
-                        break;
-                    };
-                    request_params.cursor = Some(next_cursor);
-                }
-                if runtime_kind == "amp" {
-                    append_missing_amp_mode_models(&mut models);
+                    _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
+                    Ok(Err(error)) => {
+                        failed_runtime_kinds.insert(runtime_kind.clone());
+                        failures.push(format!("{runtime_kind}: {error}"));
+                    }
+                    Err(_) => {
+                        failed_runtime_kinds.insert(runtime_kind.clone());
+                        failures.push(format!("{runtime_kind}: model/list timed out"));
+                    }
                 }
             }
-            if !failed_runtime_kinds.is_empty() {
-                let cached_models = c
-                    .app_store
-                    .snapshot()
-                    .servers
-                    .get(&server_id)
-                    .and_then(|server| server.available_models.clone());
-                if let Some(cached_models) = cached_models {
-                    append_cached_models_for_failed_runtimes(
-                        &mut models,
-                        &mut seen_model_ids,
-                        &cached_models,
-                        &failed_runtime_kinds,
-                    );
-                }
+            let mut seen_model_ids = HashSet::new();
+            models.retain(|model| {
+                seen_model_ids.insert((model.agent_runtime_kind.clone(), model.id.clone()))
+            });
+            let cached = c
+                .app_store
+                .snapshot()
+                .servers
+                .get(&server_id)
+                .and_then(|server| server.available_models.clone());
+            if let Some(cached) = cached {
+                append_cached_models_for_failed_runtimes(
+                    &mut models,
+                    &mut seen_model_ids,
+                    &cached,
+                    &failed_runtime_kinds,
+                );
             }
             c.app_store.update_server_models(&server_id, Some(models));
-            Ok(())
+            if failures.is_empty() || failed_runtime_kinds.len() < runtime_count {
+                Ok(())
+            } else {
+                Err(ClientError::Rpc(failures.join("; ")))
+            }
         })
     }
 
@@ -2956,6 +2973,7 @@ fn inherited_settings_for_origin(
             "high" => Some(ReasoningEffort::High),
             "xhigh" | "x-high" => Some(ReasoningEffort::XHigh),
             "max" => Some(ReasoningEffort::Max),
+            "ultra" => Some(ReasoningEffort::Ultra),
             _ => None,
         }
     });
@@ -2996,6 +3014,7 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
+        list_runtime_kinds,
         normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
         splice_generative_ui_preamble,
     };
@@ -3075,6 +3094,7 @@ mod tests {
             supports_personality: false,
             is_default: false,
             agent_runtime_kind: runtime_kind,
+            provider_id: None,
         }
     }
 
@@ -3086,6 +3106,47 @@ mod tests {
                 .collect::<HashMap<_, _>>(),
             ..AppSnapshot::default()
         }
+    }
+
+    #[test]
+    fn model_picker_queries_every_chat_runtime() {
+        assert!(runtime_exposes_model_choices("codex"));
+        assert!(runtime_exposes_model_choices("pi"));
+        assert!(runtime_exposes_model_choices("local-studio"));
+        assert!(!runtime_exposes_model_choices("shell"));
+        let mut pi = test_model("openrouter/ai21/jamba", "pi".to_string());
+        assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string()));
+        assert_eq!(pi.provider_id.as_deref(), Some("ai21"));
+        assert!(
+            pi.supported_reasoning_efforts
+                .iter()
+                .any(|option| { option.reasoning_effort == ReasoningEffort::Max })
+        );
+        let mut codex = test_model("openai/gpt-6-codex", "codex".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut codex,
+            "codex".to_string()
+        ));
+        assert_eq!(codex.provider_id, None);
+
+        let mut local_studio = test_model("controller/qwen3-coder", "local-studio".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut local_studio,
+            "local-studio".to_string()
+        ));
+        assert!(
+            local_studio
+                .supported_reasoning_efforts
+                .iter()
+                .any(|option| option.reasoning_effort == ReasoningEffort::Max)
+        );
+    }
+
+    #[test]
+    fn thread_list_only_queries_runtimes_the_controller_exposes() {
+        let local_studio = vec!["local-studio".to_string()];
+        assert_eq!(list_runtime_kinds(None, &local_studio), local_studio);
+        assert!(list_runtime_kinds(Some(vec!["codex".to_string()]), &local_studio).is_empty());
     }
 
     #[test]

@@ -115,60 +115,7 @@ pub(super) fn queued_follow_up_text_from_inputs(inputs: &[upstream::UserInput]) 
     }
 }
 
-pub(super) fn queued_follow_up_kind_from_json_value(
-    value: &serde_json::Value,
-) -> Option<AppQueuedFollowUpKind> {
-    let object = value.as_object()?;
-    let raw_kind = object
-        .get("kind")
-        .or_else(|| object.get("category"))
-        .or_else(|| object.get("queueKind"))
-        .or_else(|| object.get("queue_kind"))
-        .and_then(serde_json::Value::as_str)?
-        .trim()
-        .to_ascii_lowercase();
-
-    match raw_kind.as_str() {
-        "pending_steer" | "pending-steer" | "pendingsteer" | "steer" => {
-            Some(AppQueuedFollowUpKind::PendingSteer)
-        }
-        "rejected_steer" | "rejected-steer" | "rejectedsteer" | "retrying_steer"
-        | "retrying-steer" | "retryingsteer" => Some(AppQueuedFollowUpKind::RetryingSteer),
-        "queued" | "queued_follow_up" | "queued-follow-up" | "queuedfollowup" => {
-            Some(AppQueuedFollowUpKind::Message)
-        }
-        _ => None,
-    }
-}
-
-pub(super) fn queued_follow_up_text_from_json_value(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(text) => {
-            let trimmed = text.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        }
-        serde_json::Value::Object(object) => {
-            if let Some(nested) = object
-                .get("userMessage")
-                .or_else(|| object.get("user_message"))
-            {
-                return queued_follow_up_text_from_json_value(nested);
-            }
-
-            if let Some(text) = string_field(object, &["text", "message", "summary"]) {
-                return Some(text);
-            }
-
-            let attachment_count = array_field_len(object, &["localImages", "local_images"])
-                + array_field_len(object, &["remoteImageUrls", "remote_image_urls"])
-                + array_field_len(object, &["images", "imageUrls", "image_urls"]);
-
-            attachment_summary(attachment_count)
-        }
-        _ => None,
-    }
-}
-
+#[cfg(test)]
 pub(super) fn queued_follow_up_inputs_from_json_value(
     value: &serde_json::Value,
 ) -> Vec<upstream::UserInput> {
@@ -340,6 +287,7 @@ pub(super) fn queued_follow_up_message_json_from_inputs(
     }))
 }
 
+#[cfg(test)]
 pub(super) fn string_field(
     object: &serde_json::Map<String, serde_json::Value>,
     keys: &[&str],
@@ -365,30 +313,12 @@ pub(super) fn string_field(
         })
 }
 
-pub(super) fn array_field_len(
-    object: &serde_json::Map<String, serde_json::Value>,
-    keys: &[&str],
-) -> usize {
-    keys.iter()
-        .filter_map(|key| object.get(*key))
-        .find_map(|value| value.as_array().map(Vec::len))
-        .unwrap_or(0)
-}
-
 pub(super) fn attachment_summary(attachment_count: usize) -> Option<String> {
     match attachment_count {
         0 => None,
         1 => Some("1 image attachment".to_string()),
         count => Some(format!("{count} image attachments")),
     }
-}
-
-pub(super) fn stable_follow_up_preview_id(scope: &str, index: usize, text: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    scope.hash(&mut hasher);
-    index.hash(&mut hasher);
-    text.hash(&mut hasher);
-    format!("{scope}-{index}-{:016x}", hasher.finish())
 }
 
 pub(super) fn remote_oauth_callback_port(auth_url: &str) -> Result<u16, RpcError> {
@@ -487,6 +417,7 @@ pub fn reasoning_effort_string(value: crate::types::ReasoningEffort) -> String {
         crate::types::ReasoningEffort::High => "high".to_string(),
         crate::types::ReasoningEffort::XHigh => "xhigh".to_string(),
         crate::types::ReasoningEffort::Max => "max".to_string(),
+        crate::types::ReasoningEffort::Ultra => "ultra".to_string(),
     }
 }
 
@@ -499,6 +430,7 @@ pub fn reasoning_effort_from_string(value: &str) -> Option<crate::types::Reasoni
         "high" => Some(crate::types::ReasoningEffort::High),
         "xhigh" => Some(crate::types::ReasoningEffort::XHigh),
         "max" => Some(crate::types::ReasoningEffort::Max),
+        "ultra" => Some(crate::types::ReasoningEffort::Ultra),
         _ => None,
     }
 }
@@ -519,7 +451,8 @@ pub(super) fn core_reasoning_effort_from_mobile(
         crate::types::ReasoningEffort::XHigh => {
             codex_protocol::openai_models::ReasoningEffort::XHigh
         }
-        crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::XHigh,
+        crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::Max,
+        crate::types::ReasoningEffort::Ultra => codex_protocol::openai_models::ReasoningEffort::Ultra,
     }
 }
 
@@ -564,52 +497,6 @@ pub(super) fn map_ssh_transport_error(error: crate::ssh::SshError) -> TransportE
     TransportError::ConnectionFailed(error.to_string())
 }
 
-pub(super) async fn refresh_thread_list_from_app_server(
-    session: Arc<ServerSession>,
-    app_store: Arc<AppStoreReducer>,
-    server_id: &str,
-) -> Result<(), RpcError> {
-    // Multiplexed sessions (Alleycat) carry a separate command channel per
-    // agent runtime. `thread/list` is not thread-scoped, so the default
-    // dispatcher routes it to Codex only — pi and opencode threads would
-    // never appear in the UI. Fan the request out across every runtime the
-    // session knows about and merge the pages, so the user sees their pi /
-    // opencode threads alongside codex's. `runtime_kinds()` returns
-    // `[Codex]` for non-multiplexed sessions, preserving the previous
-    // single-runtime behavior.
-    let runtime_kinds = session.runtime_kinds();
-
-    let mut incoming_ids = HashSet::new();
-    for runtime_kind in runtime_kinds {
-        let mut cursor = None;
-        loop {
-            let response =
-                match request_thread_list_page_for_runtime(&session, runtime_kind.clone(), cursor)
-                    .await
-                {
-                    Ok(response) => response,
-                    Err(error) => {
-                        warn!(
-                            "thread/list failed for runtime {:?} on server {}: {}",
-                            runtime_kind, server_id, error
-                        );
-                        break;
-                    }
-                };
-            let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
-            app_store.upsert_thread_list_page_for_runtime(server_id, runtime_kind.clone(), &page);
-
-            let Some(next_cursor) = response.next_cursor else {
-                break;
-            };
-            cursor = Some(next_cursor);
-        }
-    }
-
-    app_store.finalize_thread_list_sync(server_id, &incoming_ids);
-    Ok(())
-}
-
 pub(super) async fn refresh_account_from_app_server(
     session: Arc<ServerSession>,
     app_store: Arc<AppStoreReducer>,
@@ -632,58 +519,6 @@ pub(super) async fn refresh_account_from_app_server(
         response.requires_openai_auth,
     );
     Ok(())
-}
-
-async fn request_thread_list_page_for_runtime(
-    session: &ServerSession,
-    runtime_kind: AgentRuntimeKind,
-    cursor: Option<String>,
-) -> Result<upstream::ThreadListResponse, RpcError> {
-    let params = match cursor {
-        Some(cursor) => serde_json::json!({ "cursor": cursor }),
-        None => serde_json::json!({}),
-    };
-    let response = session
-        .request_for_runtime(runtime_kind, "thread/list", params)
-        .await?;
-    let mut response = response;
-    normalize_empty_thread_list_cwds(&mut response);
-    serde_json::from_value::<upstream::ThreadListResponse>(response)
-        .map_err(|error| RpcError::Deserialization(format!("deserialize thread/list: {error}")))
-}
-
-fn normalize_empty_thread_list_cwds(value: &mut serde_json::Value) {
-    let Some(data) = value
-        .get_mut("data")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return;
-    };
-    for item in data {
-        let Some(map) = item.as_object_mut() else {
-            continue;
-        };
-        if let Some(serde_json::Value::String(cwd)) = map.get_mut("cwd")
-            && cwd.is_empty()
-        {
-            *cwd = "/".to_string();
-        }
-    }
-}
-
-fn thread_list_page_to_thread_infos(
-    data: Vec<upstream::Thread>,
-    incoming_ids: &mut HashSet<String>,
-) -> Vec<ThreadInfo> {
-    let mut threads = Vec::new();
-    for thread in data {
-        let Some(info) = thread_info_from_upstream_thread(thread) else {
-            continue;
-        };
-        incoming_ids.insert(info.id.clone());
-        threads.push(info);
-    }
-    threads
 }
 
 pub(super) fn session_is_current(
@@ -752,25 +587,6 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     Ok(())
 }
 
-pub(super) fn upstream_thread_status_from_summary_status(
-    status: ThreadSummaryStatus,
-) -> upstream::ThreadStatus {
-    match status {
-        ThreadSummaryStatus::NotLoaded | ThreadSummaryStatus::Idle => upstream::ThreadStatus::Idle,
-        ThreadSummaryStatus::Active => upstream::ThreadStatus::Active {
-            active_flags: Vec::new(),
-        },
-        ThreadSummaryStatus::SystemError => upstream::ThreadStatus::SystemError,
-    }
-}
-
-pub(super) fn thread_snapshot_from_upstream_thread(
-    server_id: &str,
-    thread: upstream::Thread,
-) -> ThreadSnapshot {
-    thread_snapshot_from_upstream_thread_state(server_id, thread, None, None, None, None, None)
-}
-
 pub(super) fn thread_snapshot_from_upstream_thread_state(
     server_id: &str,
     thread: upstream::Thread,
@@ -821,6 +637,14 @@ pub fn reconcile_active_turn(
     if target.active_turn_id.is_some() {
         target.info.status = ThreadSummaryStatus::Active;
         return;
+    }
+    if let Some(remote_id) = active_turn_id_from_turns(upstream_turns) {
+        target.active_turn_id = Some(remote_id);
+        target.info.status = ThreadSummaryStatus::Active;
+        return;
+    }
+    if !upstream_turns.is_empty() && matches!(target.info.status, ThreadSummaryStatus::Active) {
+        target.info.status = ThreadSummaryStatus::Idle;
     }
     let Some(local_id) = existing.and_then(|t| t.active_turn_id.clone()) else {
         return;

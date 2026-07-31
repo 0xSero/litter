@@ -71,11 +71,14 @@ enum GranularityKind: String, CaseIterable, Identifiable {
 
 struct TypingEffectConfig: Codable, Equatable, Hashable {
     var effects: [String] = []
-    var revealDuration: Double = 0.5
-    var granularity: String = "Character"
-    var revealMode: String = "Continuous"
+    var revealDuration: Double = 0.03
+    var granularity: String = "Block"
+    var revealMode: String = "Linear"
 
-    static let `default` = TypingEffectConfig(effects: ["Fade Edge"], revealDuration: 0.5, granularity: "Character", revealMode: "Continuous")
+    /// Preserve the cadence delivered by the model. Decorative per-character
+    /// reveal made a fast SSE stream look delayed and choppy, especially when
+    /// reasoning and tool rows were interleaved with assistant text.
+    static let `default` = TypingEffectConfig()
 
     var activeEffect: StreamingEffectKind? {
         effects.first.flatMap { StreamingEffectKind(rawValue: $0) }

@@ -10,7 +10,7 @@ class AlleycatCredentialStore(context: Context) {
         prefs.getString(key(nodeId), null)?.takeIf { it.isNotBlank() }
 
     fun saveToken(nodeId: String, token: String) {
-        prefs.edit().putString(key(nodeId), token).apply()
+        check(prefs.edit().putString(key(nodeId), token).commit()) { "Unable to save Alleycat token" }
     }
 
     fun deleteToken(nodeId: String) {

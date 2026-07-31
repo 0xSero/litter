@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import com.litter.android.ui.common.matchesModelSelection
 import com.litter.android.ui.common.modelPickerDisplayName
 import com.litter.android.ui.conversation.HeaderOverrides
 import com.litter.android.ui.scaled
+import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ModelInfo
 
 /**
@@ -55,28 +57,79 @@ fun HomeModelChip(
     val appModel = LocalAppModel.current
     val snapshot by appModel.snapshot.collectAsState()
     val launchState by appModel.launchState.snapshot.collectAsState()
+    val scope = rememberCoroutineScope()
 
     val server = remember(snapshot, serverId) {
         snapshot?.servers?.firstOrNull { it.serverId == serverId }
     }
     val availableModels: List<ModelInfo> = server?.availableModels.orEmpty()
+    val selectedModelMatches = availableModels.any {
+        it.matchesModelSelection(
+            launchState.selectedModel,
+            launchState.selectedAgentRuntimeKind,
+        )
+    }
+    val usesServerConfiguredDefault = usesServerConfiguredModelDefault(
+        availableModels.map { it.agentRuntimeKind },
+    )
 
     val selectedId = launchState.selectedModel
-        .takeIf { it.isNotBlank() }
-        ?: availableModels.firstOrNull { it.isDefault }?.id
-        ?: availableModels.firstOrNull()?.id
+        .takeIf { it.isNotBlank() && selectedModelMatches }
+        ?: if (usesServerConfiguredDefault) {
+            ""
+        } else {
+            availableModels.firstOrNull { it.isDefault }?.id
+                ?: availableModels.firstOrNull()?.id
+        }
         ?: ""
     val selectedRuntime = launchState.selectedAgentRuntimeKind
         ?: availableModels.firstOrNull { it.id == selectedId || it.model == selectedId }?.agentRuntimeKind
 
     val selectedLabel = remember(selectedId, selectedRuntime, availableModels) {
         availableModels.firstOrNull { it.matchesModelSelection(selectedId, selectedRuntime) }?.modelPickerDisplayName()?.ifBlank { selectedId }
-            ?: selectedId.ifBlank { "model" }
+            ?: selectedId.ifBlank {
+                if (usesServerConfiguredDefault) "server default" else "model"
+            }
     }
 
-    LaunchedEffect(serverId) {
+    var autoSelectedModelKey by remember { mutableStateOf<String?>(null) }
+    val availableRuntimeKinds = server?.agentRuntimes
+        ?.filter { it.available }
+        ?.map { it.kind }
+        ?.sorted()
+        .orEmpty()
+
+    LaunchedEffect(serverId, availableRuntimeKinds) {
         if (!serverId.isNullOrBlank()) {
+            val shouldReplaceSelection = availableModels.none {
+                it.matchesModelSelection(launchState.selectedModel, launchState.selectedAgentRuntimeKind)
+            } || autoSelectedModelKey == "${launchState.selectedAgentRuntimeKind.orEmpty()}:${launchState.selectedModel}"
             runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
+            val loadedModels = appModel.snapshot.value?.servers
+                ?.firstOrNull { it.serverId == serverId }
+                ?.availableModels
+                .orEmpty()
+            if (
+                shouldReplaceSelection &&
+                usesServerConfiguredModelDefault(loadedModels.map { it.agentRuntimeKind })
+            ) {
+                appModel.launchState.updateSelectedModel(null)
+                appModel.launchState.updateReasoningEffort(null)
+                autoSelectedModelKey = null
+            } else {
+                val fallbackModel = loadedModels.firstOrNull {
+                    it.agentRuntimeKind == "codex" && it.isDefault
+                } ?: loadedModels.firstOrNull { it.isDefault }
+                    ?: loadedModels.firstOrNull()
+                if (shouldReplaceSelection && fallbackModel != null) {
+                    appModel.launchState.updateSelectedModel(
+                        fallbackModel.id,
+                        agentRuntimeKind = fallbackModel.agentRuntimeKind,
+                    )
+                    appModel.launchState.updateReasoningEffort(null)
+                    autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
+                }
+            }
         }
     }
 
@@ -142,6 +195,13 @@ fun HomeModelChip(
             ModelSelectorPanel(
                 thread = null,
                 availableModels = availableModels,
+                catalogLoaded = server?.availableModels != null,
+                catalogError = serverId?.let(appModel::modelCatalogError),
+                onRetryModels = {
+                    serverId?.let {
+                        scope.launch { appModel.loadAvailableModelsIfNeeded(it, force = true) }
+                    }
+                },
                 onToggleMode = null,
                 fastMode = HeaderOverrides.pendingFastMode,
                 onFastModeChange = { HeaderOverrides.pendingFastMode = it },
@@ -149,3 +209,6 @@ fun HomeModelChip(
         }
     }
 }
+
+internal fun usesServerConfiguredModelDefault(runtimeKinds: List<String>): Boolean =
+    runtimeKinds.isNotEmpty() && runtimeKinds.all { it == "local-studio" }

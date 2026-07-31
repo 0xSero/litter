@@ -99,7 +99,10 @@ struct HomeDashboardView: View {
     }
 
     private var composerServerId: String? {
-        selectedProject?.serverId ?? selectedMachineServerId
+        selectedProject?.serverId
+            ?? selectedMachineServerId
+            ?? launchableServers.first(where: { !$0.isLocal })?.id
+            ?? launchableServers.first?.id
     }
 
     private var selectedLaunchableServer: HomeDashboardServer? {
@@ -293,6 +296,8 @@ struct HomeDashboardView: View {
                     Image(systemName: "gearshape")
                         .foregroundColor(LitterTheme.textSecondary)
                 }
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("home.settingsButton")
                 if let onShowApps {
                     Button(action: onShowApps) {
                         Image(systemName: "square.grid.2x2")

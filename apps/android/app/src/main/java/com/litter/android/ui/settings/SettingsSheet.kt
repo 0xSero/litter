@@ -1,6 +1,7 @@
 package com.litter.android.ui.settings
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,7 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ChevronRight
@@ -214,6 +217,36 @@ private fun SettingsTopLevel(
         item { SectionHeader("Support") }
         item {
             NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
+        }
+
+        // ── Local AI ──
+        item { SectionHeader("Local AI") }
+        item {
+            SettingsRow(
+                icon = {
+                    Icon(
+                        Icons.Default.Computer,
+                        contentDescription = null,
+                        tint = LitterTheme.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                label = "Local Studio",
+                subtitle = "localstudio.ai",
+                trailing = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
+                        tint = LitterTheme.textMuted,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+                onClick = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://localstudio.ai")),
+                    )
+                },
+            )
         }
 
         // ── Theme ──

@@ -6,7 +6,7 @@ on:
       track:
         description: "Upload track (destination if promote_track is blank)."
         required: false
-        default: "alpha"
+        default: "internal"
         type: choice
         options:
           - internal
@@ -26,7 +26,7 @@ on:
       release_status:
         description: "Release status for the final track."
         required: false
-        default: "completed"
+        default: "draft"
         type: choice
         options:
           - completed
@@ -170,7 +170,7 @@ jobs:
       - name: Install Android platforms and NDK
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;30.0.14904198"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.14904198"
 
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libcap-dev clang cmake

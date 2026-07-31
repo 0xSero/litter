@@ -230,6 +230,7 @@ struct HomeComposerView: View {
 
         Task {
             defer { isSubmitting = false }
+            var createdThreadKey: ThreadKey?
             do {
                 guard try await appModel.ensureLocalAuthForThreadStart(serverId: project.serverId) else {
                     return
@@ -260,6 +261,8 @@ struct HomeComposerView: View {
                         dynamicTools: appModel.localGenerativeUiToolSpecs(for: project.serverId)
                     )
                 )
+                createdThreadKey = threadKey
+                onThreadCreated(threadKey)
                 RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
                 let preparedAttachment = image.flatMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
@@ -287,9 +290,15 @@ struct HomeComposerView: View {
                 )
                 try await appModel.startTurn(key: threadKey, payload: payload)
                 await appModel.refreshThreadSnapshot(key: threadKey)
-                onThreadCreated(threadKey)
             } catch {
-                errorMessage = error.localizedDescription
+                if let createdThreadKey {
+                    appModel.reportHandoffTurnError(
+                        key: createdThreadKey,
+                        message: error.localizedDescription
+                    )
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

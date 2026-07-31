@@ -20,6 +20,7 @@ import uniffi.codex_mobile_client.AppMinigameRequest
 import uniffi.codex_mobile_client.AppMinigameResult
 import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppSessionSummary
+import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppSortDirection
 import uniffi.codex_mobile_client.AppStore
@@ -102,7 +103,6 @@ class AppModel private constructor(context: android.content.Context) {
          */
         const val INITIAL_TURN_PAGE_LIMIT: UInt = 5u
         const val OLDER_TURN_PAGE_LIMIT: UInt = 5u
-        private const val SESSION_LIST_PAGE_LIMIT: UInt = 80u
     }
 
     // --- Rust bridges (singletons behind the scenes) -------------------------
@@ -181,8 +181,8 @@ class AppModel private constructor(context: android.content.Context) {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val loadingModelServerIds = mutableSetOf<String>()
+    private val modelCatalogErrorsByServer = mutableMapOf<String, String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
-    private val recentConversationMetadataLoads = mutableMapOf<String, Long>()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
@@ -466,7 +466,7 @@ class AppModel private constructor(context: android.content.Context) {
                         serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = SESSION_LIST_PAGE_LIMIT,
+                            limit = null,
                             sortKey = AppThreadSortKey.UPDATED_AT,
                             sortDirection = AppSortDirection.DESC,
                             archived = null,
@@ -514,7 +514,7 @@ class AppModel private constructor(context: android.content.Context) {
                         serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = 80u,
+                            limit = null,
                             sortKey = AppThreadSortKey.UPDATED_AT,
                             sortDirection = AppSortDirection.DESC,
                             modelProviders = null,
@@ -540,25 +540,28 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     suspend fun loadConversationMetadataIfNeeded(serverId: String) {
-        if (hasFreshConversationMetadata(serverId)) return
         loadAvailableModelsIfNeeded(serverId)
         loadRateLimitsIfNeeded(serverId)
-        recentConversationMetadataLoads[serverId] = System.currentTimeMillis()
     }
 
-    suspend fun loadAvailableModelsIfNeeded(serverId: String) {
+    fun modelCatalogError(serverId: String): String? = modelCatalogErrorsByServer[serverId]
+
+    suspend fun loadAvailableModelsIfNeeded(serverId: String, force: Boolean = false) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (server.availableModels != null) return
+        if (!force && server.availableModels != null) return
         if (!loadingModelServerIds.add(serverId)) return
+        modelCatalogErrorsByServer.remove(serverId)
         try {
             client.refreshModels(
                 serverId,
                 AppRefreshModelsRequest(cursor = null, limit = null, includeHidden = false),
             )
+            modelCatalogErrorsByServer.remove(serverId)
             refreshSnapshot()
         } catch (e: Exception) {
-            _lastError.value = e.message
+            modelCatalogErrorsByServer[serverId] = e.message ?: "Models could not be loaded."
+            refreshSnapshot()
         } finally {
             loadingModelServerIds.remove(serverId)
         }
@@ -979,7 +982,7 @@ class AppModel private constructor(context: android.content.Context) {
                         currentKey.serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = SESSION_LIST_PAGE_LIMIT,
+                            limit = null,
                             sortKey = AppThreadSortKey.UPDATED_AT,
                             sortDirection = AppSortDirection.DESC,
                             archived = null,
@@ -1564,16 +1567,6 @@ class AppModel private constructor(context: android.content.Context) {
 
     fun threadSnapshot(key: ThreadKey): AppThreadSnapshot? =
         _snapshot.value?.threads?.firstOrNull { it.key == key } ?: cachedThreadSnapshots[key]
-
-    private fun hasFreshConversationMetadata(serverId: String): Boolean {
-        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
-        val hasModels = server.availableModels != null
-        val hasRateLimits = server.account == null || server.rateLimits != null
-        if (hasModels && hasRateLimits) return true
-
-        val lastLoad = recentConversationMetadataLoads[serverId] ?: return false
-        return System.currentTimeMillis() - lastLoad < 10_000L
-    }
 
     private fun restoreCachedThreadSnapshotIfNeeded(key: ThreadKey?) {
         if (key == null) return

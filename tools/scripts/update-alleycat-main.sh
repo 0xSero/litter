@@ -36,7 +36,15 @@ if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
   exit 1
 fi
 
+alleycat_is_pinned() {
+  grep -q 'dnakov/alleycat\.git.*rev = ' "$1"
+}
+
 update_shared() {
+  if alleycat_is_pinned "$REPO_DIR/shared/rust-bridge/Cargo.toml"; then
+    echo "==> shared Rust Alleycat dependencies are revision-pinned; skipping"
+    return
+  fi
   echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   for package in \
     alleycat-bridge-core \
@@ -53,6 +61,10 @@ update_shared() {
 }
 
 update_kittylitter() {
+  if alleycat_is_pinned "$REPO_DIR/services/kittylitter/Cargo.toml"; then
+    echo "==> kittylitter Alleycat dependency is revision-pinned; skipping"
+    return
+  fi
   echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   cargo update \
     --quiet \

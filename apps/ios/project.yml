@@ -23,8 +23,8 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     SWIFT_STRICT_CONCURRENCY: targeted
-    MARKETING_VERSION: "1.5.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.6.0"
+    CURRENT_PROJECT_VERSION: "200000254"
     SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
     OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
     HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
@@ -32,7 +32,7 @@ settings:
     "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device"
     "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-    DEVELOPMENT_TEAM: UH66Q8ZAYG
+    DEVELOPMENT_TEAM: TZ447KHNZL
     # Xcode 15+ explicit-module builds. First clean build is slightly
     # slower, but module graphs are cached per-target after that, so
     # incremental Swift compiles in the app target drop substantially.
@@ -54,19 +54,6 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
-    entitlements:
-      path: Sources/Litter/Litter.entitlements
-      properties:
-        aps-environment: production
-        com.apple.developer.carplay-voice-based-conversation: true
-        # iCloud KVS sync (Feature C). Re-add when the iCloud container
-        # `iCloud.com.sigkitten.litter` exists in the Apple Developer Portal
-        # AND is enabled on the iOS app's provisioning profile. Without
-        # both, archive fails: "Provisioning profile doesn't include the
-        # iCloud capability."
-        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
-        com.apple.security.application-groups:
-          - group.com.sigkitten.litter
     attributes:
       SystemCapabilities:
         com.apple.BackgroundModes:
@@ -80,11 +67,13 @@ targets:
         type: folder
         buildPhase: resources
       - path: Sources/LitterLiveActivity/CodexTurnLiveActivity.swift
-      - path: Sources/LitterWatch/Models/WatchModels.swift
-      - path: Sources/LitterWatch/Models/WatchSize.swift
-      - path: Sources/LitterWatch/Models/WatchHapticDetector.swift
-      - path: Sources/LitterWatch/Models/WatchSnapshotStore.swift
-      - path: Sources/LitterWatch/Models/WatchDeepLinkRouter.swift
+      - path: Sources/LitterWatch/Models
+        includes:
+          - WatchModels.swift
+          - WatchSize.swift
+          - WatchHapticDetector.swift
+          - WatchSnapshotStore.swift
+          - WatchDeepLinkRouter.swift
       - path: Sources/LitterWatchComplications/LitterServerListPayload.swift
       - path: Sources/LitterWatchComplications/LitterComplicationEntry.swift
       - path: Sources/LitterWatchComplications/LitterRunningTurnPayload.swift
@@ -134,6 +123,10 @@ targets:
         Debug:
           CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
           APP_CODE_SIGN_STYLE: Automatic
+          # The transferred team has not yet been granted Apple's managed
+          # CarPlay entitlement. Keep physical-device development installable
+          # without weakening the Release entitlement contract.
+          CODE_SIGN_ENTITLEMENTS: Sources/Litter/Litter-Debug.entitlements
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
@@ -141,7 +134,11 @@ targets:
           CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
           APP_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(APP_CODE_SIGN_IDENTITY)"
-          APP_CODE_SIGN_IDENTITY: ""
+          APP_CODE_SIGN_IDENTITY: Apple Development
+          # CarPlay is a managed entitlement and has not been granted to the
+          # transferred Apple team. Keep the production push/app-group
+          # contract while making App Store archives signable today.
+          CODE_SIGN_ENTITLEMENTS: Sources/Litter/Litter-AppStore.entitlements
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
@@ -242,7 +239,7 @@ targets:
           CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
           APP_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(APP_CODE_SIGN_IDENTITY)"
-          APP_CODE_SIGN_IDENTITY: ""
+          APP_CODE_SIGN_IDENTITY: Apple Development
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
@@ -255,7 +252,7 @@ targets:
           CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
           APP_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(APP_CODE_SIGN_IDENTITY)"
-          APP_CODE_SIGN_IDENTITY: ""
+          APP_CODE_SIGN_IDENTITY: Developer ID Application
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
@@ -281,7 +278,9 @@ targets:
       - path: Sources/LitterLiveActivity/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.liveactivity
+        # These extension identifiers are owned by the current Apple team.
+        # The pre-transfer identifiers remain registered to the former team.
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.activity
         INFOPLIST_FILE: Sources/LitterLiveActivity/Info.plist
       configs:
         Debug:
@@ -294,7 +293,7 @@ targets:
           CODE_SIGN_STYLE: "$(LIVE_ACTIVITY_CODE_SIGN_STYLE)"
           LIVE_ACTIVITY_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(LIVE_ACTIVITY_CODE_SIGN_IDENTITY)"
-          LIVE_ACTIVITY_CODE_SIGN_IDENTITY: ""
+          LIVE_ACTIVITY_CODE_SIGN_IDENTITY: Apple Development
           PROVISIONING_PROFILE_SPECIFIER: "$(LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER)"
           LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER: ""
   LitterWatch:
@@ -311,6 +310,8 @@ targets:
       - path: Sources/LitterWatch
         excludes:
           - "Assets.xcassets"
+          - "Models/**"
+      - path: Sources/LitterWatch/Models
       - path: Sources/Litter/AppIcon.icon
     resources:
       - path: Sources/Litter/Resources/Fonts
@@ -320,7 +321,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watch
         INFOPLIST_FILE: Sources/LitterWatch/Info.plist
         TARGETED_DEVICE_FAMILY: "4"
         WATCHOS_DEPLOYMENT_TARGET: "11.0"
@@ -342,7 +343,7 @@ targets:
           CODE_SIGN_STYLE: "$(WATCH_CODE_SIGN_STYLE)"
           WATCH_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(WATCH_CODE_SIGN_IDENTITY)"
-          WATCH_CODE_SIGN_IDENTITY: ""
+          WATCH_CODE_SIGN_IDENTITY: Apple Development
           PROVISIONING_PROFILE_SPECIFIER: "$(WATCH_PROVISIONING_PROFILE_SPECIFIER)"
           WATCH_PROVISIONING_PROFILE_SPECIFIER: ""
 
@@ -363,7 +364,7 @@ targets:
       - path: Sources/LitterWatchComplications/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp.complications
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watch.complications
         INFOPLIST_FILE: Sources/LitterWatchComplications/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "4"
@@ -383,7 +384,7 @@ targets:
           CODE_SIGN_STYLE: "$(WATCH_COMP_CODE_SIGN_STYLE)"
           WATCH_COMP_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(WATCH_COMP_CODE_SIGN_IDENTITY)"
-          WATCH_COMP_CODE_SIGN_IDENTITY: ""
+          WATCH_COMP_CODE_SIGN_IDENTITY: Apple Development
           PROVISIONING_PROFILE_SPECIFIER: "$(WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER)"
           WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER: ""
 

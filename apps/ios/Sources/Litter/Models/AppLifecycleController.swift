@@ -233,12 +233,11 @@ final class AppLifecycleController {
         // idle has plausibly killed the path silently.
         await reconnectSavedServers(appModel: appModel)
         // refreshTrackedThreads uses the force-authoritative path so the
-        // store reconciles `active_turn_id` against the server's view —
-        // the only way to clear a stale `active_turn_id` for a turn that
-        // completed during the background freeze (no `TurnCompleted`
-        // event was ever delivered to this client). On paginated remotes
-        // the resume runs with `excludeTurns: true` and a tiny
-        // `thread/turns/list` probe drives the reconcile; on legacy
+        // store reconciles `active_turn_id` against the server's view and
+        // repairs items whose events crossed the transport while iOS was
+        // suspended. On paginated remotes the resume runs with
+        // `excludeTurns: true`, followed by a tiny status probe and a
+        // bounded repair page for a previously active turn; on legacy
         // remotes the resume falls back to the embedded turn list. The
         // RPC also re-attaches the new `ConnectionId` to the per-thread
         // subscription set so subsequent live events route correctly.
@@ -444,13 +443,6 @@ final class AppLifecycleController {
         }
         await appModel.restoreMissingLocalAuthStateIfNeeded()
 
-        if needsInitialReconnect {
-            let retryResults = await appModel.reconnectController.reconnectSavedServers()
-            for result in retryResults where result.needsLocalAuthRestore {
-                await appModel.restoreStoredLocalAuthState(serverId: result.serverId)
-            }
-            await appModel.refreshSnapshot()
-        }
         guard !Task.isCancelled else { return }
 
         let trustedLiveKeys = Set(keysToRefresh.filter {
@@ -465,15 +457,10 @@ final class AppLifecycleController {
             notificationActivationAge: notificationActivationAge
         )
         if !reloadKeys.isEmpty {
-            // Force authoritative refresh: a turn that completed during a
-            // long iOS suspension fired `TurnCompleted` while no client
-            // connection was attached, so the local snapshot still shows
-            // the turn as in-progress. The force-authoritative resume
-            // either pulls back a turn-status list — embedded on legacy
-            // remotes, via a tiny `thread/turns/list?items_view=notLoaded`
-            // probe on paginated remotes — and feeds it to
-            // `reconcile_active_turn`, which clears the stale
-            // `active_turn_id` so the "thinking" spinner doesn't hang.
+            // A long iOS suspension may miss both item events and the
+            // terminal turn event. Reconcile the active-turn status, then
+            // repair the bounded current page so running tools and completed
+            // output reappear immediately.
             await refreshTrackedThreads(
                 appModel: appModel,
                 keys: Array(reloadKeys),

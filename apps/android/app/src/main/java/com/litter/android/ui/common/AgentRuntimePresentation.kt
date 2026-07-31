@@ -48,7 +48,11 @@ val AgentRuntimeKind.metadata: AppAgentMetadata?
 
 /** Short label used in lists. Falls back to titlecased id on cold start. */
 val AgentRuntimeKind.runtimeLabel: String
-    get() = metadata?.displayName?.takeIf { it.isNotEmpty() } ?: titlecased()
+    get() = if (this == "local-studio") {
+        "Local Studio"
+    } else {
+        metadata?.displayName?.takeIf { it.isNotEmpty() } ?: titlecased()
+    }
 
 /** Header / title rendering. Prefers metadata `presentation.title`. */
 val AgentRuntimeKind.titleDisplayLabel: String
@@ -75,11 +79,14 @@ val AgentRuntimeKind.isBeta: Boolean
 
 /** Whether this runtime accepts client-side thread permission overrides. */
 val AgentRuntimeKind.supportsThreadPermissionOverrides: Boolean
-    get() = metadata?.capabilities?.supportsThreadPermissionOverrides ?: true
+    get() = !hasFixedFullAccess && (metadata?.capabilities?.supportsThreadPermissionOverrides ?: true)
 
 /** Whether this runtime reports effective permissions as authoritative state. */
 val AgentRuntimeKind.reportsEffectiveThreadPermissions: Boolean
-    get() = metadata?.capabilities?.reportsEffectiveThreadPermissions ?: true
+    get() = !hasFixedFullAccess && (metadata?.capabilities?.reportsEffectiveThreadPermissions ?: true)
+
+val AgentRuntimeKind.hasFixedFullAccess: Boolean
+    get() = this == "pi" || this == "local-studio"
 
 /** Picker callers that only know `name` / `displayName` from a probe. */
 fun isBetaAgentName(name: String, displayName: String): Boolean {
@@ -92,7 +99,8 @@ fun isBetaAgentName(name: String, displayName: String): Boolean {
 }
 
 private fun isStableAgentIdentity(name: String, displayName: String): Boolean =
-    name.trim().lowercase() == "codex" || displayName.trim().lowercase() == "codex"
+    name.trim().lowercase() in setOf("codex", "local-studio") ||
+        displayName.trim().lowercase() in setOf("codex", "local studio")
 
 private fun AgentRuntimeKind.titlecased(): String {
     if (isEmpty()) return "Agent"
@@ -112,7 +120,7 @@ fun AgentIconView(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val resName = "agent_${kind.lowercase()}"
+    val resName = "agent_${kind.lowercase().replace("-", "_")}"
     val resId = context.resources.getIdentifier(resName, "drawable", context.packageName)
     if (resId != 0) {
         Image(

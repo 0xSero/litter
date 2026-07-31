@@ -94,7 +94,8 @@ pub(crate) async fn open(
 
 fn map_shell_connect_error(error: crate::alleycat::AlleycatError) -> TerminalError {
     match error {
-        crate::alleycat::AlleycatError::Transport(message) => {
+        crate::alleycat::AlleycatError::Transport(message)
+        | crate::alleycat::AlleycatError::Rejected(message) => {
             if is_shell_agent_unavailable_error(&message) {
                 TerminalError::Backend {
                     detail: format!(

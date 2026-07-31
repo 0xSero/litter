@@ -746,6 +746,7 @@ pub enum ReasoningEffort {
     High,
     XHigh,
     Max,
+    Ultra,
 }
 
 impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
@@ -757,11 +758,8 @@ impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
             codex_protocol::openai_models::ReasoningEffort::Medium => Self::Medium,
             codex_protocol::openai_models::ReasoningEffort::High => Self::High,
             codex_protocol::openai_models::ReasoningEffort::XHigh => Self::XHigh,
-            // Newer/local codex checkouts may expose Max before the pinned
-            // submodule advances. Do not name that upstream variant here, so
-            // clean checkouts at the committed gitlink still compile.
-            #[allow(unreachable_patterns)]
-            _ => Self::Max,
+            codex_protocol::openai_models::ReasoningEffort::Max => Self::Max,
+            codex_protocol::openai_models::ReasoningEffort::Ultra => Self::Ultra,
         }
     }
 }
@@ -1211,6 +1209,9 @@ pub struct ModelInfo {
     pub is_default: bool,
     #[serde(default = "default_agent_runtime_kind")]
     pub agent_runtime_kind: AgentRuntimeKind,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub provider_id: Option<String>,
 }
 
 impl From<upstream::Model> for ModelInfo {
@@ -1243,6 +1244,7 @@ impl From<upstream::Model> for ModelInfo {
             supports_personality: value.supports_personality,
             is_default: value.is_default,
             agent_runtime_kind: "codex".to_string(),
+            provider_id: None,
         }
     }
 }

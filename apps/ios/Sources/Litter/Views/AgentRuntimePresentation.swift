@@ -23,6 +23,7 @@ extension AgentRuntimeKind {
     static let devin: AgentRuntimeKind = "devin"
     static let droid: AgentRuntimeKind = "droid"
     static let opencode: AgentRuntimeKind = "opencode"
+    static let localStudio: AgentRuntimeKind = "local-studio"
 
     /// Presentation order surfaced by `AgentMetadataStore` (sorted by
     /// each agent's `presentation.sort_order` from the alleycat
@@ -41,6 +42,9 @@ extension AgentRuntimeKind {
     /// label during the brief window between server connect and probe
     /// completion.
     var displayLabel: String {
+        if self == Self.localStudio {
+            return "Local Studio"
+        }
         if let meta = metadata, !meta.displayName.isEmpty {
             return meta.displayName
         }
@@ -80,13 +84,19 @@ extension AgentRuntimeKind {
     /// Older daemons did not advertise the capability, so default to the
     /// historical behaviour until a runtime explicitly opts out.
     var supportsThreadPermissionOverrides: Bool {
-        metadata?.capabilities?.supportsThreadPermissionOverrides ?? true
+        !Self.hasFixedFullAccess(self) &&
+            (metadata?.capabilities?.supportsThreadPermissionOverrides ?? true)
     }
 
     /// Whether this runtime reports effective thread permissions that the UI
     /// can present as authoritative runtime state.
     var reportsEffectiveThreadPermissions: Bool {
-        metadata?.capabilities?.reportsEffectiveThreadPermissions ?? true
+        !Self.hasFixedFullAccess(self) &&
+            (metadata?.capabilities?.reportsEffectiveThreadPermissions ?? true)
+    }
+
+    static func hasFixedFullAccess(_ runtime: String) -> Bool {
+        runtime == "pi" || runtime == "local-studio"
     }
 
     /// Asset catalog name for this agent's bundled icon, by convention
@@ -113,8 +123,12 @@ extension AgentRuntimeKind {
     }
 
     private static func isStableAgentIdentity(_ name: String, displayName: String) -> Bool {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
-            || displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedName == "codex"
+            || normalizedName == "local-studio"
+            || normalizedDisplayName == "codex"
+            || normalizedDisplayName == "local studio"
     }
 
     private var titlecased: String {

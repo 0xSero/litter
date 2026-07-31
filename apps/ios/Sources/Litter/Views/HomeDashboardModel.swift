@@ -219,7 +219,6 @@ final class HomeDashboardModel {
         recentSessions = Self.mergedHomeSessions(
             pinned: pinnedKeys,
             hidden: hiddenKeys,
-            connectedServers: snapshot.connectedServers,
             allSessions: snapshot.recentSessions
         )
         lastSessionSummaries = snapshot.sessionSummaries
@@ -276,7 +275,6 @@ final class HomeDashboardModel {
     private static func mergedHomeSessions(
         pinned: [SavedThreadsStore.PinnedKey],
         hidden: [SavedThreadsStore.PinnedKey],
-        connectedServers: [HomeDashboardServer],
         allSessions: [HomeDashboardRecentSession]
     ) -> [HomeDashboardRecentSession] {
         let hiddenSet = Set(hidden)
@@ -287,55 +285,10 @@ final class HomeDashboardModel {
             let byKey = Dictionary(uniqueKeysWithValues: candidates.map {
                 (SavedThreadsStore.PinnedKey(threadKey: $0.key), $0)
             })
-            let serversById = Dictionary(uniqueKeysWithValues: connectedServers.map { ($0.id, $0) })
-            return pinned.compactMap { pin in
-                if let existing = byKey[pin] {
-                    return existing
-                }
-                guard !hiddenSet.contains(pin), let server = serversById[pin.serverId] else {
-                    return nil
-                }
-                return placeholderPinnedSession(for: pin.threadKey, server: server)
-            }
+            let resolvedPins = pinned.compactMap { byKey[$0] }
+            return resolvedPins.isEmpty ? Array(candidates.prefix(10)) : resolvedPins
         }
         return Array(candidates.prefix(10))
-    }
-
-    private static func placeholderPinnedSession(
-        for key: ThreadKey,
-        server: HomeDashboardServer
-    ) -> HomeDashboardRecentSession {
-        HomeDashboardRecentSession(
-            key: key,
-            serverId: key.serverId,
-            serverDisplayName: server.displayName,
-            agentRuntimeKind: server.agentRuntimes.first(where: \.available)?.kind
-                ?? AgentRuntimeMetadataProvider.all?().first?.name
-                ?? "",
-            isLocal: server.isLocal,
-            sessionTitle: "Loading thread",
-            preview: "",
-            cwd: "",
-            model: "",
-            agentLabel: nil,
-            updatedAt: Date(timeIntervalSince1970: 0),
-            hasTurnActive: false,
-            isResumed: false,
-            isSubagent: false,
-            isFork: false,
-            forkedFromId: nil,
-            lineage: nil,
-            lastResponsePreview: nil,
-            lastResponseTurnId: nil,
-            lastUserMessage: nil,
-            lastToolLabel: nil,
-            stats: nil,
-            tokenUsage: nil,
-            goal: nil,
-            recentToolLog: [],
-            lastTurnStart: nil,
-            lastTurnEnd: nil
-        )
     }
 
     /// Called when the user picks a fresh directory via the "new project"

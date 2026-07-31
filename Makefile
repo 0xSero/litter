@@ -50,7 +50,7 @@ XCODE_CONFIG ?= Debug
 CARGO_FEATURES ?=
 ANDROID_ABIS ?= arm64-v8a
 ANDROID_RUST_PROFILE ?= android-dev
-ANDROID_RELEASE_ABIS ?= arm64-v8a,x86_64
+ANDROID_RELEASE_ABIS ?= arm64-v8a
 HOST_ARCH := $(shell uname -m)
 ANDROID_EMULATOR_ABIS ?= $(if $(filter arm64 aarch64,$(HOST_ARCH)),arm64-v8a,x86_64)
 
@@ -79,7 +79,7 @@ fi'))
 endef
 
 # Auto-detect Android SDK/NDK/JDK paths (macOS defaults, overridable via env or .env)
-ANDROID_SDK_ROOT ?= $(or $(ANDROID_HOME),$(wildcard $(HOME)/Library/Android/sdk))
+ANDROID_SDK_ROOT ?= $(or $(ANDROID_HOME),$(wildcard $(HOME)/Library/Android/sdk),$(wildcard /opt/homebrew/share/android-commandlinetools))
 ANDROID_NDK_HOME ?= $(shell ls -d $(ANDROID_SDK_ROOT)/ndk/*/ 2>/dev/null | sort -V | tail -1 | sed 's:/*$$::')
 JAVA_HOME ?= $(or $(shell /usr/libexec/java_home 2>/dev/null),$(shell test -d '/Applications/Android Studio.app/Contents/jbr/Contents/Home' && echo '/Applications/Android Studio.app/Contents/jbr/Contents/Home'))
 ANDROID_PLATFORM_TOOLS_DIR := $(ANDROID_SDK_ROOT)/platform-tools
@@ -411,11 +411,10 @@ android-device-run: android-fast
 	ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH='$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)' \
 	./tools/scripts/run-android.sh
 
-android-release: ANDROID_RUST_PROFILE=release
-android-release: ANDROID_ABIS=$(ANDROID_RELEASE_ABIS)
-android-release: rust-android android-tools android-alpine-fs proot-android
+android-release: android-tools android-alpine-fs proot-android
+	@$(MAKE) rust-android ANDROID_RUST_PROFILE=release ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)"
 	@echo "==> Building Android release..."
-	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ./gradlew :app:assembleRelease
+	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)" ./gradlew :app:assembleRelease
 
 rust-ios: rust-ios-package
 
@@ -540,7 +539,7 @@ help:
 		'make android-emulator-fast fast Android dev build using emulator ABI ($(ANDROID_EMULATOR_ABIS))' \
 		'make android-emulator-run  fast emulator build + install + launch on emulator; saves logcat under artifacts/android-emulator-run' \
 		'make android-device-run    fast Android dev build + install + launch with saved logcat under artifacts/android-device-run (override ANDROID_DEVICE_SERIAL; auto-uninstalls on versionCode downgrade; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to also uninstall on signature mismatch)' \
-		'make android-release    Android build using release Rust profile and multi-ABI output' \
+		'make android-release    Android build using release Rust profile and ARM64 output' \
 		'make rust-check         host cargo check for shared crates' \
 		'make rust-test          host cargo test for shared crates' \
 		'make prune-dev-cache    remove rebuildable Rust incremental output and the legacy KittyLitter target tree' \
@@ -744,7 +743,7 @@ watch-sim-run: watch-sim
 		-showBuildSettings 2>/dev/null | awk -F' = ' '/ CODESIGNING_FOLDER_PATH /{print $$2; exit}') ; \
 	echo "==> Installing $$APP_PATH"; \
 	xcrun simctl install $$WATCH_UDID "$$APP_PATH" ; \
-	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watchkitapp
+	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watch
 
 android-debug:
 	@echo "==> Building Android debug..."
@@ -958,18 +957,3 @@ kittylitter-restart: $(KITTYLITTER_DEV_MANIFEST)
 	else \
 		echo "kittylitter autostart is not installed; start it with: make kittylitter serve"; \
 	fi
-
-tui:
-	@echo "── Building codex-tui ──"
-	cd shared/rust-bridge && cargo build -p codex-tui --release
-
-tui-run:
-	@echo "── Running codex-tui ──"
-	cd shared/rust-bridge && cargo run -p codex-tui --release
-
-export-fixture:
-	@echo "── Building export-fixture ──"
-	cd shared/rust-bridge && cargo build -p codex-tui --bin export-fixture --release
-
-export-fixture-run:
-	@cd shared/rust-bridge && cargo run -p codex-tui --bin export-fixture --release -- $(ARGS)

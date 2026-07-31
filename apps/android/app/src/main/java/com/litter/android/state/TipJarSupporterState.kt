@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryPurchasesParams
@@ -67,7 +68,12 @@ object TipJarSupporterState {
         selectedHeaderKeys.value = loadSelectedHeaderKeys(app)
         val client = BillingClient.newBuilder(app)
             .setListener(PurchasesUpdatedListener { _, _ -> })
-            .enablePendingPurchases()
+            .enableAutoServiceReconnection()
+            .enablePendingPurchases(
+                PendingPurchasesParams.newBuilder()
+                    .enableOneTimeProducts()
+                    .build(),
+            )
             .build()
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {

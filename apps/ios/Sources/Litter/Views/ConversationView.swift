@@ -180,10 +180,14 @@ struct ConversationView: View {
             Text(messageActionError ?? "Unknown error")
         }
         .onAppear {
+            consumePendingHandoffTurnError()
             guard !hasLoggedFirstRender else { return }
             hasLoggedFirstRender = true
             os_signpost(.event, log: conversationViewSignpostLog, name: "ConversationFirstRender")
             appState.hydratePermissions(from: thread)
+        }
+        .onChange(of: appModel.pendingHandoffTurnErrors[activeThreadKey]) { _, _ in
+            consumePendingHandoffTurnError()
         }
         .onChange(of: thread) { _, newThread in
             appState.hydratePermissions(from: newThread)
@@ -240,6 +244,12 @@ struct ConversationView: View {
                 messageActionError = error.localizedDescription
             }
         }
+    }
+
+    private func consumePendingHandoffTurnError() {
+        guard let pending = appModel.pendingHandoffTurnErrors[activeThreadKey] else { return }
+        appModel.clearHandoffTurnError(for: activeThreadKey)
+        messageActionError = pending
     }
 
     private func sendWidgetPrompt(_ text: String) {
@@ -953,23 +963,7 @@ private struct ConversationMessageList: View {
             return
         }
 
-        let lastTurnItemCountGrew = {
-            guard let currentLast = transcriptTurns.last,
-                  let nextLast = nextTurns.last,
-                  currentLast.id == nextLast.id,
-                  nextLast.items.count > currentLast.items.count else {
-                return false
-            }
-            return true
-        }()
-
-        if lastTurnItemCountGrew {
-            withAnimation(.spring(duration: 0.4, bounce: 0.08)) {
-                applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
-            }
-        } else {
-            applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
-        }
+        applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
     }
 
     private func makeTranscriptBuildKey() -> Int {
@@ -1438,6 +1432,12 @@ private struct ConversationInputBar: View {
     private var pendingUserInputRequest: PendingUserInputRequest? {
         guard let request = snapshot.pendingUserInputRequest else { return nil }
         return appState.isPendingUserInputDismissed(id: request.id) ? nil : request
+    }
+
+    private var hasFixedFullAccess: Bool {
+        guard let runtime = appModel.snapshot?.threads
+            .first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind else { return false }
+        return String.hasFixedFullAccess(runtime)
     }
 
     private var pendingModelOverride: String? {
@@ -2048,6 +2048,7 @@ private struct ConversationInputBar: View {
             activeSlashToken = slashToken
         }
         let suggestions = filterSlashCommands(slashToken.query)
+            .filter { !hasFixedFullAccess || $0 != .permissions }
         if slashSuggestions != suggestions {
             slashSuggestions = suggestions
         }
@@ -2075,7 +2076,7 @@ private struct ConversationInputBar: View {
         case .model:
             showModelSelector = true
         case .permissions:
-            showPermissionsSheet = true
+            if !hasFixedFullAccess { showPermissionsSheet = true }
         case .experimental:
             showExperimentalSheet = true
             Task { await loadExperimentalFeatures() }
@@ -2651,6 +2652,8 @@ private func collaborationModeEffortLabel(_ effort: ReasoningEffort) -> String {
         return "XHigh"
     case .max:
         return "Max"
+    case .ultra:
+        return "Ultra"
     }
 }
 
