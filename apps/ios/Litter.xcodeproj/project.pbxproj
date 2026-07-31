@@ -13,6 +13,7 @@
 		01EDE680A6CA319D2CDB5EE5 /* kanagawa-wave.json in Resources */ = {isa = PBXBuildFile; fileRef = 64C8CA93B134E2C4486B86A1 /* kanagawa-wave.json */; };
 		023216994D8B1FF4D1E01A6C /* MobilePreferencesDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75C53171D642CD800C76553 /* MobilePreferencesDirectory.swift */; };
 		024B36756A4031E4FD303028 /* vitesse-black.json in Resources */ = {isa = PBXBuildFile; fileRef = C7ADFC239B833D53726499FC /* vitesse-black.json */; };
+		02988FA05DFDAC456068632B /* WatchAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4F62BCD0A4023DED3729B6 /* WatchAppStore.swift */; };
 		0304FC5F7B0B88BF697AEDAD /* dracula.json in Resources */ = {isa = PBXBuildFile; fileRef = D93C0CB12BB32FF612C11AA9 /* dracula.json */; };
 		03587EF282BCD78673E5C90C /* LLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD7A3A61A3B02E7E5BF0FBD /* LLog.swift */; };
 		039D6B6B26D29936E31B67BA /* MinigameOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22B0C284B20FB135A3A35BE /* MinigameOverlayView.swift */; };
@@ -25,6 +26,7 @@
 		05A1BF5FB8220D9D48C611D0 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615E709D4D5722523052907E /* SnapshotHelper.swift */; };
 		05A33B94636DAAAD2D3DAF0C /* night-owl.json in Resources */ = {isa = PBXBuildFile; fileRef = 14B7D7A9258301037FB7DBC0 /* night-owl.json */; };
 		05AD120E19B71B3C47FDAC0D /* usgc-polyimide.json in Resources */ = {isa = PBXBuildFile; fileRef = CAB6838E910F251006AB8C7E /* usgc-polyimide.json */; };
+		05F4AF0FF61C1214E6637875 /* WatchSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E180C9F641FCFD7E60D943 /* WatchSnapshotStore.swift */; };
 		0675CB344BC928B7A6AF926D /* AppSnapshotRecord+Runtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B233BBDF2CFAC604E4A1DD /* AppSnapshotRecord+Runtime.swift */; };
 		070D6A867BA6434E5006908F /* min-light.json in Resources */ = {isa = PBXBuildFile; fileRef = EC90366C4F2A6030ED27AE18 /* min-light.json */; };
 		080672FE111762CD0C6EFD9B /* SessionsDerivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC90A9241820BC40C754C2F9 /* SessionsDerivation.swift */; };
@@ -48,13 +50,13 @@
 		0F7F71135A48FD54EAF3C257 /* brand_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 17BD69B0550C63596995AC18 /* brand_logo.png */; };
 		0FA2D55FE17D4AD9A910FB74 /* gruvbox-light-hard.json in Resources */ = {isa = PBXBuildFile; fileRef = 9AF7E00FF3D6A3D37B161855 /* gruvbox-light-hard.json */; };
 		0FEE6C68E9A49D3AAB2859FD /* LitterComplicationEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4578B3ADA4BFFC01A6910404 /* LitterComplicationEntry.swift */; };
-		10BD8E2374BC2D3FE8123919 /* WatchThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D34A8B1DB2953A5B9A182E6E /* WatchThemeStore.swift */; };
 		1101AAA61DF5B949EE2BB0AF /* StreamingRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */; };
 		1129DC9B38650FC49541690E /* BerkeleyMono-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3BD63CCD80D9E1F66879EF97 /* BerkeleyMono-Bold.otf */; };
 		120959210E9154F5F2D5E0E2 /* UWBDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F86295AB7DE370727377248 /* UWBDebugView.swift */; };
 		123438277614AD5D2F7CDBC4 /* OpenAIApiKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */; };
 		1342B9170831F4ACCAB847D0 /* github-dark-dimmed.json in Resources */ = {isa = PBXBuildFile; fileRef = 69EC5386769902646C245936 /* github-dark-dimmed.json */; };
 		1347DACDF20C57FBBA8F70AC /* ConversationComposerAttachSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFBFE7DF8014B177A1F7B9 /* ConversationComposerAttachSheet.swift */; };
+		13B0C1CB1FE7B7E1302C3B8E /* WatchDeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A836D187279EA6AE84754C /* WatchDeepLinkRouter.swift */; };
 		150F9E7AC8934D8CB833123B /* ConversationComposerModalCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED83627330437842851BBC07 /* ConversationComposerModalCoordinator.swift */; };
 		15139A774F26F7A925899274 /* proof-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 9465B38F1CE05DAC59F5A918 /* proof-light.json */; };
 		15378E713092362B622ADF95 /* BerkeleyMono-Bold-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3CB07F43FD670F05B9A43C55 /* BerkeleyMono-Bold-Oblique.otf */; };
@@ -128,6 +130,7 @@
 		2DF4732DBDB57688B178041E /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0894A8F2B3DA66F879AEA4EE /* GhosttyTerminalView.swift */; };
 		2E6FF89E7700C83B948A1976 /* WatchChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = E002B30249FFDB3567BD8326 /* WatchChrome.swift */; };
 		2F28DA245F84E87318A4D7E4 /* ConversationDisplayPreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77969543FA36FEA8B621A3B9 /* ConversationDisplayPreferenceTests.swift */; };
+		2F332D104DCA314BDA245195 /* WatchTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D188262D8F066E6F71DD5F59 /* WatchTheme.swift */; };
 		2F94C28698B270EB04C00D65 /* BerkeleyMono-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = ACD06DF72574CDDF16E1E41B /* BerkeleyMono-Oblique.otf */; };
 		2FEF13A44B76BF75E18632B7 /* SessionReplySwipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0BEC32BA18EED58DFB1D9D7 /* SessionReplySwipe.swift */; };
 		308721608A70A7E679A1737C /* ToolCallModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB0858848FDF680B63C2432 /* ToolCallModels.swift */; };
@@ -150,7 +153,6 @@
 		361BE759DABB06DBA2EBD315 /* LitterComplicationTint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93959230D2A3D1FDD7091CA9 /* LitterComplicationTint.swift */; };
 		36B2248451363077E0104FC0 /* NetworkReachabilityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */; };
 		3867E91BD19F9448436E2B3E /* vitesse-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 43A18135FA93A4608A16C98F /* vitesse-dark.json */; };
-		38BC97ADF5F354CE698DBE18 /* WatchDeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8EDED60CA4813F9382FD0E /* WatchDeepLinkRouter.swift */; };
 		38E91CBA78AD8F9487363350 /* ConversationComposerEntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075CAE1122242626CE33A93F /* ConversationComposerEntryRowView.swift */; };
 		38EA18FA9731DC409E71DAD9 /* cat_transmission_04.png in Resources */ = {isa = PBXBuildFile; fileRef = 9FAF8F37850DEA9BC6258D15 /* cat_transmission_04.png */; };
 		391DF4BEFE2B0940887D94FF /* PiPHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1ACB5BC8CBE4849EB34E73 /* PiPHostView.swift */; };
@@ -166,14 +168,16 @@
 		3D79967494F9235E83B7ABBA /* kanagawa-dragon-VscOyZL-.json in Resources */ = {isa = PBXBuildFile; fileRef = C4ED85CEB24FF82E4E2C4E36 /* kanagawa-dragon-VscOyZL-.json */; };
 		3DF0608B87554BEBB44D6C91 /* MacPairingHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DC320BD7E1525386BCF44F /* MacPairingHost.swift */; };
 		3E2EEDE5F9D0CC0EE517AF52 /* ToolCallCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BA392F9C2104B8B643C0F9E /* ToolCallCardView.swift */; };
-		3F3DB3C9A05F2F9B4329FCAB /* WatchHapticDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC3382D3C771B358C1E3CE6 /* WatchHapticDetector.swift */; };
 		3F40B95032B31B87D8DD870F /* dark-plus-B1yOZ-Hy.json in Resources */ = {isa = PBXBuildFile; fileRef = 9A59EFF7219CFC315A13C34D /* dark-plus-B1yOZ-Hy.json */; };
 		3FCF949480156948806B98DF /* ThemeDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B91C694EA050F1FE6738A7 /* ThemeDefinitionTests.swift */; };
+		3FD6A4A8B0B30CBB90573F44 /* WatchSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40561C060EDB76318FF345F3 /* WatchSize.swift */; };
 		40BE68DE19BEE162E0F2C25B /* MessageRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2325BAE1FF0D41A4D5ADE3AD /* MessageRecorder.swift */; };
 		40F262594905BCA726B1DF88 /* HomeBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C2A455B0E2E7C8B6EE59A93 /* HomeBottomBar.swift */; };
 		41EBAC505474E27E708900E0 /* home_cat_entrance.png in Resources */ = {isa = PBXBuildFile; fileRef = D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */; };
 		421F71E305371CDE71D5A10D /* github-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 760BBA087DD7F86B27829E23 /* github-light.json */; };
 		421FFC77E9CD0E243F365BBF /* HomeVoiceOrbButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 592BE0CE703BB2B31738D8C2 /* HomeVoiceOrbButton.swift */; };
+		42A4C9ADE94A9529F8C009B8 /* WatchSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E180C9F641FCFD7E60D943 /* WatchSnapshotStore.swift */; };
+		42F4232067CECD5810D9D30B /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781A72E518F9230E2A641141 /* WatchModels.swift */; };
 		43085FEE6339B734DE71C448 /* ThemeDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD31922D3510DA506B0EC85 /* ThemeDefinition.swift */; };
 		437762E0F261BFCF3527A3CB /* ConversationComposerContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35815D57BE688636CDD27415 /* ConversationComposerContentView.swift */; };
 		439364114EC527898BA7FFD7 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1641427B3606638F140B4E9A /* SystemConfiguration.framework */; };
@@ -191,7 +195,6 @@
 		4809B5C36CEDFE9BF77E06EB /* WatchApprovalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = B06FAE2DA1D08C45531747A2 /* WatchApprovalNotification.swift */; };
 		483C48A38E7D5B48F9735CB6 /* CarPlayVoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E75F2343E53BABCD1C8207E /* CarPlayVoiceManager.swift */; };
 		48EDBB2A1FFD97003248727D /* OrientationResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1022F3BB191F207126130232 /* OrientationResponder.swift */; };
-		49026CE0B09FF41A24966343 /* WatchSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B851BADF65A707A42EC7F94F /* WatchSessionBridge.swift */; };
 		490905DDBA531478928DF2F8 /* CodexVoiceCallLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4B6D1F6DAA0D1BB518DCCD /* CodexVoiceCallLiveActivity.swift */; };
 		497E9B6036FB89C5BF7485A0 /* ProjectPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5098071BFC24EED60D90A0C /* ProjectPickerSheet.swift */; };
 		49C1A51A636E07471C93FE7A /* vitesse-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 242FB11E134B6437C9CBCD41 /* vitesse-light.json */; };
@@ -272,7 +275,6 @@
 		63557B51D8BF09912B0FA35A /* rose-pine-x.json in Resources */ = {isa = PBXBuildFile; fileRef = 20B1DCDDBE304CA813E3FCD0 /* rose-pine-x.json */; };
 		63693B9E11A54EA462F89306 /* LitterServerListPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9ECBFB0BFC09594F6E0814F /* LitterServerListPayload.swift */; };
 		639D2B07C3B23A955BB69F61 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67647EBF442015361DA818CE /* HomeScreen.swift */; };
-		6403A36EC33384967784446A /* WatchSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15E7C15A89C96F6BA2D4502 /* WatchSize.swift */; };
 		64A3798AEBDCF0373C2A2697 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = D3C5FD0BDB468EC8BA03BBE6 /* Nuke */; };
 		64D67574F100F742D59FEC18 /* gruvbox-light-hard.json in Resources */ = {isa = PBXBuildFile; fileRef = 9AF7E00FF3D6A3D37B161855 /* gruvbox-light-hard.json */; };
 		64DD1C238AE89596C13A4438 /* SavedProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E052E9EFBC98D003637D417E /* SavedProjectStore.swift */; };
@@ -359,6 +361,7 @@
 		84F6C5BF84085B7B2A6B4EAC /* sentry-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 59B08FFA16CBFD1A93E32980 /* sentry-dark.json */; };
 		8520A62BEAC441DA2157FE87 /* NewThreadHeroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E603FBE2AAD5D7C19649F986 /* NewThreadHeroView.swift */; };
 		8533F98A276F08A8BF98B7DD /* material-theme-lighter.json in Resources */ = {isa = PBXBuildFile; fileRef = 76B9969D2D4C7AA23FC9DB93 /* material-theme-lighter.json */; };
+		8592DD7E9E985F7C20FF6C22 /* WatchSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40561C060EDB76318FF345F3 /* WatchSize.swift */; };
 		85ACC46459DA8D7AF4356246 /* ConversationComposerAttachSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFBFE7DF8014B177A1F7B9 /* ConversationComposerAttachSheet.swift */; };
 		863E974F904C137CB6669DE0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 35949923355BB19A7209FD65 /* Assets.xcassets */; };
 		86AC3AA3AE8BB644441094A7 /* one-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 795964BC1D4B7081B774B65E /* one-light.json */; };
@@ -386,9 +389,9 @@
 		8EC08D1416B9EC288AC17079 /* WallpaperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB4A268C8D43CA2144617DE /* WallpaperManager.swift */; };
 		8EC17845C1FE8B8550984B57 /* PerServerComplicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22033C000C8317754EEB6984 /* PerServerComplicationTests.swift */; };
 		8ED7EC56C6814E0B40673ADD /* ChatGPTOAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */; };
+		90678AAB94C9F273BD656618 /* WatchSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D474EF5B9680782FE5A71E4 /* WatchSessionBridge.swift */; };
 		909A0CDCE6D9729A20D0DA43 /* OpenAIApiKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */; };
 		9106629F6ABA8F5D30DBA0F2 /* AppSnapshotRecord+Runtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B233BBDF2CFAC604E4A1DD /* AppSnapshotRecord+Runtime.swift */; };
-		9322863E17E98563B7AA907A /* WatchSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD06A4B1DBF4069D6608D7C2 /* WatchSnapshotStore.swift */; };
 		93979DE896F5A50F73AB4736 /* AppThreadSnapshot+Runtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC23186BC2EA0520D9532ED3 /* AppThreadSnapshot+Runtime.swift */; };
 		93C87EABAC0D427BD6089349 /* ChatWallpaperBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4754654D5240E850C98AB85D /* ChatWallpaperBackground.swift */; };
 		95D40AC0FE018DE2B9740DA3 /* usgc-themes-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B7160E74B034DD87D77CCDDC /* usgc-themes-LICENSE.txt */; };
@@ -398,7 +401,6 @@
 		97715C1B8B9FF369686FE9B3 /* PairBLEScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478418E5A888D2A8494C9725 /* PairBLEScanner.swift */; };
 		979A1AC18642D78FFE1F199E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 35949923355BB19A7209FD65 /* Assets.xcassets */; };
 		979CFFCECF555EC128174A2F /* LitterRunningTurnPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C65B428C64E23550B2F0A5F /* LitterRunningTurnPayload.swift */; };
-		97C14B0FC047354B0B4B03B1 /* WatchDeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8EDED60CA4813F9382FD0E /* WatchDeepLinkRouter.swift */; };
 		980F1458FEEA8970E9F29FCF /* ConversationComposerContextBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0D72714D0B3E9209EF907B3 /* ConversationComposerContextBarView.swift */; };
 		984FDE5372B55B7C9437206F /* LitterCornerComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429632FC489BB3CA9B7789FC /* LitterCornerComplication.swift */; };
 		9887C4BF6EDA51F23E491EB2 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6104B911C0E0B00FC5375F /* HomeDashboardView.swift */; };
@@ -412,7 +414,9 @@
 		9C2A955AF5986A3C82DA436A /* ImageGenerationToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85743F1AC88293BE8BBD27DA /* ImageGenerationToolCallView.swift */; };
 		9C3753960760E7E09560037A /* usgc-highk.json in Resources */ = {isa = PBXBuildFile; fileRef = F834CA5079226BE75FF8DC9E /* usgc-highk.json */; };
 		9C44ABDBA2399DD2C0B1E9E2 /* ConversationPlanSemanticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C1A0569B4424123A37B0DA /* ConversationPlanSemanticsTests.swift */; };
+		9C4F70E1093ADFB1A603C9AA /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781A72E518F9230E2A641141 /* WatchModels.swift */; };
 		9CF732EA96EBEF232E24F685 /* ExperimentalFeaturesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D950991BD0F0199209EB68 /* ExperimentalFeaturesView.swift */; };
+		9EB0D81F1561A8622A38D39C /* WatchHapticDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A295F9828114C38B7CB29209 /* WatchHapticDetector.swift */; };
 		9F41A81BE23B68CA2F74BFE4 /* RustVoiceHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8872A0620A38EB5307BC098C /* RustVoiceHandoff.swift */; };
 		9F71666B27E5CCCB2A0A9966 /* AppsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7A57CD59F1F3C8300A9ECE /* AppsListView.swift */; };
 		9FAB64483AFA18DCE46F6753 /* SavedAppsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BA4EAACA2BC4A8FDE63A18 /* SavedAppsStore.swift */; };
@@ -436,7 +440,6 @@
 		A75F1D5012868217B30EEEB6 /* laserwave.json in Resources */ = {isa = PBXBuildFile; fileRef = 9AB673AF3C45AA3144F784F4 /* laserwave.json */; };
 		A77B4456D03F50B2EC91C0E6 /* houston.json in Resources */ = {isa = PBXBuildFile; fileRef = 89172C83E4194291FF873A88 /* houston.json */; };
 		A7D11865D9592D058A51D3FB /* poimandres.json in Resources */ = {isa = PBXBuildFile; fileRef = 6F877B8FA83A8228C4515FB4 /* poimandres.json */; };
-		A7EE36EE655FC65DCE1D9AFD /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17EE3738B67D212C92E33E3 /* WatchModels.swift */; };
 		A802F7E19981CA746B98A6D3 /* LitterCircularComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2DE018994EE98618A1FB5C7 /* LitterCircularComplication.swift */; };
 		A83B160D16DD271CCD128393 /* AppRuntimeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14E5CB6E5CCE35CE26BC076 /* AppRuntimeController.swift */; };
 		A83CFAE1805823A320144A89 /* LitterServerListPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9ECBFB0BFC09594F6E0814F /* LitterServerListPayload.swift */; };
@@ -447,7 +450,6 @@
 		AABDEAC2D1616649533BC57E /* VideoWallpaperPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B361A4FDCFF12B0FE7E893EC /* VideoWallpaperPlayerView.swift */; };
 		AB54D3436F4C5C81E9C45450 /* ServerPillRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98A952845B6690CEC61680E /* ServerPillRow.swift */; };
 		ABA581671A2FB1B6756F6E6E /* tokyo-night.json in Resources */ = {isa = PBXBuildFile; fileRef = 971354BA3CB115869D1FB27C /* tokyo-night.json */; };
-		AC23B6484CAE3202DB809E05 /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17EE3738B67D212C92E33E3 /* WatchModels.swift */; };
 		AC42D6FE72AF65BDC551B0A6 /* AudioWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9ACF04F4018F2949FB7E0 /* AudioWaveformView.swift */; };
 		AC6C9D0FDC2E41C449EB9588 /* PathDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66961A8B9B89E5B34B6C5A93 /* PathDisplay.swift */; };
 		AC910E0696AA0D1E5E5B1366 /* home_cat.png in Resources */ = {isa = PBXBuildFile; fileRef = 49D8F8EB81409A95F0AA81B6 /* home_cat.png */; };
@@ -455,7 +457,6 @@
 		AD2D67F6F7249521B4DB7AB2 /* LitterLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C8FE2228902D6F4D610779 /* LitterLiveActivityBundle.swift */; };
 		AD30BD5889E48FF2B8838679 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4A55B713A264CC0C8FE3D813 /* Assets.xcassets */; };
 		AD8DBF675D14EB7F11D17A67 /* SubagentCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8BA1DF8D1BBF028ACFBA7E0 /* SubagentCardView.swift */; };
-		AE8951752569EA6BF8D35E9C /* WatchHapticDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC3382D3C771B358C1E3CE6 /* WatchHapticDetector.swift */; };
 		AEA64EDA7E749AD2AEDD2359 /* pierre-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 370F75B42793F9B35D8F4990 /* pierre-dark.json */; };
 		AEE8509D25C57322EF1A0860 /* solarized-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 45F4850CDE17E426ECBF4EA5 /* solarized-dark.json */; };
 		AF137CE1A948A9DB6ED381E4 /* DebugSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A485EF4E929239E297A46F5 /* DebugSettings.swift */; };
@@ -466,6 +467,7 @@
 		B23DF0EC00DE8A4DE6390161 /* AnimatedSplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78076308EEAAE64BC3BFDC1F /* AnimatedSplashView.swift */; };
 		B2AFC54D3C1CE47C58453313 /* codex-light.json in Resources */ = {isa = PBXBuildFile; fileRef = FA7B1E3B542D557D080E913D /* codex-light.json */; };
 		B2E94DB79FAB25F0F5AB3C86 /* LocalCodexBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D330E51EBB1EC86C197A9296 /* LocalCodexBootstrap.swift */; };
+		B3FEC7D6A1528065E759A5B8 /* WatchHapticDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A295F9828114C38B7CB29209 /* WatchHapticDetector.swift */; };
 		B40C5F8D4A2630356E518253 /* light-plus.json in Resources */ = {isa = PBXBuildFile; fileRef = CFF9DBA865CCBB3308B5667D /* light-plus.json */; };
 		B422F490347299F2A70CA407 /* IshFS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2BFE640367D986B437735F /* IshFS.swift */; };
 		B43EE7B581C0F03C3D26BAB9 /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA4A8B1B0E48B3DDC9F44D90 /* Network.framework */; };
@@ -488,7 +490,6 @@
 		B9F0C7E8BA9FCF65B2D8FB6E /* WatchCompanionBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 521F9A2BAAA77D9F934C3573 /* WatchCompanionBridgeTests.swift */; };
 		BA1027048577556040076C7C /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0894A8F2B3DA66F879AEA4EE /* GhosttyTerminalView.swift */; };
 		BAB0343536C6CFD8EF952DE0 /* BerkeleyMono-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */; };
-		BAC6A53AAE33105558DC06F7 /* WatchSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15E7C15A89C96F6BA2D4502 /* WatchSize.swift */; };
 		BB3DED8F932A301FB7E9BA42 /* MessageRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D3FB91329C177A51F198B3 /* MessageRenderCache.swift */; };
 		BB9DA7CA11969DAFD3F38E21 /* usgc-highk.json in Resources */ = {isa = PBXBuildFile; fileRef = F834CA5079226BE75FF8DC9E /* usgc-highk.json */; };
 		BBA3818C96635CEB35946AA5 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D216CEBFB1B4B71CFC2C0F8 /* AppearanceSettingsView.swift */; };
@@ -541,7 +542,6 @@
 		CF8C76E287112CC609716441 /* monokai.json in Resources */ = {isa = PBXBuildFile; fileRef = 75448098987C0B15698C8456 /* monokai.json */; };
 		CFA5E4B56537F480AFECC903 /* DirectoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318F2F8563E91AB97950F5DA /* DirectoryPickerView.swift */; };
 		D07B503DB96496A43AE6FC20 /* VideoWallpaperProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 554F4A83699FF91F38D1E4CE /* VideoWallpaperProcessor.swift */; };
-		D0E2542302564891623B974E /* WatchSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD06A4B1DBF4069D6608D7C2 /* WatchSnapshotStore.swift */; };
 		D11EFBC1C0D250134F354DC5 /* AlleycatCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4658068D198E8F82A23FF04 /* AlleycatCredentialStore.swift */; };
 		D14830D3F4040B9E9895A46D /* TranscriptScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E08E63A195E01B3163642D /* TranscriptScreen.swift */; };
 		D1C2C119E9801D3921F44146 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 87C57BE485A2C3DCC39C7368 /* Nuke */; };
@@ -555,6 +555,7 @@
 		D416C8F96EC0ED100EC5F9FA /* RealtimeVoiceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4215329CF98636F31978500E /* RealtimeVoiceScreen.swift */; };
 		D465AB9C7DB4638C39B534D0 /* ConversationComposerEntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075CAE1122242626CE33A93F /* ConversationComposerEntryRowView.swift */; };
 		D4B7F8802B5C9314CAFC53C7 /* SavedAppsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BA4EAACA2BC4A8FDE63A18 /* SavedAppsStore.swift */; };
+		D4C11C4D221F653A0901489C /* WatchDeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A836D187279EA6AE84754C /* WatchDeepLinkRouter.swift */; };
 		D512CAC21DF746FA702B10EF /* RecentDirectoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CAFD307068C8BB4C5662367 /* RecentDirectoryStore.swift */; };
 		D58FC6C004925A1ADE722405 /* VoiceCallLockScreenCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94820B14433013164204BB1 /* VoiceCallLockScreenCardView.swift */; };
 		D5CAA47BA3A89E8C56E84D8C /* ConversationComposerContextBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0D72714D0B3E9209EF907B3 /* ConversationComposerContextBarView.swift */; };
@@ -605,12 +606,12 @@
 		E7C078C9B33B1534229993DB /* AppServerSnapshot+UI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58E2FAFA4D997A5F23A04E5 /* AppServerSnapshot+UI.swift */; };
 		E7DA37A53E778319C67981B7 /* TipJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A5A95314CD68B7C7276BFD /* TipJarStore.swift */; };
 		E831EDB6EEB5A4B681EAAD6C /* ProjectChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5294396A986F27242D0F814 /* ProjectChip.swift */; };
+		E84AB5C89D2A63DC7AFC5C63 /* WatchThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B374C9C3EAA7DB3198767249 /* WatchThemeStore.swift */; };
 		E8528D91B81227D309D8B213 /* absolutely-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 779157C60F55F38A05F3CD1A /* absolutely-dark.json */; };
 		E89D0FE23A3FBA385DAD1757 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818BC73F3855A9BA29C8E868 /* AccountView.swift */; };
 		E8BB21D4B07BA3884334FB60 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB9C4946A911272FC0DC850 /* SilentAudioKeeper.swift */; };
 		E8E9B961E3A52B3CB0169449 /* absolutely-light.json in Resources */ = {isa = PBXBuildFile; fileRef = ADE3C405C5BF7CFDD59604A0 /* absolutely-light.json */; };
 		E8FFC4654A966B453D54BE7B /* SendPromptIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5781B6F36826A8F1CFD6A7A /* SendPromptIntent.swift */; };
-		E9730CDCE6DC4F226BD611D6 /* WatchAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17C306BA7D9DCF6ACF24169 /* WatchAppStore.swift */; };
 		E9C29ED22DB2742C26C195CC /* BerkeleyMono-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */; };
 		EA4846B664967EB373B7BBD1 /* rose-pine-dawn.json in Resources */ = {isa = PBXBuildFile; fileRef = 9B858CE89BDC1E0974263B28 /* rose-pine-dawn.json */; };
 		EA490DE9FC365408EC4EBB6E /* SessionsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17099E066405571104CB9A37 /* SessionsScreen.swift */; };
@@ -645,7 +646,6 @@
 		F4713B03AF3F347A42FFD8D1 /* kitty-litter-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 92B1669CE17E1EB46A17C610 /* kitty-litter-dark.json */; };
 		F53C0087911EE63FCD715505 /* catppuccin-frappe.json in Resources */ = {isa = PBXBuildFile; fileRef = A062692D27F0F6966BBD1AE5 /* catppuccin-frappe.json */; };
 		F5DDEFB15BF2566CA7AF2225 /* material-theme-palenight.json in Resources */ = {isa = PBXBuildFile; fileRef = B776A14B7CB1BD40651E0EE1 /* material-theme-palenight.json */; };
-		F6255900FB55ECC31EDBDF2D /* WatchTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59A9A0467A199733EAA725E4 /* WatchTheme.swift */; };
 		F64A5FCEDC9F1CE727FBEB52 /* HomeComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12222458304DD9CA8D4593 /* HomeComposerView.swift */; };
 		F64EB92413EE8FA1EAA77BC8 /* ConversationWarmupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */; };
 		F678254F578ACFEC312BA8B7 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E744000053715A5866060B15 /* PreviewSupport.swift */; };
@@ -835,9 +835,10 @@
 		3BA392F9C2104B8B643C0F9E /* ToolCallCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallCardView.swift; sourceTree = "<group>"; };
 		3BD63CCD80D9E1F66879EF97 /* BerkeleyMono-Bold.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Bold.otf"; sourceTree = "<group>"; };
 		3C65B428C64E23550B2F0A5F /* LitterRunningTurnPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterRunningTurnPayload.swift; sourceTree = "<group>"; };
-		3C8EDED60CA4813F9382FD0E /* WatchDeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeepLinkRouter.swift; sourceTree = "<group>"; };
 		3CB07F43FD670F05B9A43C55 /* BerkeleyMono-Bold-Oblique.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Bold-Oblique.otf"; sourceTree = "<group>"; };
+		3D474EF5B9680782FE5A71E4 /* WatchSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionBridge.swift; sourceTree = "<group>"; };
 		3E1172327AFBD0CF0947468A /* CatalystRuntimeStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystRuntimeStubs.swift; sourceTree = "<group>"; };
+		40561C060EDB76318FF345F3 /* WatchSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSize.swift; sourceTree = "<group>"; };
 		4065D6B859C111A7181A049D /* AppLifecycleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleController.swift; sourceTree = "<group>"; };
 		41B0E2A4F7ED660B3B053076 /* TranscriptTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTurn.swift; sourceTree = "<group>"; };
 		4215329CF98636F31978500E /* RealtimeVoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceScreen.swift; sourceTree = "<group>"; };
@@ -848,6 +849,7 @@
 		46D841AF0FFB0241834F88D0 /* LitterUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterUITests.swift; sourceTree = "<group>"; };
 		4754654D5240E850C98AB85D /* ChatWallpaperBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWallpaperBackground.swift; sourceTree = "<group>"; };
 		478418E5A888D2A8494C9725 /* PairBLEScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairBLEScanner.swift; sourceTree = "<group>"; };
+		47A836D187279EA6AE84754C /* WatchDeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeepLinkRouter.swift; sourceTree = "<group>"; };
 		47D3FB91329C177A51F198B3 /* MessageRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRenderCache.swift; sourceTree = "<group>"; };
 		47E701E793853BDF418C763F /* LitterMac.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LitterMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4925417F70C546B80DBD9EFF /* ConnectionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionTarget.swift; sourceTree = "<group>"; };
@@ -881,7 +883,6 @@
 		573CB5B7497BFA40D8558CCE /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		57F8CF2C509178F0E52277F2 /* WatchSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSizeTests.swift; sourceTree = "<group>"; };
 		592BE0CE703BB2B31738D8C2 /* HomeVoiceOrbButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeVoiceOrbButton.swift; sourceTree = "<group>"; };
-		59A9A0467A199733EAA725E4 /* WatchTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTheme.swift; sourceTree = "<group>"; };
 		59B08FFA16CBFD1A93E32980 /* sentry-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "sentry-dark.json"; sourceTree = "<group>"; };
 		5B2BFE640367D986B437735F /* IshFS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IshFS.swift; sourceTree = "<group>"; };
 		5B2CEDF857883B2E36157356 /* gruvbox-dark-medium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gruvbox-dark-medium.json"; sourceTree = "<group>"; };
@@ -937,6 +938,7 @@
 		77D950991BD0F0199209EB68 /* ExperimentalFeaturesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalFeaturesView.swift; sourceTree = "<group>"; };
 		77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPTOAuth.swift; sourceTree = "<group>"; };
 		78076308EEAAE64BC3BFDC1F /* AnimatedSplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedSplashView.swift; sourceTree = "<group>"; };
+		781A72E518F9230E2A641141 /* WatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
 		782D870FCEA68BB3752F965F /* SwiftSshCredentialProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSshCredentialProvider.swift; sourceTree = "<group>"; };
 		795964BC1D4B7081B774B65E /* one-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "one-light.json"; sourceTree = "<group>"; };
 		7D3ACFB8DE4FE6FD3D957F27 /* TurnLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnLiveActivityController.swift; sourceTree = "<group>"; };
@@ -991,6 +993,7 @@
 		A0BEC32BA18EED58DFB1D9D7 /* SessionReplySwipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionReplySwipe.swift; sourceTree = "<group>"; };
 		A10240CEA11F064EBD138D97 /* vesper.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = vesper.json; sourceTree = "<group>"; };
 		A1388480E7FFD4489CE617C6 /* LitterPlatform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterPlatform.swift; sourceTree = "<group>"; };
+		A295F9828114C38B7CB29209 /* WatchHapticDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchHapticDetector.swift; sourceTree = "<group>"; };
 		A36C53F042D99EC31804B19E /* CatalystVoiceStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystVoiceStubs.swift; sourceTree = "<group>"; };
 		A3994BDBDC27E3555A77466B /* HomeModelChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeModelChip.swift; sourceTree = "<group>"; };
 		A5098071BFC24EED60D90A0C /* ProjectPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPickerSheet.swift; sourceTree = "<group>"; };
@@ -1018,9 +1021,9 @@
 		B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Regular.otf"; sourceTree = "<group>"; };
 		B06FAE2DA1D08C45531747A2 /* WatchApprovalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApprovalNotification.swift; sourceTree = "<group>"; };
 		B0C1A0569B4424123A37B0DA /* ConversationPlanSemanticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPlanSemanticsTests.swift; sourceTree = "<group>"; };
-		B17C306BA7D9DCF6ACF24169 /* WatchAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppStore.swift; sourceTree = "<group>"; };
 		B22B0C284B20FB135A3A35BE /* MinigameOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinigameOverlayView.swift; sourceTree = "<group>"; };
 		B361A4FDCFF12B0FE7E893EC /* VideoWallpaperPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoWallpaperPlayerView.swift; sourceTree = "<group>"; };
+		B374C9C3EAA7DB3198767249 /* WatchThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchThemeStore.swift; sourceTree = "<group>"; };
 		B3987DD421CCBF1312C3CB8B /* UniFFICodexClient.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniFFICodexClient.generated.swift; sourceTree = "<group>"; };
 		B4658068D198E8F82A23FF04 /* AlleycatCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlleycatCredentialStore.swift; sourceTree = "<group>"; };
 		B5781B6F36826A8F1CFD6A7A /* SendPromptIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendPromptIntent.swift; sourceTree = "<group>"; };
@@ -1029,13 +1032,12 @@
 		B6C41CA257D0C3F206C36F81 /* ProximityPairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProximityPairView.swift; sourceTree = "<group>"; };
 		B7160E74B034DD87D77CCDDC /* usgc-themes-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "usgc-themes-LICENSE.txt"; sourceTree = "<group>"; };
 		B776A14B7CB1BD40651E0EE1 /* material-theme-palenight.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "material-theme-palenight.json"; sourceTree = "<group>"; };
-		B851BADF65A707A42EC7F94F /* WatchSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionBridge.swift; sourceTree = "<group>"; };
 		B8CDEFFF11E937A2BDB094FB /* SwipeableRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeableRow.swift; sourceTree = "<group>"; };
-		BAC3382D3C771B358C1E3CE6 /* WatchHapticDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchHapticDetector.swift; sourceTree = "<group>"; };
+		BA69393635F8027818091366 /* Litter-Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Litter-Debug.entitlements"; sourceTree = "<group>"; };
 		BAC7D83216AF4F0FFA325009 /* gruvbox-light-soft.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gruvbox-light-soft.json"; sourceTree = "<group>"; };
+		BB4F62BCD0A4023DED3729B6 /* WatchAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppStore.swift; sourceTree = "<group>"; };
 		BC1E299971F413437A6180D0 /* LitterWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LitterWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BC37206CDAE11DBA2A94234E /* WatchThemePayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchThemePayloadTests.swift; sourceTree = "<group>"; };
-		BD06A4B1DBF4069D6608D7C2 /* WatchSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSnapshotStore.swift; sourceTree = "<group>"; };
 		BD1ACB5BC8CBE4849EB34E73 /* PiPHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPHostView.swift; sourceTree = "<group>"; };
 		BE04FF38C9E336A47C7E161B /* PerformanceHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceHelpersTests.swift; sourceTree = "<group>"; };
 		BE81AFDF90E8ED46203AF90C /* ConversationOptionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationOptionsSheet.swift; sourceTree = "<group>"; };
@@ -1066,17 +1068,17 @@
 		D0453F9A958E06582AE93013 /* DiffRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffRendering.swift; sourceTree = "<group>"; };
 		D0B91C694EA050F1FE6738A7 /* ThemeDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeDefinitionTests.swift; sourceTree = "<group>"; };
 		D0D72714D0B3E9209EF907B3 /* ConversationComposerContextBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationComposerContextBarView.swift; sourceTree = "<group>"; };
-		D17EE3738B67D212C92E33E3 /* WatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
+		D188262D8F066E6F71DD5F59 /* WatchTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTheme.swift; sourceTree = "<group>"; };
 		D1E96C6677B2AA22A101A29C /* ContextBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextBadgeView.swift; sourceTree = "<group>"; };
 		D2608C1F271D28BFEFBA5EFB /* kanagawa-lotus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "kanagawa-lotus.json"; sourceTree = "<group>"; };
 		D2DC320BD7E1525386BCF44F /* MacPairingHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPairingHost.swift; sourceTree = "<group>"; };
 		D330E51EBB1EC86C197A9296 /* LocalCodexBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCodexBootstrap.swift; sourceTree = "<group>"; };
-		D34A8B1DB2953A5B9A182E6E /* WatchThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchThemeStore.swift; sourceTree = "<group>"; };
 		D4BBEE5D22A050571A528EF0 /* catppuccin-mocha-Ry8aD-5u.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "catppuccin-mocha-Ry8aD-5u.json"; sourceTree = "<group>"; };
 		D5294396A986F27242D0F814 /* ProjectChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChip.swift; sourceTree = "<group>"; };
 		D58FC0D181B46D56485C2AAB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D665007AFA397EAF0822F18D /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
 		D6D5716D8E24645F6A7ACFF4 /* LitterComplicationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterComplicationProvider.swift; sourceTree = "<group>"; };
+		D6E180C9F641FCFD7E60D943 /* WatchSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSnapshotStore.swift; sourceTree = "<group>"; };
 		D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_cat_entrance.png; sourceTree = "<group>"; };
 		D887FC87082710CC7B75CC8A /* CodexTurnAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnAttributes.swift; sourceTree = "<group>"; };
 		D88DE6E95BD289268352F0B9 /* WatchProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProjection.swift; sourceTree = "<group>"; };
@@ -1096,7 +1098,6 @@
 		E052E9EFBC98D003637D417E /* SavedProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedProjectStore.swift; sourceTree = "<group>"; };
 		E0CB9BD7FEC41759BD42861A /* GhosttyRendererBackendBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyRendererBackendBridge.swift; sourceTree = "<group>"; };
 		E108E5ACB93F4A71B484C125 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		E15E7C15A89C96F6BA2D4502 /* WatchSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSize.swift; sourceTree = "<group>"; };
 		E16ACA3C8902C3687BC8518C /* SavedAppsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppsStoreTests.swift; sourceTree = "<group>"; };
 		E1FAA725B26C5805C94EF40E /* github-dark-high-contrast.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "github-dark-high-contrast.json"; sourceTree = "<group>"; };
 		E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupView.swift; sourceTree = "<group>"; };
@@ -1201,7 +1202,7 @@
 				2387D74B18F560D3FD754726 /* LitterUITests */,
 				9DD69CD323525C327D5DCC73 /* LitterWatch */,
 				C8630CA3766937A8392F5635 /* LitterWatchComplications */,
-				D807F7275D146FE16B978FCA /* Models */,
+				6F95F9954BDDA28EDFBB9150 /* Models */,
 				864A8F3BEE4AF239B438BE6F /* Frameworks */,
 				35D407E8418ED7F3C5C8B705 /* Products */,
 			);
@@ -1265,6 +1266,23 @@
 			path = MacCommands;
 			sourceTree = "<group>";
 		};
+		6F95F9954BDDA28EDFBB9150 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				BB4F62BCD0A4023DED3729B6 /* WatchAppStore.swift */,
+				47A836D187279EA6AE84754C /* WatchDeepLinkRouter.swift */,
+				A295F9828114C38B7CB29209 /* WatchHapticDetector.swift */,
+				781A72E518F9230E2A641141 /* WatchModels.swift */,
+				3D474EF5B9680782FE5A71E4 /* WatchSessionBridge.swift */,
+				40561C060EDB76318FF345F3 /* WatchSize.swift */,
+				D6E180C9F641FCFD7E60D943 /* WatchSnapshotStore.swift */,
+				D188262D8F066E6F71DD5F59 /* WatchTheme.swift */,
+				B374C9C3EAA7DB3198767249 /* WatchThemeStore.swift */,
+			);
+			name = Models;
+			path = Sources/LitterWatch/Models;
+			sourceTree = "<group>";
+		};
 		8281D55E244D63BFA69DA67F /* CarPlay */ = {
 			isa = PBXGroup;
 			children = (
@@ -1301,6 +1319,7 @@
 				E518CD2A67CEB8B41545D0D2 /* Info.plist */,
 				A04260C52158186F6A4876AB /* Litter-Catalyst-DeveloperID.entitlements */,
 				519F6AEAD567269B99288339 /* Litter-Catalyst.entitlements */,
+				BA69393635F8027818091366 /* Litter-Debug.entitlements */,
 				C06841C29AA3E42E7DB137C0 /* Litter.entitlements */,
 				359F3DCDC22C81682DAA7B0D /* LitterApp.swift */,
 				FED26E02E71D5675B5DFB9CE /* Bridge */,
@@ -1359,7 +1378,6 @@
 				23AE60CA6B3DD70D4FC71FD0 /* LitterWatchApp.swift */,
 				DE1697324CFA0667FD517EFB /* Components */,
 				B5500B1DC0094D43105DD019 /* Intents */,
-				D807F7275D146FE16B978FCA /* Models */,
 				CBC3CDF089B7E503076E5F57 /* Views */,
 			);
 			name = LitterWatch;
@@ -1411,23 +1429,6 @@
 				A865AC79A6E0831D5F80A7E7 /* VoiceScreen.swift */,
 			);
 			path = Views;
-			sourceTree = "<group>";
-		};
-		D807F7275D146FE16B978FCA /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				B17C306BA7D9DCF6ACF24169 /* WatchAppStore.swift */,
-				3C8EDED60CA4813F9382FD0E /* WatchDeepLinkRouter.swift */,
-				BAC3382D3C771B358C1E3CE6 /* WatchHapticDetector.swift */,
-				D17EE3738B67D212C92E33E3 /* WatchModels.swift */,
-				B851BADF65A707A42EC7F94F /* WatchSessionBridge.swift */,
-				E15E7C15A89C96F6BA2D4502 /* WatchSize.swift */,
-				BD06A4B1DBF4069D6608D7C2 /* WatchSnapshotStore.swift */,
-				59A9A0467A199733EAA725E4 /* WatchTheme.swift */,
-				D34A8B1DB2953A5B9A182E6E /* WatchThemeStore.swift */,
-			);
-			name = Models;
-			path = Sources/LitterWatch/Models;
 			sourceTree = "<group>";
 		};
 		DB02264740185FE99A0B2419 /* Themes */ = {
@@ -1897,28 +1898,28 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					3B991C03E72B1546CAD35698 = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 					};
 					4D58398238C075D3A3A3AB9B = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 					};
 					6EBBC661C017816B2D4245DF = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 						ProvisioningStyle = "$(APP_CODE_SIGN_STYLE)";
 					};
 					7BB0106D190F10717D781234 = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 						TestTargetID = A3D84F588EDBC1EA550D6691;
 					};
 					A3D84F588EDBC1EA550D6691 = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 						SystemCapabilities = "[\"com.apple.BackgroundModes\": [\"enabled\": true]]";
 					};
 					C0C98C6012493B73CDD5AD6E = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 					};
 					DA07A1EAC6173D09F6FB99D9 = {
-						DevelopmentTeam = UH66Q8ZAYG;
+						DevelopmentTeam = TZ447KHNZL;
 					};
 				};
 			};
@@ -2218,16 +2219,16 @@
 				ECAF7109E569F69EEF40A1AF /* TaskDetailScreen.swift in Sources */,
 				D14830D3F4040B9E9895A46D /* TranscriptScreen.swift in Sources */,
 				744C6A508C08BB75D2E25B3A /* VoiceScreen.swift in Sources */,
-				E9730CDCE6DC4F226BD611D6 /* WatchAppStore.swift in Sources */,
+				02988FA05DFDAC456068632B /* WatchAppStore.swift in Sources */,
 				2E6FF89E7700C83B948A1976 /* WatchChrome.swift in Sources */,
-				38BC97ADF5F354CE698DBE18 /* WatchDeepLinkRouter.swift in Sources */,
-				3F3DB3C9A05F2F9B4329FCAB /* WatchHapticDetector.swift in Sources */,
-				AC23B6484CAE3202DB809E05 /* WatchModels.swift in Sources */,
-				49026CE0B09FF41A24966343 /* WatchSessionBridge.swift in Sources */,
-				6403A36EC33384967784446A /* WatchSize.swift in Sources */,
-				9322863E17E98563B7AA907A /* WatchSnapshotStore.swift in Sources */,
-				F6255900FB55ECC31EDBDF2D /* WatchTheme.swift in Sources */,
-				10BD8E2374BC2D3FE8123919 /* WatchThemeStore.swift in Sources */,
+				13B0C1CB1FE7B7E1302C3B8E /* WatchDeepLinkRouter.swift in Sources */,
+				9EB0D81F1561A8622A38D39C /* WatchHapticDetector.swift in Sources */,
+				9C4F70E1093ADFB1A603C9AA /* WatchModels.swift in Sources */,
+				90678AAB94C9F273BD656618 /* WatchSessionBridge.swift in Sources */,
+				3FD6A4A8B0B30CBB90573F44 /* WatchSize.swift in Sources */,
+				05F4AF0FF61C1214E6637875 /* WatchSnapshotStore.swift in Sources */,
+				2F332D104DCA314BDA245195 /* WatchTheme.swift in Sources */,
+				E84AB5C89D2A63DC7AFC5C63 /* WatchThemeStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2482,12 +2483,12 @@
 				5D14555D5DD1647831E08F51 /* WallpaperSelectionView.swift in Sources */,
 				4809B5C36CEDFE9BF77E06EB /* WatchApprovalNotification.swift in Sources */,
 				D4130690BA5E4DBAF8FA03A5 /* WatchCompanionBridge.swift in Sources */,
-				97C14B0FC047354B0B4B03B1 /* WatchDeepLinkRouter.swift in Sources */,
-				AE8951752569EA6BF8D35E9C /* WatchHapticDetector.swift in Sources */,
-				A7EE36EE655FC65DCE1D9AFD /* WatchModels.swift in Sources */,
+				D4C11C4D221F653A0901489C /* WatchDeepLinkRouter.swift in Sources */,
+				B3FEC7D6A1528065E759A5B8 /* WatchHapticDetector.swift in Sources */,
+				42F4232067CECD5810D9D30B /* WatchModels.swift in Sources */,
 				CF6B00B8582458B04144194D /* WatchProjection.swift in Sources */,
-				BAC6A53AAE33105558DC06F7 /* WatchSize.swift in Sources */,
-				D0E2542302564891623B974E /* WatchSnapshotStore.swift in Sources */,
+				8592DD7E9E985F7C20FF6C22 /* WatchSize.swift in Sources */,
+				42A4C9ADE94A9529F8C009B8 /* WatchSnapshotStore.swift in Sources */,
 				18505C3526851FD8F141B78E /* WidgetWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2896,7 +2897,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = UH66Q8ZAYG;
+				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -2911,7 +2912,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.6.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -3040,7 +3041,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = UH66Q8ZAYG;
+				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -3061,7 +3062,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.6.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3135,7 +3136,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = UH66Q8ZAYG;
+				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -3150,7 +3151,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.6.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";

@@ -53,6 +53,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.onPasteImage = onPasteImage
         textView.onHardwareSubmit = onHardwareSubmit
+        textView.accessibilityIdentifier = "conversation.composerTextView"
         textView.text = text
         context.coordinator.applyStyling(to: textView)
         context.coordinator.updateScrollState(for: textView)

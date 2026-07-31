@@ -9,6 +9,9 @@ struct ConversationDisplayUITestHarnessView: View {
     @AppStorage(ConversationDisplayPreferenceKey.commands) private var commandDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var showSettings = false
+    @State private var composerText = ""
+    @State private var composerFocused = false
+    @State private var composerSelection = NSRange(location: 0, length: 0)
 
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--ui-test-conversation-display")
@@ -26,6 +29,16 @@ struct ConversationDisplayUITestHarnessView: View {
                         .litterFont(.title3, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                         .accessibilityIdentifier("conversationDisplayHarness.title")
+
+                    ConversationComposerTextView(
+                        text: $composerText,
+                        isFocused: $composerFocused,
+                        selectedRange: $composerSelection,
+                        onPasteImage: { _ in }
+                    )
+                    .frame(height: 52)
+                    .background(LitterTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
 
                     ConversationTurnTimeline(
                         items: Self.seedItems,

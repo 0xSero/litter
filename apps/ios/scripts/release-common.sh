@@ -68,25 +68,31 @@ EOF
 
 resolve_team_from_profile() {
     local profile_name="$1"
-    local profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+    local profile_dir
     local profile_path profile_display team_id
+    local -a profile_dirs=(
+        "$HOME/Library/MobileDevice/Provisioning Profiles"
+        "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+    )
 
-    [[ -d "$profile_dir" ]] || return 1
-    for profile_path in "$profile_dir"/*.mobileprovision; do
-        [[ -e "$profile_path" ]] || continue
-        profile_display="$(
-            security cms -D -i "$profile_path" 2>/dev/null |
-                plutil -extract Name raw - 2>/dev/null || true
-        )"
-        [[ "$profile_display" == "$profile_name" ]] || continue
-        team_id="$(
-            security cms -D -i "$profile_path" 2>/dev/null |
-                plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true
-        )"
-        if [[ -n "$team_id" ]]; then
-            echo "$team_id"
-            return 0
-        fi
+    for profile_dir in "${profile_dirs[@]}"; do
+        [[ -d "$profile_dir" ]] || continue
+        for profile_path in "$profile_dir"/*.mobileprovision; do
+            [[ -e "$profile_path" ]] || continue
+            profile_display="$(
+                security cms -D -i "$profile_path" 2>/dev/null |
+                    plutil -extract Name raw - 2>/dev/null || true
+            )"
+            [[ "$profile_display" == "$profile_name" ]] || continue
+            team_id="$(
+                security cms -D -i "$profile_path" 2>/dev/null |
+                    plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true
+            )"
+            if [[ -n "$team_id" ]]; then
+                echo "$team_id"
+                return 0
+            fi
+        done
     done
     return 1
 }
