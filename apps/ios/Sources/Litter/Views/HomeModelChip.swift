@@ -64,12 +64,23 @@ struct HomeModelChip: View {
             ?? availableModels.first
     }
 
+    private var usesServerConfiguredDefault: Bool {
+        usesServerConfiguredModelDefault(
+            availableModels.map(\.agentRuntimeKind)
+        )
+    }
+
     private var selectedModel: ModelInfo? {
         let trimmed = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return fallbackModel }
-        return availableModels.first {
+        guard !trimmed.isEmpty else {
+            return usesServerConfiguredDefault ? nil : fallbackModel
+        }
+        if let selected = availableModels.first(where: {
             modelMatchesSelection($0, trimmed, runtime: appState.preferredAgentRuntimeKind)
-        } ?? fallbackModel
+        }) {
+            return selected
+        }
+        return usesServerConfiguredDefault ? nil : fallbackModel
     }
 
     private var selectedModelLabel: String {
@@ -85,6 +96,9 @@ struct HomeModelChip: View {
                 return modelPickerDisplayName(match)
             }
             return trimmed
+        }
+        if usesServerConfiguredDefault {
+            return "server default"
         }
         if let selectedModel {
             return modelPickerDisplayName(selectedModel)
@@ -219,6 +233,13 @@ struct HomeModelChip: View {
     }
 
     private func synchronizeSelection(forceFallback: Bool) {
+        if usesServerConfiguredDefault && !selectionMatchesAvailableModels() {
+            appState.preferredModel = ""
+            appState.preferredAgentRuntimeKind = nil
+            appState.preferredReasoningEffort = ""
+            autoSelectedModelKey = nil
+            return
+        }
         guard let selectedModel else { return }
         guard forceFallback || !selectionMatchesAvailableModels() else { return }
         appState.preferredModel = selectedModel.id
@@ -226,4 +247,8 @@ struct HomeModelChip: View {
         appState.preferredReasoningEffort = ""
         autoSelectedModelKey = "\(selectedModel.agentRuntimeKind):\(selectedModel.id)"
     }
+}
+
+func usesServerConfiguredModelDefault(_ runtimeKinds: [AgentRuntimeKind]) -> Bool {
+    !runtimeKinds.isEmpty && runtimeKinds.allSatisfy { $0 == .localStudio }
 }

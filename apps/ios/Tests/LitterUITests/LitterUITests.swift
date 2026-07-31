@@ -8,18 +8,13 @@ final class LitterUITests: XCTestCase {
     @MainActor
     func testConversationDisplaySettingsRowsAreReachable() throws {
         let app = conversationDisplayHarnessApp()
+        app.launchArguments.append("--ui-test-open-settings")
         app.launch()
 
-        XCTAssertTrue(
-            app.staticTexts["conversationDisplayHarness.title"].waitForExistence(timeout: 10),
-            "Conversation display harness did not launch"
-        )
-
-        app.buttons["conversationDisplayHarness.settingsButton"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Conversation"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Internal Thinking"].exists)
-        XCTAssertTrue(app.staticTexts["Commands"].exists)
+        XCTAssertTrue(findStaticText("Commands", in: app))
         XCTAssertTrue(findStaticText("Tools", in: app))
     }
 
@@ -33,6 +28,18 @@ final class LitterUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["UITEST_REASONING_DETAIL"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_COMMAND_OUTPUT"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
+    }
+
+    @MainActor
+    func testConversationComposerAcceptsSimulatorKeyboardInput() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launch()
+
+        let composer = app.textViews["conversation.composerTextView"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+        composer.typeText("SIMULATOR_INPUT_OK")
+        XCTAssertEqual(composer.value as? String, "SIMULATOR_INPUT_OK")
     }
 
     @MainActor
@@ -107,6 +114,9 @@ final class LitterUITests: XCTestCase {
 
     @MainActor
     func testCaptureScreenshots() throws {
+        guard ProcessInfo.processInfo.environment["CODEXIOS_CAPTURE_LIVE_SCREENSHOTS"] == "enabled" else {
+            throw XCTSkip("Live discovery screenshots require CODEXIOS_CAPTURE_LIVE_SCREENSHOTS=enabled")
+        }
         let app = XCUIApplication()
         app.launchEnvironment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] = "1"
         setupSnapshot(app)

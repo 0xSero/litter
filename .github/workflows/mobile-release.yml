@@ -319,7 +319,7 @@ jobs:
       - name: Install Android platforms and NDK
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;30.0.14904198"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.14904198"
 
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libcap-dev clang cmake
@@ -765,7 +765,7 @@ jobs:
         env:
           SCHEME: ${{ env.SCHEME }}
           APP_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
-          LIVE_ACTIVITY_BUNDLE_ID: com.sigkitten.litter.liveactivity
+          LIVE_ACTIVITY_BUNDLE_ID: com.sigkitten.litter.activity
           APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           APP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.APP_PROVISIONING_PROFILE_SPECIFIER }}
@@ -787,7 +787,7 @@ jobs:
         env:
           SCHEME: ${{ env.SCHEME }}
           APP_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
-          LIVE_ACTIVITY_BUNDLE_ID: com.sigkitten.litter.liveactivity
+          LIVE_ACTIVITY_BUNDLE_ID: com.sigkitten.litter.activity
           APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           APP_PROVISIONING_PROFILE_SPECIFIER: ${{ env.APP_PROVISIONING_PROFILE_SPECIFIER }}

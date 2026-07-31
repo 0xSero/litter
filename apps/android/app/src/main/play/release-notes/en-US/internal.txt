@@ -1,1 +1,1 @@
-Internal testing build with latest Android parity updates and stability fixes.
+Litter 1.6.0: Local Studio pairing and Pi agents; two-way session visibility; smoother interleaved reasoning, content, and tool streaming; file-making tool calls; compaction/reconnect stability; Android 16; and Play Billing 8.

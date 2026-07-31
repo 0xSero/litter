@@ -6,7 +6,7 @@ on:
       track:
         description: "Upload track (destination if promote_track is blank)."
         required: false
-        default: "alpha"
+        default: "internal"
         type: choice
         options:
           - internal
@@ -26,7 +26,7 @@ on:
       release_status:
         description: "Release status for the final track."
         required: false
-        default: "completed"
+        default: "draft"
         type: choice
         options:
           - completed
@@ -43,7 +43,66 @@ permissions:
   contents: read
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release
+
+    steps:
+      - name: Validate required secrets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
+          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
+          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          required=(
+            ANDROID_UPLOAD_KEYSTORE_B64
+            LITTER_UPLOAD_STORE_PASSWORD
+            LITTER_UPLOAD_KEY_ALIAS
+            LITTER_UPLOAD_KEY_PASSWORD
+            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+          encoded=(
+            ANDROID_UPLOAD_KEYSTORE_B64
+          )
+          if [[ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]]; then
+            encoded+=(GOOGLE_SERVICES_JSON_B64)
+          fi
+          for name in "${encoded[@]}"; do
+            if ! printf '%s' "${!name}" | base64 --decode >/dev/null; then
+              echo "Secret is not valid base64: $name" >&2
+              exit 1
+            fi
+          done
+
+          validate_json_secret() {
+            local name="$1"
+            local value="${!name}"
+            if printf '%s' "$value" | base64 --decode 2>/dev/null | jq -e . >/dev/null 2>&1; then
+              return 0
+            fi
+            if printf '%s' "$value" | jq -e . >/dev/null 2>&1; then
+              echo "::notice::$name is stored as raw JSON; accepting it for compatibility"
+              return 0
+            fi
+            echo "Secret is neither base64-encoded JSON nor raw JSON: $name" >&2
+            return 1
+          }
+          validate_json_secret LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
+
   shared-prep:
+    needs: release-preflight
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -77,7 +136,20 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Configure sccache
+        run: |
+          if [ -n "${SCCACHE_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "SCCACHE_BUCKET=" >> "$GITHUB_ENV"
+            echo "SCCACHE_ENDPOINT=" >> "$GITHUB_ENV"
+            echo "SCCACHE_S3_KEY_PREFIX=" >> "$GITHUB_ENV"
+            echo "AWS_ACCESS_KEY_ID=" >> "$GITHUB_ENV"
+            echo "AWS_SECRET_ACCESS_KEY=" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Sync codex submodule
@@ -94,7 +166,6 @@ jobs:
       - name: Generate shared mobile bindings
         if: steps.mobile-bindings-cache.outputs.cache-hit != 'true'
         env:
-          RUSTC_WRAPPER: sccache
           CARGO_INCREMENTAL: "0"
         run: |
           cd shared/rust-bridge
@@ -135,29 +206,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Validate required secrets
-        env:
-          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
-          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
-          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
-          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
-          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          required=(
-            ANDROID_UPLOAD_KEYSTORE_B64
-            LITTER_UPLOAD_STORE_PASSWORD
-            LITTER_UPLOAD_KEY_ALIAS
-            LITTER_UPLOAD_KEY_PASSWORD
-            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required secret: $name" >&2
-              exit 1
-            fi
-          done
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -170,7 +218,7 @@ jobs:
       - name: Install Android platforms and NDK
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;30.0.14904198"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.14904198"
 
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libcap-dev clang cmake
@@ -185,10 +233,24 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
 
+      - name: Configure sccache
+        run: |
+          if [ -n "${SCCACHE_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "SCCACHE_BUCKET=" >> "$GITHUB_ENV"
+            echo "SCCACHE_ENDPOINT=" >> "$GITHUB_ENV"
+            echo "SCCACHE_S3_KEY_PREFIX=" >> "$GITHUB_ENV"
+            echo "AWS_ACCESS_KEY_ID=" >> "$GITHUB_ENV"
+            echo "AWS_SECRET_ACCESS_KEY=" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Prime sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         run: |
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-android.log"
           rm -f "$SCCACHE_ERROR_LOG"
@@ -230,10 +292,16 @@ jobs:
           set -euo pipefail
           store_file="$RUNNER_TEMP/litter-upload.jks"
           service_account_json="$RUNNER_TEMP/play-service-account.json"
-          echo "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 --decode > "$store_file"
-          echo "$LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64" | base64 --decode > "$service_account_json"
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 --decode > "$store_file"
+          if printf '%s' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64" | base64 --decode 2>/dev/null > "$service_account_json" \
+            && jq -e . "$service_account_json" >/dev/null 2>&1; then
+            :
+          else
+            printf '%s' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64" > "$service_account_json"
+            jq -e . "$service_account_json" >/dev/null
+          fi
           if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
-            echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > apps/android/app/google-services.json
+            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > apps/android/app/google-services.json
           fi
           echo "LITTER_UPLOAD_STORE_FILE=$store_file" >> "$GITHUB_ENV"
           echo "LITTER_PLAY_SERVICE_ACCOUNT_JSON=$service_account_json" >> "$GITHUB_ENV"
@@ -259,7 +327,6 @@ jobs:
           CARGO_BUILD_JOBS: "1"
           ANDROID_ABIS: arm64-v8a
           ANDROID_RUST_PROFILE: mobile-release
-          RUSTC_WRAPPER: sccache
         run: |
           set -euo pipefail
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-android.log"

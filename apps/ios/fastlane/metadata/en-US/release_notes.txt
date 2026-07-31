@@ -1,1 +1,7 @@
-Bug fixes and improvements.
+Pair Litter with Local Studio and use its Pi agents from your phone.
+
+- See and continue the same sessions in Litter and Local Studio.
+- Enjoy smoother reasoning, text, and tool-call streaming.
+- Create files with tools while reasoning, content, and tool events stay in order.
+- Resume sessions more reliably after compaction, reconnecting, or restarting.
+- Open localstudio.ai directly from Settings > Local AI.
