@@ -52,10 +52,6 @@ impl From<ish_embed_host::IshError> for IshBootstrapError {
 
 static INSTANCE: OnceLock<IshInstance> = OnceLock::new();
 
-pub(crate) fn instance() -> Option<&'static IshInstance> {
-    INSTANCE.get()
-}
-
 /// Wait up to `timeout` for `bootstrap` to finish on another thread. Returns
 /// the live instance once it's published, or `None` if the timeout elapses.
 /// Used by the terminal session opener so a UI tap that races the on-launch

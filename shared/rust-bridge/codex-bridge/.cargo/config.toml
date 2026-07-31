@@ -1,5 +1,0 @@
-[target.aarch64-linux-android]
-rustflags = ["--cfg=have_min_max_version"]
-
-[target.x86_64-linux-android]
-rustflags = ["--cfg=have_min_max_version"]

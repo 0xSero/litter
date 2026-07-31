@@ -1489,7 +1489,7 @@ mod tests {
     };
     use crate::store::{AppSnapshot, ThreadSnapshot};
     use crate::types::{
-        AgentRuntimeKind, AppModeKind, AppPlanImplementationPromptSnapshot,
+        AppModeKind, AppPlanImplementationPromptSnapshot,
         PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
     };
 

@@ -18,7 +18,7 @@ Android runtime is now on the same Rust-first architecture as iOS:
 - Android local runtime uses the same in-process Rust app-server model as iOS.
 - `MainActivity` connects the default local server through `ServerBridge.connectLocalServer(...)`.
 - There is no separate bundled Android Codex process in the active app path.
-- `codex-bridge` is only the Android bootstrap/JNI shim; `codex-mobile-client` is the runtime surface.
+- `codex-mobile-client` is the single shared Rust runtime surface for both iOS and Android; it also owns the Android JNI bootstrap (`nativeBridgeInit` + `nativeMobileClientInit` in `android_context.rs`).
 
 Examples:
 
@@ -52,7 +52,7 @@ QA matrix and regression command list: `apps/android/docs/qa-matrix.md`.
 
 ## Rust Bridge (Android)
 
-Android loads the Rust shared library `libcodex_bridge.so` through UniFFI init in `core:bridge`.
+Android loads the Rust shared library `libcodex_mobile_client.so` through UniFFI init in `core:bridge`.
 The generated Kotlin bindings live under `shared/rust-bridge/generated/kotlin/` and are consumed directly by `apps/android/core/bridge`.
 
 Build and copy JNI artifacts into `core:bridge`:

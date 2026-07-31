@@ -7,7 +7,6 @@ import java.io.File
  * Initializes the UniFFI bindings and platform environment.
  *
  * - Redirects UniFFI/JNA to load `codex_mobile_client` as the Android native library
- * - Loads `codex_bridge` for Android-specific JNI bootstrap/helpers
  * - Sets HOME and CODEX_HOME so Rust can find/create its data directories
  *
  * Must be called before any UniFFI-generated class is instantiated.
@@ -50,12 +49,12 @@ object UniffiInit {
         System.setProperty("user.home", filesDir)
 
         try {
-            // Android-specific JNI bootstrap still lives in codex_bridge.
-            System.loadLibrary("codex_bridge")
-            // Call the C init function to set up CODEX_HOME and TLS roots
-            nativeBridgeInit(filesDir, codexHome.absolutePath)
-            // UniFFI/JNA bindings resolve against codex_mobile_client.
+            // `codex_mobile_client` now owns the full Android bootstrap: it
+            // provides `nativeBridgeInit` (HOME/CODEX_HOME/TMPDIR + TLS roots)
+            // and `nativeMobileClientInit` (ndk-context). Load it once, then
+            // run env setup before the UniFFI surface is touched.
             System.loadLibrary("codex_mobile_client")
+            nativeBridgeInit(filesDir, codexHome.absolutePath)
             nativeMobileClientInit(appContext)
             android.util.Log.i("UniffiInit", "Native init complete")
         } catch (e: Throwable) {
@@ -68,6 +67,7 @@ object UniffiInit {
 
     /**
      * JNI call to set environment variables from native code (the only way on Android).
+     * Implemented in `codex_mobile_client` (`android_context.rs`).
      */
     @JvmStatic
     private external fun nativeBridgeInit(homeDir: String, codexHomeDir: String)

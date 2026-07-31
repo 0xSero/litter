@@ -109,7 +109,4 @@ echo "==> Building codex_mobile_client Android shared libs..."
 cd "$WORKSPACE_DIR"
 cargo ndk "${ABI_ARGS[@]}" -o "$OUT_DIR" build --profile "$RUST_PROFILE" -p codex-mobile-client
 
-echo "==> Building codex_bridge Android shared libs..."
-cargo ndk "${ABI_ARGS[@]}" -o "$OUT_DIR" build --profile "$RUST_PROFILE" -p codex-bridge
-
 echo "==> Done. Android JNI libs are in: $OUT_DIR"
