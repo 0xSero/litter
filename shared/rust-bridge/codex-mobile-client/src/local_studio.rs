@@ -31,7 +31,7 @@ const FIND_RUNTIME: &str = r#"find_local_studio_runtime() {
   try_local_studio_bundle() {
     app="$1"
     product="$2"
-    program="$app/Contents/MacOS/$product"
+    program="$app/Contents/Frameworks/$product Helper.app/Contents/MacOS/$product Helper"
     cli="$app/Contents/Resources/app/frontend/.next/standalone/frontend/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
     if [ -x "$program" ] && [ -f "$cli" ]; then
       printf '%s\t%s\t%s\t1\n' "$agent_dir" "$program" "$cli"
@@ -230,7 +230,7 @@ mod tests {
     fn bundled_runtime() -> Runtime {
         Runtime {
             agent_dir: "/Users/test/Library/Application Support/Local Studio/pi-agent".to_owned(),
-            program: "/Applications/Local Studio.app/Contents/MacOS/Local Studio".to_owned(),
+            program: "/Applications/Local Studio.app/Contents/Frameworks/Local Studio Helper.app/Contents/MacOS/Local Studio Helper".to_owned(),
             prefix_arg: Some("/Applications/Local Studio.app/Contents/Resources/pi cli.js".to_owned()),
             electron_node: true,
         }
@@ -261,7 +261,9 @@ mod tests {
 
         assert_eq!(
             launched.program.to_str(),
-            Some("/Applications/Local Studio.app/Contents/MacOS/Local Studio"),
+            Some(
+                "/Applications/Local Studio.app/Contents/Frameworks/Local Studio Helper.app/Contents/MacOS/Local Studio Helper"
+            ),
             "the agent program must be replaced by the Local Studio runtime"
         );
         assert_eq!(
@@ -383,6 +385,16 @@ mod tests {
             "named channels must launch their matching app bundle"
         );
         assert!(
+            script.contains(
+                "$app/Contents/Frameworks/$product Helper.app/Contents/MacOS/$product Helper"
+            ),
+            "bundled Pi must use Electron's background helper executable"
+        );
+        assert!(
+            !script.contains("program=\"$app/Contents/MacOS/$product\""),
+            "bundled Pi must never launch the foreground application executable"
+        );
+        assert!(
             script.contains("printf 'local-studio\\t1\\n'"),
             "probe must emit the agent-probe wire line"
         );
@@ -415,7 +427,7 @@ mod tests {
     fn parses_bundled_runtime_with_spaces() {
         let runtime = parse_runtime(
             "/Users/test/Library/Application Support/Local Studio/pi-agent\t\
-             /Applications/Local Studio.app/Contents/MacOS/Local Studio\t\
+             /Applications/Local Studio.app/Contents/Frameworks/Local Studio Helper.app/Contents/MacOS/Local Studio Helper\t\
              /Applications/Local Studio.app/Contents/Resources/pi cli.js\t1",
         )
         .unwrap();
