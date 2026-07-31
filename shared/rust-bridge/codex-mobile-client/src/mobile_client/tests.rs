@@ -474,6 +474,16 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn local_studio_controller_connections_expand_legacy_agent_selection() {
+        assert!(local_studio_controller_uses_all_agents(
+            "alleycat:local-studio:controller-node"
+        ));
+        assert!(!local_studio_controller_uses_all_agents(
+            "alleycat:controller-node"
+        ));
+    }
+
+    #[test]
     fn pi_runtimes_always_start_full_access() {
         let client = MobileClient::new();
         for (runtime, approval_policy, sandbox) in [

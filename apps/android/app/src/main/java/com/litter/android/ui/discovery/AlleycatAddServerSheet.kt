@@ -209,7 +209,7 @@ fun AlleycatAddServerSheet(
 
     fun connect() {
         val params = parsedParams ?: return
-        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
+        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
         val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
         val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
@@ -261,7 +261,10 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val availableAgents = agents.filter { it.available && (pairingMode != AlleycatPairingMode.LocalStudio || it.runtimeKind == "local-studio") }
+    // A Local Studio pairing credential grants access to the whole
+    // controller. Keep Codex and every other enabled runtime attached so
+    // their model catalogs remain available in the shared picker.
+    val availableAgents = agents.filter { it.available }
     val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
     val canConnect =
         !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()

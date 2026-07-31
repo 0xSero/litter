@@ -698,6 +698,10 @@ fn alleycat_requested_runtime_kinds(
         .collect()
 }
 
+fn local_studio_controller_uses_all_agents(server_id: &str) -> bool {
+    server_id.starts_with("alleycat:local-studio:")
+}
+
 impl MobileClient {
     /// Create a new `MobileClient`.
     pub fn new() -> Self {
@@ -1764,6 +1768,12 @@ impl MobileClient {
             "MobileClient: connect_remote_over_alleycat start server_id={} node_id={} agent={} selected_agents={:?} wire={:?}",
             server_id, params.node_id, agent_name, selected_agent_names, wire
         );
+        // Local Studio's phone credential authorizes the whole controller,
+        // and its mobile surface is expected to expose every enabled runtime
+        // (including Codex). Older clients persisted only `local-studio` here,
+        // so expand these saved connections during reconnect as well as on a
+        // fresh pair instead of permanently hiding the other model catalogs.
+        let use_all_controller_agents = local_studio_controller_uses_all_agents(&server_id);
         let selected_agent_names = selected_agent_names
             .into_iter()
             .map(|name| name.trim().to_string())
@@ -1779,7 +1789,10 @@ impl MobileClient {
             .await?
             .into_iter()
             .filter_map(|agent| {
-                if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent.name) {
+                if !use_all_controller_agents
+                    && !selected_agent_names.is_empty()
+                    && !selected_agent_names.contains(&agent.name)
+                {
                     return None;
                 }
                 let runtime_kind =
@@ -1791,7 +1804,10 @@ impl MobileClient {
             })
             .collect::<Vec<_>>();
         let runtime_agents = if requested_agents.is_empty() {
-            if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
+            if !use_all_controller_agents
+                && !selected_agent_names.is_empty()
+                && !selected_agent_names.contains(&agent_name)
+            {
                 self.app_store
                     .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
                 return Err(TransportError::ConnectionFailed(
@@ -1816,11 +1832,12 @@ impl MobileClient {
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
-        let persisted_agent_names = if selected_agent_intent.is_empty() {
-            requested_agent_names.clone()
-        } else {
-            selected_agent_intent
-        };
+        let persisted_agent_names =
+            if use_all_controller_agents || selected_agent_intent.is_empty() {
+                requested_agent_names.clone()
+            } else {
+                selected_agent_intent
+            };
         let visible_server_id = format!("alleycat:{}", params.node_id);
         let server_id = if server_id.starts_with(&visible_server_id) {
             visible_server_id
