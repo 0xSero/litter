@@ -2761,7 +2761,7 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "";
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
-				WATCH_CODE_SIGN_IDENTITY = "";
+				WATCH_CODE_SIGN_IDENTITY = "Apple Distribution";
 				WATCH_CODE_SIGN_STYLE = Automatic;
 				WATCH_PROVISIONING_PROFILE_SPECIFIER = "";
 			};
@@ -2817,7 +2817,7 @@
 		37FFDFB4A6107A1E12337E82 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_CODE_SIGN_IDENTITY = "";
+				APP_CODE_SIGN_IDENTITY = "Apple Distribution";
 				APP_CODE_SIGN_STYLE = Automatic;
 				APP_PROVISIONING_PROFILE_SPECIFIER = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -2931,7 +2931,7 @@
 		623F11064419FB763A1D53CD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_CODE_SIGN_IDENTITY = "";
+				APP_CODE_SIGN_IDENTITY = "Apple Distribution";
 				APP_CODE_SIGN_STYLE = Automatic;
 				APP_PROVISIONING_PROFILE_SPECIFIER = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconMac;
@@ -2974,7 +2974,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				LIVE_ACTIVITY_CODE_SIGN_IDENTITY = "";
+				LIVE_ACTIVITY_CODE_SIGN_IDENTITY = "Apple Distribution";
 				LIVE_ACTIVITY_CODE_SIGN_STYLE = Automatic;
 				LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.liveactivity;
@@ -3305,7 +3305,7 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "";
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
-				WATCH_COMP_CODE_SIGN_IDENTITY = "";
+				WATCH_COMP_CODE_SIGN_IDENTITY = "Apple Distribution";
 				WATCH_COMP_CODE_SIGN_STYLE = Automatic;
 				WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER = "";
 			};
@@ -3314,7 +3314,7 @@
 		CC8D07B088AF48B298AD3713 /* DeveloperID */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_CODE_SIGN_IDENTITY = "";
+				APP_CODE_SIGN_IDENTITY = "Developer ID Application";
 				APP_CODE_SIGN_STYLE = Automatic;
 				APP_PROVISIONING_PROFILE_SPECIFIER = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconMac;
