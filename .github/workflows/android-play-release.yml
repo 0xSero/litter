@@ -43,7 +43,37 @@ permissions:
   contents: read
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release
+
+    steps:
+      - name: Validate required secrets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
+          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
+          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          required=(
+            ANDROID_UPLOAD_KEYSTORE_B64
+            LITTER_UPLOAD_STORE_PASSWORD
+            LITTER_UPLOAD_KEY_ALIAS
+            LITTER_UPLOAD_KEY_PASSWORD
+            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
   shared-prep:
+    needs: release-preflight
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -146,29 +176,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Validate required secrets
-        env:
-          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
-          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
-          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
-          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
-          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          required=(
-            ANDROID_UPLOAD_KEYSTORE_B64
-            LITTER_UPLOAD_STORE_PASSWORD
-            LITTER_UPLOAD_KEY_ALIAS
-            LITTER_UPLOAD_KEY_PASSWORD
-            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required secret: $name" >&2
-              exit 1
-            fi
-          done
 
       - name: Setup Java
         uses: actions/setup-java@v4
