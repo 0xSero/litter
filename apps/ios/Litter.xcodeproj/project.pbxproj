@@ -379,11 +379,14 @@
 		8A04BCA096806B66BF373FF0 /* solarized-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 45F4850CDE17E426ECBF4EA5 /* solarized-dark.json */; };
 		8AB84BDB86A25397B65A8E66 /* HiddenThreadsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E2CC3360E55552522E8387 /* HiddenThreadsScreen.swift */; };
 		8AC75EC77E0D65E95F83ABCB /* cat_transmission_03.png in Resources */ = {isa = PBXBuildFile; fileRef = AE86DDCDD1BEC770EAE330A9 /* cat_transmission_03.png */; };
+		8B38F2769BE93C3D8FC6803D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 19530BFDAEBE051F506A3F96 /* Assets.xcassets */; };
 		8B506726FBE5E741B48A1C07 /* HeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817117A5E16EBD02388DBBE1 /* HeaderView.swift */; };
+		8B9618875B5CAB4917C38063 /* BerkeleyMono-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */; };
 		8C23140CEA84BA8C4DE2BC69 /* ConversationAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33000D9825376F952524F20C /* ConversationAttachmentSupport.swift */; };
 		8C573877188B1CF76579523A /* DiscoveredServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7779BD02F3B304F9C3AD32A1 /* DiscoveredServer.swift */; };
 		8C64101921FCB8587FFEBC33 /* DirectoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318F2F8563E91AB97950F5DA /* DirectoryPickerView.swift */; };
 		8C6E24AFB90E5A740770F5C6 /* FormattedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C2B3DB9D57EA3A2A8608C6 /* FormattedText.swift */; };
+		8CC5C4BCF92AB2868CBFBEC3 /* BerkeleyMono-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3BD63CCD80D9E1F66879EF97 /* BerkeleyMono-Bold.otf */; };
 		8D5985E9F39401CDA4D9722F /* AmbientSuggestionsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3759125C1ED21FC24EE5C644 /* AmbientSuggestionsList.swift */; };
 		8EA1D18F2475D5A671C56C63 /* usgc-polyimide.json in Resources */ = {isa = PBXBuildFile; fileRef = CAB6838E910F251006AB8C7E /* usgc-polyimide.json */; };
 		8EC08D1416B9EC288AC17079 /* WallpaperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB4A268C8D43CA2144617DE /* WallpaperManager.swift */; };
@@ -782,6 +785,7 @@
 		1725F41F271A5EBF02FD4ECA /* linear-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linear-dark.json"; sourceTree = "<group>"; };
 		17B9830779CEF4EA2F95D85E /* PushProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushProxyClient.swift; sourceTree = "<group>"; };
 		17BD69B0550C63596995AC18 /* brand_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = brand_logo.png; sourceTree = "<group>"; };
+		19530BFDAEBE051F506A3F96 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1959956ABBEC98793B97B468 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		19C8FE2228902D6F4D610779 /* LitterLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterLiveActivityBundle.swift; sourceTree = "<group>"; };
 		1B837FC06EA87B15E27613A8 /* theme-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "theme-manifest.json"; sourceTree = "<group>"; };
@@ -1375,6 +1379,7 @@
 		9DD69CD323525C327D5DCC73 /* LitterWatch */ = {
 			isa = PBXGroup;
 			children = (
+				19530BFDAEBE051F506A3F96 /* Assets.xcassets */,
 				7318EBB30B78F8DD0A5E8BB5 /* Info.plist */,
 				2BC9B404D9E32D4734566A7D /* LitterWatch.entitlements */,
 				23AE60CA6B3DD70D4FC71FD0 /* LitterWatchApp.swift */,
@@ -2181,6 +2186,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				52588C7F80941205018E7804 /* AppIcon.icon in Resources */,
+				8B38F2769BE93C3D8FC6803D /* Assets.xcassets in Resources */,
+				8CC5C4BCF92AB2868CBFBEC3 /* BerkeleyMono-Bold.otf in Resources */,
+				8B9618875B5CAB4917C38063 /* BerkeleyMono-Regular.otf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
