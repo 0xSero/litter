@@ -313,9 +313,12 @@ targets:
           - "Models/**"
       - path: Sources/LitterWatch/Models
       - path: Sources/Litter/AppIcon.icon
-    resources:
-      - path: Sources/Litter/Resources/Fonts
+      - path: Sources/Litter/Resources/Fonts/BerkeleyMono-Regular.otf
+        buildPhase: resources
+      - path: Sources/Litter/Resources/Fonts/BerkeleyMono-Bold.otf
+        buildPhase: resources
       - path: Sources/LitterWatch/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - target: LitterWatchComplications
         embed: true
