@@ -44,6 +44,23 @@ PY
 
 mkdir -p "$OUT_DIR"
 
+# A phone keeps one iroh identity across reconnects. `kittylitter probe`
+# intentionally generates a fresh identity per invocation unless given a key
+# file, which would turn the mid-turn reconnect scenario into a different-device
+# attach. Keep one owner-only temporary identity for this proof run and remove
+# it on exit so private key material never lands in the evidence directory.
+PROBE_CLIENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/litter-proof-client.XXXXXX")"
+PROBE_CLIENT_KEY="$PROBE_CLIENT_DIR/client.key"
+cleanup_probe_identity() {
+  rm -f -- "$PROBE_CLIENT_KEY"
+  rmdir "$PROBE_CLIENT_DIR" 2>/dev/null || true
+}
+trap cleanup_probe_identity EXIT
+
+probe() {
+  "$BIN" probe --client-key-file "$PROBE_CLIENT_KEY" "$@"
+}
+
 # Epoch-ms at start of run. Scenario 5 uses this to pick a session that
 # provably predates this harness, so "resume a desktop session" cannot be
 # satisfied by a session the harness itself just created.
@@ -98,7 +115,7 @@ echo
 
 # ---------------------------------------------------------------- 1 availability
 echo "[1/11] agent availability"
-"$BIN" probe --linger-secs 1 --timeout-secs 25 \
+probe --linger-secs 1 --timeout-secs 25 \
   >"$OUT_DIR/01-availability.json" 2>&1
 record availability "$OUT_DIR/01-availability.json" \
   "local-studio advertised as available" \
@@ -106,7 +123,7 @@ record availability "$OUT_DIR/01-availability.json" \
 
 # ------------------------------------------------------------------- 2 catalog
 echo "[2/11] controller-scoped model catalog"
-"$BIN" probe --agent local-studio --method model/list \
+probe --agent local-studio --method model/list \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/02-model-list.json" 2>&1
 record catalog "$OUT_DIR/02-model-list.json" \
@@ -116,7 +133,7 @@ record catalog "$OUT_DIR/02-model-list.json" \
 # --------------------------------------------------------------------- 3 start
 # A phone starting a fresh Local Studio session and completing one turn.
 echo "[3/11] start session + complete a turn"
-"$BIN" probe --agent local-studio \
+probe --agent local-studio \
   --start-thread-params "$THREAD_START_PARAMS" \
   --method turn/start \
   --params '{"input":[{"type":"text","text":"Reply with exactly LOCAL_STUDIO_START_OK and nothing else."}]}' \
@@ -140,7 +157,7 @@ LAST_SEQ="$(grep -oE '"_alleycat_seq"[[:space:]]*:[[:space:]]*[0-9]+' "$OUT_DIR/
   | tail -1 | grep -oE '[0-9]+$')"
 LAST_SEQ="${LAST_SEQ:-1}"
 echo "        resuming from seq $LAST_SEQ"
-"$BIN" probe --agent local-studio --method thread/list \
+probe --agent local-studio --method thread/list \
   --repeat-resume-from "$LAST_SEQ" \
   --linger-secs 5 --timeout-secs 30 \
   >"$OUT_DIR/04-leave-return.json" 2>&1
@@ -156,7 +173,7 @@ record_grep leave-return "$OUT_DIR/04-reattach.txt" \
 # ------------------------------------------------------------ 5 resume desktop
 # A session that Local Studio's own UI created, read back over the phone path.
 echo "[5/11] resume a desktop-created session"
-"$BIN" probe --agent local-studio --method thread/list --params '{}' \
+probe --agent local-studio --method thread/list --params '{}' \
   --linger-secs 1 --timeout-secs 30 \
   >"$OUT_DIR/05a-thread-list.json" 2>&1
 
@@ -234,7 +251,7 @@ DESKTOP_THREAD_ID="$(tr -d '[:space:]' <"$OUT_DIR/05-desktop-thread-id.txt" 2>/d
 echo "        desktop thread: ${DESKTOP_THREAD_ID:-<none>}"
 
 if [ -n "$DESKTOP_THREAD_ID" ]; then
-  "$BIN" probe --agent local-studio --method thread/read \
+  probe --agent local-studio --method thread/read \
     --params "{\"threadId\":\"$DESKTOP_THREAD_ID\"}" \
     --linger-secs 3 --timeout-secs 30 \
     >"$OUT_DIR/05b-thread-read.json" 2>&1
@@ -250,7 +267,7 @@ fi
 
 # ---------------------------------------------------------------- 6 filesystem
 echo "[6/11] filesystem access"
-"$BIN" probe --agent local-studio \
+probe --agent local-studio \
   --start-thread-params "$THREAD_START_PARAMS" \
   --method turn/start \
   --params '{"input":[{"type":"text","text":"Run the shell command `pwd` exactly once, then reply with only the directory it printed."}]}' \
@@ -261,7 +278,7 @@ record fs-exec "$OUT_DIR/06a-fs-exec.json" \
   "shell command executed inside the session cwd" \
   turn-agent "$CWD"
 
-"$BIN" probe --agent local-studio --method fuzzyFileSearch \
+probe --agent local-studio --method fuzzyFileSearch \
   --params "{\"query\":\"local_studio\",\"roots\":[\"$CWD\"]}" \
   --linger-secs 3 --timeout-secs 30 \
   >"$OUT_DIR/06b-fs-search.json" 2>&1
@@ -276,7 +293,7 @@ record fs-search "$OUT_DIR/06b-fs-search.json" \
 # desktop UI reads — so it is resumable there.
 echo "[7/11] phone-created session is visible to Local Studio"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
-  "$BIN" probe --agent local-studio --method thread/list --params '{}' \
+  probe --agent local-studio --method thread/list --params '{}' \
     --linger-secs 1 --timeout-secs 30 \
     >"$OUT_DIR/07-handoff-list.json" 2>&1
 
@@ -343,7 +360,7 @@ fi
 # turn as active, then later hydrate the completed command output and final
 # assistant response without the original client remaining attached.
 echo "[8/11] mid-turn disconnect + reconnect hydration"
-"$BIN" probe --agent local-studio \
+probe --agent local-studio \
   --start-thread-params "$THREAD_START_PARAMS" \
   --method turn/start \
   --params '{"input":[{"type":"text","text":"Run the shell command `sleep 10; echo MIDTURN_SERVER_OK` exactly once, then reply with exactly MIDTURN_FINISHED."}]}' \
@@ -356,7 +373,7 @@ MIDTURN_THREAD_ID="$(grep -oE '"threadId"[[:space:]]*:[[:space:]]*"[^"]+"' "$OUT
 echo "        thread: ${MIDTURN_THREAD_ID:-<none>}"
 
 if [ -n "$MIDTURN_THREAD_ID" ]; then
-  "$BIN" probe --agent local-studio --method thread/read \
+  probe --agent local-studio --method thread/read \
     --params "{\"threadId\":\"$MIDTURN_THREAD_ID\",\"includeTurns\":true}" \
     --linger-secs 1 --timeout-secs 30 \
     >"$OUT_DIR/08b-midturn-active.json" 2>&1
@@ -366,7 +383,7 @@ if [ -n "$MIDTURN_THREAD_ID" ]; then
 
   : >"$OUT_DIR/08c-midturn-finished.json"
   for _attempt in 1 2 3 4 5 6 7 8; do
-    "$BIN" probe --agent local-studio --method thread/read \
+    probe --agent local-studio --method thread/read \
       --params "{\"threadId\":\"$MIDTURN_THREAD_ID\",\"includeTurns\":true}" \
       --linger-secs 1 --timeout-secs 30 \
       >"$OUT_DIR/08c-midturn-finished.json" 2>&1
@@ -399,7 +416,7 @@ rm -f "$PROOF_FILE"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   TOOL_PROMPT="Use the shell tool exactly once to run this command: printf 'RUNTIME_FILE_OK\\n' > '$PROOF_FILE' && cat '$PROOF_FILE'. Do not use any other tool. After it succeeds, reply with exactly FILE_TOOL_OK and nothing else."
   TOOL_PARAMS="$(python3 -c 'import json,sys; print(json.dumps({"threadId":sys.argv[1],"input":[{"type":"text","text":sys.argv[2]}],"approvalPolicy":"never"}))' "$NEW_THREAD_ID" "$TOOL_PROMPT")"
-  "$BIN" probe --agent local-studio --method turn/start \
+  probe --agent local-studio --method turn/start \
     --params "$TOOL_PARAMS" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \
@@ -427,7 +444,7 @@ if [ -n "${NEW_THREAD_ID:-}" ]; then
   # intentionally not compactable. Seed enough disposable context to exercise
   # the real summarization lifecycle without touching an existing user session.
   COMPACTION_SEED_PARAMS="$(python3 -c 'import json,sys; filler="compaction-seed-0123456789 " * 3000; text="Reply with exactly COMPACTION_SEED_OK and nothing else. Disposable compaction context follows:\n" + filler + "\nReply with exactly COMPACTION_SEED_OK and nothing else."; print(json.dumps({"threadId":sys.argv[1],"input":[{"type":"text","text":text}],"approvalPolicy":"never"}))' "$NEW_THREAD_ID")"
-  "$BIN" probe --agent local-studio --method turn/start \
+  probe --agent local-studio --method turn/start \
     --params "$COMPACTION_SEED_PARAMS" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \
@@ -436,7 +453,7 @@ if [ -n "${NEW_THREAD_ID:-}" ]; then
     "the disposable long-context turn completed before compaction" \
     turn-agent COMPACTION_SEED_OK
 
-  "$BIN" probe --agent local-studio --method thread/compact/start \
+  probe --agent local-studio --method thread/compact/start \
     --params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --until-method item/completed \
     --linger-secs 180 --timeout-secs 45 \
@@ -453,7 +470,7 @@ fi
 # --------------------------------------------- post-compaction rehydration
 echo "[11/11] compacted session rehydrates and continues"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
-  "$BIN" probe --agent local-studio --method turn/start \
+  probe --agent local-studio --method turn/start \
     --params "{\"threadId\":\"$NEW_THREAD_ID\",\"input\":[{\"type\":\"text\",\"text\":\"Reply with exactly POST_COMPACTION_OK and nothing else.\"}],\"approvalPolicy\":\"never\"}" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \
@@ -465,7 +482,7 @@ if [ -n "${NEW_THREAD_ID:-}" ]; then
     "post-compaction streaming retained a valid item lifecycle" \
     streaming-lifecycle
 
-  "$BIN" probe --agent local-studio --method thread/read \
+  probe --agent local-studio --method thread/read \
     --params "{\"threadId\":\"$NEW_THREAD_ID\",\"includeTurns\":true}" \
     --linger-secs 3 --timeout-secs 30 \
     >"$OUT_DIR/11b-post-compaction-read.json" 2>&1
