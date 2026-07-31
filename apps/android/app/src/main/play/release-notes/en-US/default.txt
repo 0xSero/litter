@@ -1,5 +1,7 @@
 Litter 1.6.0
 - Pair with Local Studio and use its Pi agents from mobile
-- Resume controller-scoped sessions after reconnect or restart
-- Improved Codex and Local Studio session hydration, streaming, and stability
+- See and continue the same sessions in Litter and Local Studio
+- Smoother reasoning, text, and tool-call streaming
+- Create files with tools and keep events in the correct order
+- Improved hydration, compaction, reconnect, and session resume
 - Android 16 and Play Billing 8 compatibility

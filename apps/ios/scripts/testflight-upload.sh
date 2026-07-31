@@ -14,11 +14,11 @@ APP_STORE_APP_ID="${APP_STORE_APP_ID:-}"
 TEAM_ID="${TEAM_ID:-}"
 PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_SPECIFIER:-Litter App Store}"
 APP_PROVISIONING_PROFILE_SPECIFIER="${APP_PROVISIONING_PROFILE_SPECIFIER:-$PROVISIONING_PROFILE_SPECIFIER}"
-LIVE_ACTIVITY_BUNDLE_ID="${LIVE_ACTIVITY_BUNDLE_ID:-com.sigkitten.litter.liveactivity}"
+LIVE_ACTIVITY_BUNDLE_ID="${LIVE_ACTIVITY_BUNDLE_ID:-com.sigkitten.litter.activity}"
 LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER="${LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER:-}"
-WATCH_BUNDLE_ID="${WATCH_BUNDLE_ID:-com.sigkitten.litter.watchkitapp}"
+WATCH_BUNDLE_ID="${WATCH_BUNDLE_ID:-com.sigkitten.litter.watch}"
 WATCH_PROVISIONING_PROFILE_SPECIFIER="${WATCH_PROVISIONING_PROFILE_SPECIFIER:-}"
-WATCH_COMP_BUNDLE_ID="${WATCH_COMP_BUNDLE_ID:-com.sigkitten.litter.watchkitapp.complications}"
+WATCH_COMP_BUNDLE_ID="${WATCH_COMP_BUNDLE_ID:-com.sigkitten.litter.watch.complications}"
 WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER="${WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER:-}"
 APP_CODE_SIGN_IDENTITY="${APP_CODE_SIGN_IDENTITY:-Apple Distribution}"
 LIVE_ACTIVITY_CODE_SIGN_IDENTITY="${LIVE_ACTIVITY_CODE_SIGN_IDENTITY:-Apple Distribution}"
@@ -283,7 +283,10 @@ EOF
         export_cmd+=("${auth_args[@]}")
     fi
 
-    "${export_cmd[@]}"
+    # Apple's rsync invokes a second `rsync` through PATH for local copies.
+    # Prefer the system binary there too; Homebrew rsync does not understand
+    # Apple's `--extended-attributes` server argument and makes export fail.
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "${export_cmd[@]}"
 
     exported_ipa="$(find "$BUILD_DIR" -maxdepth 1 -name "*.ipa" | head -n 1)"
     if [[ -z "$exported_ipa" ]]; then

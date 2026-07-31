@@ -24,7 +24,7 @@ settings:
     SWIFT_VERSION: "5.9"
     SWIFT_STRICT_CONCURRENCY: targeted
     MARKETING_VERSION: "1.6.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "200000254"
     SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
     OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
     HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
@@ -54,19 +54,6 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
-    entitlements:
-      path: Sources/Litter/Litter.entitlements
-      properties:
-        aps-environment: production
-        com.apple.developer.carplay-voice-based-conversation: true
-        # iCloud KVS sync (Feature C). Re-add when the iCloud container
-        # `iCloud.com.sigkitten.litter` exists in the Apple Developer Portal
-        # AND is enabled on the iOS app's provisioning profile. Without
-        # both, archive fails: "Provisioning profile doesn't include the
-        # iCloud capability."
-        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
-        com.apple.security.application-groups:
-          - group.com.sigkitten.litter
     attributes:
       SystemCapabilities:
         com.apple.BackgroundModes:
@@ -148,6 +135,10 @@ targets:
           APP_CODE_SIGN_STYLE: Automatic
           CODE_SIGN_IDENTITY: "$(APP_CODE_SIGN_IDENTITY)"
           APP_CODE_SIGN_IDENTITY: Apple Development
+          # CarPlay is a managed entitlement and has not been granted to the
+          # transferred Apple team. Keep the production push/app-group
+          # contract while making App Store archives signable today.
+          CODE_SIGN_ENTITLEMENTS: Sources/Litter/Litter-AppStore.entitlements
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
@@ -287,7 +278,9 @@ targets:
       - path: Sources/LitterLiveActivity/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.liveactivity
+        # These extension identifiers are owned by the current Apple team.
+        # The pre-transfer identifiers remain registered to the former team.
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.activity
         INFOPLIST_FILE: Sources/LitterLiveActivity/Info.plist
       configs:
         Debug:
@@ -328,7 +321,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watch
         INFOPLIST_FILE: Sources/LitterWatch/Info.plist
         TARGETED_DEVICE_FAMILY: "4"
         WATCHOS_DEPLOYMENT_TARGET: "11.0"
@@ -371,7 +364,7 @@ targets:
       - path: Sources/LitterWatchComplications/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp.complications
+        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watch.complications
         INFOPLIST_FILE: Sources/LitterWatchComplications/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "4"

@@ -743,7 +743,7 @@ watch-sim-run: watch-sim
 		-showBuildSettings 2>/dev/null | awk -F' = ' '/ CODESIGNING_FOLDER_PATH /{print $$2; exit}') ; \
 	echo "==> Installing $$APP_PATH"; \
 	xcrun simctl install $$WATCH_UDID "$$APP_PATH" ; \
-	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watchkitapp
+	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watch
 
 android-debug:
 	@echo "==> Building Android debug..."
