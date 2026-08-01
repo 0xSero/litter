@@ -312,7 +312,17 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          VERSION_CODE="$((200000000 + GITHUB_RUN_NUMBER))"
+          CURRENT_VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' apps/android/app/build.gradle.kts | head -1)"
+          if [[ -z "$CURRENT_VERSION_CODE" ]]; then
+            echo "Unable to resolve the current Android versionCode" >&2
+            exit 1
+          fi
+          RUN_VERSION_CODE="$((200000000 + GITHUB_RUN_NUMBER))"
+          VERSION_CODE="$RUN_VERSION_CODE"
+          if (( VERSION_CODE <= CURRENT_VERSION_CODE )); then
+            VERSION_CODE="$((CURRENT_VERSION_CODE + 1))"
+          fi
+          echo "Android versionCode: current=$CURRENT_VERSION_CODE run=$RUN_VERSION_CODE selected=$VERSION_CODE"
           echo "LITTER_VERSION_CODE_OVERRIDE=$VERSION_CODE" >> "$GITHUB_ENV"
 
       - name: Apply Android versionCode
