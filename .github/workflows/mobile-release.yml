@@ -446,6 +446,7 @@ jobs:
           sccache --show-stats || true
 
       - name: Build Android release APK
+        id: build_android_release
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
@@ -513,6 +514,7 @@ jobs:
           sccache --show-stats || true
 
       - name: Generate checksums
+        if: always() && steps.build_android_release.outcome == 'success'
         run: |
           set -euo pipefail
           APK_PATH="apps/android/app/build/outputs/apk/release/app-release.apk"
@@ -521,6 +523,7 @@ jobs:
           sha256sum "$AAB_PATH" > "${AAB_PATH}.sha256"
 
       - name: Upload Android release artifacts
+        if: always() && steps.build_android_release.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: android-play-release-${{ github.run_number }}
