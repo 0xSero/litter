@@ -172,6 +172,10 @@ const SLINGSHOT_CREDENTIALS_VERSION: u32 = 1;
 const SLINGSHOT_TOKEN_REFRESH_SKEW_SECS: i64 = 30;
 const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_ATTEMPTS: usize = 2;
 const SLINGSHOT_INITIALIZE_TIMEOUT_RETRY_DELAY_SECS: u64 = 0;
+const ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS: [u64; 3] = [500, 1_000, 1_500];
+const ALLEYCAT_AGENT_DIAL_RETRY_DELAYS_MS: [u64; 2] = [500, 1_000];
+const ALLEYCAT_CONTROLLER_AGENT_DIAL_RETRY_DELAYS_MS: [u64; 6] =
+    [250, 500, 750, 1_000, 1_500, 2_000];
 
 pub(crate) fn slingshot_user_agent() -> String {
     let arch = slingshot_user_agent_arch();
@@ -696,6 +700,34 @@ fn alleycat_requested_runtime_kinds(
         .iter()
         .map(|(runtime_kind, _)| runtime_kind.clone())
         .collect()
+}
+
+fn local_studio_controller_uses_all_agents(server_id: &str) -> bool {
+    server_id.starts_with("alleycat:local-studio:")
+}
+
+fn merge_alleycat_agent_inventory(
+    inventory: &mut Vec<AlleycatAgentInfo>,
+    refreshed: Vec<AlleycatAgentInfo>,
+) {
+    for agent in refreshed {
+        if let Some(existing) = inventory
+            .iter_mut()
+            .find(|existing| existing.name == agent.name)
+        {
+            *existing = agent;
+        } else {
+            inventory.push(agent);
+        }
+    }
+}
+
+fn alleycat_dial_retry_delays(use_all_controller_agents: bool) -> &'static [u64] {
+    if use_all_controller_agents {
+        &ALLEYCAT_CONTROLLER_AGENT_DIAL_RETRY_DELAYS_MS
+    } else {
+        &ALLEYCAT_AGENT_DIAL_RETRY_DELAYS_MS
+    }
 }
 
 impl MobileClient {
@@ -1764,6 +1796,12 @@ impl MobileClient {
             "MobileClient: connect_remote_over_alleycat start server_id={} node_id={} agent={} selected_agents={:?} wire={:?}",
             server_id, params.node_id, agent_name, selected_agent_names, wire
         );
+        // Local Studio's phone credential authorizes the whole controller,
+        // and its mobile surface is expected to expose every enabled runtime
+        // (including Codex). Older clients persisted only `local-studio` here,
+        // so expand these saved connections during reconnect as well as on a
+        // fresh pair instead of permanently hiding the other model catalogs.
+        let use_all_controller_agents = local_studio_controller_uses_all_agents(&server_id);
         let selected_agent_names = selected_agent_names
             .into_iter()
             .map(|name| name.trim().to_string())
@@ -1773,13 +1811,34 @@ impl MobileClient {
         let selected_agent_names = selected_agent_names
             .into_iter()
             .collect::<std::collections::HashSet<_>>();
+        let mut agent_inventory = self.list_alleycat_agents(params.clone()).await?;
+        if use_all_controller_agents {
+            // The controller can answer inventory requests before every enabled
+            // runtime bridge has finished its cold-start registration. Sample a
+            // short startup window and merge by stable agent name so a fast
+            // Local Studio bridge cannot make a slightly slower Codex bridge
+            // disappear for the entire app session.
+            for delay_ms in ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                match self.list_alleycat_agents(params.clone()).await {
+                    Ok(refreshed) => {
+                        merge_alleycat_agent_inventory(&mut agent_inventory, refreshed)
+                    }
+                    Err(error) => warn!(
+                        "MobileClient: Alleycat controller inventory refresh failed server_id={} delay_ms={} error={}",
+                        server_id, delay_ms, error
+                    ),
+                }
+            }
+        }
         let mut seen_runtime_kinds = std::collections::HashSet::new();
-        let requested_agents = self
-            .list_alleycat_agents(params.clone())
-            .await?
+        let requested_agents = agent_inventory
             .into_iter()
             .filter_map(|agent| {
-                if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent.name) {
+                if !use_all_controller_agents
+                    && !selected_agent_names.is_empty()
+                    && !selected_agent_names.contains(&agent.name)
+                {
                     return None;
                 }
                 let runtime_kind =
@@ -1791,7 +1850,10 @@ impl MobileClient {
             })
             .collect::<Vec<_>>();
         let runtime_agents = if requested_agents.is_empty() {
-            if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
+            if !use_all_controller_agents
+                && !selected_agent_names.is_empty()
+                && !selected_agent_names.contains(&agent_name)
+            {
                 self.app_store
                     .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
                 return Err(TransportError::ConnectionFailed(
@@ -1816,7 +1878,8 @@ impl MobileClient {
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
-        let persisted_agent_names = if selected_agent_intent.is_empty() {
+        let persisted_agent_names = if use_all_controller_agents || selected_agent_intent.is_empty()
+        {
             requested_agent_names.clone()
         } else {
             selected_agent_intent
@@ -1903,6 +1966,7 @@ impl MobileClient {
             }
         };
 
+        let dial_retry_delays = alleycat_dial_retry_delays(use_all_controller_agents);
         let dial_tasks = runtime_agents.into_iter().map(|(runtime_kind, agent)| {
             let reconnect_transport = AlleycatReconnectTransport::new(
                 params.clone(),
@@ -1912,15 +1976,17 @@ impl MobileClient {
             );
             async move {
                 let mut dialed = reconnect_transport.connect_initial().await;
-                for attempt in 1..3 {
+                for (attempt, delay_ms) in dial_retry_delays.iter().copied().enumerate() {
                     let Err(crate::alleycat::AlleycatError::Transport(error)) = &dialed else {
                         break;
                     };
                     warn!(
                         "MobileClient: retrying Alleycat agent={} attempt={} error={}",
-                        agent.name, attempt, error
+                        agent.name,
+                        attempt + 1,
+                        error
                     );
-                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                     dialed = reconnect_transport.connect_initial().await;
                 }
                 (runtime_kind, agent, reconnect_transport, dialed)
@@ -1970,6 +2036,25 @@ impl MobileClient {
             return Err(TransportError::ConnectionFailed(
                 "no available Alleycat runtime streams connected".to_string(),
             ));
+        }
+        if use_all_controller_agents {
+            let connected_runtime_kinds = runtime_resources
+                .iter()
+                .map(|resource| resource.runtime_kind.clone())
+                .collect::<Vec<_>>();
+            let missing = missing_runtime_kinds(&connected_runtime_kinds, &requested_runtime_kinds);
+            if !missing.is_empty() {
+                warn!(
+                    "MobileClient: refusing partial Local Studio controller session server_id={} missing_runtimes={:?}",
+                    server_id, missing
+                );
+                self.app_store
+                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+                return Err(TransportError::ConnectionFailed(format!(
+                    "Local Studio controller did not connect every advertised runtime: {}",
+                    missing.join(", ")
+                )));
+            }
         }
 
         info!(

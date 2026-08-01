@@ -25,10 +25,10 @@ codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolu
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # Pinned to the same immutable commit as the kittylitter daemon so the phone
 # and host share one immutable Alleycat release revision.
-alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "ded0e3289635e68aa03f5ad86a90b51f3c255350" }
-alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "ded0e3289635e68aa03f5ad86a90b51f3c255350" }
-alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "ded0e3289635e68aa03f5ad86a90b51f3c255350" }
-alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "ded0e3289635e68aa03f5ad86a90b51f3c255350" }
+alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
+alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
+alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
+alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

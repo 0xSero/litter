@@ -377,7 +377,10 @@ struct AlleycatAddServerSheet: View {
     }
 
     private var availableAgents: [AppAlleycatAgentInfo] {
-        agents.filter { $0.available && (pairingMode != .localStudio || $0.runtimeKind == "local-studio") }
+        // A Local Studio pairing credential grants access to the whole
+        // controller. Keep Codex and every other enabled runtime attached so
+        // their model catalogs remain available in the shared picker.
+        agents.filter(\.available)
     }
 
     private var selectedAgents: [AppAlleycatAgentInfo] {

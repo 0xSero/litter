@@ -474,6 +474,61 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn local_studio_controller_connections_expand_legacy_agent_selection() {
+        assert!(local_studio_controller_uses_all_agents(
+            "alleycat:local-studio:controller-node"
+        ));
+        assert!(!local_studio_controller_uses_all_agents(
+            "alleycat:controller-node"
+        ));
+        assert_eq!(
+            alleycat_dial_retry_delays(true),
+            ALLEYCAT_CONTROLLER_AGENT_DIAL_RETRY_DELAYS_MS
+        );
+        assert_eq!(
+            alleycat_dial_retry_delays(false),
+            ALLEYCAT_AGENT_DIAL_RETRY_DELAYS_MS
+        );
+    }
+
+    #[test]
+    fn alleycat_inventory_refresh_updates_existing_agents_and_keeps_new_agents() {
+        let mut inventory = vec![AlleycatAgentInfo {
+            name: "local-studio".to_string(),
+            display_name: "Local Studio".to_string(),
+            wire: AlleycatAgentWire::Jsonl,
+            available: true,
+            presentation: None,
+            capabilities: None,
+        }];
+        merge_alleycat_agent_inventory(
+            &mut inventory,
+            vec![
+                AlleycatAgentInfo {
+                    name: "local-studio".to_string(),
+                    display_name: "Local Studio (ready)".to_string(),
+                    wire: AlleycatAgentWire::Jsonl,
+                    available: true,
+                    presentation: None,
+                    capabilities: None,
+                },
+                AlleycatAgentInfo {
+                    name: "codex".to_string(),
+                    display_name: "Codex".to_string(),
+                    wire: AlleycatAgentWire::Websocket,
+                    available: true,
+                    presentation: None,
+                    capabilities: None,
+                },
+            ],
+        );
+
+        assert_eq!(inventory.len(), 2);
+        assert_eq!(inventory[0].display_name, "Local Studio (ready)");
+        assert_eq!(inventory[1].name, "codex");
+    }
+
+    #[test]
     fn pi_runtimes_always_start_full_access() {
         let client = MobileClient::new();
         for (runtime, approval_policy, sandbox) in [
