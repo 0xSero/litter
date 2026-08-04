@@ -60,4 +60,47 @@ final class ConversationAttachmentSupportTests: XCTestCase {
         XCTAssertEqual(attachment?.mimeType, "image/jpeg")
         XCTAssertNotNil(attachment?.data)
     }
+
+    func testUnreadableImagePathDoesNotFallBackToFileAttachment() {
+        let url = URL(fileURLWithPath: "/tmp/litter-missing-image.jpeg")
+
+        let picked = ConversationAttachmentSupport.loadPickedFile(at: url)
+
+        XCTAssertNil(picked)
+    }
+
+    func testPhotosLibraryInternalPathDoesNotBecomeFileAttachment() {
+        let url = URL(
+            fileURLWithPath: "/Users/example/Pictures/Photos Library.photoslibrary/resources/derivatives/4/photo.txt"
+        )
+
+        let picked = ConversationAttachmentSupport.loadPickedFile(at: url)
+
+        XCTAssertNil(picked)
+    }
+
+    func testPhotosLibraryInternalPathDetection() {
+        XCTAssertTrue(
+            ConversationAttachmentSupport.isPhotosLibraryInternalPath(
+                "/Users/example/Pictures/Photos Library.photoslibrary/resources/derivatives/4/photo.jpeg"
+            )
+        )
+        XCTAssertFalse(
+            ConversationAttachmentSupport.isPhotosLibraryInternalPath(
+                "/Users/example/Desktop/photo.jpeg"
+            )
+        )
+    }
+
+    func testUnreadableNonImagePathCanStillBeMentionedAsFileAttachment() {
+        let url = URL(fileURLWithPath: "/tmp/litter-missing-file.txt")
+
+        let picked = ConversationAttachmentSupport.loadPickedFile(at: url)
+
+        guard case .file(let attachment)? = picked else {
+            return XCTFail("Expected file attachment")
+        }
+        XCTAssertEqual(attachment.label, "litter-missing-file")
+        XCTAssertEqual(attachment.path, "/tmp/litter-missing-file.txt")
+    }
 }

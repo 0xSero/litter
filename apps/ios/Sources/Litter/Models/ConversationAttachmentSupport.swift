@@ -24,7 +24,7 @@ enum ConversationAttachmentSupport {
         .png,
         .jpeg,
         .gif,
-    ] + [UTType(filenameExtension: "webp")].compactMap { $0 }
+    ] + ["webp", "heic", "heif"].compactMap { UTType(filenameExtension: $0) }
 
     static let supportedFileContentTypes: [UTType] = [.data]
 
@@ -55,9 +55,11 @@ enum ConversationAttachmentSupport {
             }
         }
 
-        if isSupportedImageFile(url),
-           let data = try? Data(contentsOf: url),
-           let image = UIImage(data: data) {
+        if shouldLoadAsImageOnly(url) {
+            guard let data = try? Data(contentsOf: url),
+                  let image = UIImage(data: data) else {
+                return nil
+            }
             return .image(image)
         }
 
@@ -93,7 +95,22 @@ enum ConversationAttachmentSupport {
 
     private static func isSupportedImageFile(_ url: URL) -> Bool {
         let pathExtension = url.pathExtension.lowercased()
-        return ["png", "jpg", "jpeg", "gif", "webp"].contains(pathExtension)
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif"].contains(pathExtension)
+    }
+
+    private static func shouldLoadAsImageOnly(_ url: URL) -> Bool {
+        isSupportedImageFile(url) || isPhotosLibraryInternalURL(url)
+    }
+
+    static func isPhotosLibraryInternalURL(_ url: URL) -> Bool {
+        isPhotosLibraryInternalPath(url.path)
+    }
+
+    static func isPhotosLibraryInternalPath(_ path: String) -> Bool {
+        let path = path.lowercased()
+        return path.contains(".photoslibrary/")
+            || path.contains(".photoslibrary\\")
+            || path.hasSuffix(".photoslibrary")
     }
 
     private static func fileLabel(for url: URL) -> String {
