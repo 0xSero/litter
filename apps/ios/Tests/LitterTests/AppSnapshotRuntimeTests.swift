@@ -136,7 +136,7 @@ final class AppSnapshotRuntimeTests: XCTestCase {
 
         XCTAssertEqual(claude.resolvedModel, "")
         XCTAssertEqual(claude.displayModelLabel, "Claude")
-        XCTAssertEqual(opencode.displayModelLabel, "opencode")
+        XCTAssertEqual(opencode.displayModelLabel, "Opencode")
     }
 
     func testApplyLocalThreadTitleUpdatesThreadAndSessionSummary() {

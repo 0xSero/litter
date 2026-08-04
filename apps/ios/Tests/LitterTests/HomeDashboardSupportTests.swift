@@ -105,7 +105,7 @@ final class HomeDashboardSupportTests: XCTestCase {
 
     func testHomeDashboardModelRefreshesWhenObservedSnapshotChanges() async {
         let appModel = AppModel()
-        let model = HomeDashboardModel()
+        let model = HomeDashboardModel(persistence: .empty, observedRefreshDelayNanoseconds: 0)
         model.bind(appModel: appModel)
         model.activate()
 
@@ -116,19 +116,21 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await flushMainQueue()
+        await waitUntil("dashboard observes the connected server") {
+            model.connectedServers.map(\.id) == ["server-a"]
+        }
 
         XCTAssertEqual(model.connectedServers.map(\.id), ["server-a"])
     }
 
-    func testSortedConnectedServersDeduplicatesEquivalentHostsAndPrefersActiveConnection() {
+    func testSortedConnectedServersPreservesDistinctLiveEndpointsAndPrefersActiveConnection() {
         let primary = makeServerSnapshot(
             id: "server-a",
             name: "Mac Studio",
             host: "192.168.1.167",
             port: 8390
         )
-        let duplicate = makeServerSnapshot(
+        let active = makeServerSnapshot(
             id: "server-b",
             name: "Mac Studio",
             host: "192.168.1.167",
@@ -136,16 +138,16 @@ final class HomeDashboardSupportTests: XCTestCase {
         )
 
         let result = HomeDashboardSupport.sortedConnectedServers(
-            from: [duplicate, primary],
-            activeServerId: duplicate.serverId
+            from: [active, primary],
+            activeServerId: active.serverId
         )
 
-        XCTAssertEqual(result.map(\.id), [duplicate.serverId])
+        XCTAssertEqual(result.map(\.id), [active.serverId, primary.serverId])
     }
 
     func testHomeDashboardModelRefreshesRecentSessionsWhenObservedSnapshotThreadChanges() async {
         let appModel = AppModel()
-        let model = HomeDashboardModel()
+        let model = HomeDashboardModel(persistence: .empty, observedRefreshDelayNanoseconds: 0)
         model.bind(appModel: appModel)
         model.activate()
 
@@ -159,7 +161,9 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await flushMainQueue()
+        await waitUntil("dashboard observes the initial thread ordering") {
+            model.recentSessions.map(\.key.threadId) == ["thread-newer", "thread-older"]
+        }
 
         appModel.applySnapshot(
             makeSnapshot(
@@ -171,14 +175,16 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await flushMainQueue()
+        await waitUntil("dashboard observes the updated thread ordering") {
+            model.recentSessions.map(\.key.threadId) == ["thread-older", "thread-newer"]
+        }
 
         XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-older", "thread-newer"])
     }
 
     func testHomeDashboardModelRefreshesRecentSessionsWhenThreadsArriveAfterBind() async {
         let appModel = AppModel()
-        let model = HomeDashboardModel()
+        let model = HomeDashboardModel(persistence: .empty, observedRefreshDelayNanoseconds: 0)
         model.bind(appModel: appModel)
         model.activate()
 
@@ -189,7 +195,9 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await flushMainQueue()
+        await waitUntil("dashboard observes threads arriving after binding") {
+            model.recentSessions.map(\.key.threadId) == ["thread-late"]
+        }
 
         XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-late"])
     }
@@ -248,7 +256,7 @@ final class HomeDashboardSupportTests: XCTestCase {
 
     func testHomeDashboardModelIgnoresThreadChangesWhileInactiveAndRefreshesOnReactivate() async {
         let appModel = AppModel()
-        let model = HomeDashboardModel()
+        let model = HomeDashboardModel(persistence: .empty, observedRefreshDelayNanoseconds: 0)
         model.bind(appModel: appModel)
         model.activate()
 
@@ -259,7 +267,9 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await flushMainQueue()
+        await waitUntil("dashboard observes the initial thread") {
+            model.recentSessions.map(\.key.threadId) == ["thread-initial"]
+        }
 
         XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-initial"])
         let rebuildCountBeforeDeactivate = model.rebuildCount
@@ -438,7 +448,18 @@ final class HomeDashboardSupportTests: XCTestCase {
     }
 
     private func flushMainQueue() async {
-        await Task.yield()
-        await Task.yield()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+    }
+
+    private func waitUntil(_ description: String, condition: () -> Bool) async {
+        for _ in 0..<1_000 {
+            if condition() {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for \(description)")
     }
 }
