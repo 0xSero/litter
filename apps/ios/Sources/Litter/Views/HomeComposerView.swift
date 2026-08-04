@@ -241,14 +241,15 @@ struct HomeComposerView: View {
                 composerSelectionRange = NSRange(location: 0, length: 0)
                 isComposerFocused = false
 
-                let pendingModel = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
-                let modelOverride = pendingModel.isEmpty ? nil : pendingModel
-                let agentRuntimeOverride = modelOverride == nil ? nil : appState.preferredAgentRuntimeKind
+                let selection = AppThreadLaunchSelection(
+                    agentRuntimeKind: appState.preferredAgentRuntimeKind,
+                    model: appState.preferredModel
+                )
                 let pendingEffort = appState.preferredReasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
                 let effortOverride = ReasoningEffort(wireValue: pendingEffort.isEmpty ? nil : pendingEffort)
                 let launchConfig = AppThreadLaunchConfig(
-                    agentRuntimeKind: agentRuntimeOverride,
-                    model: modelOverride,
+                    agentRuntimeKind: selection.agentRuntimeKind,
+                    model: selection.model,
                     approvalPolicy: appState.launchApprovalPolicy(for: nil),
                     sandbox: appState.launchSandboxMode(for: nil),
                     developerInstructions: nil,
@@ -284,7 +285,7 @@ struct HomeComposerView: View {
                     fileAttachments: files,
                     approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
                     sandboxPolicy: appState.turnSandboxPolicy(for: threadKey),
-                    model: modelOverride,
+                    model: selection.model,
                     effort: effortOverride,
                     serviceTier: nil
                 )
