@@ -1,5 +1,23 @@
 # iOS TestFlight Checklist
 
+## One-time Setup
+
+1. The Account Holder requests App Store Connect API access under **Users and
+   Access → Integrations → App Store Connect API** and accepts Apple's API-use
+   agreement.
+2. Create a team API key with the app-management access needed for TestFlight,
+   then download its `.p8` file. Apple only offers that download once.
+3. Store the key as GitHub Actions secrets `ASC_KEY_ID`, `ASC_ISSUER_ID`, and
+   `ASC_PRIVATE_KEY_P8_B64`. Keep the `.p8` file outside the repository.
+4. Configure the distribution certificate and every provisioning-profile secret
+   named by `.github/workflows/mobile-release.yml`.
+
+The release preflight parses the private key and makes an authenticated app
+lookup before native compilation. Missing, malformed, expired, or unauthorized
+credentials therefore fail before the expensive iOS build.
+
+## Release Checklist
+
 1. Confirm `apps/ios/project.yml` bundle ID/version/build settings are correct.
 2. Build/archive in Xcode from `apps/ios/Litter.xcodeproj`.
 3. Update `docs/releases/testflight-whats-new.md` with changelog bullets for this build.

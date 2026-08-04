@@ -19,6 +19,9 @@ on:
       - patches/ghostty/**
       - tools/scripts/build-android-rust.sh
       - tools/scripts/build-ghostty-android.sh
+      - tools/scripts/check-app-store-release.sh
+      - tools/scripts/check-google-play-release.sh
+      - tools/scripts/fetch-mobile-store-artifacts.py
 
 permissions:
   contents: write
@@ -63,6 +66,8 @@ jobs:
               - 'patches/ghostty/**'
               - 'tools/scripts/build-android-rust.sh'
               - 'tools/scripts/build-ghostty-android.sh'
+              - 'tools/scripts/check-google-play-release.sh'
+              - 'tools/scripts/fetch-mobile-store-artifacts.py'
             release_ios:
               - 'Makefile'
               - '.github/workflows/mobile-release.yml'
@@ -81,6 +86,7 @@ jobs:
               - 'apps/ios/scripts/sync-codex.sh'
               - 'apps/ios/scripts/sync-ghostty.sh'
               - 'apps/ios/scripts/testflight-upload.sh'
+              - 'tools/scripts/check-app-store-release.sh'
               - 'docs/releases/testflight-whats-new.md'
               - 'shared/rust-bridge/**'
               - 'shared/third_party/codex'
@@ -155,8 +161,61 @@ jobs:
             echo "run_release=false" >> "$GITHUB_OUTPUT"
           fi
 
-  shared-prep:
+  release-preflight:
     needs: detect-release-changes
+    if: needs.detect-release-changes.outputs.run_release == 'true'
+    runs-on: macos-26
+    timeout-minutes: 10
+    environment: release
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Java
+        if: needs.detect-release-changes.outputs.release_android == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Verify Google Play release access
+        if: needs.detect-release-changes.outputs.release_android == 'true'
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
+          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
+          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
+        run: ./tools/scripts/check-google-play-release.sh
+
+      - name: Install App Store Connect CLI
+        if: needs.detect-release-changes.outputs.release_ios == 'true'
+        run: HOMEBREW_NO_AUTO_UPDATE=0 brew install asc
+
+      - name: Verify App Store Connect release access
+        if: needs.detect-release-changes.outputs.release_ios == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
+          IOS_APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_DIST_CERT_P12_B64: ${{ secrets.IOS_DIST_CERT_P12_B64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_APP_STORE_PROFILE_B64 }}
+          IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64: ${{ secrets.IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_APP_STORE_PROFILE_B64 }}
+          IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64 }}
+          REQUIRE_WATCH_PROFILES: "1"
+        run: ./tools/scripts/check-app-store-release.sh
+
+  shared-prep:
+    needs: [detect-release-changes, release-preflight]
     if: needs.detect-release-changes.outputs.run_release == 'true'
     runs-on: macos-26
     timeout-minutes: 60
@@ -312,29 +371,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Validate required secrets
-        env:
-          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
-          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
-          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
-          LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
-          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          required=(
-            ANDROID_UPLOAD_KEYSTORE_B64
-            LITTER_UPLOAD_STORE_PASSWORD
-            LITTER_UPLOAD_KEY_ALIAS
-            LITTER_UPLOAD_KEY_PASSWORD
-            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required secret: $name" >&2
-              exit 1
-            fi
-          done
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -693,41 +729,6 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.3'
-
-      - name: Validate required secrets
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
-          IOS_APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-          IOS_DIST_CERT_P12_B64: ${{ secrets.IOS_DIST_CERT_P12_B64 }}
-          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
-          IOS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_APP_STORE_PROFILE_B64 }}
-          IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64: ${{ secrets.IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64 }}
-          IOS_WATCH_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_APP_STORE_PROFILE_B64 }}
-          IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64: ${{ secrets.IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64 }}
-        run: |
-          set -euo pipefail
-          required=(
-            ASC_KEY_ID
-            ASC_ISSUER_ID
-            ASC_PRIVATE_KEY_P8_B64
-            IOS_APP_STORE_APP_ID
-            IOS_TEAM_ID
-            IOS_DIST_CERT_P12_B64
-            IOS_DIST_CERT_PASSWORD
-            IOS_APP_STORE_PROFILE_B64
-            IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64
-            IOS_WATCH_APP_STORE_PROFILE_B64
-            IOS_WATCH_COMPLICATIONS_APP_STORE_PROFILE_B64
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required secret: $name" >&2
-              exit 1
-            fi
-          done
 
       - name: Install build dependencies
         run: |

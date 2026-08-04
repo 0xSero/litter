@@ -49,57 +49,25 @@ jobs:
     environment: release
 
     steps:
-      - name: Validate required secrets
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Verify Google Play release access
         env:
           ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
           LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
           LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
           LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          required=(
-            ANDROID_UPLOAD_KEYSTORE_B64
-            LITTER_UPLOAD_STORE_PASSWORD
-            LITTER_UPLOAD_KEY_ALIAS
-            LITTER_UPLOAD_KEY_PASSWORD
-            LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing required secret: $name" >&2
-              exit 1
-            fi
-          done
-
-          encoded=(
-            ANDROID_UPLOAD_KEYSTORE_B64
-          )
-          if [[ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]]; then
-            encoded+=(GOOGLE_SERVICES_JSON_B64)
-          fi
-          for name in "${encoded[@]}"; do
-            if ! printf '%s' "${!name}" | base64 --decode >/dev/null; then
-              echo "Secret is not valid base64: $name" >&2
-              exit 1
-            fi
-          done
-
-          validate_json_secret() {
-            local name="$1"
-            local value="${!name}"
-            if printf '%s' "$value" | base64 --decode 2>/dev/null | jq -e . >/dev/null 2>&1; then
-              return 0
-            fi
-            if printf '%s' "$value" | jq -e . >/dev/null 2>&1; then
-              echo "::notice::$name is stored as raw JSON; accepting it for compatibility"
-              return 0
-            fi
-            echo "Secret is neither base64-encoded JSON nor raw JSON: $name" >&2
-            return 1
-          }
-          validate_json_secret LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64
+        run: ./tools/scripts/check-google-play-release.sh
 
   shared-prep:
     needs: release-preflight
@@ -283,9 +251,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v3
-
       - name: Decode release credentials
         env:
           ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
@@ -309,17 +274,6 @@ jobs:
           echo "LITTER_UPLOAD_STORE_FILE=$store_file" >> "$GITHUB_ENV"
           echo "LITTER_PLAY_SERVICE_ACCOUNT_JSON=$service_account_json" >> "$GITHUB_ENV"
           ls -lh "$store_file" "$service_account_json" apps/android/app/google-services.json 2>/dev/null || ls -lh "$store_file" "$service_account_json"
-
-      - name: Enable Google Play Android Developer API
-        run: |
-          set -euo pipefail
-          project_id="$(jq -r '.project_id // empty' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON")"
-          if [[ -z "$project_id" ]]; then
-            echo "Play service account JSON does not contain project_id" >&2
-            exit 1
-          fi
-          gcloud auth activate-service-account --key-file="$LITTER_PLAY_SERVICE_ACCOUNT_JSON" --quiet
-          gcloud services enable androidpublisher.googleapis.com --project="$project_id" --quiet
 
       - name: Resolve Android release inputs
         env:

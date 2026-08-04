@@ -64,6 +64,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asc-bin", help="Path to the asc CLI.")
     parser.add_argument("--play-service-account-json", help="Path to a Google Play service account JSON.")
     parser.add_argument("--play-env-file", default=str(DEFAULT_PLAY_ENV_FILE))
+    parser.add_argument(
+        "--check-play-access",
+        action="store_true",
+        help="Verify Google Play Publisher API access and exit without fetching artifacts.",
+    )
     parser.add_argument("--skip-ios", action="store_true")
     parser.add_argument("--skip-android", action="store_true")
     parser.add_argument("--no-download-ios-screenshots", action="store_true")
@@ -429,6 +434,16 @@ def api_get_json(url: str, bearer_token: str) -> dict[str, Any]:
         raise ScriptError(f"HTTP {exc.code} for {url}: {body}") from exc
 
 
+def check_play_access(package_name: str, service_account_path: pathlib.Path) -> None:
+    token = issue_token(service_account_path, PLAY_PUBLISHER_SCOPE)
+    query = urllib.parse.urlencode({"maxResults": "1"})
+    api_get_json(
+        f"https://androidpublisher.googleapis.com/androidpublisher/v3/"
+        f"applications/{package_name}/reviews?{query}",
+        token,
+    )
+
+
 def floor_hour(value: dt.datetime) -> dt.datetime:
     return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
@@ -766,6 +781,17 @@ def render_summary(
 
 def main() -> int:
     args = parse_args()
+    if args.check_play_access:
+        if args.skip_android:
+            raise ScriptError("--check-play-access cannot be combined with --skip-android.")
+        service_account_path = load_service_account_path(
+            args.play_service_account_json,
+            pathlib.Path(args.play_env_file).expanduser(),
+        )
+        check_play_access(args.android_package, service_account_path)
+        print(f"Google Play Publisher API access verified for {args.android_package}.")
+        return 0
+
     if args.skip_ios and args.skip_android:
         raise ScriptError("Nothing to do: both --skip-ios and --skip-android were set.")
 
