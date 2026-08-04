@@ -254,6 +254,9 @@ jobs:
       - build-global-artifacts
     if: ${{ always() && needs.plan.result == 'success' && (needs.build-global-artifacts.result == 'success' || needs.build-global-artifacts.result == 'skipped') }}
     runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
