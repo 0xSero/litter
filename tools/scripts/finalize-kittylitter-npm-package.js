@@ -31,6 +31,7 @@ function run(command, args, options = {}) {
 }
 
 function patchBinaryInstaller(source) {
+  source = source.replace(/\r\n/g, "\n");
   if (source.includes(PATCH_MARKER)) {
     throw new Error("cargo-dist binary installer is already finalized");
   }
