@@ -120,6 +120,8 @@ pub mod local_studio_realtime;
 mod mobile_exec_command;
 mod shell_quoting;
 pub(crate) mod ssh_scripts;
+#[cfg(any(target_os = "android", test))]
+mod tls_roots;
 
 #[cfg(target_os = "android")]
 mod android_context;

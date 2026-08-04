@@ -137,7 +137,10 @@ fun AlleycatAddServerSheet(
             try {
                 val loaded = withContext(Dispatchers.IO) {
                     UniffiInit.ensure(context.applicationContext)
-                    appModel.serverBridge.listAlleycatAgents(params)
+                    appModel.serverBridge.listAlleycatAgents(
+                        params,
+                        waitForRegistration = pairingMode == AlleycatPairingMode.LocalStudio,
+                    )
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded

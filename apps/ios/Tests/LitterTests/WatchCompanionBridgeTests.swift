@@ -15,6 +15,7 @@ final class WatchCompanionBridgeTests: XCTestCase {
         var isReachable: Bool
         var sentContexts: [[String: Any]] = []
         var nextSendError: Error?
+        var onContextUpdate: (([String: Any]) -> Void)?
 
         init(
             activationState: WCSessionActivationState = .activated,
@@ -34,6 +35,7 @@ final class WatchCompanionBridgeTests: XCTestCase {
                 throw nextSendError
             }
             sentContexts.append(context)
+            onContextUpdate?(context)
         }
     }
 
@@ -358,13 +360,14 @@ final class WatchCompanionBridgeTests: XCTestCase {
             isPaired: true,
             isWatchAppInstalled: true
         )
+        let contextPushed = expectation(description: "watch context pushed")
+        stub.onContextUpdate = { _ in contextPushed.fulfill() }
         let bridge = WatchCompanionBridge(transport: stub)
 
         let reply = await bridge.handleInbound(["kind": "snapshot.request"])
         XCTAssertEqual(reply?["ok"] as? Bool, true)
 
-        // The push goes through a 150ms throttle. Wait for it to fire.
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        await fulfillment(of: [contextPushed], timeout: 2)
 
         XCTAssertFalse(stub.sentContexts.isEmpty, "expected at least one context push after snapshot.request")
         let context = stub.sentContexts.last
@@ -382,12 +385,14 @@ final class WatchCompanionBridgeTests: XCTestCase {
             isPaired: true,
             isWatchAppInstalled: false
         )
+        let contextPushed = expectation(description: "watch context pushed")
+        stub.onContextUpdate = { _ in contextPushed.fulfill() }
         let bridge = WatchCompanionBridge(transport: stub)
 
         let reply = await bridge.handleInbound(["kind": "snapshot.request"])
         XCTAssertEqual(reply?["ok"] as? Bool, true)
 
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        await fulfillment(of: [contextPushed], timeout: 2)
 
         XCTAssertFalse(
             stub.sentContexts.isEmpty,

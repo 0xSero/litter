@@ -1,1 +1,1 @@
-Litter 1.6.0: Local Studio pairing and Pi agents; two-way session visibility; smoother interleaved reasoning, content, and tool streaming; file-making tool calls; compaction/reconnect stability; Android 16; and Play Billing 8.
+Litter 1.7.0: stable Local Studio cold-start discovery for Pi/Codex/other agents, explicit renamed-session titles, smoother Markdown/table streaming, and reliable padded image attachments.

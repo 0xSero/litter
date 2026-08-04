@@ -32,10 +32,10 @@ jobs:
     if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip mobile-release]')
     runs-on: ubuntu-latest
     outputs:
-      release_android: ${{ steps.filter.outputs.release_android }}
-      release_ios: ${{ steps.filter.outputs.release_ios }}
-      release_mac_testflight: ${{ steps.filter.outputs.release_mac_testflight }}
-      release_mac_direct: ${{ steps.filter.outputs.release_mac_direct }}
+      release_android: ${{ steps.resolve.outputs.release_android }}
+      release_ios: ${{ steps.resolve.outputs.release_ios }}
+      release_mac_testflight: ${{ steps.resolve.outputs.release_mac_testflight }}
+      release_mac_direct: ${{ steps.resolve.outputs.release_mac_direct }}
       run_release: ${{ steps.resolve.outputs.run_release }}
 
     steps:
@@ -132,9 +132,24 @@ jobs:
           RELEASE_IOS: ${{ steps.filter.outputs.release_ios }}
           RELEASE_MAC_TESTFLIGHT: ${{ steps.filter.outputs.release_mac_testflight }}
           RELEASE_MAC_DIRECT: ${{ steps.filter.outputs.release_mac_direct }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_ANDROID" == "true" || "$RELEASE_IOS" == "true" || "$RELEASE_MAC_TESTFLIGHT" == "true" || "$RELEASE_MAC_DIRECT" == "true" ]]; then
+          release_mac_testflight="$RELEASE_MAC_TESTFLIGHT"
+          release_mac_direct="$RELEASE_MAC_DIRECT"
+          # Mobile-only release merges can suppress external Mac channels
+          # without skipping the Android and iOS release jobs.
+          if [[ "$HEAD_COMMIT_MESSAGE" == *"[skip mac-release]"* ]]; then
+            release_mac_testflight="false"
+            release_mac_direct="false"
+          fi
+
+          echo "release_android=$RELEASE_ANDROID" >> "$GITHUB_OUTPUT"
+          echo "release_ios=$RELEASE_IOS" >> "$GITHUB_OUTPUT"
+          echo "release_mac_testflight=$release_mac_testflight" >> "$GITHUB_OUTPUT"
+          echo "release_mac_direct=$release_mac_direct" >> "$GITHUB_OUTPUT"
+
+          if [[ "$RELEASE_ANDROID" == "true" || "$RELEASE_IOS" == "true" || "$release_mac_testflight" == "true" || "$release_mac_direct" == "true" ]]; then
             echo "run_release=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_release=false" >> "$GITHUB_OUTPUT"
