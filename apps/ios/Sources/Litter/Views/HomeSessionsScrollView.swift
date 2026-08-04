@@ -921,8 +921,8 @@ private struct HomeCatFooterView: View {
 
     @State private var showingLoop: Bool
 
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "webp")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "webp")
 
     init(playEntrance: Bool) {
         self.playEntrance = playEntrance
