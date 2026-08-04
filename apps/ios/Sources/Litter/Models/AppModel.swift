@@ -152,6 +152,7 @@ final class AppModel {
         // Without this, auto-save silently no-ops.
         self.client.setSavedAppsDirectory(directory: SavedAppsDirectory.path)
         self.client.setSlingshotCredentialsDirectory(directory: MobilePreferencesDirectory.path)
+        self.store.setThreadModePersistenceDirectory(directory: MobilePreferencesDirectory.path)
 
         // Route Swift presentation lookups through the Rust-owned
         // `AgentMetadataStore`. Any view rendering an agent label /

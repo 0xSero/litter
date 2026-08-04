@@ -44,6 +44,7 @@ use super::snapshot::{
     QueuedFollowUpDraft, ServerHealthSnapshot, ServerMutatingCommandKind, ServerSnapshot,
     ServerTransportDiagnostics, TerminalSessionSnapshot, ThreadSnapshot,
 };
+use super::thread_modes::ThreadModeStore;
 use super::updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
 use super::voice::{VoiceDerivedUpdate, VoiceRealtimeState};
 use crate::terminal::TerminalBackendKind;
@@ -97,6 +98,7 @@ fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInf
 
 pub struct AppStoreReducer {
     snapshot: RwLock<AppSnapshot>,
+    thread_modes: ThreadModeStore,
     last_thread_state_updates: RwLock<
         HashMap<
             ThreadKey,
@@ -145,6 +147,7 @@ impl AppStoreReducer {
         let (updates_tx, _) = broadcast::channel(1024);
         Self {
             snapshot: RwLock::new(AppSnapshot::default()),
+            thread_modes: ThreadModeStore::default(),
             last_thread_state_updates: RwLock::new(HashMap::new()),
             last_thread_item_upserts: RwLock::new(HashMap::new()),
             dynamic_tool_arg_buffers: RwLock::new(HashMap::new()),
@@ -171,6 +174,12 @@ impl AppStoreReducer {
 
     pub fn subscribe(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.updates_tx.subscribe()
+    }
+
+    /// Configure bounded local persistence before the first thread hydrate.
+    /// Platforms pass their private mobile-preferences directory at startup.
+    pub fn configure_thread_mode_persistence(&self, directory: &str) {
+        self.thread_modes.configure(directory);
     }
 
     pub fn upsert_server(&self, config: &ServerConfig, health: ServerHealthSnapshot) {
@@ -374,6 +383,9 @@ impl AppStoreReducer {
                 } else {
                     let mut thread = ThreadSnapshot::from_info(server_id, info.clone());
                     thread.agent_runtime_kind = runtime_kind.clone();
+                    if let Some(mode) = self.thread_modes.mode_for(&key) {
+                        thread.collaboration_mode = mode;
+                    }
                     snapshot.threads.insert(key.clone(), thread);
                     upserted_thread_keys.push(key);
                 }
@@ -584,6 +596,7 @@ impl AppStoreReducer {
 
     pub fn upsert_thread_snapshot(&self, mut thread: ThreadSnapshot) {
         let key = thread.key.clone();
+        let persisted_mode = self.thread_modes.mode_for(&key);
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             let existing = snapshot.threads.get(&key).cloned();
@@ -644,6 +657,10 @@ impl AppStoreReducer {
                     thread.items = existing.items.clone();
                 }
             }
+            if let Some(mode) = persisted_mode {
+                thread.collaboration_mode = mode;
+            }
+            restore_plan_implementation_prompt_from_history(&mut thread, existing.as_ref());
             if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
                 sync_thread_follow_up_projection(&mut thread);
             }
@@ -876,6 +893,7 @@ impl AppStoreReducer {
     }
 
     pub fn set_thread_collaboration_mode(&self, key: &ThreadKey, mode: AppModeKind) {
+        self.thread_modes.set_mode(key, mode);
         if self
             .mutate_thread_with_result(key, |thread| {
                 if thread.collaboration_mode == mode {
@@ -1677,17 +1695,20 @@ impl AppStoreReducer {
                 if matches!(
                     notification.item,
                     codex_app_server_protocol::ThreadItem::Plan { .. }
-                ) && self
-                    .mutate_thread_with_result(key, |thread| {
-                        if thread.collaboration_mode != AppModeKind::Plan {
-                            thread.collaboration_mode = AppModeKind::Plan;
-                            return true;
-                        }
-                        false
-                    })
-                    .unwrap_or(false)
-                {
-                    self.emit_thread_metadata_changed(key);
+                ) {
+                    self.thread_modes.set_mode(key, AppModeKind::Plan);
+                    if self
+                        .mutate_thread_with_result(key, |thread| {
+                            if thread.collaboration_mode != AppModeKind::Plan {
+                                thread.collaboration_mode = AppModeKind::Plan;
+                                return true;
+                            }
+                            false
+                        })
+                        .unwrap_or(false)
+                    {
+                        self.emit_thread_metadata_changed(key);
+                    }
                 }
             }
             UiEvent::MessageDelta {
@@ -2227,13 +2248,17 @@ impl AppStoreReducer {
     where
         F: FnOnce(&mut ThreadSnapshot),
     {
+        let persisted_mode = self.thread_modes.mode_for(&key);
         let inserted = {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             let inserted = !snapshot.threads.contains_key(&key);
-            let thread = snapshot
-                .threads
-                .entry(key.clone())
-                .or_insert_with(|| ThreadSnapshot::from_info(&key.server_id, info.clone()));
+            let thread = snapshot.threads.entry(key.clone()).or_insert_with(|| {
+                let mut thread = ThreadSnapshot::from_info(&key.server_id, info.clone());
+                if let Some(mode) = persisted_mode {
+                    thread.collaboration_mode = mode;
+                }
+                thread
+            });
             thread.info.id = info.id;
             if info.title.is_some() {
                 thread.info.title = info.title;
@@ -3431,6 +3456,55 @@ fn preserve_thread_runtime_state(source: &ThreadSnapshot, target: &mut ThreadSna
     }
 }
 
+fn restore_plan_implementation_prompt_from_history(
+    target: &mut ThreadSnapshot,
+    existing: Option<&ThreadSnapshot>,
+) {
+    if target.collaboration_mode != AppModeKind::Plan
+        || target.active_turn_id.is_some()
+        || target.pending_plan_implementation_turn_id.is_some()
+    {
+        return;
+    }
+
+    let Some((plan_index, plan_turn_id)) = latest_proposed_plan_turn(&target.items) else {
+        return;
+    };
+    // A refresh must not resurrect a prompt the user dismissed during this
+    // process lifetime. A cold restart has no existing snapshot, so the
+    // durable Plan mode plus hydrated history can reconstruct it once.
+    if existing.is_some_and(|thread| {
+        latest_proposed_plan_turn(&thread.items).is_some_and(|(_, existing_turn_id)| {
+            existing_turn_id == plan_turn_id && thread.pending_plan_implementation_turn_id.is_none()
+        })
+    }) {
+        return;
+    }
+    if target.items.iter().skip(plan_index + 1).any(|item| {
+        item.is_from_user_turn_boundary
+            || matches!(&item.content, HydratedConversationItemContent::User(_))
+    }) {
+        return;
+    }
+
+    target.pending_plan_implementation_turn_id = Some(plan_turn_id);
+}
+
+fn latest_proposed_plan_turn(items: &[HydratedConversationItem]) -> Option<(usize, String)> {
+    items.iter().enumerate().rev().find_map(|(index, item)| {
+        if matches!(
+            &item.content,
+            HydratedConversationItemContent::ProposedPlan(_)
+        ) {
+            item.source_turn_id
+                .as_ref()
+                .map(|turn_id| (index, turn_id.clone()))
+        } else {
+            None
+        }
+    })
+}
+
 fn preserve_thread_title(existing: &ThreadInfo, incoming: &mut ThreadInfo) {
     let incoming_blank = incoming
         .title
@@ -3640,6 +3714,7 @@ mod tests {
         McpToolCallProgressNotification, ModelRerouteReason, ModelReroutedNotification,
         TurnDiffUpdatedNotification, TurnPlanStep, TurnPlanStepStatus, TurnPlanUpdatedNotification,
     };
+    use tempfile::tempdir;
     use tokio::sync::broadcast::error::TryRecvError;
 
     fn make_thread_info(id: &str) -> ThreadInfo {
@@ -3659,6 +3734,33 @@ mod tests {
             agent_status: None,
             created_at: None,
             updated_at: None,
+        }
+    }
+
+    fn proposed_plan_item(item_id: &str, turn_id: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: item_id.to_string(),
+            content: HydratedConversationItemContent::ProposedPlan(HydratedProposedPlanData {
+                content: "Implementation plan".to_string(),
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
+        }
+    }
+
+    fn hydrated_user_item(item_id: &str, turn_id: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: item_id.to_string(),
+            content: HydratedConversationItemContent::User(HydratedUserMessageData {
+                text: "Continue".to_string(),
+                image_data_uris: Vec::new(),
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: true,
         }
     }
 
@@ -3686,6 +3788,172 @@ mod tests {
             is_local: false,
             tls: false,
         }
+    }
+
+    #[test]
+    fn persisted_plan_mode_restores_after_reducer_restart() {
+        let directory = tempdir().expect("tempdir");
+        let directory = directory.path().to_string_lossy();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+
+        let first = AppStoreReducer::new();
+        first.configure_thread_mode_persistence(&directory);
+        first.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            &key.server_id,
+            make_thread_info(&key.thread_id),
+        ));
+        first.set_thread_collaboration_mode(&key, AppModeKind::Plan);
+        drop(first);
+
+        let restarted = AppStoreReducer::new();
+        restarted.configure_thread_mode_persistence(&directory);
+        restarted.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            &key.server_id,
+            make_thread_info(&key.thread_id),
+        ));
+
+        assert_eq!(
+            restarted
+                .thread_snapshot(&key)
+                .expect("thread")
+                .collaboration_mode,
+            AppModeKind::Plan
+        );
+    }
+
+    #[test]
+    fn cold_hydration_restores_implement_prompt_for_persisted_plan() {
+        let directory = tempdir().expect("tempdir");
+        let directory = directory.path().to_string_lossy();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+
+        let first = AppStoreReducer::new();
+        first.configure_thread_mode_persistence(&directory);
+        first.set_thread_collaboration_mode(&key, AppModeKind::Plan);
+        drop(first);
+
+        let restarted = AppStoreReducer::new();
+        restarted.configure_thread_mode_persistence(&directory);
+        let mut hydrated =
+            ThreadSnapshot::from_info(&key.server_id, make_thread_info(&key.thread_id));
+        hydrated.items.push(proposed_plan_item("plan", "turn-plan"));
+        restarted.upsert_thread_snapshot(hydrated);
+
+        let thread = restarted.thread_snapshot(&key).expect("thread");
+        assert_eq!(thread.collaboration_mode, AppModeKind::Plan);
+        assert_eq!(
+            thread.pending_plan_implementation_turn_id.as_deref(),
+            Some("turn-plan")
+        );
+    }
+
+    #[test]
+    fn refreshed_hydration_does_not_restore_dismissed_plan_prompt() {
+        let directory = tempdir().expect("tempdir");
+        let directory = directory.path().to_string_lossy();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let reducer = AppStoreReducer::new();
+        reducer.configure_thread_mode_persistence(&directory);
+        reducer.set_thread_collaboration_mode(&key, AppModeKind::Plan);
+        let mut hydrated =
+            ThreadSnapshot::from_info(&key.server_id, make_thread_info(&key.thread_id));
+        hydrated.items.push(proposed_plan_item("plan", "turn-plan"));
+        reducer.upsert_thread_snapshot(hydrated.clone());
+        reducer.dismiss_plan_implementation_prompt(&key);
+
+        reducer.upsert_thread_snapshot(hydrated);
+
+        assert_eq!(
+            reducer
+                .thread_snapshot(&key)
+                .expect("thread")
+                .pending_plan_implementation_turn_id,
+            None
+        );
+    }
+
+    #[test]
+    fn cold_hydration_does_not_restore_prompt_after_later_user_turn() {
+        let directory = tempdir().expect("tempdir");
+        let directory = directory.path().to_string_lossy();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let first = AppStoreReducer::new();
+        first.configure_thread_mode_persistence(&directory);
+        first.set_thread_collaboration_mode(&key, AppModeKind::Plan);
+        drop(first);
+
+        let restarted = AppStoreReducer::new();
+        restarted.configure_thread_mode_persistence(&directory);
+        let mut hydrated =
+            ThreadSnapshot::from_info(&key.server_id, make_thread_info(&key.thread_id));
+        hydrated.items.push(proposed_plan_item("plan", "turn-plan"));
+        hydrated.items.push(hydrated_user_item("user", "turn-user"));
+        restarted.upsert_thread_snapshot(hydrated);
+
+        assert_eq!(
+            restarted
+                .thread_snapshot(&key)
+                .expect("thread")
+                .pending_plan_implementation_turn_id,
+            None
+        );
+    }
+
+    #[test]
+    fn completed_plan_item_persists_auto_detected_mode() {
+        let directory = tempdir().expect("tempdir");
+        let directory = directory.path().to_string_lossy();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let reducer = AppStoreReducer::new();
+        reducer.configure_thread_mode_persistence(&directory);
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            &key.server_id,
+            make_thread_info(&key.thread_id),
+        ));
+
+        reducer.apply_ui_event(&UiEvent::ItemCompleted {
+            key: key.clone(),
+            notification: upstream::ItemCompletedNotification {
+                item: upstream::ThreadItem::Plan {
+                    id: "plan".to_string(),
+                    text: "Implementation plan".to_string(),
+                },
+                thread_id: key.thread_id.clone(),
+                turn_id: "turn-plan".to_string(),
+                completed_at_ms: 0,
+            },
+        });
+        drop(reducer);
+
+        let restarted = AppStoreReducer::new();
+        restarted.configure_thread_mode_persistence(&directory);
+        restarted.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            &key.server_id,
+            make_thread_info(&key.thread_id),
+        ));
+
+        assert_eq!(
+            restarted
+                .thread_snapshot(&key)
+                .expect("thread")
+                .collaboration_mode,
+            AppModeKind::Plan
+        );
     }
 
     #[test]

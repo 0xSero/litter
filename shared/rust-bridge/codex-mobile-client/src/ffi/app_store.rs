@@ -363,6 +363,14 @@ impl AppStore {
         }
     }
 
+    /// Register the private directory used for bounded, Rust-owned thread
+    /// mode persistence. Call once at process startup before hydrating threads.
+    pub fn set_thread_mode_persistence_directory(&self, directory: String) {
+        self.inner
+            .app_store
+            .configure_thread_mode_persistence(&directory);
+    }
+
     pub async fn snapshot(&self) -> Result<AppSnapshotRecord, ClientError> {
         AppSnapshotRecord::try_from(self.inner.app_snapshot()).map_err(ClientError::Serialization)
     }
