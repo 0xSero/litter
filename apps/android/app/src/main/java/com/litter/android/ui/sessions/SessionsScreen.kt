@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -611,29 +613,12 @@ private fun SessionNodeRow(
                     fontSize = 13.sp,
                     maxLines = 1,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    summary.model?.let { model ->
-                        Text(
-                            text = model.substringAfterLast('/'),
-                            color = LitterTheme.textMuted,
-                            fontSize = 10.sp,
-                        )
-                    }
-                    summary.agentDisplayLabel?.let { label ->
-                        Text(
-                            text = label,
-                            color = LitterTheme.accent,
-                            fontSize = 10.sp,
-                        )
-                    }
-                }
+                SessionMetadataRow(
+                    modelLabel = summary.model?.substringAfterLast('/'),
+                    agentLabel = summary.agentDisplayLabel,
+                    relativeTime = HomeDashboardSupport.relativeTime(summary.updatedAt),
+                )
             }
-
-            Text(
-                text = HomeDashboardSupport.relativeTime(summary.updatedAt),
-                color = LitterTheme.textMuted,
-                fontSize = 10.sp,
-            )
         }
 
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -724,6 +709,67 @@ private fun SessionNodeRow(
     }
 
     Spacer(Modifier.height(4.dp))
+}
+
+private val SessionTimestampMinWidth = 48.dp
+
+/**
+ * Keeps relative time on the metadata line and reserves its intrinsic width
+ * before long model or runtime labels are measured.
+ */
+@Composable
+internal fun SessionMetadataRow(
+    modelLabel: String?,
+    agentLabel: String?,
+    relativeTime: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            modelLabel?.let { model ->
+                Text(
+                    text = model,
+                    color = LitterTheme.textMuted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            agentLabel?.let { label ->
+                Text(
+                    text = label,
+                    color = LitterTheme.accent,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+        }
+
+        if (relativeTime.isNotEmpty()) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = relativeTime,
+                color = LitterTheme.textMuted,
+                fontSize = 10.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .widthIn(min = SessionTimestampMinWidth),
+            )
+        }
+    }
 }
 
 private fun visibleSessionRows(
