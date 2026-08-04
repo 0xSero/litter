@@ -1,3 +1,4 @@
+use crate::tls_roots::is_usable_pem_bundle;
 use jni::JNIEnv;
 use jni::objects::{GlobalRef, JClass, JObject, JString};
 use jni::sys::jstring;
@@ -17,13 +18,14 @@ static BUNDLED_CACERT_PEM: &[u8] = include_bytes!("cacert.pem");
 
 /// Write the bundled CA bundle to `CODEX_HOME/cacert.pem` (if missing) and
 /// point `SSL_CERT_FILE` at it. Idempotent: an existing writable bundle is
-/// reused, and an already-set `SSL_CERT_FILE` that resolves to a file is
-/// preserved. Called once from the Android JNI bootstrap (`nativeBridgeInit`)
-/// before any network code runs.
+/// reused only when it contains PEM certificates. Invalid or truncated files
+/// from an interrupted prior launch are repaired from the bundled roots.
+/// Called once from the Android JNI bootstrap (`nativeBridgeInit`) before any
+/// network code runs.
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) fn init_tls_roots() {
     if let Some(existing) = std::env::var_os("SSL_CERT_FILE") {
-        if PathBuf::from(&existing).is_file() {
+        if is_usable_pem_bundle(&PathBuf::from(&existing)) {
             return;
         }
     }
@@ -33,7 +35,7 @@ pub(crate) fn init_tls_roots() {
         Err(_) => return,
     };
     let pem_path = codex_home.join("cacert.pem");
-    if !pem_path.exists() {
+    if !is_usable_pem_bundle(&pem_path) {
         if let Err(e) = std::fs::write(&pem_path, BUNDLED_CACERT_PEM) {
             tracing::warn!("failed to write cacert.pem: {e}");
             return;
