@@ -224,6 +224,15 @@ jobs:
           dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
           echo "dist ran successfully"
 
+          # cargo-dist 0.31.0's Windows npm installer can report success when
+          # Expand-Archive did not create the expected executable. Finalize the
+          # package before it enters scratch storage, then replace both checksum
+          # records so every downstream publisher consumes these exact bytes.
+          node tools/scripts/finalize-kittylitter-npm-package.js \
+            --directory target/distrib \
+            --manifest dist-manifest.json \
+            --checksum-list target/distrib/sha256.sum
+
           # Parse out what we just built and upload it to scratch storage
           echo "paths<<EOF" >> "$GITHUB_OUTPUT"
           jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
@@ -237,14 +246,74 @@ jobs:
           path: |
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
+
+  test-final-npm-windows:
+    needs:
+      - plan
+      - build-local-artifacts
+      - build-global-artifacts
+    if: ${{ always() && needs.plan.result == 'success' && (needs.build-global-artifacts.result == 'success' || needs.build-global-artifacts.result == 'skipped') }}
+    runs-on: windows-2025
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Test npm package finalizer
+        run: node --test tools/scripts/tests/finalize-kittylitter-npm-package.test.js
+      - name: Fetch finalized release artifacts
+        if: ${{ needs.build-global-artifacts.result == 'success' }}
+        uses: actions/download-artifact@v7
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Verify finalized release artifact provenance
+        if: ${{ needs.build-global-artifacts.result == 'success' }}
+        run: |
+          node tools/scripts/finalize-kittylitter-npm-package.js `
+            --verify-only `
+            --directory target/distrib `
+            --manifest target/distrib/global-dist-manifest.json `
+            --checksum-list target/distrib/sha256.sum
+      - name: Fetch pinned cargo-dist 0.31.0 fixture artifacts
+        if: ${{ needs.build-global-artifacts.result == 'skipped' }}
+        run: |
+          New-Item -ItemType Directory -Force target/distrib | Out-Null
+          gh release download v0.3.4 `
+            --repo 0xSero/litter `
+            --dir target/distrib `
+            --pattern kittylitter-npm-package.tar.gz `
+            --pattern kittylitter-x86_64-pc-windows-msvc.zip `
+            --pattern dist-manifest.json `
+            --pattern sha256.sum
+      - name: Finalize pinned cargo-dist fixture
+        if: ${{ needs.build-global-artifacts.result == 'skipped' }}
+        run: |
+          node tools/scripts/finalize-kittylitter-npm-package.js `
+            --directory target/distrib `
+            --manifest target/distrib/dist-manifest.json `
+            --checksum-list target/distrib/sha256.sum
+      - name: Smoke-test finalized npm installer
+        run: |
+          node tools/scripts/test-kittylitter-npm-windows.js `
+            target/distrib/kittylitter-npm-package.tar.gz `
+            target/distrib/kittylitter-x86_64-pc-windows-msvc.zip
+
   # Determines if we should publish/announce
   host:
     needs:
       - plan
       - build-local-artifacts
       - build-global-artifacts
+      - test-final-npm-windows
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') && (needs.test-final-npm-windows.result == 'skipped' || needs.test-final-npm-windows.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
@@ -268,6 +337,14 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
+      - name: Verify finalized artifacts before hosting
+        if: ${{ needs.build-global-artifacts.result == 'success' }}
+        run: |
+          node tools/scripts/finalize-kittylitter-npm-package.js \
+            --verify-only \
+            --directory target/distrib \
+            --manifest target/distrib/global-dist-manifest.json \
+            --checksum-list target/distrib/sha256.sum
       - id: host
         shell: bash
         run: |
@@ -275,6 +352,14 @@ jobs:
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
           echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
+      - name: Verify hosted manifest provenance
+        if: ${{ needs.build-global-artifacts.result == 'success' }}
+        run: |
+          node tools/scripts/finalize-kittylitter-npm-package.js \
+            --verify-only \
+            --directory target/distrib \
+            --manifest dist-manifest.json \
+            --checksum-list target/distrib/sha256.sum
       - name: "Upload dist-manifest.json"
         uses: actions/upload-artifact@v6
         with:
@@ -317,6 +402,9 @@ jobs:
       PLAN: ${{ needs.plan.outputs.val }}
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Fetch npm packages
         uses: actions/download-artifact@v7
         with:
@@ -325,13 +413,20 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+      - name: Verify final package provenance
+        run: |
+          node tools/scripts/finalize-kittylitter-npm-package.js \
+            --verify-only \
+            --directory npm \
+            --manifest npm/dist-manifest.json \
+            --checksum-list npm/sha256.sum
       - run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
-            npm publish --access public "./npm/${pkg}"
+            npm publish --access public --provenance "./npm/${pkg}"
           done
 
   announce:
