@@ -1,0 +1,88 @@
+diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-store/src/local/list_threads.rs
+index ede9e9e..ead8b7f 100644
+--- a/codex-rs/thread-store/src/local/list_threads.rs
++++ b/codex-rs/thread-store/src/local/list_threads.rs
+@@ -75,6 +75,25 @@ pub(super) async fn list_threads(
+         })
+         .collect::<Vec<_>>();
+
++    // The lightweight rollout-list projection does not carry fork lineage,
++    // while `read_thread` does. Restore the immutable parent id from the
++    // canonical session metadata so a cold `thread/list` can rediscover
++    // persistent forks without loading their histories. Keep state-DB-only
++    // requests free of filesystem reads as their contract requires.
++    if !params.use_state_db_only {
++        for thread in &mut items {
++            let Some(rollout_path) = thread.rollout_path.as_ref() else {
++                continue;
++            };
++            let Ok(meta_line) = codex_rollout::read_session_meta_line(rollout_path).await else {
++                continue;
++            };
++            if meta_line.meta.id == thread.thread_id {
++                thread.forked_from_id = meta_line.meta.forked_from_id;
++            }
++        }
++    }
++
+     let thread_ids = items
+         .iter()
+         .map(|thread| thread.thread_id)
+@@ -199,6 +218,7 @@ mod tests {
+     use crate::local::test_support::write_archived_session_file;
+     use crate::local::test_support::write_session_file;
+     use crate::local::test_support::write_session_file_with;
++    use crate::local::test_support::write_session_file_with_fork;
+
+     #[tokio::test]
+     async fn list_threads_uses_default_provider_when_rollout_omits_provider() {
+@@ -234,6 +254,49 @@ mod tests {
+         assert_eq!(page.items[0].model_provider, "test-provider");
+     }
+
++    #[tokio::test]
++    async fn cold_list_threads_preserves_fork_lineage_from_rollout() {
++        let home = TempDir::new().expect("temp dir");
++        let parent_id = Uuid::from_u128(103);
++        let fork_id = Uuid::from_u128(104);
++        write_session_file_with_fork(
++            home.path(),
++            home.path().join("sessions/2025/01/03"),
++            "2025-01-03T12-00-00",
++            fork_id,
++            "Forked user message",
++            Some("test-provider"),
++            Some(parent_id),
++        )
++        .expect("fork rollout");
++
++        // A fresh store has no warm in-memory fork response to preserve. The
++        // list response must recover lineage from the persisted rollout.
++        let store = LocalThreadStore::new(test_config(home.path()), /*state_db*/ None);
++        let page = store
++            .list_threads(ListThreadsParams {
++                page_size: 10,
++                cursor: None,
++                sort_key: ThreadSortKey::CreatedAt,
++                sort_direction: SortDirection::Desc,
++                allowed_sources: Vec::new(),
++                model_providers: None,
++                cwd_filters: None,
++                archived: false,
++                search_term: None,
++                use_state_db_only: false,
++            })
++            .await
++            .expect("cold thread listing");
++
++        assert_eq!(page.items.len(), 1);
++        assert_eq!(page.items[0].thread_id.to_string(), fork_id.to_string());
++        assert_eq!(
++            page.items[0].forked_from_id.map(|id| id.to_string()),
++            Some(parent_id.to_string())
++        );
++    }
++
+     #[tokio::test]
+     async fn list_threads_preserves_sqlite_title_search_results() {
+         let home = TempDir::new().expect("temp dir");
