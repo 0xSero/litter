@@ -484,11 +484,11 @@ struct TranscriptTurn: Identifiable, Equatable {
         }
 
         if interval < 10 {
-            let roundedTenths = (interval * 10).rounded() / 10
-            if roundedTenths.rounded() == roundedTenths {
-                return "\(Int(roundedTenths))s"
+            let totalTenths = Int((interval * 10).rounded())
+            if totalTenths.isMultiple(of: 10) {
+                return "\(totalTenths / 10)s"
             }
-            return "\(roundedTenths.formatted(.number.precision(.fractionLength(1))))s"
+            return "\(totalTenths / 10).\(totalTenths % 10)s"
         }
 
         if interval < 60 {

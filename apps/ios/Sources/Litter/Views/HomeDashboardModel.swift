@@ -2,6 +2,49 @@ import Foundation
 import Observation
 
 @MainActor
+struct HomeDashboardPersistence {
+    let rememberedServers: () -> [SavedServer]
+    let pinnedKeys: () -> [SavedThreadsStore.PinnedKey]
+    let hiddenKeys: () -> [SavedThreadsStore.PinnedKey]
+    let addPinned: (SavedThreadsStore.PinnedKey) -> Void
+    let removePinned: (SavedThreadsStore.PinnedKey) -> Void
+    let hide: (SavedThreadsStore.PinnedKey) -> Void
+    let unhide: (SavedThreadsStore.PinnedKey) -> Void
+    let selectedServerId: () -> String?
+    let setSelectedServerId: (String?) -> Void
+    let selectedProjectId: () -> String?
+    let setSelectedProjectId: (String?) -> Void
+
+    static let live = HomeDashboardPersistence(
+        rememberedServers: SavedServerStore.rememberedServers,
+        pinnedKeys: SavedThreadsStore.pinnedKeys,
+        hiddenKeys: SavedThreadsStore.hiddenKeys,
+        addPinned: SavedThreadsStore.add,
+        removePinned: SavedThreadsStore.remove,
+        hide: SavedThreadsStore.hide,
+        unhide: SavedThreadsStore.unhide,
+        selectedServerId: { SavedProjectStore.selectedServerId },
+        setSelectedServerId: { SavedProjectStore.selectedServerId = $0 },
+        selectedProjectId: { SavedProjectStore.selectedProjectId },
+        setSelectedProjectId: { SavedProjectStore.selectedProjectId = $0 }
+    )
+
+    static let empty = HomeDashboardPersistence(
+        rememberedServers: { [] },
+        pinnedKeys: { [] },
+        hiddenKeys: { [] },
+        addPinned: { _ in },
+        removePinned: { _ in },
+        hide: { _ in },
+        unhide: { _ in },
+        selectedServerId: { nil },
+        setSelectedServerId: { _ in },
+        selectedProjectId: { nil },
+        setSelectedProjectId: { _ in }
+    )
+}
+
+@MainActor
 @Observable
 final class HomeDashboardModel {
     private struct Snapshot {
@@ -25,7 +68,7 @@ final class HomeDashboardModel {
     var selectedServerId: String? {
         didSet {
             if oldValue != selectedServerId {
-                SavedProjectStore.selectedServerId = selectedServerId
+                persistence.setSelectedServerId(selectedServerId)
                 if selectedServerId != nil {
                     userClearedSelection = false
                 }
@@ -40,11 +83,13 @@ final class HomeDashboardModel {
     var selectedProject: AppProject? {
         didSet {
             if oldValue?.id != selectedProject?.id {
-                SavedProjectStore.selectedProjectId = selectedProject?.id
+                persistence.setSelectedProjectId(selectedProject?.id)
             }
         }
     }
 
+    @ObservationIgnored private let persistence: HomeDashboardPersistence
+    @ObservationIgnored private let observedRefreshDelayNanoseconds: UInt64
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private(set) var rebuildCount = 0
     @ObservationIgnored private var isActive = false
@@ -60,10 +105,16 @@ final class HomeDashboardModel {
     @ObservationIgnored private var preferencesObserver: NSObjectProtocol?
     @ObservationIgnored private var savedServersObserver: NSObjectProtocol?
 
-    init() {
-        selectedServerId = SavedProjectStore.selectedServerId
-        pinnedKeys = SavedThreadsStore.pinnedKeys()
-        hiddenKeys = SavedThreadsStore.hiddenKeys()
+    init(
+        persistence: HomeDashboardPersistence? = nil,
+        observedRefreshDelayNanoseconds: UInt64 = 120_000_000
+    ) {
+        let persistence = persistence ?? .live
+        self.persistence = persistence
+        self.observedRefreshDelayNanoseconds = observedRefreshDelayNanoseconds
+        selectedServerId = persistence.selectedServerId()
+        pinnedKeys = persistence.pinnedKeys()
+        hiddenKeys = persistence.hiddenKeys()
         preferencesObserver = NotificationCenter.default.addObserver(
             forName: .litterThreadPreferencesDidChange,
             object: nil,
@@ -99,36 +150,36 @@ final class HomeDashboardModel {
     func pinThread(_ key: ThreadKey) {
         let pin = SavedThreadsStore.PinnedKey(threadKey: key)
         guard !pinnedKeys.contains(pin) else { return }
-        SavedThreadsStore.add(pin)
-        pinnedKeys = SavedThreadsStore.pinnedKeys()
+        persistence.addPinned(pin)
+        pinnedKeys = persistence.pinnedKeys()
         // Pinning cancels a prior hide.
         if hiddenKeys.contains(pin) {
-            SavedThreadsStore.unhide(pin)
-            hiddenKeys = SavedThreadsStore.hiddenKeys()
+            persistence.unhide(pin)
+            hiddenKeys = persistence.hiddenKeys()
         }
         refreshState()
     }
 
     func unpinThread(_ key: ThreadKey) {
         let pin = SavedThreadsStore.PinnedKey(threadKey: key)
-        SavedThreadsStore.remove(pin)
-        pinnedKeys = SavedThreadsStore.pinnedKeys()
+        persistence.removePinned(pin)
+        pinnedKeys = persistence.pinnedKeys()
         refreshState()
     }
 
     func hideThread(_ key: ThreadKey) {
         let pin = SavedThreadsStore.PinnedKey(threadKey: key)
-        SavedThreadsStore.hide(pin)
-        hiddenKeys = SavedThreadsStore.hiddenKeys()
+        persistence.hide(pin)
+        hiddenKeys = persistence.hiddenKeys()
         // Hide removes from pinned too (Rust enforces this); mirror here.
-        pinnedKeys = SavedThreadsStore.pinnedKeys()
+        pinnedKeys = persistence.pinnedKeys()
         refreshState()
     }
 
     func unhideThread(_ key: ThreadKey) {
         let pin = SavedThreadsStore.PinnedKey(threadKey: key)
-        SavedThreadsStore.unhide(pin)
-        hiddenKeys = SavedThreadsStore.hiddenKeys()
+        persistence.unhide(pin)
+        hiddenKeys = persistence.hiddenKeys()
         refreshState()
     }
 
@@ -170,8 +221,11 @@ final class HomeDashboardModel {
     private func scheduleObservedRefresh() {
         debouncedRefreshTask?.cancel()
         debouncedRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            guard let self, !Task.isCancelled, self.isActive else { return }
+            guard let self else { return }
+            if self.observedRefreshDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: self.observedRefreshDelayNanoseconds)
+            }
+            guard !Task.isCancelled, self.isActive else { return }
             self.refreshState()
         }
     }
@@ -191,7 +245,7 @@ final class HomeDashboardModel {
             let appSnapshot = appModel.snapshot
             let nextConnectedServers = HomeDashboardSupport.sortedConnectedServers(
                 from: appSnapshot?.servers ?? [],
-                savedServers: SavedServerStore.rememberedServers(),
+                savedServers: persistence.rememberedServers(),
                 activeServerId: appSnapshot?.activeThread?.serverId
             )
             let nextAllSessions = HomeDashboardSupport.recentConnectedSessions(
@@ -236,8 +290,8 @@ final class HomeDashboardModel {
     }
 
     private func reloadThreadPreferences() {
-        pinnedKeys = SavedThreadsStore.pinnedKeys()
-        hiddenKeys = SavedThreadsStore.hiddenKeys()
+        pinnedKeys = persistence.pinnedKeys()
+        hiddenKeys = persistence.hiddenKeys()
     }
 
     private func reconcileSelectedProject() {
@@ -257,7 +311,7 @@ final class HomeDashboardModel {
             return
         }
 
-        if let persistedId = SavedProjectStore.selectedProjectId,
+        if let persistedId = persistence.selectedProjectId(),
            let match = serverProjects.first(where: { $0.id == persistedId }) {
             selectedProject = match
             return

@@ -30,10 +30,10 @@ final class SavedAppsStoreTests: XCTestCase {
         )
 
         let fm = FileManager.default
-        let indexPath = (tempDir as NSString).appendingPathComponent("apps/saved_apps.json")
+        let indexPath = (tempDir as NSString).appendingPathComponent("saved_apps.json")
         XCTAssertTrue(fm.fileExists(atPath: indexPath), "saved_apps.json should exist")
 
-        let htmlPath = (tempDir as NSString).appendingPathComponent("apps/html/\(app.id).html")
+        let htmlPath = (tempDir as NSString).appendingPathComponent("html/\(app.id).html")
         XCTAssertTrue(fm.fileExists(atPath: htmlPath), "per-app html file should exist")
 
         let snapshot = savedAppsList(directory: tempDir)
@@ -79,7 +79,7 @@ final class SavedAppsStoreTests: XCTestCase {
         let snapshot = savedAppsList(directory: tempDir)
         XCTAssertTrue(snapshot.apps.isEmpty)
 
-        let htmlPath = (tempDir as NSString).appendingPathComponent("apps/html/\(app.id).html")
+        let htmlPath = (tempDir as NSString).appendingPathComponent("html/\(app.id).html")
         XCTAssertFalse(FileManager.default.fileExists(atPath: htmlPath))
     }
 }
