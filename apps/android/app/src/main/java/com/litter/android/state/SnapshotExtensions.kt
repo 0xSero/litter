@@ -207,8 +207,8 @@ val AppThreadSnapshot.resolvedPreview: String
     get() = displayTitle
 
 val AppSessionSummary.displayTitle: String
-    get() = preview?.takeIf { it.isNotBlank() }
-        ?: title?.takeIf { it.isNotBlank() }
+    get() = title?.takeIf { it.isNotBlank() }
+        ?: preview?.takeIf { it.isNotBlank() }
         ?: "Untitled session"
 
 val AppThreadSnapshot.contextPercent: Int
