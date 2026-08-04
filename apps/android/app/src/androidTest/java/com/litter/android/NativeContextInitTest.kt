@@ -36,7 +36,7 @@ class NativeContextInitTest {
 
             try {
                 ServerBridge().use { bridge ->
-                    bridge.listAlleycatAgents(params)
+                    bridge.listAlleycatAgents(params, waitForRegistration = false)
                 }
             } catch (error: ClientException) {
                 assertFalse(
