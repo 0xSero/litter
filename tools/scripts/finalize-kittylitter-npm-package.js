@@ -224,7 +224,11 @@ function finalizePackage(packagePath, manifestPath, checksumPath) {
       fs.readFileSync(installerPath, "utf8"),
     );
     fs.writeFileSync(installerPath, patched);
-    run("tar", ["-czf", repackedPath, "-C", tempDir, "package"]);
+    run("tar", ["-czf", repackedPath, "-C", tempDir, "package"], {
+      // macOS bsdtar otherwise serializes extended attributes as AppleDouble
+      // `._*` files, changing the npm payload depending on the finalizer host.
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    });
     // copyFileSync replaces the destination on Windows, where renameSync does
     // not reliably replace an existing artifact.
     fs.copyFileSync(repackedPath, packagePath);

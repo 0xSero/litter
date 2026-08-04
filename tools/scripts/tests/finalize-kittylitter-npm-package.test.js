@@ -125,6 +125,8 @@ test("repacked bytes update and verify manifest and unified checksum provenance"
       fs.readFileSync(fixture.checksumPath, "utf8"),
       `${finalDigest} *kittylitter-npm-package.tar.gz\n`,
     );
+    const archiveEntries = run("tar", ["-tzf", fixture.packagePath]).stdout;
+    assert.doesNotMatch(archiveEntries, /(^|\/)\._[^/]+$/m);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
