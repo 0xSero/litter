@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DERIVED_DATA_ROOT="${HOME}/Library/Developer/Xcode/DerivedData"
 APP_PATH="$(/bin/ls -dt "${DERIVED_DATA_ROOT}"/Litter-*/Build/Products/Debug-iphoneos/Litter.app 2>/dev/null | head -1 || true)"
-BUNDLE_ID="com.sigkitten.litter"
-APP_EXECUTABLE_NAME="$(basename "${APP_PATH}" .app)"
+BUNDLE_ID=""
+APP_EXECUTABLE_NAME=""
 
 PROFILE_ENABLED="${IOS_DEVICE_PROFILE:-0}"
 PROFILE_TEMPLATE="${IOS_DEVICE_PROFILE_TEMPLATE:-Time Profiler}"
@@ -43,6 +43,16 @@ mkdir -p "${RUN_DIR}"
 if [[ -z "${APP_PATH}" ]]; then
   echo "ERROR: Litter.app not found in DerivedData" >&2
   exit 1
+fi
+
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP_PATH}/Info.plist" 2>/dev/null || true)"
+if [[ -z "${BUNDLE_ID}" ]]; then
+  echo "ERROR: CFBundleIdentifier is missing from ${APP_PATH}/Info.plist" >&2
+  exit 1
+fi
+APP_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${APP_PATH}/Info.plist" 2>/dev/null || true)"
+if [[ -z "${APP_EXECUTABLE_NAME}" ]]; then
+  APP_EXECUTABLE_NAME="$(basename "${APP_PATH}" .app)"
 fi
 
 # ---------------------------------------------------------------------------

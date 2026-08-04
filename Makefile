@@ -632,24 +632,19 @@ ios-build-sim-fast: verify-ios-project
 
 ios-build-device: verify-ios-project
 	@echo "==> Building iOS ($(XCODE_CONFIG), device)..."
-	@xcodebuild -project $(IOS_DIR)/Litter.xcodeproj \
-		-scheme $(IOS_SCHEME) \
-		-configuration $(XCODE_CONFIG) \
-		-destination 'generic/platform=iOS' \
-		-allowProvisioningUpdates \
-		COMPILER_INDEX_STORE_ENABLE=NO \
-		build
+	@cd $(ROOT) && \
+	XCODE_CONFIG='$(XCODE_CONFIG)' \
+	IOS_SCHEME='$(IOS_SCHEME)' \
+	IOS_DEVICE_ONLY_ACTIVE_ARCH=0 \
+	$(IOS_SCRIPTS)/build-device.sh
 
 ios-build-device-fast: verify-ios-project
 	@echo "==> Building iOS ($(XCODE_CONFIG), fast device)..."
-	@xcodebuild -project $(IOS_DIR)/Litter.xcodeproj \
-		-scheme $(IOS_SCHEME) \
-		-configuration $(XCODE_CONFIG) \
-		-destination 'generic/platform=iOS' \
-		-allowProvisioningUpdates \
-		COMPILER_INDEX_STORE_ENABLE=NO \
-		ONLY_ACTIVE_ARCH=YES \
-		build
+	@cd $(ROOT) && \
+	XCODE_CONFIG='$(XCODE_CONFIG)' \
+	IOS_SCHEME='$(IOS_SCHEME)' \
+	IOS_DEVICE_ONLY_ACTIVE_ARCH=1 \
+	$(IOS_SCRIPTS)/build-device.sh
 
 ios-build: ios-build-sim
 
