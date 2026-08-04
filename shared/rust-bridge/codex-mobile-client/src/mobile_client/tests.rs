@@ -482,6 +482,11 @@ mod mobile_client_tests {
             "alleycat:controller-node"
         ));
         assert_eq!(
+            alleycat_inventory_refresh_delays(true),
+            ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS
+        );
+        assert!(alleycat_inventory_refresh_delays(false).is_empty());
+        assert_eq!(
             alleycat_dial_retry_delays(true),
             ALLEYCAT_CONTROLLER_AGENT_DIAL_RETRY_DELAYS_MS
         );
@@ -492,15 +497,8 @@ mod mobile_client_tests {
     }
 
     #[test]
-    fn alleycat_inventory_refresh_updates_existing_agents_and_keeps_new_agents() {
-        let mut inventory = vec![AlleycatAgentInfo {
-            name: "local-studio".to_string(),
-            display_name: "Local Studio".to_string(),
-            wire: AlleycatAgentWire::Jsonl,
-            available: true,
-            presentation: None,
-            capabilities: None,
-        }];
+    fn alleycat_inventory_refresh_recovers_from_empty_initial_probe() {
+        let mut inventory = Vec::new();
         merge_alleycat_agent_inventory(
             &mut inventory,
             vec![
@@ -526,6 +524,20 @@ mod mobile_client_tests {
         assert_eq!(inventory.len(), 2);
         assert_eq!(inventory[0].display_name, "Local Studio (ready)");
         assert_eq!(inventory[1].name, "codex");
+
+        merge_alleycat_agent_inventory(
+            &mut inventory,
+            vec![AlleycatAgentInfo {
+                name: "codex".to_string(),
+                display_name: "Codex (ready)".to_string(),
+                wire: AlleycatAgentWire::Websocket,
+                available: true,
+                presentation: None,
+                capabilities: None,
+            }],
+        );
+        assert_eq!(inventory.len(), 2);
+        assert_eq!(inventory[1].display_name, "Codex (ready)");
     }
 
     #[test]

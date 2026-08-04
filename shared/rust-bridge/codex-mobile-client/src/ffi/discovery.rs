@@ -288,10 +288,11 @@ impl ServerBridge {
     pub async fn list_alleycat_agents(
         &self,
         params: crate::ffi::alleycat::AppAlleycatPairPayload,
+        wait_for_registration: bool,
     ) -> Result<Vec<crate::ffi::alleycat::AppAlleycatAgentInfo>, ClientError> {
         let parsed: crate::alleycat::ParsedPairPayload = params.into();
         blocking_async!(self.rt, self.inner, |c| {
-            c.list_alleycat_agents(parsed)
+            c.list_alleycat_agents(parsed, wait_for_registration)
                 .await
                 .map(|agents| agents.into_iter().map(Into::into).collect())
                 .map_err(|e| ClientError::Transport(e.to_string()))

@@ -424,7 +424,10 @@ struct AlleycatAddServerSheet: View {
         isLoadingAgents = true
         Task {
             do {
-                let loaded = try await appModel.serverBridge.listAlleycatAgents(params: params)
+                let loaded = try await appModel.serverBridge.listAlleycatAgents(
+                    params: params,
+                    waitForRegistration: pairingMode == .localStudio
+                )
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = loaded

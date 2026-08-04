@@ -722,6 +722,14 @@ fn merge_alleycat_agent_inventory(
     }
 }
 
+fn alleycat_inventory_refresh_delays(wait_for_registration: bool) -> &'static [u64] {
+    if wait_for_registration {
+        &ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS
+    } else {
+        &[]
+    }
+}
+
 fn alleycat_dial_retry_delays(use_all_controller_agents: bool) -> &'static [u64] {
     if use_all_controller_agents {
         &ALLEYCAT_CONTROLLER_AGENT_DIAL_RETRY_DELAYS_MS
@@ -1749,14 +1757,25 @@ impl MobileClient {
     pub async fn list_alleycat_agents(
         &self,
         params: ParsedAlleycatPairPayload,
+        wait_for_registration: bool,
     ) -> Result<Vec<AlleycatAgentInfo>, TransportError> {
         let endpoint = self
             .alleycat_endpoint()
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
-        let agents = crate::alleycat::list_agents(&endpoint, params)
+        let mut agents = crate::alleycat::list_agents(&endpoint, params.clone())
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        for delay_ms in alleycat_inventory_refresh_delays(wait_for_registration) {
+            tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+            match crate::alleycat::list_agents(&endpoint, params.clone()).await {
+                Ok(refreshed) => merge_alleycat_agent_inventory(&mut agents, refreshed),
+                Err(error) => warn!(
+                    "MobileClient: Alleycat inventory refresh failed node_id={} delay_ms={} error={}",
+                    params.node_id, delay_ms, error
+                ),
+            }
+        }
         // Cache metadata so platforms can render labels/icons/capability
         // flags from anywhere in the app, not just at probe time.
         self.agent_metadata
@@ -1811,26 +1830,12 @@ impl MobileClient {
         let selected_agent_names = selected_agent_names
             .into_iter()
             .collect::<std::collections::HashSet<_>>();
-        let mut agent_inventory = self.list_alleycat_agents(params.clone()).await?;
-        if use_all_controller_agents {
-            // The controller can answer inventory requests before every enabled
-            // runtime bridge has finished its cold-start registration. Sample a
-            // short startup window and merge by stable agent name so a fast
-            // Local Studio bridge cannot make a slightly slower Codex bridge
-            // disappear for the entire app session.
-            for delay_ms in ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                match self.list_alleycat_agents(params.clone()).await {
-                    Ok(refreshed) => {
-                        merge_alleycat_agent_inventory(&mut agent_inventory, refreshed)
-                    }
-                    Err(error) => warn!(
-                        "MobileClient: Alleycat controller inventory refresh failed server_id={} delay_ms={} error={}",
-                        server_id, delay_ms, error
-                    ),
-                }
-            }
-        }
+        // Local Studio can answer before its Pi/Codex bridges have registered.
+        // Stabilize the same inventory used by the pairing scanner and connect
+        // path so an empty first probe cannot permanently hide those agents.
+        let agent_inventory = self
+            .list_alleycat_agents(params.clone(), use_all_controller_agents)
+            .await?;
         let mut seen_runtime_kinds = std::collections::HashSet::new();
         let requested_agents = agent_inventory
             .into_iter()
