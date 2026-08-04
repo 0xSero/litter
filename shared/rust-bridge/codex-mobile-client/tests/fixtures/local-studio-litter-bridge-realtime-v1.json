@@ -1,0 +1,211 @@
+{
+  "contractVersion": 1,
+  "capabilitiesRequest": {
+    "type": "realtime_capabilities_request",
+    "protocolVersion": 1,
+    "auth": {
+      "device": {
+        "deviceId": "device-1",
+        "keyId": "device-key-1",
+        "algorithm": "ed25519"
+      },
+      "requestId": "request-capabilities-1",
+      "issuedAt": "2026-08-04T12:00:00.000Z",
+      "expiresAt": "2026-08-04T12:01:00.000Z",
+      "nonce": "nonce_capabilities_1",
+      "bodyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "signature": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "capability": "realtime.session"
+    },
+    "controllerId": "controller-1",
+    "acceptedContractVersions": [1]
+  },
+  "capabilitiesResult": {
+    "type": "realtime_capabilities",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "requestId": "request-capabilities-1",
+    "controllerId": "controller-1",
+    "generatedAt": "2026-08-04T12:00:00.010Z",
+    "capabilities": [
+      {
+        "capabilityId": "openai-realtime-gpt-4o",
+        "provider": "provider_native",
+        "modelId": "gpt-4o-realtime-preview",
+        "available": true,
+        "unavailableReason": null,
+        "inputModalities": ["audio", "text"],
+        "outputModalities": ["audio", "text"],
+        "signaling": "webrtc_offer_answer",
+        "voices": [
+          {
+            "id": "alloy",
+            "label": "Alloy"
+          }
+        ],
+        "supportsReconnect": true,
+        "supportsUpdate": true,
+        "sessionTtlSeconds": 600,
+        "maxSignalBytes": 65536
+      },
+      {
+        "capabilityId": "local-pipeline-default",
+        "provider": "local_pipeline",
+        "modelId": "local-model",
+        "available": false,
+        "unavailableReason": "speech_plugin_unavailable",
+        "inputModalities": ["audio"],
+        "outputModalities": ["audio"],
+        "signaling": "local_websocket",
+        "voices": [],
+        "supportsReconnect": false,
+        "supportsUpdate": false,
+        "sessionTtlSeconds": 300,
+        "maxSignalBytes": 16384
+      }
+    ]
+  },
+  "createRequest": {
+    "type": "realtime_session_create_request",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "auth": {
+      "device": {
+        "deviceId": "device-1",
+        "keyId": "device-key-1",
+        "algorithm": "ed25519"
+      },
+      "requestId": "request-create-1",
+      "issuedAt": "2026-08-04T12:00:01.000Z",
+      "expiresAt": "2026-08-04T12:01:01.000Z",
+      "nonce": "nonce_create_123456",
+      "bodyHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "signature": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "capability": "realtime.session",
+      "idempotencyKey": "create-session-1"
+    },
+    "controllerId": "controller-1",
+    "clientSessionId": "mobile-session-1",
+    "capabilityId": "openai-realtime-gpt-4o",
+    "voiceId": "alloy",
+    "offer": {
+      "type": "webrtc_offer",
+      "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
+    }
+  },
+  "createResult": {
+    "type": "realtime_session_created",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "requestId": "request-create-1",
+    "idempotencyKey": "create-session-1",
+    "session": {
+      "sessionId": "provider-session-1",
+      "clientSessionId": "mobile-session-1",
+      "capabilityId": "openai-realtime-gpt-4o",
+      "deviceId": "device-1",
+      "state": "negotiating",
+      "createdAt": "2026-08-04T12:00:01.010Z",
+      "expiresAt": "2026-08-04T12:10:01.010Z",
+      "reconnectToken": "fake-reconnect-token-1"
+    },
+    "answer": {
+      "type": "webrtc_answer",
+      "sdp": "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\n"
+    },
+    "brokerLatencyMs": 10
+  },
+  "signalRequest": {
+    "type": "realtime_signal_request",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "auth": {
+      "device": {
+        "deviceId": "device-1",
+        "keyId": "device-key-1",
+        "algorithm": "ed25519"
+      },
+      "requestId": "request-signal-1",
+      "issuedAt": "2026-08-04T12:00:02.000Z",
+      "expiresAt": "2026-08-04T12:01:02.000Z",
+      "nonce": "nonce_signal_123456",
+      "bodyHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "signature": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "capability": "realtime.session",
+      "idempotencyKey": "signal-session-1"
+    },
+    "sessionId": "provider-session-1",
+    "signal": {
+      "type": "ice_candidate",
+      "candidate": "candidate:1 1 UDP 2122260223 192.0.2.1 54321 typ host",
+      "sdpMid": "audio",
+      "sdpMLineIndex": 0
+    }
+  },
+  "updateRequest": {
+    "type": "realtime_session_update_request",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "auth": {
+      "device": {
+        "deviceId": "device-1",
+        "keyId": "device-key-1",
+        "algorithm": "ed25519"
+      },
+      "requestId": "request-update-1",
+      "issuedAt": "2026-08-04T12:00:03.000Z",
+      "expiresAt": "2026-08-04T12:01:03.000Z",
+      "nonce": "nonce_update_123456",
+      "bodyHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "signature": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "capability": "realtime.session",
+      "idempotencyKey": "update-session-1"
+    },
+    "sessionId": "provider-session-1",
+    "voiceId": "alloy",
+    "instructions": "Answer concisely."
+  },
+  "closeRequest": {
+    "type": "realtime_session_close_request",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "auth": {
+      "device": {
+        "deviceId": "device-1",
+        "keyId": "device-key-1",
+        "algorithm": "ed25519"
+      },
+      "requestId": "request-close-1",
+      "issuedAt": "2026-08-04T12:00:04.000Z",
+      "expiresAt": "2026-08-04T12:01:04.000Z",
+      "nonce": "nonce_close_123456",
+      "bodyHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "signature": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "capability": "realtime.session",
+      "idempotencyKey": "close-session-1"
+    },
+    "sessionId": "provider-session-1",
+    "reason": "user"
+  },
+  "status": {
+    "type": "realtime_session_status",
+    "protocolVersion": 1,
+    "contractVersion": 1,
+    "eventId": "event-1",
+    "sequence": 1,
+    "observedAt": "2026-08-04T12:00:05.000Z",
+    "session": {
+      "sessionId": "provider-session-1",
+      "clientSessionId": "mobile-session-1",
+      "capabilityId": "openai-realtime-gpt-4o",
+      "deviceId": "device-1",
+      "state": "active",
+      "createdAt": "2026-08-04T12:00:01.010Z",
+      "expiresAt": "2026-08-04T12:10:01.010Z",
+      "reconnectToken": "fake-reconnect-token-1"
+    },
+    "brokerLatencyMs": 10,
+    "mediaConnectionLatencyMs": 340,
+    "error": null
+  }
+}
