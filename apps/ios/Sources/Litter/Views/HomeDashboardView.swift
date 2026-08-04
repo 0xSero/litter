@@ -635,8 +635,8 @@ struct HomeDashboardView: View {
 private struct EmptyHomeFatCatView: View {
     @State private var showingLoop = false
 
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "webp")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "webp")
 
     var body: some View {
         CatTransmissionPressView {
