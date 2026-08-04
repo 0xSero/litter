@@ -25,7 +25,9 @@ function run(command, args, options = {}) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      reject(new Error(`could not spawn ${command}: ${error.message}`));
+    });
     child.on("close", (status, signal) => {
       resolve({ signal, status, stderr, stdout });
     });
@@ -93,10 +95,26 @@ async function main() {
       path.join(tempDir, "package.json"),
       `${JSON.stringify({ name: "kittylitter-windows-smoke", private: true })}\n`,
     );
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const npmCli = path.join(
+      path.dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
+    );
+    if (!fs.existsSync(npmCli)) {
+      fail(`npm CLI not found beside Node: ${npmCli}`);
+    }
     const npmInstall = await run(
-      npm,
-      ["install", "--ignore-scripts", "--no-audit", "--no-fund", packagePath],
+      process.execPath,
+      [
+        npmCli,
+        "install",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        packagePath,
+      ],
       { cwd: tempDir },
     );
     requireSuccess(npmInstall, "installing the finalized npm tarball");
