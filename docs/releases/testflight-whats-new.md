@@ -1,18 +1,15 @@
 Summary
 
-- Pair with Local Studio and use its Pi agents from mobile.
-- Resume controller-scoped sessions after reconnecting or restarting.
-- Smoother interleaved reasoning, text, and tool-call streaming.
-- Create files from mobile tools and see the same sessions in Litter and Local Studio.
-- Improved Codex and Local Studio hydration, compaction, and reconnect stability.
-- Added a Local Studio website link under Settings > Local AI.
+- Improved Local Studio cold-start discovery so Pi, Codex, and other enabled agents appear before selection.
+- Renamed sessions now prefer their explicit title over first-message preview text.
+- Restored Photos attachments no longer reopen transient Photos-library paths.
+- Kept generic KittyLitter pairing immediate while Local Studio uses a bounded registration wait.
 
 What to test
 
-- Codex: connect to a Codex server, open an existing thread, send a prompt, and confirm streaming completes.
-- Local Studio: discover or pair with a Local Studio controller, select a Pi agent and model, send a prompt, and confirm the response streams.
-- Tools: run a tool that creates a file and confirm reasoning, content, tool status, and the file appear in order.
-- Session sync: open the same session in Litter and Local Studio, then confirm messages created on either side appear on the other.
-- Compaction: continue a long session through compaction and confirm the next turn streams normally.
-- Reconnect: background and reopen the app, then confirm the selected controller and session resume without duplicating messages.
-- Settings: open Settings > Local AI > Local Studio and confirm localstudio.ai opens.
+- Local Studio cold start: paste a connection JSON immediately after the controller starts and confirm Pi and Codex appear before Connect is enabled.
+- Agent selection: confirm every available Local Studio agent can be selected, connected, and used for a streamed turn.
+- KittyLitter: pair with a generic KittyLitter host and confirm the scanner remains responsive without the Local Studio wait.
+- Session names: rename a session, reopen the session list, and confirm the explicit title wins over preview text.
+- Photos: attach a Photos image, reopen the conversation, and confirm the rendered attachment does not resolve an internal `.photoslibrary` path.
+- Core chat: verify reasoning, tool calling, streaming text, images, reconnect, and thread resume on both Codex and Pi sessions.
