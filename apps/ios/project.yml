@@ -81,8 +81,8 @@ targets:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes
       - path: Sources/Litter/Resources/TipJarProducts.storekit
-      - path: Sources/Litter/Resources/home_cat.png
-      - path: Sources/Litter/Resources/home_cat_entrance.png
+      - path: Sources/Litter/Resources/home_cat.webp
+      - path: Sources/Litter/Resources/home_cat_entrance.webp
       - path: Sources/Litter/Resources/cat_transmission_01.png
       - path: Sources/Litter/Resources/cat_transmission_02.png
       - path: Sources/Litter/Resources/cat_transmission_03.png
@@ -198,8 +198,8 @@ targets:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes
       - path: Sources/Litter/Resources/TipJarProducts.storekit
-      - path: Sources/Litter/Resources/home_cat.png
-      - path: Sources/Litter/Resources/home_cat_entrance.png
+      - path: Sources/Litter/Resources/home_cat.webp
+      - path: Sources/Litter/Resources/home_cat_entrance.webp
       - path: Sources/Litter/Resources/cat_transmission_01.png
       - path: Sources/Litter/Resources/cat_transmission_02.png
       - path: Sources/Litter/Resources/cat_transmission_03.png
