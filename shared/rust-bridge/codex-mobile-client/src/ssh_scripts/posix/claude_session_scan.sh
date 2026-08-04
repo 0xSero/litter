@@ -27,7 +27,7 @@ list_paths() {
   fi
 }
 root="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
-case "$root" in "~") root="$HOME" ;; "~/"*) root="$HOME/${root#~/}" ;; esac
+case "$root" in \~) root="$HOME" ;; \~/*) root="$HOME/${root#~/}" ;; esac
 max="${CLAUDE_SESSION_SCAN_LIMIT:-25}"
 case "$max" in ''|*[!0-9]*) max=25 ;; esac
 [ -d "$root" ] || exit 0

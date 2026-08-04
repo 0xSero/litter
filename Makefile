@@ -458,14 +458,7 @@ rust-test: alleycat-main rust-shellcheck
 # fresh-checkout reality where contributors may not have either installed).
 SSH_SCRIPT_DIR := $(RUST_DIR)/codex-mobile-client/src/ssh_scripts
 rust-shellcheck:
-	@if command -v shellcheck >/dev/null 2>&1; then \
-	  echo "==> shellcheck $(SSH_SCRIPT_DIR)/posix/*.sh"; \
-	  shellcheck --shell=sh --severity=warning $(SSH_SCRIPT_DIR)/posix/*.sh || exit 1; \
-	else \
-	  echo "==> shellcheck not installed, skipping (brew install shellcheck)"; \
-	fi
-	@echo "==> bash -n on $(SSH_SCRIPT_DIR)/posix/*.sh"
-	@for f in $(SSH_SCRIPT_DIR)/posix/*.sh; do bash -n "$$f" || exit 1; done
+	@$(ROOT)/tools/scripts/lint-ssh-templates.sh $(SSH_SCRIPT_DIR)/posix
 	@if command -v pwsh >/dev/null 2>&1; then \
 	  echo "==> pwsh syntax check on $(SSH_SCRIPT_DIR)/powershell/*.ps1"; \
 	  for f in $(SSH_SCRIPT_DIR)/powershell/*.ps1; do \

@@ -25,7 +25,7 @@ list_paths() {
   fi | sort -rn | cut -f2-
 }
 agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-case "$agent_dir" in "~") agent_dir="$HOME" ;; "~/"*) agent_dir="$HOME/${agent_dir#~/}" ;; esac
+case "$agent_dir" in \~) agent_dir="$HOME" ;; \~/*) agent_dir="$HOME/${agent_dir#~/}" ;; esac
 root="$agent_dir/sessions"
 [ -d "$root" ] || exit 0
 list_paths | while IFS= read -r path; do
