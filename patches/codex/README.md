@@ -62,9 +62,9 @@ Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/{common.rs
 The TUI hunks are no-op match arms required only because upstream's `ServerNotification` matches are exhaustive. Upstream moved the consolidated `handle_server_notification` match from `tui/src/chatwidget.rs` into `tui/src/chatwidget/protocol.rs`; this patch targets the new location.
 
 ## `realtime-webrtc-env-apikey.patch`
-For WebRTC realtime sessions, populate the request headers with the API key obtained from `realtime_api_key(auth, provider)`. Without this, the WebRTC peer connection fails to authenticate when the user is signed in via env-key auth.
+For WebRTC realtime sessions, populate the request headers with the API key obtained from `realtime_api_key(auth, provider)`. When ChatGPT auth falls back to that key, build a clean public OpenAI provider instead of retaining the ChatGPT backend URL. Without this, the WebRTC peer connection fails to authenticate or targets a backend call route the API key cannot access.
 
-Touches `core/src/realtime_conversation.rs`.
+Touches `core/src/{client.rs,realtime_conversation.rs,realtime_conversation_tests.rs}`.
 
 ---
 
@@ -77,7 +77,7 @@ Apply order in `sync-codex.sh` matters: `server-hint` first because it introduce
 ### `realtime-handoff-server-hint.patch`
 Adds `server: Option<String>` to `RealtimeHandoffRequested` so the model can specify which connected server (e.g. `studio`, `mac-mini`, `local`) should handle the prompt. The mobile client reads this hint to route the handoff over SSH/WS to the right backend.
 
-Touches `protocol/src/protocol.rs`, `codex-api/src/endpoint/realtime_websocket/{protocol_v1.rs,protocol_v2.rs}`, `app-server/src/bespoke_event_handling.rs`.
+Touches `protocol/src/protocol.rs`, `codex-api/src/endpoint/realtime_websocket/{protocol_v1.rs,protocol_v2.rs}`, `app-server/src/bespoke_event_handling.rs`, and `core/src/realtime_conversation_tests.rs`.
 
 Deliberately does NOT touch `methods_v2.rs` — the `server` parameter on the `background_agent` tool schema is added by `realtime-dynamic-tools.patch` as part of the `realtime_v2_session_tools` helper extraction. This keeps patch #1 orthogonal to patch #2's hunks so each patch's reverse-apply detection works independently after upstream bumps.
 

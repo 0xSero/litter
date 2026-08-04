@@ -64,3 +64,50 @@ index 30e33abe43..529e6e8248 100644
  }
  
  #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+diff --git a/codex-rs/core/src/realtime_conversation_tests.rs b/codex-rs/core/src/realtime_conversation_tests.rs
+--- a/codex-rs/core/src/realtime_conversation_tests.rs
++++ b/codex-rs/core/src/realtime_conversation_tests.rs
+@@ -31,7 +31,8 @@
+             RealtimeTranscriptEntry {
+                 role: "assistant".to_string(),
+                 text: "hi there".to_string(),
+             },
+         ],
++        server: None,
+     };
+     assert_eq!(
+@@ -46,8 +47,9 @@
+         item_id: "item_1".to_string(),
+         input_transcript: String::new(),
+         active_transcript: vec![RealtimeTranscriptEntry {
+             role: "user".to_string(),
+             text: "hello".to_string(),
+         }],
++        server: None,
+     };
+     assert_eq!(
+@@ -71,7 +73,8 @@
+             RealtimeTranscriptEntry {
+                 role: "assistant".to_string(),
+                 text: "hi there".to_string(),
+             },
+         ],
++        server: None,
+     };
+     assert_eq!(
+@@ -88,6 +91,7 @@
+         handoff_id: "handoff_1".to_string(),
+         item_id: "item_1".to_string(),
+         input_transcript: "ignored".to_string(),
+         active_transcript: vec![],
++        server: None,
+     };
+     assert_eq!(
+@@ -102,6 +106,7 @@
+         handoff_id: "handoff_1".to_string(),
+         item_id: "item_1".to_string(),
+         input_transcript: String::new(),
+         active_transcript: vec![],
++        server: None,
+     };
+     assert_eq!(realtime_text_from_handoff_request(&handoff), None);

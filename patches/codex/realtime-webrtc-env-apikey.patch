@@ -106,15 +106,7 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
      extra_headers: Option<HeaderMap>,
      requested_realtime_session_id: Option<String>,
      version: RealtimeWsVersion,
-@@ -688,6 +694,7 @@
-         .transport
-         .unwrap_or(ConversationStartTransport::Websocket);
-     let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
-+    let call_api_provider = api_provider.clone();
-     if let Some(realtime_ws_base_url) = &config.experimental_realtime_ws_base_url {
-         api_provider.base_url = realtime_ws_base_url.clone();
-     }
-@@ -702,23 +709,44 @@
+@@ -702,23 +708,48 @@
      )
      .await?;
      let requested_realtime_session_id = session_config.session_id.clone();
@@ -145,11 +137,15 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
 +                Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::AgentIdentity)
 +            );
 +            let webrtc_api_fallback = if current_auth_uses_codex_backend {
-+                realtime_api_key.as_ref().map(|api_key| {
-+                    let api_auth: SharedAuthProvider =
-+                        Arc::new(BearerAuthProvider::new(api_key.clone()));
-+                    (call_api_provider.clone(), api_auth)
-+                })
++                realtime_api_key
++                    .as_ref()
++                    .map(|api_key| {
++                        let api_auth: SharedAuthProvider =
++                            Arc::new(BearerAuthProvider::new(api_key.clone()));
++                        realtime_webrtc_api_provider()
++                            .map(|api_provider| (api_provider, api_auth))
++                    })
++                    .transpose()?
 +            } else {
 +                None
 +            };
@@ -168,7 +164,7 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
          extra_headers,
          requested_realtime_session_id,
          version,
-@@ -843,6 +871,7 @@
+@@ -843,6 +874,7 @@
  ) -> CodexResult<()> {
      let PreparedRealtimeConversationStart {
          api_provider,
@@ -176,7 +172,7 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
          extra_headers,
          requested_realtime_session_id,
          version,
-@@ -857,6 +886,7 @@
+@@ -857,6 +889,7 @@
      };
      let start = RealtimeStart {
          api_provider,
@@ -184,3 +180,42 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
          extra_headers,
          session_config,
          model_client: sess.services.model_client.clone(),
+@@ -1067,6 +1100,11 @@ fn realtime_api_key(
+     ))
+ }
+-
++
++fn realtime_webrtc_api_provider() -> CodexResult<ApiProvider> {
++    ModelProviderInfo::create_openai_provider(/*base_url*/ None)
++        .to_api_provider(Some(AuthMode::ApiKey))
++}
++
+ fn realtime_request_headers(
+     realtime_session_id: Option<&str>,
+     api_key: Option<&str>,
+diff --git a/codex-rs/core/src/realtime_conversation_tests.rs b/codex-rs/core/src/realtime_conversation_tests.rs
+--- a/codex-rs/core/src/realtime_conversation_tests.rs
++++ b/codex-rs/core/src/realtime_conversation_tests.rs
+@@ -2,12 +2,21 @@
+ use super::RealtimeSessionKind;
+ use super::realtime_delegation_from_handoff;
+ use super::realtime_text_from_handoff_request;
++use super::realtime_webrtc_api_provider;
+ use super::wrap_realtime_delegation_input;
+ use async_channel::bounded;
+ use codex_protocol::protocol::RealtimeHandoffRequested;
+ use codex_protocol::protocol::RealtimeTranscriptEntry;
+ use pretty_assertions::assert_eq;
+-
++
++#[test]
++fn webrtc_api_key_fallback_uses_public_openai_endpoint() {
++    let provider = realtime_webrtc_api_provider().expect("public realtime API provider");
++
++    assert_eq!(provider.base_url, "https://api.openai.com/v1");
++    assert_eq!(provider.query_params, None);
++}
++
+ #[test]
+ fn prefers_handoff_input_transcript_over_active_transcript() {
+     let handoff = RealtimeHandoffRequested {

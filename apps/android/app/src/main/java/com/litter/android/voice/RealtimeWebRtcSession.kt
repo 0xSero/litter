@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -28,6 +29,16 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class RealtimeWebRtcSessionException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
+internal const val REALTIME_ICE_GATHERING_TIMEOUT_MS = 5_000L
+
+internal fun realtimePeerConnectionConfiguration(): PeerConnection.RTCConfiguration =
+    PeerConnection.RTCConfiguration(emptyList()).apply {
+        sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+        // The initial SDP is sent as a complete, non-trickle offer. Continuous
+        // gathering never transitions to COMPLETE on some Android devices.
+        continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
+    }
 
 class RealtimeWebRtcSession(private val context: Context) {
 
@@ -58,10 +69,7 @@ class RealtimeWebRtcSession(private val context: Context) {
 
         Log.i(TAG, "start: acquiring shared PeerConnectionFactory")
         val factory = sharedFactory(context)
-        val rtcConfig = PeerConnection.RTCConfiguration(emptyList()).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-        }
+        val rtcConfig = realtimePeerConnectionConfiguration()
 
         Log.i(TAG, "start: creating PeerConnection")
         val connection = factory.createPeerConnection(rtcConfig, DelegateAdapter())
@@ -108,7 +116,15 @@ class RealtimeWebRtcSession(private val context: Context) {
         }
 
         Log.i(TAG, "start: awaiting ICE gathering complete")
-        awaitIceGatheringComplete(connection)
+        val iceGatheringCompleted = withTimeoutOrNull(REALTIME_ICE_GATHERING_TIMEOUT_MS) {
+            awaitIceGatheringComplete(connection)
+            true
+        } == true
+        if (!iceGatheringCompleted) {
+            // A host candidate is normally present by now. Prefer sending the
+            // best available offer to hanging the entire realtime start flow.
+            Log.w(TAG, "start: ICE gathering timed out; using current local description")
+        }
 
         if (isClosed.get() || peerConnection !== connection) {
             Log.w(TAG, "start: session closed while awaiting ICE gathering")
