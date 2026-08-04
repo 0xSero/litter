@@ -26,9 +26,10 @@ the login Keychain, writes a non-secret loader file, and exports the public PEM
 certificate Play Console needs for an upload-key reset. It refuses to overwrite
 existing key material.
 
-The release workflows authenticate to the Publisher API before starting native
-builds. A disabled API, invalid service-account key, or missing Play Console app
-access therefore fails in the release preflight instead of after the AAB build.
+The release workflows authenticate to the Publisher API and create then discard
+an empty edit before starting native builds. A disabled API, invalid
+service-account key, or missing Play Console release access therefore fails in
+the release preflight instead of after the AAB build.
 
 ## Required Environment Variables
 - `LITTER_PLAY_SERVICE_ACCOUNT_JSON` = path to service-account JSON

@@ -18,20 +18,46 @@ SPEC.loader.exec_module(STORE_ARTIFACTS)
 
 
 class PlayAccessCheckTests(unittest.TestCase):
-    def test_check_play_access_uses_publisher_scope_and_package(self) -> None:
+    def test_check_play_access_creates_and_discards_edit(self) -> None:
         service_account = pathlib.Path("/tmp/service-account.json")
         with (
             mock.patch.object(STORE_ARTIFACTS, "issue_token", return_value="token") as issue_token,
-            mock.patch.object(STORE_ARTIFACTS, "api_get_json") as api_get_json,
+            mock.patch.object(
+                STORE_ARTIFACTS,
+                "api_request_json",
+                side_effect=[{"id": "edit-123"}, {}],
+            ) as api_request_json,
         ):
             STORE_ARTIFACTS.check_play_access("com.example.app", service_account)
 
         issue_token.assert_called_once_with(service_account, STORE_ARTIFACTS.PLAY_PUBLISHER_SCOPE)
-        api_get_json.assert_called_once_with(
-            "https://androidpublisher.googleapis.com/androidpublisher/v3/"
-            "applications/com.example.app/reviews?maxResults=1",
-            "token",
+        self.assertEqual(
+            api_request_json.call_args_list,
+            [
+                mock.call(
+                    "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+                    "applications/com.example.app/edits",
+                    "token",
+                    method="POST",
+                    payload={},
+                ),
+                mock.call(
+                    "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+                    "applications/com.example.app/edits/edit-123",
+                    "token",
+                    method="DELETE",
+                ),
+            ],
         )
+
+    def test_check_play_access_rejects_missing_edit_id(self) -> None:
+        service_account = pathlib.Path("/tmp/service-account.json")
+        with (
+            mock.patch.object(STORE_ARTIFACTS, "issue_token", return_value="token"),
+            mock.patch.object(STORE_ARTIFACTS, "api_request_json", return_value={}),
+        ):
+            with self.assertRaisesRegex(STORE_ARTIFACTS.ScriptError, "no edit ID"):
+                STORE_ARTIFACTS.check_play_access("com.example.app", service_account)
 
     def test_check_only_mode_skips_artifact_fetch(self) -> None:
         with tempfile.NamedTemporaryFile() as service_account:
