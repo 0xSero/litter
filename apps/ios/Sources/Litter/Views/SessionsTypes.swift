@@ -5,14 +5,14 @@ extension AppSessionSummary: Identifiable {
     var serverId: String { key.serverId }
     var threadId: String { key.threadId }
     var displayTitle: String {
-        let trimmedPreview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedPreview.isEmpty {
-            return trimmedPreview
-        }
-
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
             return trimmedTitle
+        }
+
+        let trimmedPreview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPreview.isEmpty {
+            return trimmedPreview
         }
 
         return "Untitled session"

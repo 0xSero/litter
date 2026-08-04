@@ -88,6 +88,18 @@ final class RunningTurnSnapshotTests: XCTestCase {
         XCTAssertEqual(payload.lastTool, "edit_file src/auth.go")
     }
 
+    func testSessionSummaryDisplayTitlePrefersExplicitTitleOverPreview() {
+        let summary = makeSummary(
+            key: ThreadKey(serverId: "studio", threadId: "renamed"),
+            serverDisplayName: "Studio",
+            title: "litter-deepseek",
+            preview: "<command-message>review</command-message>",
+            lastToolLabel: nil
+        )
+
+        XCTAssertEqual(summary.displayTitle, "litter-deepseek")
+    }
+
     func testMakeRunningTurnSnapshotFallsBackWhenServerOrSummaryMissing() {
         let key = ThreadKey(serverId: "studio", threadId: "t2")
         let thread = makeThread(key: key, model: "")
@@ -141,6 +153,7 @@ final class RunningTurnSnapshotTests: XCTestCase {
         key: ThreadKey,
         serverDisplayName: String,
         title: String,
+        preview: String = "",
         lastToolLabel: String?
     ) -> AppSessionSummary {
         AppSessionSummary(
@@ -149,7 +162,7 @@ final class RunningTurnSnapshotTests: XCTestCase {
             serverDisplayName: serverDisplayName,
             serverHost: "\(key.serverId).local",
             title: title,
-            preview: "",
+            preview: preview,
             cwd: "/tmp",
             model: "",
             modelProvider: "",
