@@ -20,7 +20,7 @@ data class ComposerImageAttachment(
     val mimeType: String,
 ) {
     val dataUri: String
-        get() = "data:$mimeType;base64,${Base64.getEncoder().withoutPadding().encodeToString(data)}"
+        get() = "data:$mimeType;base64,${Base64.getEncoder().encodeToString(data)}"
 
     fun toUserInput(): AppUserInput.Image = AppUserInput.Image(url = dataUri)
 }

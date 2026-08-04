@@ -1,7 +1,6 @@
 package com.litter.android.state
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.codex_mobile_client.AbsolutePath
 import uniffi.codex_mobile_client.AppUserInput
@@ -16,7 +15,7 @@ class AppComposerPayloadTest {
                     listOf(
                         AppUserInput.Skill(name = "swiftui-pro", path = AbsolutePath("/Users/sigkitten/.codex/skills/swiftui-pro/SKILL.md")),
                         ComposerImageAttachment(
-                            data = byteArrayOf(0x01, 0x02, 0x03),
+                            data = byteArrayOf(0x01, 0x02),
                             mimeType = "image/png",
                         ).toUserInput(),
                         AppUserInput.Mention(name = "helper", path = "app://agent"),
@@ -35,7 +34,7 @@ class AppComposerPayloadTest {
         assertEquals("/Users/sigkitten/.codex/skills/swiftui-pro/SKILL.md", skillInput.path.value)
 
         val imageInput = params.input[2] as AppUserInput.Image
-        assertTrue(imageInput.url.startsWith("data:image/png;base64,"))
+        assertEquals("data:image/png;base64,AQI=", imageInput.url)
 
         val mentionInput = params.input[3] as AppUserInput.Mention
         assertEquals("helper", mentionInput.name)
@@ -60,6 +59,6 @@ class AppComposerPayloadTest {
 
         assertEquals(1, params.input.size)
         val imageInput = params.input.single() as AppUserInput.Image
-        assertTrue(imageInput.url.startsWith("data:image/jpeg;base64,"))
+        assertEquals("data:image/jpeg;base64,Cgs=", imageInput.url)
     }
 }
