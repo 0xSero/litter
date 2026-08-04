@@ -430,7 +430,6 @@ private fun AssistantMessageRow(
         if (data.text == renderedText) return@LaunchedEffect
         if (renderedText.isEmpty()) {
             renderedText = data.text
-            onStreamingSnapshotRendered?.invoke()
         } else {
             pendingText = data.text
         }
@@ -442,7 +441,6 @@ private fun AssistantMessageRow(
         delay(60)
         renderedText = nextText
         pendingText = null
-        onStreamingSnapshotRendered?.invoke()
     }
 
     Column(
