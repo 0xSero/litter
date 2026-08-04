@@ -18,6 +18,24 @@ SPEC.loader.exec_module(STORE_ARTIFACTS)
 
 
 class PlayAccessCheckTests(unittest.TestCase):
+    def test_api_request_json_sends_method_and_payload(self) -> None:
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"id":"edit-123"}'
+        with mock.patch.object(STORE_ARTIFACTS.urllib.request, "urlopen", return_value=response) as urlopen:
+            payload = STORE_ARTIFACTS.api_request_json(
+                "https://example.invalid/edits",
+                "token",
+                method="POST",
+                payload={},
+            )
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(payload, {"id": "edit-123"})
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.data, b"{}")
+        self.assertEqual(request.get_header("Authorization"), "Bearer token")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+
     def test_check_play_access_creates_and_discards_edit(self) -> None:
         service_account = pathlib.Path("/tmp/service-account.json")
         with (
