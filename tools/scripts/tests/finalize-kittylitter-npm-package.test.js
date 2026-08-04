@@ -81,7 +81,9 @@ test("patches the pinned cargo-dist 0.31.0 Windows installer", () => {
     /Windows does not have "unzip" by default on many installations/,
   );
 
-  const windowsCheckout = patchBinaryInstaller(source.replace(/\n/g, "\r\n"));
+  const windowsCheckout = patchBinaryInstaller(
+    source.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n"),
+  );
   assert.match(windowsCheckout, new RegExp(PATCH_MARKER));
 });
 
