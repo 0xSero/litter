@@ -8,8 +8,6 @@ SCHEME="${IOS_SCHEME:-Litter}"
 CONFIGURATION="${XCODE_CONFIG:-Debug}"
 ONLY_ACTIVE_ARCH="${IOS_DEVICE_ONLY_ACTIVE_ARCH:-0}"
 DERIVED_DATA_ROOT="${HOME}/Library/Developer/Xcode/DerivedData"
-SIGNING_STATE_DIR="${HOME}/Library/Application Support/LitterBuild"
-LOCAL_SIGNING_MARKER="${SIGNING_STATE_DIR}/use-local-device-signing"
 
 BUILD_LOG="$(mktemp /tmp/litter-device-build.XXXXXX)"
 PROFILE_LIST="$(mktemp /tmp/litter-device-profiles.XXXXXX)"
@@ -37,8 +35,6 @@ build_args+=(build)
 USE_LOCAL_SIGNING=0
 if [[ "${IOS_FORCE_LOCAL_SIGNING:-0}" == "1" ]]; then
   USE_LOCAL_SIGNING=1
-elif [[ -f "${LOCAL_SIGNING_MARKER}" && "${IOS_FORCE_CANONICAL_SIGNING:-0}" != "1" ]]; then
-  USE_LOCAL_SIGNING=1
 fi
 
 if [[ "${USE_LOCAL_SIGNING}" == "0" ]]; then
@@ -47,7 +43,6 @@ if [[ "${USE_LOCAL_SIGNING}" == "0" ]]; then
   build_status=${PIPESTATUS[0]}
   set -e
   if [[ "${build_status}" == "0" ]]; then
-    rm -f "${LOCAL_SIGNING_MARKER}"
     exit 0
   fi
 
@@ -56,11 +51,27 @@ if [[ "${USE_LOCAL_SIGNING}" == "0" ]]; then
     "${BUILD_LOG}"; then
     exit "${build_status}"
   fi
+  if [[ "${IOS_FORCE_CANONICAL_SIGNING:-0}" == "1" ]]; then
+    exit "${build_status}"
+  fi
 else
-  echo "==> Reusing remembered local device signing configuration."
+  echo "==> Local device signing explicitly requested."
 fi
 
 echo "==> Canonical signing is unavailable; trying a local development profile..."
+
+CANONICAL_BUNDLE_ID="$(xcodebuild \
+  -project "${PROJECT_PATH}" \
+  -scheme "${SCHEME}" \
+  -configuration "${CONFIGURATION}" \
+  -destination "generic/platform=iOS" \
+  -showBuildSettings 2>/dev/null \
+  | awk -F' = ' '/ PRODUCT_BUNDLE_IDENTIFIER = / { print $2; exit }')"
+REQUESTED_BUNDLE_ID="${IOS_LOCAL_BUNDLE_ID:-${CANONICAL_BUNDLE_ID}}"
+if [[ -z "${REQUESTED_BUNDLE_ID}" ]]; then
+  echo "ERROR: could not resolve the requested phone-app bundle identifier." >&2
+  exit 1
+fi
 
 if [[ -n "${IOS_LOCAL_PROVISIONING_PROFILE:-}" ]]; then
   if [[ ! -f "${IOS_LOCAL_PROVISIONING_PROFILE}" ]]; then
@@ -77,7 +88,7 @@ else
     -type f -print >> "${PROFILE_LIST}" 2>/dev/null || true
 fi
 
-python3 - "${PROFILE_LIST}" "${PROFILE_INFO}" <<'PY'
+python3 - "${PROFILE_LIST}" "${PROFILE_INFO}" "${REQUESTED_BUNDLE_ID}" <<'PY'
 import datetime
 import hashlib
 import os
@@ -85,7 +96,7 @@ import plistlib
 import subprocess
 import sys
 
-profile_list, output_path = sys.argv[1:3]
+profile_list, output_path, requested_bundle_id = sys.argv[1:4]
 identity_output = subprocess.run(
     ["security", "find-identity", "-v", "-p", "codesigning"],
     check=False,
@@ -112,9 +123,12 @@ for path in paths:
         profile = plistlib.loads(decoded)
         entitlements = profile.get("Entitlements", {})
         app_identifier = entitlements.get("application-identifier", "")
-        if ".litter" not in app_identifier.lower():
-            continue
         if not entitlements.get("get-task-allow", False):
+            continue
+        platforms = {str(value).lower() for value in profile.get("Platform", [])}
+        if "ios" not in platforms:
+            continue
+        if not profile.get("ProvisionedDevices"):
             continue
         expiration = profile.get("ExpirationDate")
         if not expiration or expiration <= datetime.datetime.now():
@@ -130,7 +144,7 @@ for path in paths:
         team_id = team_ids[0] if team_ids else app_identifier.split(".", 1)[0]
         prefix = f"{team_id}."
         bundle_id = app_identifier[len(prefix):] if app_identifier.startswith(prefix) else ""
-        if not bundle_id:
+        if bundle_id != requested_bundle_id:
             continue
         candidates.append(
             (
@@ -140,7 +154,6 @@ for path in paths:
                 bundle_id,
                 team_id,
                 cert_hash,
-                decoded,
             )
         )
     except (OSError, plistlib.InvalidFileException, subprocess.CalledProcessError):
@@ -149,7 +162,7 @@ for path in paths:
 if not candidates:
     sys.exit(1)
 
-expiration, path, uuid, bundle_id, team_id, cert_hash, decoded = max(
+expiration, path, uuid, bundle_id, team_id, cert_hash = max(
     candidates, key=lambda item: item[0]
 )
 with open(output_path, "w", encoding="utf-8") as fh:
@@ -158,8 +171,9 @@ with open(output_path, "w", encoding="utf-8") as fh:
 PY
 
 if [[ ! -s "${PROFILE_INFO}" ]]; then
-  echo "ERROR: no valid Litter iOS development profile matches an installed signing identity." >&2
+  echo "ERROR: no iOS development profile for ${REQUESTED_BUNDLE_ID} matches an installed signing identity." >&2
   echo "       Set IOS_LOCAL_PROVISIONING_PROFILE to a valid .mobileprovision file." >&2
+  echo "       Set IOS_LOCAL_BUNDLE_ID only when intentionally using an alternate phone-app id." >&2
   exit 1
 fi
 
@@ -234,9 +248,6 @@ codesign \
   --generate-entitlement-der \
   "${APP_PATH}"
 codesign --verify --deep --strict "${APP_PATH}"
-
-mkdir -p "${SIGNING_STATE_DIR}"
-touch "${LOCAL_SIGNING_MARKER}"
 
 echo "==> Locally signed ${LOCAL_BUNDLE_ID} for team ${LOCAL_TEAM_ID}"
 echo "==> Device app: ${APP_PATH}"
