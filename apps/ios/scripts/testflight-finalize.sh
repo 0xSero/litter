@@ -22,6 +22,10 @@ WHAT_TO_TEST_FILE="${WHAT_TO_TEST_FILE:-$TESTFLIGHT_WHATS_NEW_FILE}"
 BETA_APP_DESCRIPTION="${BETA_APP_DESCRIPTION:-}"
 BETA_APP_DESCRIPTION_LOCALE="${BETA_APP_DESCRIPTION_LOCALE:-en-US}"
 BETA_APP_DESCRIPTION_FILE="${BETA_APP_DESCRIPTION_FILE:-$TESTFLIGHT_BETA_DESCRIPTION_FILE}"
+REVIEW_CONTACT_FIRST_NAME="${REVIEW_CONTACT_FIRST_NAME:-}"
+REVIEW_CONTACT_LAST_NAME="${REVIEW_CONTACT_LAST_NAME:-}"
+REVIEW_CONTACT_EMAIL="${REVIEW_CONTACT_EMAIL:-}"
+REVIEW_CONTACT_PHONE="${REVIEW_CONTACT_PHONE:-}"
 
 require_cmd asc
 require_cmd jq
@@ -72,6 +76,67 @@ else
         --description "$BETA_APP_DESCRIPTION" \
         --output json >/dev/null
 fi
+
+review_json="$(asc testflight review view --app "$APP_STORE_APP_ID" --output json)"
+review_id="$(
+    jq -r '
+        (.data | if type == "array" then .[0] else . end) as $review
+        | $review.id // empty
+    ' <<<"$review_json"
+)"
+if [[ -z "$review_id" ]]; then
+    echo "Unable to resolve TestFlight Beta App Review details for app $APP_STORE_APP_ID." >&2
+    exit 1
+fi
+
+review_attribute() {
+    local json="$1"
+    local field="$2"
+    jq -r --arg field "$field" '
+        (.data | if type == "array" then .[0] else . end) as $review
+        | $review.attributes[$field] // empty
+    ' <<<"$json"
+}
+
+contact_first_name="${REVIEW_CONTACT_FIRST_NAME:-$(review_attribute "$review_json" contactFirstName)}"
+contact_last_name="${REVIEW_CONTACT_LAST_NAME:-$(review_attribute "$review_json" contactLastName)}"
+contact_email="${REVIEW_CONTACT_EMAIL:-$(review_attribute "$review_json" contactEmail)}"
+contact_phone="${REVIEW_CONTACT_PHONE:-$(review_attribute "$review_json" contactPhone)}"
+
+if [[ -z "$contact_first_name" || -z "$contact_last_name" || -z "$contact_email" || -z "$contact_phone" ]]; then
+    while IFS= read -r version_id; do
+        [[ -n "$version_id" ]] || continue
+        app_review_json="$(asc review details-for-version --version-id "$version_id" --output json 2>/dev/null || true)"
+        [[ -n "$app_review_json" ]] || continue
+
+        [[ -n "$contact_first_name" ]] || contact_first_name="$(review_attribute "$app_review_json" contactFirstName)"
+        [[ -n "$contact_last_name" ]] || contact_last_name="$(review_attribute "$app_review_json" contactLastName)"
+        [[ -n "$contact_email" ]] || contact_email="$(review_attribute "$app_review_json" contactEmail)"
+        [[ -n "$contact_phone" ]] || contact_phone="$(review_attribute "$app_review_json" contactPhone)"
+
+        if [[ -n "$contact_first_name" && -n "$contact_last_name" && -n "$contact_email" && -n "$contact_phone" ]]; then
+            break
+        fi
+    done < <(
+        asc versions list --app "$APP_STORE_APP_ID" --platform IOS --output json |
+            jq -r '.data[]?.id'
+    )
+fi
+
+if [[ -z "$contact_first_name" || -z "$contact_last_name" || -z "$contact_email" || -z "$contact_phone" ]]; then
+    echo "Missing TestFlight Beta App Review contact details." >&2
+    echo "Populate REVIEW_CONTACT_FIRST_NAME, REVIEW_CONTACT_LAST_NAME, REVIEW_CONTACT_EMAIL, and REVIEW_CONTACT_PHONE." >&2
+    exit 1
+fi
+
+echo "==> Ensuring TestFlight Beta App Review contact details are set"
+asc testflight review edit \
+    --id "$review_id" \
+    --contact-first-name "$contact_first_name" \
+    --contact-last-name "$contact_last_name" \
+    --contact-email "$contact_email" \
+    --contact-phone "$contact_phone" \
+    --output json >/dev/null
 
 if [[ -z "$WHAT_TO_TEST" && -f "$WHAT_TO_TEST_FILE" ]]; then
     WHAT_TO_TEST="$(cat "$WHAT_TO_TEST_FILE")"
