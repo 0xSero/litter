@@ -347,6 +347,28 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn thread_start_runtime_uses_sole_local_studio_runtime() {
+        let client = MobileClient::new();
+        client
+            .app_store
+            .upsert_server(&make_server_config("srv"), ServerHealthSnapshot::Connected);
+        client.app_store.update_server_agent_runtimes(
+            "srv",
+            vec![AgentRuntimeInfo {
+                kind: "local-studio".to_string(),
+                name: "local-studio".to_string(),
+                display_name: "Local Studio".to_string(),
+                available: true,
+            }],
+        );
+
+        assert_eq!(
+            client.runtime_for_thread_start("srv", None, None),
+            "local-studio".to_string()
+        );
+    }
+
+    #[test]
     fn thread_start_runtime_explicit_agent_wins_over_duplicate_model() {
         let client = MobileClient::new();
         client
