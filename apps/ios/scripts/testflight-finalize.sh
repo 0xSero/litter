@@ -161,7 +161,7 @@ asc validate testflight \
     --app "$APP_STORE_APP_ID" \
     --build "$BUILD_ID" \
     --strict \
-    --output json >/dev/null
+    --output table
 
 if [[ "$ASSIGN_BETA_GROUP" == "1" && "$SUBMIT_BETA_REVIEW" == "1" && "$external_group_requested" -eq 1 ]]; then
     submission_id="$(
