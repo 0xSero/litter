@@ -4,6 +4,7 @@ pub mod boundary;
 pub mod reconcile;
 pub mod reducer;
 pub mod snapshot;
+mod thread_modes;
 pub mod updates;
 mod voice;
 
