@@ -32,3 +32,9 @@ credentials therefore fail before the expensive iOS build.
 If upload succeeds but metadata or review submission fails, rerun only the
 finalization stage with the `iOS TestFlight Finalize` workflow and the existing
 marketing version/build number. Do not rebuild the IPA.
+
+The finalizer reuses Beta App Review contact details already present in
+TestFlight, or copies them from an existing App Store version without logging
+them. If neither source is populated, set the optional release secrets
+`TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME`, `TESTFLIGHT_REVIEW_CONTACT_LAST_NAME`,
+`TESTFLIGHT_REVIEW_CONTACT_EMAIL`, and `TESTFLIGHT_REVIEW_CONTACT_PHONE`.

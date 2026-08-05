@@ -26,6 +26,26 @@ case "$1:$2:${3:-}" in
     testflight:app-localizations:create|testflight:app-localizations:update)
         printf '%s\n' '{"data":{"id":"localization-1"}}'
         ;;
+    testflight:review:view)
+        if [[ "${MOCK_BETA_CONTACT_EXISTS:-0}" == "1" ]]; then
+            printf '%s\n' '{"data":{"id":"beta-review-1","attributes":{"contactFirstName":"Beta","contactLastName":"Tester","contactEmail":"beta@example.com","contactPhone":"+15555550100"}}}'
+        else
+            printf '%s\n' '{"data":{"id":"beta-review-1","attributes":{}}}'
+        fi
+        ;;
+    testflight:review:edit)
+        printf '%s\n' '{"data":{"id":"beta-review-1"}}'
+        ;;
+    versions:list:--app)
+        printf '%s\n' '{"data":[{"id":"version-1"}]}'
+        ;;
+    review:details-for-version:--version-id)
+        if [[ "${MOCK_APP_STORE_CONTACT_EXISTS:-0}" == "1" ]]; then
+            printf '%s\n' '{"data":{"id":"app-review-1","attributes":{"contactFirstName":"App","contactLastName":"Reviewer","contactEmail":"review@example.com","contactPhone":"+15555550101"}}}'
+        else
+            printf '%s\n' '{"data":{"id":"app-review-1","attributes":{}}}'
+        fi
+        ;;
     builds:test-notes:update)
         if [[ "${MOCK_NOTE_UPDATE_FAILS:-0}" == "1" ]]; then
             exit 1
@@ -79,6 +99,8 @@ run_finalize() {
     MOCK_LOCALIZATION_EXISTS="${MOCK_LOCALIZATION_EXISTS:-0}" \
     MOCK_NOTE_UPDATE_FAILS="${MOCK_NOTE_UPDATE_FAILS:-0}" \
     MOCK_SUBMISSION_EXISTS="${MOCK_SUBMISSION_EXISTS:-0}" \
+    MOCK_BETA_CONTACT_EXISTS="${MOCK_BETA_CONTACT_EXISTS:-0}" \
+    MOCK_APP_STORE_CONTACT_EXISTS="${MOCK_APP_STORE_CONTACT_EXISTS:-0}" \
     ASSIGN_BETA_GROUP="${ASSIGN_BETA_GROUP:-1}" \
     "$FINALIZE_SCRIPT"
 }
@@ -87,9 +109,14 @@ MOCK_ASC_LOG="$TEST_ROOT/create.log"
 MOCK_LOCALIZATION_EXISTS=0
 MOCK_NOTE_UPDATE_FAILS=1
 MOCK_SUBMISSION_EXISTS=0
+MOCK_BETA_CONTACT_EXISTS=0
+MOCK_APP_STORE_CONTACT_EXISTS=1
 ASSIGN_BETA_GROUP=1
 run_finalize
 grep -q 'testflight app-localizations create' "$MOCK_ASC_LOG"
+grep -q 'versions list' "$MOCK_ASC_LOG"
+grep -q 'review details-for-version' "$MOCK_ASC_LOG"
+grep -q 'testflight review edit' "$MOCK_ASC_LOG"
 grep -q 'builds test-notes create' "$MOCK_ASC_LOG"
 grep -q 'testflight review submit' "$MOCK_ASC_LOG"
 grep -q 'validate testflight' "$MOCK_ASC_LOG"
@@ -98,8 +125,15 @@ MOCK_ASC_LOG="$TEST_ROOT/update.log"
 MOCK_LOCALIZATION_EXISTS=1
 MOCK_NOTE_UPDATE_FAILS=0
 MOCK_SUBMISSION_EXISTS=1
+MOCK_BETA_CONTACT_EXISTS=1
+MOCK_APP_STORE_CONTACT_EXISTS=0
 run_finalize
 grep -q 'testflight app-localizations update' "$MOCK_ASC_LOG"
+grep -q 'testflight review edit' "$MOCK_ASC_LOG"
+if grep -q 'versions list' "$MOCK_ASC_LOG"; then
+    echo "Existing TestFlight review contact unexpectedly queried App Store versions." >&2
+    exit 1
+fi
 grep -q 'builds test-notes update' "$MOCK_ASC_LOG"
 if grep -q 'testflight review submit' "$MOCK_ASC_LOG"; then
     echo "Existing Beta App Review submission was submitted twice." >&2
@@ -110,13 +144,28 @@ MOCK_ASC_LOG="$TEST_ROOT/metadata-only.log"
 MOCK_LOCALIZATION_EXISTS=1
 MOCK_NOTE_UPDATE_FAILS=0
 MOCK_SUBMISSION_EXISTS=0
+MOCK_BETA_CONTACT_EXISTS=1
+MOCK_APP_STORE_CONTACT_EXISTS=0
 ASSIGN_BETA_GROUP=0
 run_finalize
 grep -q 'testflight app-localizations update' "$MOCK_ASC_LOG"
 grep -q 'builds test-notes update' "$MOCK_ASC_LOG"
 grep -q 'validate testflight' "$MOCK_ASC_LOG"
-if grep -Eq 'testflight groups|builds add-groups|testflight review' "$MOCK_ASC_LOG"; then
+if grep -Eq 'testflight groups|builds add-groups|testflight review (submissions|submit)' "$MOCK_ASC_LOG"; then
     echo "Metadata-only finalization changed TestFlight groups or review state." >&2
+    exit 1
+fi
+
+MOCK_ASC_LOG="$TEST_ROOT/missing-contact.log"
+MOCK_BETA_CONTACT_EXISTS=0
+MOCK_APP_STORE_CONTACT_EXISTS=0
+if run_finalize >"$TEST_ROOT/missing-contact.out" 2>&1; then
+    echo "Finalization succeeded without Beta App Review contact details." >&2
+    exit 1
+fi
+grep -q 'Populate REVIEW_CONTACT_FIRST_NAME' "$TEST_ROOT/missing-contact.out"
+if grep -q 'testflight review edit' "$MOCK_ASC_LOG"; then
+    echo "Incomplete Beta App Review contact details were written." >&2
     exit 1
 fi
 

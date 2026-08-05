@@ -73,4 +73,8 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
+          REVIEW_CONTACT_FIRST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME }}
+          REVIEW_CONTACT_LAST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_LAST_NAME }}
+          REVIEW_CONTACT_EMAIL: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_EMAIL }}
+          REVIEW_CONTACT_PHONE: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_PHONE }}
         run: ./apps/ios/scripts/testflight-finalize.sh
