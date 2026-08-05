@@ -83,7 +83,20 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Configure sccache
+        run: |
+          if [ -n "${SCCACHE_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "SCCACHE_BUCKET=" >> "$GITHUB_ENV"
+            echo "SCCACHE_ENDPOINT=" >> "$GITHUB_ENV"
+            echo "SCCACHE_S3_KEY_PREFIX=" >> "$GITHUB_ENV"
+            echo "AWS_ACCESS_KEY_ID=" >> "$GITHUB_ENV"
+            echo "AWS_SECRET_ACCESS_KEY=" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Sync codex submodule
@@ -100,7 +113,6 @@ jobs:
       - name: Generate shared mobile bindings
         if: steps.mobile-bindings-cache.outputs.cache-hit != 'true'
         env:
-          RUSTC_WRAPPER: sccache
           CARGO_INCREMENTAL: "0"
         run: |
           cd shared/rust-bridge
@@ -169,10 +181,24 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
+      - name: Configure sccache
+        run: |
+          if [ -n "${SCCACHE_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "SCCACHE_BUCKET=" >> "$GITHUB_ENV"
+            echo "SCCACHE_ENDPOINT=" >> "$GITHUB_ENV"
+            echo "SCCACHE_S3_KEY_PREFIX=" >> "$GITHUB_ENV"
+            echo "AWS_ACCESS_KEY_ID=" >> "$GITHUB_ENV"
+            echo "AWS_SECRET_ACCESS_KEY=" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Prime sccache
+        if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
         run: |
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-android.log"
           rm -f "$SCCACHE_ERROR_LOG"
@@ -205,7 +231,6 @@ jobs:
       - name: Build Rust JNI libs
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
-          RUSTC_WRAPPER: sccache
         run: make rust-android
 
       - name: Setup Gradle
