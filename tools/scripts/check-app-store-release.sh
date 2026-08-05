@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RELEASE_TEMP_DIR="${RUNNER_TEMP:?RUNNER_TEMP is required}"
 REQUIRE_WATCH_PROFILES="${REQUIRE_WATCH_PROFILES:-0}"
 umask 077
@@ -39,6 +40,24 @@ printf '%s' "$IOS_DIST_CERT_P12_B64" | base64 --decode > "$cert_path"
 printf '%s' "$IOS_APP_STORE_PROFILE_B64" | base64 --decode > "$app_profile_path"
 printf '%s' "$IOS_LIVE_ACTIVITY_APP_STORE_PROFILE_B64" | base64 --decode > "$activity_profile_path"
 openssl pkcs12 -in "$cert_path" -passin env:IOS_DIST_CERT_PASSWORD -noout
+
+validation_keychain_path="$RELEASE_TEMP_DIR/release-validation.keychain-db"
+validation_keychain_password="$(openssl rand -base64 24)"
+cleanup_validation_keychain() {
+    security delete-keychain "$validation_keychain_path" >/dev/null 2>&1 || true
+}
+trap cleanup_validation_keychain EXIT
+
+security create-keychain -p "$validation_keychain_password" "$validation_keychain_path"
+security unlock-keychain -p "$validation_keychain_password" "$validation_keychain_path"
+export APPLE_SIGNING_P12_PASSWORD="$IOS_DIST_CERT_PASSWORD"
+export APPLE_SIGNING_KEYCHAIN_PASSWORD="$validation_keychain_password"
+"$SCRIPT_DIR/import-apple-signing-identity.sh" "$cert_path" "$validation_keychain_path"
+if ! security find-identity -v -p codesigning "$validation_keychain_path" |
+    grep -Eq '^[[:space:]]*[1-9][0-9]* valid identities found$'; then
+    echo "The distribution certificate did not produce a valid macOS codesigning identity." >&2
+    exit 1
+fi
 
 validate_profile() {
     local profile_path="$1"
