@@ -137,20 +137,31 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: "Configure sccache env for R2 backend"
+        id: sccache-config
+        env:
+          SCCACHE_R2_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
+          SCCACHE_R2_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          SCCACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
         run: |
-          {
-            echo "RUSTC_WRAPPER=sccache"
-            echo "SCCACHE_BUCKET=rust-cache"
-            echo "SCCACHE_REGION=auto"
-            echo "SCCACHE_S3_USE_SSL=true"
-            echo "SCCACHE_S3_KEY_PREFIX=ci/kittylitter-release"
-            echo "SCCACHE_LOG=warn"
-            echo "SCCACHE_ENDPOINT=${{ secrets.SCCACHE_R2_ENDPOINT }}"
-            echo "AWS_ACCESS_KEY_ID=${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}"
-            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}"
-          } >> "$GITHUB_ENV"
+          if [[ -n "$SCCACHE_R2_ENDPOINT" && -n "$SCCACHE_R2_ACCESS_KEY_ID" && -n "$SCCACHE_R2_SECRET_ACCESS_KEY" ]]; then
+            {
+              echo "RUSTC_WRAPPER=sccache"
+              echo "SCCACHE_BUCKET=rust-cache"
+              echo "SCCACHE_REGION=auto"
+              echo "SCCACHE_S3_USE_SSL=true"
+              echo "SCCACHE_S3_KEY_PREFIX=ci/kittylitter-release"
+              echo "SCCACHE_LOG=warn"
+              echo "SCCACHE_ENDPOINT=$SCCACHE_R2_ENDPOINT"
+              echo "AWS_ACCESS_KEY_ID=$SCCACHE_R2_ACCESS_KEY_ID"
+              echo "AWS_SECRET_ACCESS_KEY=$SCCACHE_R2_SECRET_ACCESS_KEY"
+            } >> "$GITHUB_ENV"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
         shell: "bash"
       - name: "Install sccache"
+        if: steps.sccache-config.outputs.enabled == 'true'
         uses: "mozilla-actions/sccache-action@v0.0.9"
       - name: "Resolve Alleycat to latest main"
         run: "./tools/scripts/update-alleycat-main.sh --kittylitter"
