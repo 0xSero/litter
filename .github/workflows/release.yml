@@ -118,9 +118,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
-      CODESIGN_CERTIFICATE: ${{ secrets.CODESIGN_CERTIFICATE }}
-      CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.CODESIGN_CERTIFICATE_PASSWORD }}
-      CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
     steps:
       - name: enable windows longpaths
         run: |
@@ -178,6 +175,21 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      - name: Configure code signing
+        if: contains(join(matrix.targets, ','), 'apple-darwin')
+        env:
+          RELEASE_CODESIGN_CERTIFICATE: ${{ secrets.CODESIGN_CERTIFICATE }}
+          RELEASE_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.CODESIGN_CERTIFICATE_PASSWORD }}
+          RELEASE_CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        shell: bash
+        run: |
+          if [[ -n "$RELEASE_CODESIGN_CERTIFICATE" && -n "$RELEASE_CODESIGN_CERTIFICATE_PASSWORD" && -n "$RELEASE_CODESIGN_IDENTITY" ]]; then
+            {
+              echo "CODESIGN_CERTIFICATE=$RELEASE_CODESIGN_CERTIFICATE"
+              echo "CODESIGN_CERTIFICATE_PASSWORD=$RELEASE_CODESIGN_CERTIFICATE_PASSWORD"
+              echo "CODESIGN_IDENTITY=$RELEASE_CODESIGN_IDENTITY"
+            } >> "$GITHUB_ENV"
+          fi
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot
