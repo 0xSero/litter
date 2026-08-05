@@ -34,7 +34,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 200000254
-        versionName = "1.7.0"
+        versionName = "2.0.0"
         buildConfigField("boolean", "ENABLE_ON_DEVICE_BRIDGE", "true")
         buildConfigField("String", "RUNTIME_STARTUP_MODE", "\"hybrid\"")
         buildConfigField("String", "APP_RUNTIME_TRANSPORT", "\"app_bridge_rpc_transport\"")

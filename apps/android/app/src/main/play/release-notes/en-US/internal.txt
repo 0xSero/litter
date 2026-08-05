@@ -1,1 +1,1 @@
-Litter 1.7.0: stable Local Studio cold-start discovery for Pi/Codex/other agents, explicit renamed-session titles, smoother Markdown/table streaming, and reliable padded image attachments.
+Litter 2.0.0: Local Studio-only routing for list, start, stream, tools, resume, and hydration; persistent Local Studio session identity; visible recent sessions alongside legacy pins; Pi full-access/no-approval defaults; and accurate non-OpenAI connection status.
