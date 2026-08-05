@@ -61,6 +61,14 @@ fn server_counts_as_connected_for_reconnect(
     matches!(server.health, ServerHealthSnapshot::Connected)
 }
 
+fn server_supports_account_probe(server: &crate::store::snapshot::ServerSnapshot) -> bool {
+    server.agent_runtimes.is_empty()
+        || server
+            .agent_runtimes
+            .iter()
+            .any(|runtime| runtime.kind == "codex")
+}
+
 #[derive(uniffi::Object)]
 pub struct ReconnectController {
     inner: Arc<MobileClient>,
@@ -220,7 +228,11 @@ impl ReconnectController {
                 let remote_connected: Vec<String> = snapshot
                     .servers
                     .values()
-                    .filter(|s| !s.is_local && s.health == ServerHealthSnapshot::Connected)
+                    .filter(|s| {
+                        !s.is_local
+                            && s.health == ServerHealthSnapshot::Connected
+                            && server_supports_account_probe(s)
+                    })
                     .map(|s| s.server_id.clone())
                     .collect();
 
@@ -575,12 +587,16 @@ async fn reconnect_server_inner(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolved_local_display_name, server_counts_as_connected_for_reconnect};
+    use super::{
+        resolved_local_display_name, server_counts_as_connected_for_reconnect,
+        server_supports_account_probe,
+    };
     use crate::reconnect::SavedServerRecord;
     use crate::store::snapshot::{
         AppSnapshot, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
         ServerTransportDiagnostics,
     };
+    use crate::types::AgentRuntimeInfo;
     use std::collections::HashMap;
 
     fn empty_snapshot() -> AppSnapshot {
@@ -634,6 +650,24 @@ mod tests {
         assert!(!server_counts_as_connected_for_reconnect(
             &server_with_health(ServerHealthSnapshot::Unresponsive)
         ));
+    }
+
+    #[test]
+    fn account_probe_skips_local_studio_only_runtime() {
+        let mut local_studio = server_with_health(ServerHealthSnapshot::Connected);
+        local_studio.agent_runtimes = vec![AgentRuntimeInfo {
+            kind: "local-studio".to_string(),
+            name: "local-studio".to_string(),
+            display_name: "Local Studio".to_string(),
+            available: true,
+        }];
+        assert!(!server_supports_account_probe(&local_studio));
+
+        local_studio.agent_runtimes[0].kind = "codex".to_string();
+        assert!(server_supports_account_probe(&local_studio));
+        assert!(server_supports_account_probe(&server_with_health(
+            ServerHealthSnapshot::Connected
+        )));
     }
 
     #[test]
