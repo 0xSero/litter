@@ -72,11 +72,18 @@ if [[ -n "$localization_id" ]]; then
         --output json >/dev/null
 else
     echo "==> Creating TestFlight Beta App Description ($BETA_APP_DESCRIPTION_LOCALE)"
-    asc testflight app-localizations create \
-        --app "$APP_STORE_APP_ID" \
-        --locale "$BETA_APP_DESCRIPTION_LOCALE" \
-        --description "$BETA_APP_DESCRIPTION" \
-        --output json >/dev/null
+    localization_id="$(
+        asc testflight app-localizations create \
+            --app "$APP_STORE_APP_ID" \
+            --locale "$BETA_APP_DESCRIPTION_LOCALE" \
+            --description "$BETA_APP_DESCRIPTION" \
+            --output json |
+            jq -r '.data.id // empty'
+    )"
+fi
+if [[ -z "$localization_id" ]]; then
+    echo "Unable to resolve TestFlight app localization for $BETA_APP_DESCRIPTION_LOCALE." >&2
+    exit 1
 fi
 
 review_json="$(asc testflight review view --app "$APP_STORE_APP_ID" --output json)"
@@ -144,6 +151,12 @@ asc testflight review edit \
     --contact-phone "$contact_phone" \
     --demo-account-required="$REVIEW_DEMO_ACCOUNT_REQUIRED" \
     --notes "$review_notes" \
+    --output json >/dev/null
+
+echo "==> Ensuring TestFlight Feedback Email is set"
+asc testflight app-localizations update \
+    --id "$localization_id" \
+    --feedback-email "$contact_email" \
     --output json >/dev/null
 
 if [[ -z "$WHAT_TO_TEST" && -f "$WHAT_TO_TEST_FILE" ]]; then
