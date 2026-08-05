@@ -91,7 +91,7 @@ import com.litter.android.state.ComposerImageAttachment
 import com.litter.android.state.ComposerFileAttachment
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.VoiceTranscriptionManager
-import com.litter.android.state.ampReasoningEffortLocked
+import com.litter.android.state.reasoningEffortLocked
 import com.litter.android.util.LLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -432,7 +432,7 @@ fun ComposerBar(
             val launchState = appModel.launchState.snapshot.value
             val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
             val thread = appModel.snapshot.value?.threads?.find { it.key == threadKey }
-            val effort = if (thread?.ampReasoningEffortLocked == true) {
+            val effort = if (thread?.reasoningEffortLocked == true) {
                 null
             } else {
                 launchState.reasoningEffort.trim().ifEmpty { null }

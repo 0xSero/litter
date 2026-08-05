@@ -481,7 +481,7 @@ private func defaultReasoningEffortSelection(for model: ModelInfo) -> String {
 }
 
 /// Allowlist of model "mode" names the runtime advertises (e.g. Amp's
-/// `smart` / `rush` / `deep`). Pulled from `capabilities.visible_modes`
+/// `low` / `medium` / `high` / `ultra`). Pulled from `capabilities.visible_modes`
 /// in the alleycat manifest so the rule is per-agent, not Amp-hardcoded.
 private func visibleModeNames(for kind: AgentRuntimeKind) -> Set<String>? {
     kind.metadata?.capabilities?.visibleModes.map(Set.init)

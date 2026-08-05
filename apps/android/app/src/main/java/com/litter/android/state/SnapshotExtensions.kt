@@ -11,6 +11,7 @@ import uniffi.codex_mobile_client.AppConnectionStepKind
 import uniffi.codex_mobile_client.AppConnectionStepSnapshot
 import uniffi.codex_mobile_client.AppConnectionStepState
 import com.litter.android.ui.common.AgentRuntimeKind
+import com.litter.android.ui.common.locksReasoningEffortAfterActivity
 import com.litter.android.ui.common.runtimeLabel
 import uniffi.codex_mobile_client.ThreadSummaryStatus
 
@@ -140,8 +141,8 @@ val ThreadSummaryStatus.isActiveStatus: Boolean
 val AppThreadSnapshot.hasActiveTurn: Boolean
     get() = activeTurnId?.trim()?.isNotEmpty() == true || info.status.isActiveStatus
 
-val AppThreadSnapshot.ampReasoningEffortLocked: Boolean
-    get() = agentRuntimeKind == "amp" &&
+val AppThreadSnapshot.reasoningEffortLocked: Boolean
+    get() = agentRuntimeKind.locksReasoningEffortAfterActivity &&
         (hydratedConversationItems.isNotEmpty() || activeTurnId?.trim()?.isNotEmpty() == true)
 
 val AppThreadSnapshot.resolvedModel: String

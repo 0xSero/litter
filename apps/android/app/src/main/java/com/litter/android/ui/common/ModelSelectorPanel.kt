@@ -49,7 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.litter.android.state.ampReasoningEffortLocked
+import com.litter.android.state.reasoningEffortLocked
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
@@ -176,10 +176,9 @@ fun ModelSelectorPanel(
                 ?: visibleModels.firstOrNull()
         }
     }
-    val selectedModelIsAmp = selectedModelDefinition?.agentRuntimeKind == "amp"
-    val ampEffortLocked = selectedModelIsAmp && thread?.ampReasoningEffortLocked == true
-    val supportedEfforts = remember(selectedModelDefinition, ampEffortLocked) {
-        if (ampEffortLocked) {
+    val effortLocked = thread?.reasoningEffortLocked == true
+    val supportedEfforts = remember(selectedModelDefinition, effortLocked) {
+        if (effortLocked) {
             emptyList()
         } else {
             selectedModelDefinition?.supportedReasoningEfforts ?: emptyList()
@@ -200,13 +199,13 @@ fun ModelSelectorPanel(
             ?: selectedModelDefinition?.defaultReasoningEffort?.let(::effortLabel)
     }
 
-    LaunchedEffect(launchState.reasoningEffort, selectedModelDefinition, supportedEfforts, ampEffortLocked) {
+    LaunchedEffect(launchState.reasoningEffort, selectedModelDefinition, supportedEfforts, effortLocked) {
         val pendingEffort = launchState.reasoningEffort.trim()
         val defaultEffort = selectedModelDefinition?.defaultReasoningEffort
         if (pendingEffort.isEmpty()) {
             return@LaunchedEffect
         }
-        if (ampEffortLocked) {
+        if (effortLocked) {
             appModel.launchState.updateReasoningEffort(null)
             return@LaunchedEffect
         }
@@ -333,7 +332,7 @@ fun ModelSelectorPanel(
                                 agentRuntimeKind = model.agentRuntimeKind,
                             )
                             appModel.launchState.updateReasoningEffort(
-                                if (ampEffortLocked && model.agentRuntimeKind == "amp") {
+                                if (effortLocked) {
                                     null
                                 } else {
                                     model.defaultReasoningEffortSelection()
@@ -373,7 +372,7 @@ fun ModelSelectorPanel(
             )
         }
 
-        if (ampEffortLocked) {
+        if (effortLocked) {
             Text(
                 text = "Reasoning effort is locked after the first message.",
                 color = LitterTheme.textSecondary,
@@ -515,29 +514,32 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
     if (supportedReasoningEfforts.isEmpty()) null else effortLabel(defaultReasoningEffort)
 
-private val AmpVisibleModes = setOf("smart", "rush", "deep")
-
-private fun normalizedAmpModeName(value: String): String =
+private fun normalizedModeName(value: String, runtimeKind: AgentRuntimeKind): String =
     value.trim()
         .lowercase(Locale.ROOT)
-        .removePrefix("amp/")
-        .removePrefix("amp:")
+        .removePrefix("$runtimeKind/")
+        .removePrefix("$runtimeKind:")
+        .removePrefix("$runtimeKind\\")
 
-private fun ModelInfo.ampModeName(): String =
-    normalizedAmpModeName(id)
+private fun ModelInfo.modeName(): String =
+    normalizedModeName(id, agentRuntimeKind)
         .ifEmpty {
-            normalizedAmpModeName(model)
+            normalizedModeName(model, agentRuntimeKind)
         }
 
 internal fun ModelInfo.modelPickerDisplayName(): String =
-    if (agentRuntimeKind == "amp") {
-        ampModeName().ifEmpty { displayName.ifBlank { id } }
+    if (agentRuntimeKind.metadata?.capabilities?.visibleModes != null) {
+        modeName().ifEmpty { displayName.ifBlank { id } }
     } else {
         displayName.ifBlank { id }
     }
 
-private fun ModelInfo.isVisibleModelOption(): Boolean =
-    agentRuntimeKind != "amp" || ampModeName() in AmpVisibleModes
+internal fun ModelInfo.isVisibleModelOption(): Boolean {
+    val modes = agentRuntimeKind.metadata?.capabilities?.visibleModes ?: return true
+    return modeName() in modes.mapTo(mutableSetOf()) {
+        normalizedModeName(it, agentRuntimeKind)
+    }
+}
 
 private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,
