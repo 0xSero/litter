@@ -366,89 +366,20 @@ if [[ -n "$build_id" && "$AUTO_ASSIGN_ENCRYPTION_DECLARATION" == "1" ]]; then
     fi
 fi
 
-if [[ -n "$build_id" && -n "$WHAT_TO_TEST" ]]; then
-    echo "==> Ensuring What to Test notes are set for $WHAT_TO_TEST_LOCALE"
-    # Try update first (works if localization already exists), fall back to create.
-    if ! asc builds test-notes update \
-            --build-id "$build_id" \
-            --locale "$WHAT_TO_TEST_LOCALE" \
-            --whats-new "$WHAT_TO_TEST" \
-            --output json >/dev/null 2>&1; then
-        asc builds test-notes create \
-            --build-id "$build_id" \
-            --locale "$WHAT_TO_TEST_LOCALE" \
-            --whats-new "$WHAT_TO_TEST" \
-            --output json >/dev/null
-    fi
-fi
-
-if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
-    beta_group_ids=()
-    external_group_requested=0
-
-    IFS=',' read -r -a requested_group_names <<<"$BETA_GROUP_NAMES"
-    for raw_group_name in "${requested_group_names[@]}"; do
-        group_name="$(trim "$raw_group_name")"
-        [[ -n "$group_name" ]] || continue
-
-        beta_group_id="$(
-            asc testflight groups list --app "$APP_STORE_APP_ID" --output json |
-                jq -r --arg name "$group_name" '.data[] | select(.attributes.name == $name) | .id' |
-                head -n 1
-        )"
-
-        if [[ -z "$beta_group_id" ]]; then
-            create_cmd=(
-                asc testflight groups create
-                --app "$APP_STORE_APP_ID"
-                --name "$group_name"
-                --output json
-            )
-            if [[ "$group_name" == "$INTERNAL_BETA_GROUP_NAME" ]]; then
-                create_cmd+=(--internal)
-            else
-                external_group_requested=1
-            fi
-            beta_group_id="$(
-                "${create_cmd[@]}" |
-                    jq -r '.data.id // empty'
-            )"
-        elif [[ "$group_name" != "$INTERNAL_BETA_GROUP_NAME" ]]; then
-            external_group_requested=1
-        fi
-
-        if [[ -n "$beta_group_id" ]]; then
-            beta_group_ids+=("$beta_group_id")
-        fi
-    done
-
-    if [[ "${#beta_group_ids[@]}" -gt 0 ]]; then
-        group_csv="$(IFS=,; printf '%s' "${beta_group_ids[*]}")"
-        echo "==> Assigning build $build_id to beta groups: $BETA_GROUP_NAMES"
-        deadline="$(( $(date +%s) + BUILD_POLL_TIMEOUT_SECONDS ))"
-        assigned=0
-        while [[ "$(date +%s)" -lt "$deadline" ]]; do
-            if asc builds add-groups --build-id "$build_id" --group "$group_csv" --output json >/dev/null 2>&1; then
-                assigned=1
-                break
-            fi
-            sleep "$BUILD_POLL_INTERVAL_SECONDS"
-        done
-        if [[ "$assigned" -ne 1 ]]; then
-            echo "Failed to assign build $build_id to beta groups '$BETA_GROUP_NAMES' within timeout." >&2
-            exit 1
-        fi
-
-        if [[ "$SUBMIT_BETA_REVIEW" == "1" && "$external_group_requested" -eq 1 ]]; then
-            echo "==> Submitting build $build_id for Beta App Review"
-            asc testflight review submit --build-id "$build_id" --confirm --output json >/dev/null
-        fi
-    fi
-fi
-
 if [[ -n "$build_id" ]]; then
-    echo "==> Validating TestFlight readiness"
-    asc validate testflight --app "$APP_STORE_APP_ID" --build "$build_id" --strict --output json >/dev/null
+    BUILD_ID="$build_id" \
+    APP_STORE_APP_ID="$APP_STORE_APP_ID" \
+    MARKETING_VERSION="$MARKETING_VERSION" \
+    BUILD_NUMBER="$BUILD_NUMBER" \
+    INTERNAL_BETA_GROUP_NAME="$INTERNAL_BETA_GROUP_NAME" \
+    BETA_GROUP_NAMES="$BETA_GROUP_NAMES" \
+    ASSIGN_BETA_GROUP="$ASSIGN_BETA_GROUP" \
+    SUBMIT_BETA_REVIEW="$SUBMIT_BETA_REVIEW" \
+    BUILD_POLL_TIMEOUT_SECONDS="$BUILD_POLL_TIMEOUT_SECONDS" \
+    BUILD_POLL_INTERVAL_SECONDS="$BUILD_POLL_INTERVAL_SECONDS" \
+    WHAT_TO_TEST="$WHAT_TO_TEST" \
+    WHAT_TO_TEST_LOCALE="$WHAT_TO_TEST_LOCALE" \
+    "$SCRIPT_DIR/testflight-finalize.sh"
 fi
 
 if [[ "$PROJECT_VERSION_BUMP_REQUIRED" == "1" ]]; then

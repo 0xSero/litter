@@ -5,6 +5,7 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$IOS_DIR/../.." && pwd)"
 IOS_PROJECT_YML="${IOS_PROJECT_YML:-$IOS_DIR/project.yml}"
 TESTFLIGHT_WHATS_NEW_FILE="${TESTFLIGHT_WHATS_NEW_FILE:-$ROOT_DIR/docs/releases/testflight-whats-new.md}"
+TESTFLIGHT_BETA_DESCRIPTION_FILE="${TESTFLIGHT_BETA_DESCRIPTION_FILE:-$ROOT_DIR/docs/releases/testflight-beta-description.txt}"
 FASTLANE_DIR="${FASTLANE_DIR:-$IOS_DIR/fastlane}"
 
 require_cmd() {

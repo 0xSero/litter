@@ -1,0 +1,76 @@
+name: iOS TestFlight Finalize
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: "Existing TestFlight marketing version"
+        required: true
+        type: string
+      build_number:
+        description: "Existing TestFlight build number"
+        required: true
+        type: string
+      beta_group_names:
+        description: "Comma-separated TestFlight beta groups"
+        required: false
+        default: "Internal Testers,Beta Testers"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  finalize-testflight:
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment: release
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
+          IOS_APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
+        run: |
+          set -euo pipefail
+          required=(ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_P8_B64 IOS_APP_STORE_APP_ID)
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install dependencies
+        run: |
+          brew install jq
+          HOMEBREW_NO_AUTO_UPDATE=0 brew install asc
+
+      - name: Decode App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
+        run: |
+          set -euo pipefail
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_PRIVATE_KEY_P8_B64" | base64 --decode > "$ASC_KEY_PATH"
+          chmod 600 "$ASC_KEY_PATH"
+          echo "ASC_PRIVATE_KEY_PATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Finalize existing TestFlight build
+        env:
+          APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
+          MARKETING_VERSION: ${{ inputs.marketing_version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          BETA_GROUP_NAMES: ${{ inputs.beta_group_names }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
+        run: ./apps/ios/scripts/testflight-finalize.sh
