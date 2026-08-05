@@ -98,6 +98,9 @@ enum class AlleycatPairingMode {
     LocalStudio,
 }
 
+internal fun AlleycatPairingMode.includesAgent(name: String): Boolean =
+    this != AlleycatPairingMode.LocalStudio || name == "local-studio"
+
 private const val LOG_TAG = "AlleycatSheet"
 
 @Composable
@@ -144,7 +147,10 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
+                    selectedAgentNames = loaded
+                        .filter { it.available && pairingMode.includesAgent(it.name) }
+                        .map { it.name }
+                        .toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
@@ -212,7 +218,9 @@ fun AlleycatAddServerSheet(
 
     fun connect() {
         val params = parsedParams ?: return
-        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
+        val selectedAgents = agents.filter {
+            it.available && pairingMode.includesAgent(it.name) && it.name in selectedAgentNames
+        }
         val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
         val resolvedName = trimmedDisplay.ifEmpty { resolvedSuggestedDisplayName(params, pairingMode) }
@@ -264,10 +272,7 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    // A Local Studio pairing credential grants access to the whole
-    // controller. Keep Codex and every other enabled runtime attached so
-    // their model catalogs remain available in the shared picker.
-    val availableAgents = agents.filter { it.available }
+    val availableAgents = agents.filter { it.available && pairingMode.includesAgent(it.name) }
     val selectedAgents = availableAgents.filter { it.name in selectedAgentNames }
     val canConnect =
         !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
