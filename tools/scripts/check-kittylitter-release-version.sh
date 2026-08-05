@@ -14,7 +14,7 @@ if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; t
   exit 0
 fi
 
-git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+git fetch --no-tags --no-recurse-submodules origin "refs/tags/$tag:refs/tags/$tag"
 if git diff --quiet "$tag" -- services/kittylitter; then
   exit 0
 fi
