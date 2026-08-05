@@ -474,13 +474,31 @@ mod mobile_client_tests {
     }
 
     #[test]
-    fn local_studio_controller_connections_expand_legacy_agent_selection() {
-        assert!(local_studio_controller_uses_all_agents(
+    fn local_studio_controller_connections_preserve_local_studio_scope() {
+        assert!(is_local_studio_controller(
             "alleycat:local-studio:controller-node"
         ));
-        assert!(!local_studio_controller_uses_all_agents(
-            "alleycat:controller-node"
+        assert!(!is_local_studio_controller("alleycat:controller-node"));
+        let all_agents = HashSet::from([
+            "local-studio".to_string(),
+            "codex".to_string(),
+            "pi".to_string(),
+        ]);
+        assert!(alleycat_agent_is_requested(
+            true,
+            &all_agents,
+            "local-studio"
         ));
+        assert!(!alleycat_agent_is_requested(true, &all_agents, "codex"));
+        assert!(!alleycat_agent_is_requested(true, &all_agents, "pi"));
+        assert!(alleycat_agent_is_requested(
+            false,
+            &all_agents,
+            "local-studio"
+        ));
+        assert!(alleycat_agent_is_requested(false, &all_agents, "codex"));
+        assert!(alleycat_agent_is_requested(false, &all_agents, "pi"));
+        assert!(alleycat_agent_is_requested(false, &HashSet::new(), "codex"));
         assert_eq!(
             alleycat_inventory_refresh_delays(true),
             ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS

@@ -702,8 +702,19 @@ fn alleycat_requested_runtime_kinds(
         .collect()
 }
 
-fn local_studio_controller_uses_all_agents(server_id: &str) -> bool {
+fn is_local_studio_controller(server_id: &str) -> bool {
     server_id.starts_with("alleycat:local-studio:")
+}
+
+fn alleycat_agent_is_requested(
+    local_studio_controller: bool,
+    selected_agent_names: &HashSet<String>,
+    agent_name: &str,
+) -> bool {
+    if local_studio_controller {
+        return agent_name == "local-studio";
+    }
+    selected_agent_names.is_empty() || selected_agent_names.contains(agent_name)
 }
 
 fn merge_alleycat_agent_inventory(
@@ -1815,35 +1826,32 @@ impl MobileClient {
             "MobileClient: connect_remote_over_alleycat start server_id={} node_id={} agent={} selected_agents={:?} wire={:?}",
             server_id, params.node_id, agent_name, selected_agent_names, wire
         );
-        // Local Studio's phone credential authorizes the whole controller,
-        // and its mobile surface is expected to expose every enabled runtime
-        // (including Codex). Older clients persisted only `local-studio` here,
-        // so expand these saved connections during reconnect as well as on a
-        // fresh pair instead of permanently hiding the other model catalogs.
-        let use_all_controller_agents = local_studio_controller_uses_all_agents(&server_id);
+        let local_studio_controller = is_local_studio_controller(&server_id);
         let selected_agent_names = selected_agent_names
             .into_iter()
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())
             .collect::<Vec<_>>();
-        let selected_agent_intent = selected_agent_names.join(",");
+        let selected_agent_intent = if local_studio_controller {
+            "local-studio".to_string()
+        } else {
+            selected_agent_names.join(",")
+        };
         let selected_agent_names = selected_agent_names
             .into_iter()
             .collect::<std::collections::HashSet<_>>();
-        // Local Studio can answer before its Pi/Codex bridges have registered.
-        // Stabilize the same inventory used by the pairing scanner and connect
-        // path so an empty first probe cannot permanently hide those agents.
         let agent_inventory = self
-            .list_alleycat_agents(params.clone(), use_all_controller_agents)
+            .list_alleycat_agents(params.clone(), local_studio_controller)
             .await?;
         let mut seen_runtime_kinds = std::collections::HashSet::new();
         let requested_agents = agent_inventory
             .into_iter()
             .filter_map(|agent| {
-                if !use_all_controller_agents
-                    && !selected_agent_names.is_empty()
-                    && !selected_agent_names.contains(&agent.name)
-                {
+                if !alleycat_agent_is_requested(
+                    local_studio_controller,
+                    &selected_agent_names,
+                    &agent.name,
+                ) {
                     return None;
                 }
                 let runtime_kind =
@@ -1855,22 +1863,29 @@ impl MobileClient {
             })
             .collect::<Vec<_>>();
         let runtime_agents = if requested_agents.is_empty() {
-            if !use_all_controller_agents
-                && !selected_agent_names.is_empty()
-                && !selected_agent_names.contains(&agent_name)
-            {
+            let fallback_agent_name = if local_studio_controller {
+                "local-studio".to_string()
+            } else {
+                agent_name.clone()
+            };
+            if !alleycat_agent_is_requested(
+                local_studio_controller,
+                &selected_agent_names,
+                &fallback_agent_name,
+            ) {
                 self.app_store
                     .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
                 return Err(TransportError::ConnectionFailed(
                     "no selected Alleycat runtime streams are available".to_string(),
                 ));
             }
-            let runtime_kind = crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
-                .unwrap_or("codex".to_string());
+            let runtime_kind =
+                crate::alleycat::agent_runtime_kind(&fallback_agent_name, &fallback_agent_name)
+                    .unwrap_or("codex".to_string());
             vec![(
                 runtime_kind,
                 AlleycatAgentInfo {
-                    name: agent_name.clone(),
+                    name: fallback_agent_name,
                     display_name: display_name.clone(),
                     wire,
                     available: true,
@@ -1883,8 +1898,7 @@ impl MobileClient {
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
-        let persisted_agent_names = if use_all_controller_agents || selected_agent_intent.is_empty()
-        {
+        let persisted_agent_names = if selected_agent_intent.is_empty() {
             requested_agent_names.clone()
         } else {
             selected_agent_intent
@@ -1971,7 +1985,7 @@ impl MobileClient {
             }
         };
 
-        let dial_retry_delays = alleycat_dial_retry_delays(use_all_controller_agents);
+        let dial_retry_delays = alleycat_dial_retry_delays(local_studio_controller);
         let dial_tasks = runtime_agents.into_iter().map(|(runtime_kind, agent)| {
             let reconnect_transport = AlleycatReconnectTransport::new(
                 params.clone(),
@@ -2042,7 +2056,7 @@ impl MobileClient {
                 "no available Alleycat runtime streams connected".to_string(),
             ));
         }
-        if use_all_controller_agents {
+        if local_studio_controller {
             let connected_runtime_kinds = runtime_resources
                 .iter()
                 .map(|resource| resource.runtime_kind.clone())
@@ -2050,13 +2064,13 @@ impl MobileClient {
             let missing = missing_runtime_kinds(&connected_runtime_kinds, &requested_runtime_kinds);
             if !missing.is_empty() {
                 warn!(
-                    "MobileClient: refusing partial Local Studio controller session server_id={} missing_runtimes={:?}",
+                    "MobileClient: refusing incomplete Local Studio session server_id={} missing_runtimes={:?}",
                     server_id, missing
                 );
                 self.app_store
                     .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
                 return Err(TransportError::ConnectionFailed(format!(
-                    "Local Studio controller did not connect every advertised runtime: {}",
+                    "Local Studio did not connect its advertised runtime: {}",
                     missing.join(", ")
                 )));
             }
