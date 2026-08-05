@@ -8,6 +8,31 @@ pub(super) struct DynamicToolSessionTarget {
     config: ServerConfig,
 }
 
+fn local_studio_only_runtime(runtime_kinds: &[AgentRuntimeKind]) -> Option<AgentRuntimeKind> {
+    (runtime_kinds == ["local-studio".to_string()]).then(|| "local-studio".to_string())
+}
+
+fn reconcile_list_sessions_page(
+    app_store: &AppStoreReducer,
+    server_id: &str,
+    runtime_kinds: &[AgentRuntimeKind],
+    threads: &[ThreadInfo],
+) {
+    if local_studio_only_runtime(runtime_kinds).is_some() {
+        // list_sessions is intentionally capped to a single page. Local Studio
+        // session inventory is durable and additive here: a partial tool result
+        // must neither delete older sessions nor relabel the visible page as
+        // Codex. Explicit thread/archive remains the removal signal.
+        app_store.upsert_thread_list_page_for_runtime(
+            server_id,
+            "local-studio".to_string(),
+            threads,
+        );
+    } else {
+        app_store.sync_thread_list(server_id, threads);
+    }
+}
+
 pub(super) async fn handle_dynamic_tool_call_request(
     session: Arc<ServerSession>,
     sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
@@ -251,8 +276,10 @@ pub(super) async fn list_sessions_tool_output(
     let mut errors = Vec::new();
 
     for target in targets {
+        let runtime_kinds = target.session.runtime_kinds();
         let response = dynamic_tool_request_typed::<upstream::ThreadListResponse, _>(
             &target.session,
+            local_studio_only_runtime(&runtime_kinds),
             "thread/list",
             &upstream::ThreadListParams {
                 cursor: None,
@@ -276,7 +303,12 @@ pub(super) async fn list_sessions_tool_output(
                     .into_iter()
                     .filter_map(thread_info_from_upstream_thread)
                     .collect::<Vec<_>>();
-                app_store.sync_thread_list(&target.server_id, &threads);
+                reconcile_list_sessions_page(
+                    app_store.as_ref(),
+                    &target.server_id,
+                    &runtime_kinds,
+                    &threads,
+                );
                 items.extend(threads.into_iter().map(|thread| {
                     serde_json::json!({
                         "id": thread.id,
@@ -370,6 +402,7 @@ pub(super) async fn list_sessions_tool_output(
 
 pub(super) async fn dynamic_tool_request_typed<R, P>(
     session: &Arc<ServerSession>,
+    runtime_kind: Option<AgentRuntimeKind>,
     method: &str,
     params: &P,
 ) -> Result<R, String>
@@ -379,12 +412,77 @@ where
 {
     let params_json = serde_json::to_value(params)
         .map_err(|error| format!("serialize {method} params: {error}"))?;
-    let response = session
-        .request(method, params_json)
-        .await
-        .map_err(|error| format!("{method} request failed: {error}"))?;
+    let response = if let Some(runtime_kind) = runtime_kind {
+        session
+            .request_for_runtime(runtime_kind, method, params_json)
+            .await
+    } else {
+        session.request(method, params_json).await
+    }
+    .map_err(|error| format!("{method} request failed: {error}"))?;
     serde_json::from_value(response)
         .map_err(|error| format!("deserialize {method} response: {error}"))
+}
+
+#[cfg(test)]
+mod local_studio_tests {
+    use super::*;
+    use crate::store::snapshot::ThreadSnapshot;
+    use crate::types::ThreadSummaryStatus;
+
+    fn thread(id: &str) -> ThreadInfo {
+        ThreadInfo {
+            id: id.to_string(),
+            title: None,
+            status: ThreadSummaryStatus::Idle,
+            preview: None,
+            cwd: None,
+            path: None,
+            model: None,
+            model_provider: None,
+            agent_nickname: None,
+            agent_role: None,
+            parent_thread_id: None,
+            forked_from_id: None,
+            agent_status: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn local_studio_tool_page_is_additive_and_keeps_runtime_identity() {
+        let store = AppStoreReducer::new();
+        let mut older = ThreadSnapshot::from_info("local-studio-server", thread("older"));
+        older.agent_runtime_kind = "local-studio".to_string();
+        store.upsert_thread_snapshot(older);
+
+        reconcile_list_sessions_page(
+            &store,
+            "local-studio-server",
+            &["local-studio".to_string()],
+            &[thread("newer")],
+        );
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.threads.len(), 2);
+        assert!(snapshot.threads.values().all(|thread| {
+            thread.key.server_id != "local-studio-server"
+                || thread.agent_runtime_kind == "local-studio"
+        }));
+    }
+
+    #[test]
+    fn non_local_studio_tool_page_keeps_existing_reconcile_behavior() {
+        let store = AppStoreReducer::new();
+        store.upsert_thread_snapshot(ThreadSnapshot::from_info("server", thread("older")));
+
+        reconcile_list_sessions_page(&store, "server", &["codex".to_string()], &[thread("newer")]);
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.threads.len(), 1);
+        assert!(snapshot.threads.keys().any(|key| key.thread_id == "newer"));
+    }
 }
 
 /// If a waiter is registered for the thread that emitted this

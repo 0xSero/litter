@@ -97,6 +97,11 @@ fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInf
 
 pub struct AppStoreReducer {
     snapshot: RwLock<AppSnapshot>,
+    /// Local Studio notifications can arrive before the asynchronous store
+    /// listener has inserted their thread. Preserve that transport-owned
+    /// identity until the first snapshot lands instead of defaulting the new
+    /// thread to Codex.
+    pending_local_studio_thread_routes: RwLock<HashSet<ThreadKey>>,
     last_thread_state_updates: RwLock<
         HashMap<
             ThreadKey,
@@ -145,6 +150,7 @@ impl AppStoreReducer {
         let (updates_tx, _) = broadcast::channel(1024);
         Self {
             snapshot: RwLock::new(AppSnapshot::default()),
+            pending_local_studio_thread_routes: RwLock::new(HashSet::new()),
             last_thread_state_updates: RwLock::new(HashMap::new()),
             last_thread_item_upserts: RwLock::new(HashMap::new()),
             dynamic_tool_arg_buffers: RwLock::new(HashMap::new()),
@@ -332,10 +338,11 @@ impl AppStoreReducer {
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             let active_thread_key = snapshot.active_thread.clone();
-            snapshot.threads.retain(|key, _| {
+            snapshot.threads.retain(|key, thread| {
                 let keep = key.server_id != server_id
                     || incoming_ids.contains(&key.thread_id)
-                    || active_thread_key.as_ref() == Some(key);
+                    || active_thread_key.as_ref() == Some(key)
+                    || thread.agent_runtime_kind == "local-studio";
                 if !keep {
                     removed_thread_keys.push(key.clone());
                 }
@@ -367,7 +374,9 @@ impl AppStoreReducer {
                         entry.model = next_model;
                         updated_thread_keys.push(key.clone());
                     }
-                    if entry.agent_runtime_kind != runtime_kind {
+                    if entry.agent_runtime_kind != runtime_kind
+                        && entry.agent_runtime_kind != "local-studio"
+                    {
                         entry.agent_runtime_kind = runtime_kind.clone();
                         updated_thread_keys.push(key);
                     }
@@ -490,10 +499,11 @@ impl AppStoreReducer {
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             let active_thread_key = snapshot.active_thread.clone();
-            snapshot.threads.retain(|key, _| {
+            snapshot.threads.retain(|key, thread| {
                 let keep = key.server_id != server_id
                     || incoming_ids.contains(&key.thread_id)
-                    || active_thread_key.as_ref() == Some(key);
+                    || active_thread_key.as_ref() == Some(key)
+                    || thread.agent_runtime_kind == "local-studio";
                 if !keep {
                     removed_thread_keys.push(key.clone());
                 }
@@ -586,6 +596,14 @@ impl AppStoreReducer {
         let key = thread.key.clone();
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            if self
+                .pending_local_studio_thread_routes
+                .write()
+                .expect("pending Local Studio route lock poisoned")
+                .remove(&key)
+            {
+                thread.agent_runtime_kind = "local-studio".to_string();
+            }
             let existing = snapshot.threads.get(&key).cloned();
             if let Some(existing) = existing.as_ref() {
                 // Diagnostic for the duplicate-user-message bug (task #11):
@@ -1310,8 +1328,18 @@ impl AppStoreReducer {
         let changed = {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             let Some(thread) = snapshot.threads.get_mut(key) else {
+                if runtime_kind == "local-studio" {
+                    self.pending_local_studio_thread_routes
+                        .write()
+                        .expect("pending Local Studio route lock poisoned")
+                        .insert(key.clone());
+                }
                 return;
             };
+            self.pending_local_studio_thread_routes
+                .write()
+                .expect("pending Local Studio route lock poisoned")
+                .remove(key);
             if thread.agent_runtime_kind == runtime_kind {
                 false
             } else {
@@ -2229,11 +2257,19 @@ impl AppStoreReducer {
     {
         let inserted = {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            let pending_local_studio_route = self
+                .pending_local_studio_thread_routes
+                .write()
+                .expect("pending Local Studio route lock poisoned")
+                .remove(&key);
             let inserted = !snapshot.threads.contains_key(&key);
             let thread = snapshot
                 .threads
                 .entry(key.clone())
                 .or_insert_with(|| ThreadSnapshot::from_info(&key.server_id, info.clone()));
+            if pending_local_studio_route {
+                thread.agent_runtime_kind = "local-studio".to_string();
+            }
             thread.info.id = info.id;
             if info.title.is_some() {
                 thread.info.title = info.title;
@@ -3708,6 +3744,64 @@ mod tests {
             reducer.thread_snapshot(&key).unwrap().agent_runtime_kind,
             "pi".to_string()
         );
+    }
+
+    #[test]
+    fn pending_local_studio_route_labels_thread_created_by_async_event() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "alleycat:local-studio:controller".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+
+        reducer.set_thread_agent_runtime(&key, "local-studio".to_string());
+        reducer.upsert_or_merge_thread(key.clone(), make_thread_info("thread-1"), |_| {});
+
+        assert_eq!(
+            reducer.thread_snapshot(&key).unwrap().agent_runtime_kind,
+            "local-studio"
+        );
+    }
+
+    #[test]
+    fn pending_thread_route_behavior_is_local_studio_only() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "alleycat:controller".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+
+        reducer.set_thread_agent_runtime(&key, "pi".to_string());
+        reducer.upsert_or_merge_thread(key.clone(), make_thread_info("thread-1"), |_| {});
+
+        assert_eq!(
+            reducer.thread_snapshot(&key).unwrap().agent_runtime_kind,
+            "codex"
+        );
+    }
+
+    #[test]
+    fn destructive_sync_never_prunes_or_relabels_local_studio_threads() {
+        let reducer = AppStoreReducer::new();
+        for id in ["listed", "outside-page"] {
+            let mut thread = ThreadSnapshot::from_info("srv", make_thread_info(id));
+            thread.agent_runtime_kind = "local-studio".to_string();
+            reducer.upsert_thread_snapshot(thread);
+        }
+
+        reducer.sync_thread_list("srv", &[make_thread_info("listed")]);
+
+        let snapshot = reducer.snapshot();
+        for id in ["listed", "outside-page"] {
+            let key = ThreadKey {
+                server_id: "srv".to_string(),
+                thread_id: id.to_string(),
+            };
+            assert_eq!(
+                snapshot.threads.get(&key).unwrap().agent_runtime_kind,
+                "local-studio"
+            );
+        }
     }
 
     #[test]
