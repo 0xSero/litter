@@ -2,9 +2,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RELEASE_TEMP_DIR="${RUNNER_TEMP:?RUNNER_TEMP is required}"
 REQUIRE_WATCH_PROFILES="${REQUIRE_WATCH_PROFILES:-0}"
+BETA_APP_DESCRIPTION_FILE="${BETA_APP_DESCRIPTION_FILE:-$REPO_ROOT/docs/releases/testflight-beta-description.txt}"
 umask 077
+
+if [[ ! -s "$BETA_APP_DESCRIPTION_FILE" ]] ||
+    ! grep -q '[^[:space:]]' "$BETA_APP_DESCRIPTION_FILE"; then
+    echo "Missing TestFlight Beta App Description: $BETA_APP_DESCRIPTION_FILE" >&2
+    exit 1
+fi
 
 required=(
     ASC_KEY_ID

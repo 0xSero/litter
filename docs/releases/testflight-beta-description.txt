@@ -1,0 +1,1 @@
+Litter is the native iOS client for Codex and Local Studio. Connect to local or remote servers, manage sessions, and run agentic coding workflows from your phone. Test pairing and discovery, Codex and Pi sessions, streaming responses, reasoning, tool calls, attachments, reconnects, and thread resume.
