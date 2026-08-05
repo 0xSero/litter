@@ -1174,6 +1174,12 @@ fn note_notification_runtime(
         server_id: server_id.to_string(),
         thread_id,
     };
+    if runtime_kind == "local-studio"
+        && !matches!(notification, upstream::ServerNotification::ThreadStarted(_))
+        && app_store.thread_snapshot(&key).is_none()
+    {
+        return;
+    }
     app_store.set_thread_agent_runtime(&key, runtime_kind);
 }
 
@@ -1230,12 +1236,59 @@ fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::snapshot::ThreadSnapshot;
     use codex_app_server_protocol::{
         CommandAction, CommandExecutionSource, CommandExecutionStatus, ThreadItem,
     };
     use serde::Deserialize;
     use serde::de::Error as _;
     use serde_json::json;
+
+    #[test]
+    fn unknown_local_studio_archive_does_not_leave_a_pending_runtime_route() {
+        let store = AppStoreReducer::new();
+        let notification: upstream::ServerNotification = serde_json::from_value(json!({
+            "method": "thread/archived",
+            "params": { "threadId": "thread-1" }
+        }))
+        .expect("archive notification should deserialize");
+
+        note_notification_runtime(
+            &store,
+            "alleycat:local-studio:controller",
+            "local-studio".to_string(),
+            &notification,
+        );
+        store.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            "alleycat:local-studio:controller",
+            ThreadInfo {
+                id: "thread-1".to_string(),
+                title: None,
+                status: ThreadSummaryStatus::Idle,
+                preview: None,
+                cwd: None,
+                path: None,
+                model: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                forked_from_id: None,
+                agent_status: None,
+                created_at: None,
+                updated_at: None,
+            },
+        ));
+
+        let key = ThreadKey {
+            server_id: "alleycat:local-studio:controller".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        assert_eq!(
+            store.thread_snapshot(&key).unwrap().agent_runtime_kind,
+            "codex"
+        );
+    }
 
     #[test]
     fn suspicious_relative_path_entries_reports_relative_values_in_known_path_fields() {

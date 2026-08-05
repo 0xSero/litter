@@ -54,7 +54,7 @@ extension AppServerSnapshot {
         if let connectionProgressLabel {
             return connectionProgressLabel
         }
-        if transportState == .connected, !isLocal, account == nil {
+        if transportState == .connected, requiresOpenaiAuth, account == nil {
             return "Sign in required"
         }
         return transportState.displayLabel
@@ -70,7 +70,7 @@ extension AppServerSnapshot {
         if connectionProgressLabel != nil {
             return LitterTheme.accent
         }
-        if transportState == .connected, !isLocal, account == nil {
+        if transportState == .connected, requiresOpenaiAuth, account == nil {
             return .orange
         }
         return transportState.accentColor
@@ -88,7 +88,7 @@ extension AppServerSnapshot {
         if connectionProgressLabel != nil {
             return .pending
         }
-        if transportState == .connected, !isLocal, account == nil {
+        if transportState == .connected, requiresOpenaiAuth, account == nil {
             return .pending
         }
         switch transportState {

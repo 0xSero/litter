@@ -181,9 +181,9 @@ fun HomeDashboardScreen(
     var pinnedKeys by remember { mutableStateOf(SavedThreadsStore.pinnedKeys(context)) }
     var hiddenKeys by remember { mutableStateOf(SavedThreadsStore.hiddenKeys(context)) }
 
-    // Home list = pinned first (preserving pin order). If nothing is pinned,
-    // show the 10 most-recent sessions. Hidden threads are excluded from
-    // both halves.
+    // Home list = pinned first (preserving pin order). Local Studio also keeps
+    // recent sessions visible after a pin so newly synced Pi sessions do not
+    // disappear behind legacy pinned rows. Hidden threads stay excluded.
     val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions) {
         mergeHomeSessions(pinnedKeys, hiddenKeys, servers, allSessions)
     }
@@ -1372,13 +1372,15 @@ private fun EmptyHomeFatCat(modifier: Modifier = Modifier) {
 
 /**
  * Merge rule:
- * - If the user has pinned anything, the home list is just their pins
- *   (in pin order, most-recent-pinned first). No auto-fill from recent.
+ * - If the user has pinned anything, the home list starts with their pins
+ *   (in pin order, most-recent-pinned first).
+ * - Local Studio appends its unpinned recent sessions so a pin cannot hide
+ *   newly synced Pi sessions. Other runtimes keep the existing pins-only rule.
  * - If nothing is pinned, fill the list with up to 10 most-recent
  *   sessions so the home screen isn't empty.
  * - Hidden threads are always excluded.
  */
-private fun mergeHomeSessions(
+internal fun mergeHomeSessions(
     pinned: List<PinnedThreadKey>,
     hidden: List<PinnedThreadKey>,
     servers: List<AppServerSnapshot>,
@@ -1393,12 +1395,29 @@ private fun mergeHomeSessions(
             PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId)
         }
         val serversById = servers.associateBy { it.serverId }
-        return pinned.mapNotNull { key ->
+        val pinnedSessions = pinned.mapNotNull { key ->
             if (key in hiddenSet) return@mapNotNull null
             byKey[key] ?: serversById[key.serverId]?.let { server ->
                 placeholderPinnedSession(key, server)
             }
         }
+        val pinnedSet = pinned.toSet()
+        val localStudioServerIds = servers.asSequence()
+            .filter { server ->
+                usesServerConfiguredModelDefault(
+                    server.agentRuntimes.filter { it.available }.map { it.kind },
+                )
+            }
+            .map { it.serverId }
+            .toSet()
+        val localStudioRecent = candidates.filter { session ->
+            session.key.serverId in localStudioServerIds &&
+                PinnedThreadKey(
+                    serverId = session.key.serverId,
+                    threadId = session.key.threadId,
+                ) !in pinnedSet
+        }
+        return pinnedSessions + localStudioRecent
     }
     return candidates.take(10)
 }
@@ -1411,7 +1430,15 @@ private fun placeholderPinnedSession(
         serverId = pinned.serverId,
         threadId = pinned.threadId,
     ),
-    agentRuntimeKind = "codex",
+    agentRuntimeKind = if (
+        usesServerConfiguredModelDefault(
+            server.agentRuntimes.filter { it.available }.map { it.kind },
+        )
+    ) {
+        "local-studio"
+    } else {
+        "codex"
+    },
     serverDisplayName = server.displayName,
     serverHost = server.host,
     title = "Loading thread",

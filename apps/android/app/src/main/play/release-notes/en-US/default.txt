@@ -1,5 +1,5 @@
-Litter 1.7.0
-- More reliable Local Studio discovery for Pi, Codex, and other agents
-- Renamed sessions now show their chosen title
-- Smoother streaming Markdown and table rendering
-- More reliable image attachments in new conversations
+Litter 2.0.0
+- Local Studio sessions stay visible and correctly labeled
+- New Local Studio conversations always use its built-in Pi runtime
+- Reliable reconnect and resume without sessions disappearing
+- Correct connection status without false OpenAI sign-in prompts

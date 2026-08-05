@@ -153,7 +153,7 @@ struct HeaderView: View {
                     return LitterTheme.danger
                 }
             }
-            return server.account == nil ? .orange : LitterTheme.success
+            return server.requiresOpenaiAuth && server.account == nil ? .orange : LitterTheme.success
         case .disconnected:
             return LitterTheme.danger
         case .unknown:
@@ -395,7 +395,7 @@ struct ConversationToolbarControls: View {
                 if await handleRemoteLoginIfNeeded() {
                     return
                 }
-                if server?.account == nil {
+                if server?.requiresOpenaiAuth == true, server?.account == nil {
                     appState.showSettings = true
                 } else {
                     do {
@@ -443,7 +443,7 @@ struct ConversationToolbarControls: View {
         guard let server, !server.isLocal else {
             return false
         }
-        guard server.account == nil else {
+        guard server.requiresOpenaiAuth, server.account == nil else {
             return false
         }
         do {

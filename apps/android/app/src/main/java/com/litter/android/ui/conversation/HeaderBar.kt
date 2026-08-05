@@ -280,7 +280,7 @@ fun HeaderBar(
                     scope.launch {
                         isReloading = true
                         try {
-                            if (server != null && !server.isLocal && server.account == null) {
+                            if (server?.requiresOpenaiAuth == true && server.account == null) {
                                 val authUrl = appModel.client.startRemoteSshOauthLogin(
                                     thread.key.serverId,
                                 )

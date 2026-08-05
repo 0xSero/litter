@@ -14,6 +14,98 @@ final class HomeDashboardSupportTests: XCTestCase {
         )
     }
 
+    func testLocalStudioPinsKeepNewlySyncedSessionsVisible() async {
+        let appModel = AppModel()
+        let pinnedKey = SavedThreadsStore.PinnedKey(
+            threadKey: ThreadKey(serverId: "studio", threadId: "pinned")
+        )
+        let model = HomeDashboardModel(
+            persistence: persistence(pinned: [pinnedKey]),
+            observedRefreshDelayNanoseconds: 0
+        )
+        model.bind(appModel: appModel)
+        model.activate()
+
+        appModel.applySnapshot(
+            makeSnapshot(
+                servers: [
+                    makeServerSnapshot(
+                        id: "studio",
+                        name: "Local Studio",
+                        runtimeKind: .localStudio
+                    )
+                ],
+                threads: [
+                    makeThreadSnapshot(
+                        serverId: "studio",
+                        threadId: "pinned",
+                        updatedAt: 20,
+                        runtimeKind: .localStudio
+                    ),
+                    makeThreadSnapshot(
+                        serverId: "studio",
+                        threadId: "recent",
+                        updatedAt: 40,
+                        runtimeKind: .localStudio
+                    )
+                ],
+                activeThread: nil
+            )
+        )
+        await waitUntil("Local Studio keeps its pinned and recent sessions") {
+            model.recentSessions.map(\.key.threadId) == ["pinned", "recent"]
+        }
+
+        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["pinned", "recent"])
+    }
+
+    func testCodexPinsKeepExistingPinsOnlyBehavior() async {
+        let appModel = AppModel()
+        let pinnedKey = SavedThreadsStore.PinnedKey(
+            threadKey: ThreadKey(serverId: "codex", threadId: "pinned")
+        )
+        let model = HomeDashboardModel(
+            persistence: persistence(pinned: [pinnedKey]),
+            observedRefreshDelayNanoseconds: 0
+        )
+        model.bind(appModel: appModel)
+        model.activate()
+
+        appModel.applySnapshot(
+            makeSnapshot(
+                servers: [makeServerSnapshot(id: "codex", name: "Codex")],
+                threads: [
+                    makeThreadSnapshot(serverId: "codex", threadId: "pinned", updatedAt: 20),
+                    makeThreadSnapshot(serverId: "codex", threadId: "recent", updatedAt: 40)
+                ],
+                activeThread: nil
+            )
+        )
+        await waitUntil("Codex keeps its existing pins-only home list") {
+            model.recentSessions.map(\.key.threadId) == ["pinned"]
+        }
+
+        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["pinned"])
+    }
+
+    func testLocalStudioDoesNotShowFalseOpenAISignInWarning() {
+        let studio = makeServerSnapshot(
+            id: "studio",
+            name: "Local Studio",
+            runtimeKind: .localStudio
+        )
+        let codex = makeServerSnapshot(
+            id: "codex",
+            name: "Codex",
+            requiresOpenaiAuth: true
+        )
+
+        XCTAssertEqual(studio.statusLabel, "Connected")
+        XCTAssertEqual(studio.statusDotState, .ok)
+        XCTAssertEqual(codex.statusLabel, "Sign in required")
+        XCTAssertEqual(codex.statusDotState, .pending)
+    }
+
     func testRecentConnectedSessionsFiltersDisconnectedServersAndLimitsToThreeNewest() {
         let servers = [
             makeServerSnapshot(id: "server-a", name: "Server A"),
@@ -297,7 +389,12 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertGreaterThan(model.rebuildCount, rebuildCountBeforeDeactivate)
     }
 
-    private func makeThreadSnapshot(serverId: String, threadId: String, updatedAt: TimeInterval) -> AppThreadSnapshot {
+    private func makeThreadSnapshot(
+        serverId: String,
+        threadId: String,
+        updatedAt: TimeInterval,
+        runtimeKind: AgentRuntimeKind = .codex
+    ) -> AppThreadSnapshot {
         AppThreadSnapshot(
             key: ThreadKey(serverId: serverId, threadId: threadId),
             info: ThreadInfo(
@@ -317,7 +414,7 @@ final class HomeDashboardSupportTests: XCTestCase {
                 createdAt: nil,
                 updatedAt: Int64(updatedAt)
             ),
-            agentRuntimeKind: .codex,
+            agentRuntimeKind: runtimeKind,
             collaborationMode: .default,
             model: nil,
             reasoningEffort: nil,
@@ -406,7 +503,9 @@ final class HomeDashboardSupportTests: XCTestCase {
         host: String? = nil,
         port: UInt16 = 8390,
         isLocal: Bool = false,
-        health: AppServerHealth = .connected
+        health: AppServerHealth = .connected,
+        runtimeKind: AgentRuntimeKind = .codex,
+        requiresOpenaiAuth: Bool = false
     ) -> AppServerSnapshot {
         AppServerSnapshot(
             serverId: id,
@@ -425,11 +524,18 @@ final class HomeDashboardSupportTests: XCTestCase {
                 supportsTurnPagination: true
             ),
             account: nil,
-            requiresOpenaiAuth: false,
+            requiresOpenaiAuth: requiresOpenaiAuth,
             rateLimits: nil,
             rateLimitsByRuntime: [],
             availableModels: nil,
-            agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)],
+            agentRuntimes: [
+                AgentRuntimeInfo(
+                    kind: runtimeKind,
+                    name: runtimeKind,
+                    displayName: runtimeKind.displayLabel,
+                    available: true
+                )
+            ],
             connectionProgress: nil,
             usageStats: nil,
             codexVersion: nil
@@ -444,6 +550,29 @@ final class HomeDashboardSupportTests: XCTestCase {
             lastError: nil,
             transcriptEntries: [],
             handoffThreadKey: nil
+        )
+    }
+
+    private func persistence(
+        pinned: [SavedThreadsStore.PinnedKey]
+    ) -> HomeDashboardPersistence {
+        var pinnedKeys = pinned
+        return HomeDashboardPersistence(
+            rememberedServers: { [] },
+            pinnedKeys: { pinnedKeys },
+            hiddenKeys: { [] },
+            addPinned: { key in
+                if !pinnedKeys.contains(key) {
+                    pinnedKeys.append(key)
+                }
+            },
+            removePinned: { key in pinnedKeys.removeAll { $0 == key } },
+            hide: { _ in },
+            unhide: { _ in },
+            selectedServerId: { nil },
+            setSelectedServerId: { _ in },
+            selectedProjectId: { nil },
+            setSelectedProjectId: { _ in }
         )
     }
 

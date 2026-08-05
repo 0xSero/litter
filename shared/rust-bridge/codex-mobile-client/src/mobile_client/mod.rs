@@ -1051,6 +1051,18 @@ impl MobileClient {
             }
         }
 
+        if self
+            .app_store
+            .snapshot()
+            .servers
+            .get(server_id)
+            .is_some_and(|server| {
+                server.agent_runtimes.len() == 1 && server.agent_runtimes[0].kind == "local-studio"
+            })
+        {
+            return "local-studio".to_string();
+        }
+
         "codex".to_string()
     }
 

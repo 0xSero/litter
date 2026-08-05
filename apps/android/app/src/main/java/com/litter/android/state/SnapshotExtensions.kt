@@ -96,7 +96,8 @@ val AppServerSnapshot.connectionProgressDetail: String?
 val AppServerSnapshot.statusLabel: String
     get() = when {
         connectionProgressLabel != null -> connectionProgressLabel!!
-        transportState == AppServerTransportState.CONNECTED && !isLocal && account == null -> "Sign in required"
+        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
+            "Sign in required"
         else -> transportState.displayLabel
     }
 
@@ -105,7 +106,8 @@ val AppServerSnapshot.statusColor: Color
         currentConnectionStep?.state == AppConnectionStepState.FAILED -> Color(0xFFFF6B6B)
         currentConnectionStep?.state == AppConnectionStepState.AWAITING_USER_INPUT -> WarningOrange
         connectionProgressLabel != null -> AccentGreen
-        transportState == AppServerTransportState.CONNECTED && !isLocal && account == null -> WarningOrange
+        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
+            WarningOrange
         else -> transportState.accentColor
     }
 
@@ -121,7 +123,7 @@ val AppServerSnapshot.statusDotState: com.litter.android.ui.common.StatusDotStat
             com.litter.android.ui.common.StatusDotState.PENDING
         connectionProgressLabel != null ->
             com.litter.android.ui.common.StatusDotState.PENDING
-        transportState == AppServerTransportState.CONNECTED && !isLocal && account == null ->
+        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
             com.litter.android.ui.common.StatusDotState.PENDING
         transportState == AppServerTransportState.CONNECTED ->
             com.litter.android.ui.common.StatusDotState.OK

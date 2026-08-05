@@ -54,9 +54,9 @@ final class HomeDashboardModel {
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
-    /// Home list source: pinned threads first (in pin order). If nothing is
-    /// pinned, show the 10 most-recent sessions. Hidden threads are always
-    /// excluded.
+    /// Home list source: pinned threads first (in pin order). Local Studio
+    /// also keeps recent sessions visible after a pin so newly synced Pi
+    /// sessions remain discoverable. Hidden threads are always excluded.
     private(set) var recentSessions: [HomeDashboardRecentSession] = []
     /// Every session we know about across connected servers, newest first —
     /// used by the search view so the user can pick any thread.
@@ -273,7 +273,8 @@ final class HomeDashboardModel {
         recentSessions = Self.mergedHomeSessions(
             pinned: pinnedKeys,
             hidden: hiddenKeys,
-            allSessions: snapshot.recentSessions
+            allSessions: snapshot.recentSessions,
+            servers: snapshot.connectedServers
         )
         lastSessionSummaries = snapshot.sessionSummaries
         projects = deriveProjects(sessions: snapshot.sessionSummaries)
@@ -321,15 +322,18 @@ final class HomeDashboardModel {
     }
 
     /// Merge rule:
-    /// - If the user has pinned anything, the home list is just their pins
-    ///   (in pin order, most-recent-pinned first). No auto-fill from recent.
+    /// - If the user has pinned anything, the home list starts with their pins
+    ///   (in pin order, most-recent-pinned first).
+    /// - Local Studio appends its unpinned recent sessions so a pin cannot hide
+    ///   newly synced Pi sessions. Other runtimes keep the pins-only rule.
     /// - If nothing is pinned, fill the list with up to 10 most-recent
     ///   sessions so the home screen isn't empty.
     /// - Hidden threads are always excluded.
     private static func mergedHomeSessions(
         pinned: [SavedThreadsStore.PinnedKey],
         hidden: [SavedThreadsStore.PinnedKey],
-        allSessions: [HomeDashboardRecentSession]
+        allSessions: [HomeDashboardRecentSession],
+        servers: [HomeDashboardServer]
     ) -> [HomeDashboardRecentSession] {
         let hiddenSet = Set(hidden)
         let candidates = allSessions.filter {
@@ -340,7 +344,22 @@ final class HomeDashboardModel {
                 (SavedThreadsStore.PinnedKey(threadKey: $0.key), $0)
             })
             let resolvedPins = pinned.compactMap { byKey[$0] }
-            return resolvedPins.isEmpty ? Array(candidates.prefix(10)) : resolvedPins
+            guard !resolvedPins.isEmpty else {
+                return Array(candidates.prefix(10))
+            }
+            let pinnedSet = Set(pinned)
+            let localStudioServerIds = Set(
+                servers.filter { server in
+                    usesServerConfiguredModelDefault(
+                        server.agentRuntimes.filter(\.available).map(\.kind)
+                    )
+                }.map(\.id)
+            )
+            let localStudioRecent = candidates.filter { session in
+                localStudioServerIds.contains(session.key.serverId) &&
+                    !pinnedSet.contains(SavedThreadsStore.PinnedKey(threadKey: session.key))
+            }
+            return resolvedPins + localStudioRecent
         }
         return Array(candidates.prefix(10))
     }
