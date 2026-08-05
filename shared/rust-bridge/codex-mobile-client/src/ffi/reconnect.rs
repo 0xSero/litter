@@ -62,11 +62,10 @@ fn server_counts_as_connected_for_reconnect(
 }
 
 fn server_supports_account_probe(server: &crate::store::snapshot::ServerSnapshot) -> bool {
-    server.agent_runtimes.is_empty()
-        || server
-            .agent_runtimes
-            .iter()
-            .any(|runtime| runtime.kind == "codex")
+    !matches!(
+        server.agent_runtimes.as_slice(),
+        [runtime] if runtime.kind == "local-studio"
+    )
 }
 
 #[derive(uniffi::Object)]
@@ -664,6 +663,9 @@ mod tests {
         assert!(!server_supports_account_probe(&local_studio));
 
         local_studio.agent_runtimes[0].kind = "codex".to_string();
+        assert!(server_supports_account_probe(&local_studio));
+
+        local_studio.agent_runtimes[0].kind = "pi".to_string();
         assert!(server_supports_account_probe(&local_studio));
         assert!(server_supports_account_probe(&server_with_health(
             ServerHealthSnapshot::Connected
