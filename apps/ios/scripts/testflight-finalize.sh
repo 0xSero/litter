@@ -26,6 +26,8 @@ REVIEW_CONTACT_FIRST_NAME="${REVIEW_CONTACT_FIRST_NAME:-}"
 REVIEW_CONTACT_LAST_NAME="${REVIEW_CONTACT_LAST_NAME:-}"
 REVIEW_CONTACT_EMAIL="${REVIEW_CONTACT_EMAIL:-}"
 REVIEW_CONTACT_PHONE="${REVIEW_CONTACT_PHONE:-}"
+REVIEW_NOTES="${REVIEW_NOTES:-}"
+REVIEW_DEMO_ACCOUNT_REQUIRED="${REVIEW_DEMO_ACCOUNT_REQUIRED:-false}"
 
 require_cmd asc
 require_cmd jq
@@ -102,6 +104,10 @@ contact_first_name="${REVIEW_CONTACT_FIRST_NAME:-$(review_attribute "$review_jso
 contact_last_name="${REVIEW_CONTACT_LAST_NAME:-$(review_attribute "$review_json" contactLastName)}"
 contact_email="${REVIEW_CONTACT_EMAIL:-$(review_attribute "$review_json" contactEmail)}"
 contact_phone="${REVIEW_CONTACT_PHONE:-$(review_attribute "$review_json" contactPhone)}"
+review_notes="${REVIEW_NOTES:-$(review_attribute "$review_json" notes)}"
+if [[ -z "$(trim "$review_notes")" ]]; then
+    review_notes="$BETA_APP_DESCRIPTION"
+fi
 
 if [[ -z "$contact_first_name" || -z "$contact_last_name" || -z "$contact_email" || -z "$contact_phone" ]]; then
     while IFS= read -r version_id; do
@@ -136,6 +142,8 @@ asc testflight review edit \
     --contact-last-name "$contact_last_name" \
     --contact-email "$contact_email" \
     --contact-phone "$contact_phone" \
+    --demo-account-required "$REVIEW_DEMO_ACCOUNT_REQUIRED" \
+    --notes "$review_notes" \
     --output json >/dev/null
 
 if [[ -z "$WHAT_TO_TEST" && -f "$WHAT_TO_TEST_FILE" ]]; then
