@@ -142,7 +142,7 @@ asc testflight review edit \
     --contact-last-name "$contact_last_name" \
     --contact-email "$contact_email" \
     --contact-phone "$contact_phone" \
-    --demo-account-required "$REVIEW_DEMO_ACCOUNT_REQUIRED" \
+    --demo-account-required="$REVIEW_DEMO_ACCOUNT_REQUIRED" \
     --notes "$review_notes" \
     --output json >/dev/null
 
