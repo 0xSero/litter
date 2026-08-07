@@ -3,6 +3,11 @@ name: Android Play Release
 on:
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: "Git ref to build. Defaults to the dispatched commit."
+        required: false
+        default: ""
+        type: string
       track:
         description: "Upload track (destination if promote_track is blank)."
         required: false
@@ -88,6 +93,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: recursive
           fetch-depth: 0
 
@@ -171,6 +177,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: recursive
           fetch-depth: 0
 
