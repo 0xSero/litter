@@ -8,6 +8,11 @@ on:
         required: false
         default: ""
         type: string
+      publish_to_play:
+        description: "Publish the signed bundle to Google Play. Disable to produce artifacts for a manual upload."
+        required: false
+        default: true
+        type: boolean
       track:
         description: "Upload track (destination if promote_track is blank)."
         required: false
@@ -66,6 +71,7 @@ jobs:
           java-version: "21"
 
       - name: Verify Google Play release access
+        if: inputs.publish_to_play
         env:
           ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
@@ -353,6 +359,7 @@ jobs:
             -PLITTER_UPLOAD_KEY_PASSWORD="$LITTER_UPLOAD_KEY_PASSWORD"
 
       - name: Publish and promote Android bundle to Google Play
+        if: inputs.publish_to_play
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
