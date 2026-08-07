@@ -52,85 +52,54 @@ macro_rules! req {
     };
 }
 
-const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
+const AMP_VISIBLE_MODES: [&str; 4] = ["low", "medium", "high", "ultra"];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn normalize_amp_mode_name(value: &str) -> String {
-    value
-        .trim()
+    let normalized = value.trim().to_ascii_lowercase();
+    let mode = normalized
         .trim_start_matches("amp/")
-        .trim_start_matches("amp:")
-        .to_ascii_lowercase()
+        .trim_start_matches("amp:");
+    match mode {
+        "rush" => "low".to_string(),
+        "smart" | "deep" => "medium".to_string(),
+        "large" => "ultra".to_string(),
+        _ => mode.to_string(),
+    }
 }
 
 fn amp_mode_description(mode: &str) -> &'static str {
     match mode {
-        "smart" => "Balanced Amp mode for everyday coding tasks.",
-        "rush" => "Faster Amp mode for quick edits and short answers.",
-        "deep" => "Deeper Amp mode for complex implementation and debugging.",
+        "low" => "Fast responses for simple, well-defined tasks.",
+        "medium" => "Balanced performance for everyday coding tasks.",
+        "high" => "More reasoning for complex coding tasks.",
+        "ultra" => "Maximum capability for the hardest coding tasks.",
         _ => "Amp agent mode.",
     }
-}
-
-fn amp_mode_reasoning_efforts(
-    mode: &str,
-) -> (Vec<types::ReasoningEffortOption>, types::ReasoningEffort) {
-    let efforts = match mode {
-        "smart" => vec![
-            types::ReasoningEffort::High,
-            types::ReasoningEffort::XHigh,
-            types::ReasoningEffort::Max,
-        ],
-        "deep" => vec![
-            types::ReasoningEffort::Low,
-            types::ReasoningEffort::Medium,
-            types::ReasoningEffort::XHigh,
-        ],
-        _ => Vec::new(),
-    };
-    let default = match mode {
-        "smart" => types::ReasoningEffort::High,
-        "deep" => types::ReasoningEffort::Medium,
-        _ => types::ReasoningEffort::None,
-    };
-    (
-        efforts
-            .into_iter()
-            .map(|reasoning_effort| types::ReasoningEffortOption {
-                reasoning_effort,
-                description: String::new(),
-            })
-            .collect(),
-        default,
-    )
 }
 
 fn amp_mode_models() -> Vec<types::ModelInfo> {
     AMP_VISIBLE_MODES
         .into_iter()
-        .map(|mode| {
-            let (supported_reasoning_efforts, default_reasoning_effort) =
-                amp_mode_reasoning_efforts(mode);
-            types::ModelInfo {
-                id: mode.to_string(),
-                model: mode.to_string(),
-                upgrade: None,
-                upgrade_model: None,
-                upgrade_copy: None,
-                model_link: None,
-                migration_markdown: None,
-                availability_nux_message: None,
-                display_name: mode.to_string(),
-                description: amp_mode_description(mode).to_string(),
-                hidden: false,
-                supported_reasoning_efforts,
-                default_reasoning_effort,
-                input_modalities: vec![types::InputModality::Text],
-                supports_personality: false,
-                is_default: mode == "smart",
-                agent_runtime_kind: "amp".to_string(),
-                provider_id: None,
-            }
+        .map(|mode| types::ModelInfo {
+            id: mode.to_string(),
+            model: mode.to_string(),
+            upgrade: None,
+            upgrade_model: None,
+            upgrade_copy: None,
+            model_link: None,
+            migration_markdown: None,
+            availability_nux_message: None,
+            display_name: mode.to_string(),
+            description: amp_mode_description(mode).to_string(),
+            hidden: false,
+            supported_reasoning_efforts: Vec::new(),
+            default_reasoning_effort: types::ReasoningEffort::None,
+            input_modalities: vec![types::InputModality::Text],
+            supports_personality: false,
+            is_default: mode == "medium",
+            agent_runtime_kind: "amp".to_string(),
+            provider_id: None,
         })
         .collect()
 }
@@ -171,16 +140,14 @@ fn normalize_model_info_for_runtime(
         if !AMP_VISIBLE_MODES.contains(&mode.as_str()) {
             return false;
         }
-        let (supported_reasoning_efforts, default_reasoning_effort) =
-            amp_mode_reasoning_efforts(&mode);
         model_info.id = mode.clone();
         model_info.model = mode.clone();
         model_info.display_name = mode.clone();
         model_info.description = amp_mode_description(&mode).to_string();
         model_info.hidden = false;
-        model_info.supported_reasoning_efforts = supported_reasoning_efforts;
-        model_info.default_reasoning_effort = default_reasoning_effort;
-        model_info.is_default = mode == "smart";
+        model_info.supported_reasoning_efforts.clear();
+        model_info.default_reasoning_effort = types::ReasoningEffort::None;
+        model_info.is_default = mode == "medium";
     } else if has_qualified_catalog {
         if let Some(provider_id) = derive_model_provider_id(&model_info.id) {
             model_info.provider_id = Some(provider_id.to_string());
@@ -1082,12 +1049,7 @@ impl AppClient {
             let mut failed_runtime_kinds = HashSet::new();
             for (runtime_kind, result) in futures::future::join_all(tasks).await {
                 match result {
-                    Ok(Ok(runtime_models)) => {
-                        models.extend(runtime_models);
-                        if runtime_kind == "amp" {
-                            append_missing_amp_mode_models(&mut models);
-                        }
-                    }
+                    Ok(Ok(runtime_models)) => models.extend(runtime_models),
                     _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
                     Ok(Err(error)) => {
                         failed_runtime_kinds.insert(runtime_kind.clone());
@@ -3014,14 +2976,13 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        list_runtime_kinds,
-        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
-        splice_generative_ui_preamble,
+        list_runtime_kinds, normalize_model_info_for_runtime, normalized_image_path,
+        runtime_exposes_model_choices, splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
     use crate::types::models::{AbsolutePath, AppDynamicToolSpec, SkillMetadata, SkillScope};
-    use crate::types::{AgentRuntimeKind, ModelInfo, ReasoningEffort, ReasoningEffortOption};
+    use crate::types::{AgentRuntimeKind, ModelInfo, ReasoningEffort};
     use crate::widget_guidelines::GENERATIVE_UI_PREAMBLE;
     use std::collections::{HashMap, HashSet};
 
@@ -3160,43 +3121,47 @@ mod tests {
             .filter(|model| model.agent_runtime_kind == "amp".to_string())
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(amp_ids, vec!["smart", "rush", "deep"]);
+        assert_eq!(amp_ids, vec!["low", "medium", "high", "ultra"]);
         assert_eq!(
             models
                 .iter()
-                .find(|model| model.id == "smart")
+                .find(|model| model.id == "medium")
                 .map(|model| model.is_default),
             Some(true)
+        );
+        assert!(
+            models
+                .iter()
+                .filter(|model| model.agent_runtime_kind == "amp")
+                .all(|model| model.supported_reasoning_efforts.is_empty()
+                    && model.default_reasoning_effort == ReasoningEffort::None)
         );
     }
 
     #[test]
     fn amp_mode_fallback_preserves_advertised_modes() {
-        let mut models = vec![test_model("smart", "amp".to_string())];
+        let mut models = vec![test_model("medium", "amp".to_string())];
 
         append_missing_amp_mode_models(&mut models);
         append_missing_amp_mode_models(&mut models);
 
-        let smart_count = models
+        let medium_count = models
             .iter()
             .filter(|model| {
                 model.agent_runtime_kind == "amp".to_string()
-                    && (model.id == "smart" || model.id == "amp/smart")
+                    && (model.id == "medium" || model.id == "amp/medium")
             })
             .count();
-        assert_eq!(smart_count, 1);
-        assert!(models.iter().any(|model| model.id == "rush"));
-        assert!(models.iter().any(|model| model.id == "deep"));
-        assert!(!models.iter().any(|model| model.id == "large"));
+        assert_eq!(medium_count, 1);
+        assert!(models.iter().any(|model| model.id == "low"));
+        assert!(models.iter().any(|model| model.id == "high"));
+        assert!(models.iter().any(|model| model.id == "ultra"));
     }
 
     #[test]
-    fn amp_model_normalization_uses_amp_mode_efforts() {
-        let mut model = test_model("amp/smart", "codex".to_string());
-        model.supported_reasoning_efforts = vec![ReasoningEffortOption {
-            reasoning_effort: ReasoningEffort::Low,
-            description: "High".to_string(),
-        }];
+    fn amp_model_normalization_uses_current_mode_without_effort() {
+        let mut model = test_model("AMP/SMART", "codex".to_string());
+        model.supported_reasoning_efforts = vec![];
         model.default_reasoning_effort = ReasoningEffort::Low;
 
         assert!(normalize_model_info_for_runtime(
@@ -3205,31 +3170,23 @@ mod tests {
         ));
 
         assert_eq!(model.agent_runtime_kind, "amp".to_string());
-        assert_eq!(model.id, "smart");
-        assert_eq!(model.display_name, "smart");
-        assert_eq!(
-            model
-                .supported_reasoning_efforts
-                .iter()
-                .map(|option| option.reasoning_effort.clone())
-                .collect::<Vec<_>>(),
-            vec![
-                ReasoningEffort::High,
-                ReasoningEffort::XHigh,
-                ReasoningEffort::Max
-            ]
-        );
-        assert_eq!(model.default_reasoning_effort, ReasoningEffort::High);
+        assert_eq!(model.id, "medium");
+        assert_eq!(model.display_name, "medium");
+        assert!(model.supported_reasoning_efforts.is_empty());
+        assert_eq!(model.default_reasoning_effort, ReasoningEffort::None);
+        assert!(model.is_default);
     }
 
     #[test]
-    fn amp_model_normalization_filters_hidden_large_mode() {
+    fn amp_model_normalization_maps_legacy_large_mode_to_ultra() {
         let mut model = test_model("large", "codex".to_string());
 
-        assert!(!normalize_model_info_for_runtime(
+        assert!(normalize_model_info_for_runtime(
             &mut model,
             "amp".to_string()
         ));
+        assert_eq!(model.id, "ultra");
+        assert_eq!(model.default_reasoning_effort, ReasoningEffort::None);
     }
 
     #[test]
@@ -3241,7 +3198,7 @@ mod tests {
 
     #[test]
     fn failed_runtime_cache_preserves_only_failed_runtime_models() {
-        let mut models = vec![test_model("smart", "amp".to_string())];
+        let mut models = vec![test_model("medium", "amp".to_string())];
         let mut seen_model_ids = models
             .iter()
             .map(|model| (model.agent_runtime_kind.clone(), model.id.clone()))
@@ -3249,7 +3206,7 @@ mod tests {
         let cached_models = vec![
             test_model("opus", "claude".to_string()),
             test_model("gpt-5.5", "codex".to_string()),
-            test_model("smart", "amp".to_string()),
+            test_model("medium", "amp".to_string()),
         ];
         let failed_runtime_kinds = HashSet::from(["claude".to_string()]);
 
@@ -3269,7 +3226,9 @@ mod tests {
         assert_eq!(
             models
                 .iter()
-                .filter(|model| model.agent_runtime_kind == "amp".to_string() && model.id == "smart")
+                .filter(
+                    |model| model.agent_runtime_kind == "amp".to_string() && model.id == "medium"
+                )
                 .count(),
             1
         );

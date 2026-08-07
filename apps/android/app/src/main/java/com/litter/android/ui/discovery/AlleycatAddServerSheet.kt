@@ -132,6 +132,7 @@ fun AlleycatAddServerSheet(
     var showPaste by remember { mutableStateOf(false) }
     var pasteJson by remember { mutableStateOf("") }
     var cameraDenied by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
     fun loadAgents(params: AppAlleycatPairPayload) {
         isLoadingAgents = true
@@ -198,6 +199,7 @@ fun AlleycatAddServerSheet(
     }
 
     fun requestCameraAndScan() {
+        cameraError = null
         when {
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED -> {
@@ -285,6 +287,10 @@ fun AlleycatAddServerSheet(
                 handleScannedPayload(payload)
             },
             onCancel = { showScanner = false },
+            onError = {
+                showScanner = false
+                cameraError = "Camera unavailable. Paste the pairing JSON instead."
+            },
         )
         return
     }
@@ -353,6 +359,13 @@ fun AlleycatAddServerSheet(
                 modifier = Modifier
                     .padding(top = 4.dp)
                     .clickable { openAppSettings(context) },
+            )
+        }
+        cameraError?.let { message ->
+            Text(
+                text = message,
+                color = LitterTheme.warning,
+                fontSize = 11.sp,
             )
         }
 
@@ -691,6 +704,7 @@ private fun QrScannerScreen(
     pairingMode: AlleycatPairingMode,
     onScanned: (String) -> Unit,
     onCancel: () -> Unit,
+    onError: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -734,6 +748,7 @@ private fun QrScannerScreen(
                             onScanned(payload)
                         }
                     },
+                    onError = onError,
                 )
                 previewView
             },
@@ -966,36 +981,37 @@ private fun bindCameraUseCases(
     barcodeScanner: com.google.mlkit.vision.barcode.BarcodeScanner,
     executor: java.util.concurrent.ExecutorService,
     onResult: (String) -> Unit,
+    onError: () -> Unit,
 ) {
     val providerFuture = ProcessCameraProvider.getInstance(context)
     providerFuture.addListener({
-        val provider = providerFuture.get()
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(previewView.surfaceProvider)
-        }
-        val analysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-        analysis.setAnalyzer(executor) { proxy ->
-            val media = proxy.image
-            if (media == null) {
-                proxy.close()
-                return@setAnalyzer
-            }
-            val image = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
-            barcodeScanner.process(image)
-                .addOnSuccessListener { barcodes ->
-                    barcodes
-                        .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
-                        ?.rawValue
-                        ?.let(onResult)
-                }
-                .addOnFailureListener { err ->
-                    Log.w(LOG_TAG, "barcode analyze failed", err)
-                }
-                .addOnCompleteListener { proxy.close() }
-        }
         runCatching {
+            val provider = providerFuture.get()
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+            analysis.setAnalyzer(executor) { proxy ->
+                val media = proxy.image
+                if (media == null) {
+                    proxy.close()
+                    return@setAnalyzer
+                }
+                val image = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
+                barcodeScanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        barcodes
+                            .firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                            ?.rawValue
+                            ?.let(onResult)
+                    }
+                    .addOnFailureListener { err ->
+                        Log.w(LOG_TAG, "barcode analyze failed", err)
+                    }
+                    .addOnCompleteListener { proxy.close() }
+            }
             provider.unbindAll()
             provider.bindToLifecycle(
                 lifecycleOwner,
@@ -1004,7 +1020,8 @@ private fun bindCameraUseCases(
                 analysis,
             )
         }.onFailure {
-            Log.w(LOG_TAG, "bindToLifecycle failed", it)
+            Log.w(LOG_TAG, "camera initialization failed", it)
+            onError()
         }
     }, ContextCompat.getMainExecutor(context))
 }

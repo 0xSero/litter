@@ -681,15 +681,12 @@ pub async fn bind_alleycat_endpoint(
     let endpoint_builder = Endpoint::builder(iroh::endpoint::presets::N0)
         .transport_config(transport)
         .secret_key(secret_key);
-    // iroh-on-Android can't use the system DNS resolver / system CA
-    // roots from inside a packaged app — fall back to public DNS +
-    // embedded CA roots there. iOS/macOS pick these up natively.
+    // iroh-on-Android can't use system CA roots from inside a packaged
+    // app, so use embedded roots there. The resolver itself uses the
+    // Android context installed during native bootstrap.
     #[cfg(target_os = "android")]
-    let endpoint_builder = endpoint_builder
-        .dns_resolver(iroh::dns::DnsResolver::with_nameserver(
-            std::net::SocketAddr::from(([8, 8, 8, 8], 53)),
-        ))
-        .ca_roots_config(iroh::tls::CaRootsConfig::embedded());
+    let endpoint_builder =
+        endpoint_builder.ca_roots_config(iroh::tls::CaRootsConfig::embedded());
     info!("alleycat: binding shared iroh endpoint");
     endpoint_builder
         .bind()

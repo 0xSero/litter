@@ -85,6 +85,10 @@ val AgentRuntimeKind.supportsThreadPermissionOverrides: Boolean
 val AgentRuntimeKind.reportsEffectiveThreadPermissions: Boolean
     get() = !hasFixedFullAccess && (metadata?.capabilities?.reportsEffectiveThreadPermissions ?: true)
 
+/** Whether this runtime freezes reasoning effort after thread activity begins. */
+val AgentRuntimeKind.locksReasoningEffortAfterActivity: Boolean
+    get() = metadata?.capabilities?.locksReasoningEffortAfterActivity == true
+
 val AgentRuntimeKind.hasFixedFullAccess: Boolean
     get() = this == "pi" || this == "local-studio"
 
