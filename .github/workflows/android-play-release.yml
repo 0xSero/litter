@@ -283,9 +283,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v3
-
       - name: Decode release credentials
         env:
           ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
@@ -309,17 +306,6 @@ jobs:
           echo "LITTER_UPLOAD_STORE_FILE=$store_file" >> "$GITHUB_ENV"
           echo "LITTER_PLAY_SERVICE_ACCOUNT_JSON=$service_account_json" >> "$GITHUB_ENV"
           ls -lh "$store_file" "$service_account_json" apps/android/app/google-services.json 2>/dev/null || ls -lh "$store_file" "$service_account_json"
-
-      - name: Enable Google Play Android Developer API
-        run: |
-          set -euo pipefail
-          project_id="$(jq -r '.project_id // empty' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON")"
-          if [[ -z "$project_id" ]]; then
-            echo "Play service account JSON does not contain project_id" >&2
-            exit 1
-          fi
-          gcloud auth activate-service-account --key-file="$LITTER_PLAY_SERVICE_ACCOUNT_JSON" --quiet
-          gcloud services enable androidpublisher.googleapis.com --project="$project_id" --quiet
 
       - name: Resolve Android release inputs
         env:
