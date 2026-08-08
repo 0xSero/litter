@@ -190,7 +190,8 @@ fn test_profile_init_sources_common_files() {
     assert!(PROFILE_INIT.contains(".zshenv"));
     assert!(PROFILE_INIT.contains(".zprofile"));
     assert!(PROFILE_INIT.contains(".zshrc"));
-    assert!(!PROFILE_INIT.contains("-ic 'printf %s \"$PATH\"'"));
+    assert!(PROFILE_INIT.contains("--login --command"));
+    assert!(PROFILE_INIT.contains("__litter_path_start__"));
 }
 
 #[test]
@@ -208,7 +209,144 @@ fn test_profile_init_adds_common_node_manager_bins() {
     assert!(PROFILE_INIT.contains(".fnm/node-versions"));
     assert!(PROFILE_INIT.contains(".asdf/shims"));
     assert!(PROFILE_INIT.contains(".local/share/mise/shims"));
+    assert!(PROFILE_INIT.contains(".nix-profile/bin"));
+    assert!(PROFILE_INIT.contains(".local/state}/nix/profile/bin"));
+    assert!(PROFILE_INIT.contains("/etc/profiles/per-user/$USER/bin"));
+    assert!(PROFILE_INIT.contains("/nix/var/nix/profiles/default/bin"));
+    assert!(PROFILE_INIT.contains("/run/current-system/sw/bin"));
     assert!(PROFILE_INIT.contains("export PATH"));
+}
+
+#[cfg(unix)]
+fn run_profile_init(home: &std::path::Path, shell: &std::path::Path) -> String {
+    let script = format!("{PROFILE_INIT}\nprintf '__litter_test_path__%s\\n' \"$PATH\"");
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env_clear()
+        .env("HOME", home)
+        .env("USER", "litter-test")
+        .env("SHELL", shell)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("profile init should run under /bin/sh");
+    assert!(
+        output.status.success(),
+        "profile init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("profile output should be UTF-8")
+        .lines()
+        .find_map(|line| line.strip_prefix("__litter_test_path__"))
+        .expect("profile init should print its final PATH")
+        .to_owned()
+}
+
+#[cfg(unix)]
+fn write_profile(path: &std::path::Path, bin_dir: &std::path::Path) {
+    std::fs::write(
+        path,
+        format!("PATH='{}':$PATH; export PATH\n", bin_dir.display()),
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+fn path_contains(path: &str, expected: &std::path::Path) -> bool {
+    path.split(':')
+        .any(|entry| std::path::Path::new(entry) == expected)
+}
+
+#[cfg(unix)]
+#[test]
+fn test_profile_init_preserves_posix_bash_and_zsh_profile_imports() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    let profile_bin = home.join("profile-bin");
+    let bash_bin = home.join("bash-bin");
+    let zsh_bin = home.join("zsh-bin");
+    for directory in [&profile_bin, &bash_bin, &zsh_bin] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    write_profile(&home.join(".profile"), &profile_bin);
+    write_profile(&home.join(".bashrc"), &bash_bin);
+    write_profile(&home.join(".zshrc"), &zsh_bin);
+
+    let path = run_profile_init(home, std::path::Path::new("/bin/zsh"));
+
+    assert!(path_contains(&path, &profile_bin));
+    assert!(path_contains(&path, &bash_bin));
+    assert!(path_contains(&path, &zsh_bin));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_profile_init_imports_selected_fish_login_path_without_chatter() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    let fish_bin = home.join("fish-bin");
+    let nix_bin = home.join(".nix-profile/bin");
+    std::fs::create_dir_all(&fish_bin).unwrap();
+    std::fs::create_dir_all(&nix_bin).unwrap();
+    let fish = home.join("fish");
+    std::fs::write(
+        &fish,
+        "#!/bin/sh\n\
+         [ \"$1\" = --login ] && [ \"$2\" = --command ] || exit 64\n\
+         printf 'fish startup chatter\\n'\n\
+         printf '__litter_path_start__%s/fish-bin__litter_path_end__\\n' \"$HOME\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&fish).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fish, permissions).unwrap();
+
+    let path = run_profile_init(home, &fish);
+
+    assert!(path_contains(&path, &fish_bin));
+    assert!(path_contains(&path, &nix_bin));
+    assert!(!path.contains("fish startup chatter"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_profile_init_keeps_posix_path_when_selected_fish_export_fails() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    let profile_bin = home.join("profile-bin");
+    std::fs::create_dir_all(&profile_bin).unwrap();
+    write_profile(&home.join(".profile"), &profile_bin);
+
+    let fish = home.join("fish");
+    std::fs::write(&fish, "#!/bin/sh\nexit 1\n").unwrap();
+    let mut permissions = std::fs::metadata(&fish).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fish, permissions).unwrap();
+
+    let path = run_profile_init(home, &fish);
+
+    assert!(path_contains(&path, &profile_bin));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_profile_init_adds_user_nix_profile_bins_without_shell_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    let legacy_nix_bin = home.join(".nix-profile/bin");
+    let modern_nix_bin = home.join(".local/state/nix/profile/bin");
+    std::fs::create_dir_all(&legacy_nix_bin).unwrap();
+    std::fs::create_dir_all(&modern_nix_bin).unwrap();
+
+    let path = run_profile_init(home, std::path::Path::new("/bin/sh"));
+
+    assert!(path_contains(&path, &legacy_nix_bin));
+    assert!(path_contains(&path, &modern_nix_bin));
 }
 
 #[test]
