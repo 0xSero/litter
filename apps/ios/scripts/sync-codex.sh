@@ -9,6 +9,7 @@ PATCH_FILES=(
     "$REPO_DIR/patches/codex/ios-exec-hook.patch"
     "$REPO_DIR/patches/codex/mobile-code-mode-stub.patch"
     "$REPO_DIR/patches/codex/thread-read-permissions.patch"
+    "$REPO_DIR/patches/codex/thread-list-fork-lineage.patch"
     "$REPO_DIR/patches/codex/mobile-shell-snapshot-timeout.patch"
     "$REPO_DIR/patches/codex/remote-app-server-websocket-cap.patch"
     "$REPO_DIR/patches/codex/absolute-path-cross-platform.patch"
