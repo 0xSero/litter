@@ -223,6 +223,15 @@ impl MobileClient {
         server_id: &str,
         response: &upstream::ThreadStartResponse,
     ) -> Result<ThreadKey, String> {
+        self.apply_thread_start_response_for_runtime(server_id, "codex".to_string(), response)
+    }
+
+    pub fn apply_thread_start_response_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        response: &upstream::ThreadStartResponse,
+    ) -> Result<ThreadKey, String> {
         let mut snapshot = crate::thread_snapshot_from_upstream_thread_with_overrides(
             server_id,
             response.thread.clone(),
@@ -235,6 +244,7 @@ impl MobileClient {
             Some(response.sandbox.clone().into()),
         )
         .map_err(|e| e.to_string())?;
+        snapshot.agent_runtime_kind = runtime_kind;
         // A freshly-started thread has no turns to page; mark the initial
         // page as loaded so UI does not auto-fire `thread/turns/list`
         // (which the server rejects until the first user message lands).
@@ -720,6 +730,27 @@ mod tests {
             git_info: None,
             name: Some("Thread".to_string()),
             turns: Vec::new(),
+        }
+    }
+
+    fn test_thread_start_response(
+        thread_id: &str,
+        model: &str,
+        model_provider: &str,
+    ) -> upstream::ThreadStartResponse {
+        upstream::ThreadStartResponse {
+            thread: test_upstream_thread(thread_id),
+            model: model.to_string(),
+            model_provider: model_provider.to_string(),
+            service_tier: None,
+            cwd: test_abs_path("/tmp"),
+            runtime_workspace_roots: Vec::new(),
+            instruction_sources: Vec::new(),
+            approval_policy: upstream::AskForApproval::Never,
+            approvals_reviewer: upstream::ApprovalsReviewer::User,
+            sandbox: upstream::SandboxPolicy::DangerFullAccess,
+            active_permission_profile: None,
+            reasoning_effort: None,
         }
     }
 
@@ -1293,20 +1324,7 @@ mod tests {
             },
             ServerHealthSnapshot::Connected,
         );
-        let response = upstream::ThreadStartResponse {
-            thread: test_upstream_thread("thread-1"),
-            model: "gpt-5".to_string(),
-            model_provider: "openai".to_string(),
-            service_tier: None,
-            cwd: test_abs_path("/tmp"),
-            runtime_workspace_roots: Vec::new(),
-            instruction_sources: Vec::new(),
-            approval_policy: upstream::AskForApproval::Never,
-            approvals_reviewer: upstream::ApprovalsReviewer::User,
-            sandbox: upstream::SandboxPolicy::DangerFullAccess,
-            active_permission_profile: None,
-            reasoning_effort: None,
-        };
+        let response = test_thread_start_response("thread-1", "gpt-5", "openai");
         let key = client
             .apply_thread_start_response("srv", &response)
             .expect("thread/start reconciliation");
@@ -1315,7 +1333,42 @@ mod tests {
             snapshot.initial_turns_loaded,
             "new thread must be marked initial_turns_loaded"
         );
+        assert_eq!(snapshot.agent_runtime_kind, "codex");
         assert!(snapshot.older_turns_cursor.is_none());
+    }
+
+    #[test]
+    fn apply_thread_start_response_projects_explicit_runtime_immediately() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &ServerConfig {
+                server_id: "srv".to_string(),
+                display_name: "Server".to_string(),
+                host: "localhost".to_string(),
+                port: 8390,
+                websocket_url: None,
+                is_local: true,
+                tls: false,
+            },
+            ServerHealthSnapshot::Connected,
+        );
+        let response =
+            test_thread_start_response("thread-opencode", "opencode/default", "opencode");
+
+        let key = client
+            .apply_thread_start_response_for_runtime("srv", "opencode".to_string(), &response)
+            .expect("thread/start reconciliation");
+        let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
+        assert_eq!(snapshot.agent_runtime_kind, "opencode");
+
+        let record = crate::store::AppSnapshotRecord::try_from(client.app_snapshot())
+            .expect("snapshot record");
+        let summary = record
+            .session_summaries
+            .iter()
+            .find(|summary| summary.key == key)
+            .expect("new session summary");
+        assert_eq!(summary.agent_runtime_kind, "opencode");
     }
 
     /// `thread/read` carries embedded turns and is authoritative — the

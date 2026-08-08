@@ -1,5 +1,17 @@
 import Foundation
 
+struct AppThreadLaunchSelection: Equatable, Sendable {
+    let agentRuntimeKind: AgentRuntimeKind?
+    let model: String?
+
+    init(agentRuntimeKind: AgentRuntimeKind?, model: String?) {
+        self.agentRuntimeKind = agentRuntimeKind
+        self.model = model?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+}
+
 struct AppThreadLaunchConfig: Equatable, Sendable {
     var agentRuntimeKind: AgentRuntimeKind? = nil
     var model: String? = nil
@@ -54,6 +66,12 @@ struct AppThreadLaunchConfig: Equatable, Sendable {
             developerInstructions: developerInstructions,
             persistExtendedHistory: persistExtendedHistory
         )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

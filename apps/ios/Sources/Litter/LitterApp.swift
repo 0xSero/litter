@@ -1347,11 +1347,13 @@ private struct HomeNavigationView: View {
     }
 
     private func launchConfig(for threadKey: ThreadKey? = nil) -> AppThreadLaunchConfig {
-        let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasSelectedModel = !selectedModel.isEmpty
+        let selection = AppThreadLaunchSelection(
+            agentRuntimeKind: appState.selectedAgentRuntimeKind,
+            model: appState.selectedModel
+        )
         return AppThreadLaunchConfig(
-            agentRuntimeKind: hasSelectedModel ? appState.selectedAgentRuntimeKind : nil,
-            model: hasSelectedModel ? selectedModel : nil,
+            agentRuntimeKind: selection.agentRuntimeKind,
+            model: selection.model,
             approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
             sandbox: appState.launchSandboxMode(for: threadKey),
             developerInstructions: nil,

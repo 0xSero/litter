@@ -33,6 +33,39 @@ data class AppLaunchStateSnapshot(
     val threadPermissionOverrides: Map<String, ThreadPermissionOverride> = emptyMap(),
 )
 
+internal data class AppLaunchModelSelection(
+    val agentRuntimeKind: AgentRuntimeKind?,
+    val model: String?,
+)
+
+internal fun appLaunchModelSelection(
+    modelOverride: String?,
+    selectedModel: String?,
+    selectedAgentRuntimeKind: AgentRuntimeKind?,
+): AppLaunchModelSelection =
+    AppLaunchModelSelection(
+        agentRuntimeKind = selectedAgentRuntimeKind,
+        model = modelOverride.normalizedOrNull() ?: selectedModel.normalizedOrNull(),
+    )
+
+internal fun AppLaunchStateSnapshot.updatingSelectedModel(
+    model: String?,
+    agentRuntimeKind: AgentRuntimeKind?,
+): AppLaunchStateSnapshot {
+    val normalizedModel = model.normalizedOrEmpty()
+    return if (
+        selectedModel == normalizedModel &&
+        selectedAgentRuntimeKind == agentRuntimeKind
+    ) {
+        this
+    } else {
+        copy(
+            selectedModel = normalizedModel,
+            selectedAgentRuntimeKind = agentRuntimeKind,
+        )
+    }
+}
+
 private const val PREFS_NAME = "litter.launchState"
 private const val APPROVAL_POLICY_KEY = "litter.approvalPolicy"
 private const val SANDBOX_MODE_KEY = "litter.sandboxMode"
@@ -69,21 +102,7 @@ class AppLaunchState(context: Context) {
         model: String?,
         agentRuntimeKind: AgentRuntimeKind? = null,
     ) {
-        val normalized = model.normalizedOrEmpty()
-        val normalizedRuntime = if (normalized.isEmpty()) null else agentRuntimeKind
-        _snapshot.update { state ->
-            if (
-                state.selectedModel == normalized &&
-                state.selectedAgentRuntimeKind == normalizedRuntime
-            ) {
-                state
-            } else {
-                state.copy(
-                    selectedModel = normalized,
-                    selectedAgentRuntimeKind = normalizedRuntime,
-                )
-            }
-        }
+        _snapshot.update { state -> state.updatingSelectedModel(model, agentRuntimeKind) }
     }
 
     fun updateReasoningEffort(effort: String?) {
@@ -146,10 +165,14 @@ class AppLaunchState(context: Context) {
 
     fun launchConfig(modelOverride: String? = null, threadKey: ThreadKey? = null): AppThreadLaunchConfig {
         val state = snapshot.value
-        val selectedModel = modelOverride.normalizedOrNull() ?: state.selectedModel.normalizedOrNull()
+        val selection = appLaunchModelSelection(
+            modelOverride = modelOverride,
+            selectedModel = state.selectedModel,
+            selectedAgentRuntimeKind = state.selectedAgentRuntimeKind,
+        )
         return AppThreadLaunchConfig(
-            agentRuntimeKind = if (selectedModel == null) null else state.selectedAgentRuntimeKind,
-            model = selectedModel,
+            agentRuntimeKind = selection.agentRuntimeKind,
+            model = selection.model,
             approvalPolicy = approvalPolicyValue(threadKey),
             sandboxMode = sandboxModeValue(threadKey),
             developerInstructions = null,
