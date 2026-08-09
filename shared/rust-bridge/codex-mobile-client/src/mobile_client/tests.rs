@@ -2031,6 +2031,151 @@ mod mobile_client_tests {
         );
     }
 
+    #[tokio::test]
+    async fn active_status_without_turn_id_queues_instead_of_losing_the_message() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(thread_id));
+        thread.active_turn_id = None;
+        thread.info.status = ThreadSummaryStatus::Active;
+        thread.agent_runtime_kind = "local-studio".to_string();
+        client.app_store.upsert_thread_snapshot(thread);
+
+        let request_count = Arc::new(StdMutex::new(0usize));
+        let handler: TestRequestHandler = {
+            let request_count = Arc::clone(&request_count);
+            Arc::new(move |request| {
+                *request_count.lock().expect("request count") += 1;
+                Err(RpcError::Deserialization(format!(
+                    "unexpected request while active: {}",
+                    request.method()
+                )))
+            })
+        };
+        client.sessions.write().expect("sessions lock").insert(
+            server_id.to_string(),
+            Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config,
+                vec![("local-studio".to_string(), handler)],
+            )),
+        );
+
+        client
+            .start_turn(
+                server_id,
+                upstream::TurnStartParams {
+                    thread_id: thread_id.to_string(),
+                    input: vec![upstream::UserInput::Text {
+                        text: "second message".to_string(),
+                        text_elements: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("active-status message should queue");
+
+        assert_eq!(*request_count.lock().expect("request count"), 0);
+        let snapshot = client.app_store.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread");
+        assert_eq!(thread.queued_follow_up_drafts.len(), 1);
+        assert_eq!(thread.queued_follow_up_drafts[0].preview.text, "second message");
+    }
+
+    #[tokio::test]
+    async fn turn_start_response_reserves_thread_before_a_rapid_second_send() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(thread_id));
+        thread.info.status = ThreadSummaryStatus::Idle;
+        thread.agent_runtime_kind = "local-studio".to_string();
+        client.app_store.upsert_thread_snapshot(thread);
+
+        let request_count = Arc::new(StdMutex::new(0usize));
+        let handler: TestRequestHandler = {
+            let request_count = Arc::clone(&request_count);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::TurnStart { .. } => {
+                    *request_count.lock().expect("request count") += 1;
+                    Ok(json!({
+                        "turn": {
+                            "id": "turn-first",
+                            "items": [],
+                            "itemsView": "full",
+                            "status": "inProgress",
+                            "error": null,
+                            "startedAt": 1,
+                            "completedAt": null,
+                            "durationMs": null
+                        }
+                    }))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request: {}",
+                    other.method()
+                ))),
+            })
+        };
+        client.sessions.write().expect("sessions lock").insert(
+            server_id.to_string(),
+            Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config,
+                vec![("local-studio".to_string(), handler)],
+            )),
+        );
+
+        for text in ["first message", "second message"] {
+            client
+                .start_turn(
+                    server_id,
+                    upstream::TurnStartParams {
+                        thread_id: thread_id.to_string(),
+                        input: vec![upstream::UserInput::Text {
+                            text: text.to_string(),
+                            text_elements: Vec::new(),
+                        }],
+                        model: Some("glm-5.2".to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .expect("turn send");
+        }
+
+        assert_eq!(*request_count.lock().expect("request count"), 1);
+        let snapshot = client.app_store.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread");
+        assert_eq!(thread.active_turn_id.as_deref(), Some("turn-first"));
+        assert_eq!(thread.info.status, ThreadSummaryStatus::Active);
+        assert_eq!(thread.queued_follow_up_drafts.len(), 1);
+        assert_eq!(thread.queued_follow_up_drafts[0].preview.text, "second message");
+        assert_eq!(
+            thread.queued_follow_up_drafts[0]
+                .turn_start_params
+                .as_ref()
+                .and_then(|params| params.model.as_deref()),
+            Some("glm-5.2")
+        );
+    }
+
     #[test]
     fn queued_follow_up_message_json_round_trips_skill_inputs() {
         let inputs = vec![
@@ -2064,5 +2209,239 @@ mod mobile_client_tests {
 
         assert_eq!(preview.kind, AppQueuedFollowUpKind::PendingSteer);
         assert_eq!(preview.text, "Please try the same search again.");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires LITTER_LIVE_LOCAL_STUDIO_PAIR and LITTER_LIVE_LOCAL_STUDIO_THREAD_ID"]
+    async fn live_local_studio_resume_preserves_unique_command_results() {
+        let pair_json = std::env::var("LITTER_LIVE_LOCAL_STUDIO_PAIR")
+            .expect("LITTER_LIVE_LOCAL_STUDIO_PAIR");
+        let thread_id = std::env::var("LITTER_LIVE_LOCAL_STUDIO_THREAD_ID")
+            .expect("LITTER_LIVE_LOCAL_STUDIO_THREAD_ID");
+        let pair = crate::alleycat::parse_pair_payload(&pair_json).expect("valid pair payload");
+        let server_id = format!("alleycat:local-studio:{}", pair.node_id);
+        let client = MobileClient::new();
+
+        let acceptance = async {
+            client
+                .connect_remote_over_alleycat(
+                server_id.clone(),
+                "Local Studio live acceptance".to_string(),
+                pair,
+                "local-studio".to_string(),
+                vec!["local-studio".to_string()],
+                AlleycatAgentWire::Jsonl,
+            )
+            .await
+            .map_err(|error| format!("connect to Local Studio: {error}"))?;
+            client
+                .external_resume_thread(&server_id, &thread_id, None)
+                .await
+                .map_err(|error| format!("resume Local Studio thread: {error}"))?;
+            client
+                .load_thread_turns_page(&server_id, &thread_id, None, Some(5))
+                .await
+                .map_err(|error| format!("load authoritative turn page: {error}"))?;
+
+            let key = ThreadKey {
+                server_id: server_id.clone(),
+                thread_id: thread_id.clone(),
+            };
+            let snapshot = client.app_store.snapshot();
+            let thread = snapshot
+                .threads
+                .get(&key)
+                .ok_or_else(|| "resumed thread snapshot missing".to_string())?;
+            let unique_count = thread
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let has_command_output = thread.items.iter().any(|item| {
+                matches!(
+                    &item.content,
+                    crate::conversation_uniffi::HydratedConversationItemContent::CommandExecution(data)
+                        if data.output.as_deref().is_some_and(|output| !output.trim().is_empty())
+                )
+            });
+            Ok::<_, String>((unique_count, thread.items.len(), has_command_output))
+        };
+        let acceptance = acceptance.await;
+        client.disconnect_server(&server_id);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        client.shutdown_alleycat_endpoint().await;
+        let (unique_count, item_count, has_command_output) = acceptance.expect("live acceptance");
+        assert_eq!(
+            unique_count,
+            item_count,
+            "resumed timeline must not replay duplicate item ids"
+        );
+        assert!(
+            has_command_output,
+            "resumed timeline must retain completed command output"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires LITTER_LIVE_LOCAL_STUDIO_PAIR"]
+    async fn live_local_studio_rapid_second_send_runs_once_after_tool_turn() {
+        let pair_json = std::env::var("LITTER_LIVE_LOCAL_STUDIO_PAIR")
+            .expect("LITTER_LIVE_LOCAL_STUDIO_PAIR");
+        let pair = crate::alleycat::parse_pair_payload(&pair_json).expect("valid pair payload");
+        let server_id = format!("alleycat:local-studio:{}", pair.node_id);
+        let client = MobileClient::new();
+
+        let acceptance = async {
+            client
+                .connect_remote_over_alleycat(
+                    server_id.clone(),
+                    "Local Studio live queued-turn acceptance".to_string(),
+                    pair,
+                    "local-studio".to_string(),
+                    vec!["local-studio".to_string()],
+                    AlleycatAgentWire::Jsonl,
+                )
+                .await
+                .map_err(|error| format!("connect to Local Studio: {error}"))?;
+            let start_params: upstream::ThreadStartParams = crate::types::AppStartThreadRequest {
+                agent_runtime_kind: Some("local-studio".to_string()),
+                model: Some("glm-5.2".to_string()),
+                cwd: Some("/tmp".to_string()),
+                approval_policy: Some(crate::types::AppAskForApproval::Never),
+                sandbox: Some(crate::types::AppSandboxMode::DangerFullAccess),
+                developer_instructions: None,
+                persist_extended_history: false,
+                dynamic_tools: None,
+                ephemeral: Some(false),
+            }
+            .try_into()
+            .map_err(|error: crate::RpcClientError| error.to_string())?;
+            let thread_response: upstream::ThreadStartResponse = client
+                .request_typed_for_server_runtime(
+                    &server_id,
+                    "local-studio".to_string(),
+                    upstream::ClientRequest::ThreadStart {
+                        request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                        params: start_params,
+                    },
+                )
+                .await?;
+            let key = client
+                .apply_thread_start_response(&server_id, &thread_response)
+                .map_err(|error| error.to_string())?;
+            client.note_thread_runtime(key.clone(), "local-studio".to_string());
+
+            for text in [
+                "Use the bash tool exactly once to run sleep 1; printf LITTER_FIRST_TOOL_OK, then reply exactly LITTER_FIRST_FINAL_OK.",
+                "Reply exactly LITTER_SECOND_FINAL_OK.",
+            ] {
+                client
+                    .start_turn(
+                        &server_id,
+                        upstream::TurnStartParams {
+                            thread_id: key.thread_id.clone(),
+                            input: vec![upstream::UserInput::Text {
+                                text: text.to_string(),
+                                text_elements: Vec::new(),
+                            }],
+                            model: Some("glm-5.2".to_string()),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+
+            let (unique_count, item_count, live_has_tool_output) = tokio::time::timeout(
+                std::time::Duration::from_secs(90),
+                async {
+                    loop {
+                        let snapshot = client.app_store.snapshot();
+                        if let Some(thread) = snapshot.threads.get(&key) {
+                            let assistant_text = thread
+                                .items
+                                .iter()
+                                .filter_map(|item| match &item.content {
+                                    crate::conversation_uniffi::HydratedConversationItemContent::Assistant(data) => {
+                                        Some(data.text.as_str())
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let has_tool_output = thread.items.iter().any(|item| {
+                                matches!(
+                                    &item.content,
+                                    crate::conversation_uniffi::HydratedConversationItemContent::CommandExecution(data)
+                                        if data.output.as_deref().is_some_and(|output| output.contains("LITTER_FIRST_TOOL_OK"))
+                                )
+                            });
+                            if thread.active_turn_id.is_none()
+                                && thread.queued_follow_up_drafts.is_empty()
+                                && assistant_text.contains("LITTER_FIRST_FINAL_OK")
+                                && assistant_text.contains("LITTER_SECOND_FINAL_OK")
+                            {
+                                let unique_count = thread
+                                    .items
+                                    .iter()
+                                    .map(|item| item.id.as_str())
+                                    .collect::<std::collections::HashSet<_>>()
+                                    .len();
+                                return (unique_count, thread.items.len(), has_tool_output);
+                            }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                },
+            )
+            .await
+            .map_err(|_| "timed out waiting for both queued turns".to_string())?;
+            if !live_has_tool_output {
+                client
+                    .load_thread_turns_page(&server_id, &key.thread_id, None, Some(5))
+                    .await
+                    .map_err(|error| format!("authoritative tool refresh: {error}"))?;
+            }
+            let authoritative_has_tool_output = client
+                .app_store
+                .snapshot()
+                .threads
+                .get(&key)
+                .is_some_and(|thread| {
+                    thread.items.iter().any(|item| {
+                        matches!(
+                            &item.content,
+                            crate::conversation_uniffi::HydratedConversationItemContent::CommandExecution(data)
+                                if data.output.as_deref().is_some_and(|output| output.contains("LITTER_FIRST_TOOL_OK"))
+                        )
+                    })
+                });
+            Ok::<_, String>((
+                unique_count,
+                item_count,
+                live_has_tool_output,
+                authoritative_has_tool_output,
+            ))
+        }
+        .await;
+
+        client.disconnect_server(&server_id);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        client.shutdown_alleycat_endpoint().await;
+        let (unique_count, item_count, live_has_tool_output, authoritative_has_tool_output) =
+            acceptance.expect("live queued-turn acceptance");
+        assert_eq!(
+            unique_count, item_count,
+            "live two-turn timeline must not replay duplicate item ids"
+        );
+        assert!(
+            live_has_tool_output,
+            "live reducer must retain the streamed command result"
+        );
+        assert!(
+            authoritative_has_tool_output,
+            "authoritative refresh must retain the command result"
+        );
     }
 }
