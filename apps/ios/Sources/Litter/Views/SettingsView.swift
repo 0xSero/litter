@@ -146,21 +146,24 @@ struct SettingsView: View {
                 title: "Internal Thinking",
                 subtitle: "Reasoning and analysis blocks",
                 systemImage: "brain.head.profile",
-                selection: $reasoningDisplayMode
+                selection: $reasoningDisplayMode,
+                modes: ConversationDetailDisplayMode.allCases
             )
 
             transcriptDisplayPicker(
                 title: "Commands",
                 subtitle: "Shell commands and command output",
                 systemImage: "terminal",
-                selection: $commandDisplayMode
+                selection: $commandDisplayMode,
+                modes: ConversationDetailDisplayMode.requiredActivityCases
             )
 
             transcriptDisplayPicker(
                 title: "Tools",
                 subtitle: "MCP, web, image, and file-change cards",
                 systemImage: "wrench.and.screwdriver",
-                selection: $toolDisplayMode
+                selection: $toolDisplayMode,
+                modes: ConversationDetailDisplayMode.requiredActivityCases
             )
         } header: {
             Text("Conversation")
@@ -172,10 +175,11 @@ struct SettingsView: View {
         title: String,
         subtitle: String,
         systemImage: String,
-        selection: Binding<String>
+        selection: Binding<String>,
+        modes: [ConversationDetailDisplayMode]
     ) -> some View {
         Picker(selection: selection) {
-            ForEach(ConversationDetailDisplayMode.allCases) { mode in
+            ForEach(modes) { mode in
                 Text(mode.displayName).tag(mode.rawValue)
             }
         } label: {
