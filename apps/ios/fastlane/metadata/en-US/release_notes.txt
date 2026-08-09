@@ -1,6 +1,7 @@
-Local Studio sessions now stay visible, correctly labeled, and connected to the right runtime.
+Local Studio conversations are now faster and fully faithful across live turns and reconnects.
 
-- Start every new Local Studio conversation through its built-in Pi runtime.
-- Keep newly synchronized sessions visible even when older sessions are pinned.
-- Resume and reconnect without sessions disappearing or changing into Codex sessions.
-- Show the correct connected status without asking Local Studio users to sign in to OpenAI.
+- Show command, tool-call, and tool-result activity in every conversation.
+- Preserve session identity and ordering without replayed messages.
+- Queue rapid follow-up messages reliably so a second message is never lost or sent twice.
+- Restore exact tool output and completed turns after reconnecting.
+- Batch streaming updates at display cadence for smoother, more responsive conversations.

@@ -1,17 +1,18 @@
 Summary
 
-- Preserved Local Studio session identity across listing, streaming, hydration, and reconnect.
-- Routed new Local Studio conversations through its built-in Pi runtime from the first request.
-- Kept newly synchronized Local Studio sessions visible alongside legacy pinned sessions.
-- Removed false OpenAI sign-in warnings from Local Studio connections.
-- Enforced full filesystem access with no approval prompts for Pi and Local Studio Pi sessions.
+- Restored Local Studio command, tool-call, and tool-result lifecycle events from legacy controllers.
+- Made command and tool activity permanently visible, including for users with an older hidden preference.
+- Closed the turn-start race that could lose, duplicate, or misorder a rapid second message.
+- Preserved exact queued-turn model, mode, effort, and permission settings.
+- Kept session identity, item ordering, and tool output stable across reconnect and hydration.
+- Batched streaming deltas at display cadence to reduce native UI churn while preserving exact text.
 
 What to test
 
-- Upgrade from 1.6 or 1.7 with existing Local Studio pins and confirm current sessions remain visible and every Local Studio row keeps its label.
-- Start a Local Studio conversation from mobile, stream the reply, use shell and file tools, then reopen it in both Litter and Local Studio.
-- Background and foreground the app during and after a turn; confirm the session and completed content survive reconnect and resume.
-- Confirm Local Studio shows connected without an OpenAI sign-in warning.
-- Confirm Pi and Local Studio Pi never request approval and can read and write the selected workspace.
-- Confirm ordinary Codex, Pi, and generic KittyLitter connections retain their existing discovery and permission behavior.
-- Verify reasoning, tool calls, streaming text, images, compaction, and older-turn hydration on iOS and Android.
+- Pair with a Local Studio controller, run a shell command, and confirm the command card and completed output appear live.
+- Send a second message immediately after the first tool-producing turn; confirm it appears immediately, runs once, and receives one response.
+- Background and foreground during streaming, then reconnect; confirm no user, assistant, command, or tool rows replay or disappear.
+- Reopen the same session from Litter and Local Studio and confirm the exact thread identity, order, and output match.
+- Compare long streaming replies with 1.7.0 and confirm scrolling and token rendering remain smooth and responsive.
+- Confirm Pi and Local Studio Pi continue to use no approvals with full workspace access.
+- Verify the same session, tool, and streaming behavior on iOS and Android.

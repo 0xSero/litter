@@ -24,7 +24,7 @@ settings:
     SWIFT_VERSION: "5.9"
     SWIFT_STRICT_CONCURRENCY: targeted
     MARKETING_VERSION: "2.0.0"
-    CURRENT_PROJECT_VERSION: "200000254"
+    CURRENT_PROJECT_VERSION: "200000260"
     SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
     OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
     HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
