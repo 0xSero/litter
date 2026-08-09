@@ -26,6 +26,12 @@ pub(crate) struct AppStoreSubscriptionState {
 }
 
 const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
+/// Bound native/FFI streaming publishes to the display cadence. Without a
+/// short collection window a fast producer and Swift/Kotlin consumer run in
+/// lockstep, so `try_recv` sees only one tiny delta and every token copies the
+/// platform snapshot. Sixteen milliseconds keeps first-token latency within a
+/// single frame while capping that cross-boundary churn near 60 Hz.
+const STREAMING_COALESCE_WINDOW: std::time::Duration = std::time::Duration::from_millis(16);
 
 #[cfg(test)]
 mod tests {
@@ -41,6 +47,7 @@ mod tests {
     use codex_app_server_protocol as upstream;
     use serde_json::json;
     use std::collections::{HashMap, VecDeque};
+    use std::sync::Arc;
 
     #[test]
     fn thread_item_parses_mcp_arguments_json() {
@@ -170,6 +177,68 @@ mod tests {
                 text,
             } if emitted_key == key && item_id == "assistant-1" && text == "hello world"
         ));
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_batches_interleaved_streaming_at_display_cadence() {
+        let reducer = Arc::new(AppStoreReducer::new());
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let subscription = AppStoreSubscription {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx: reducer.subscribe(),
+                buffered: VecDeque::new(),
+            })),
+        };
+
+        const DELTA_COUNT: usize = 48;
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            "x",
+        );
+        let producer = {
+            let reducer = Arc::clone(&reducer);
+            let key = key.clone();
+            tokio::spawn(async move {
+                for _ in 1..DELTA_COUNT {
+                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                    reducer.emit_thread_streaming_delta(
+                        &key,
+                        "assistant-1",
+                        ThreadStreamingDeltaKind::AssistantText,
+                        "x",
+                    );
+                }
+            })
+        };
+
+        let mut delivered_text = String::new();
+        let mut update_count = 0usize;
+        while delivered_text.len() < DELTA_COUNT {
+            let update = subscription
+                .next_update()
+                .await
+                .expect("streaming update");
+            let AppStoreUpdateRecord::ThreadStreamingDelta { text, .. } = update else {
+                panic!("expected streaming delta");
+            };
+            delivered_text.push_str(&text);
+            update_count += 1;
+        }
+        producer.await.expect("producer");
+
+        eprintln!(
+            "batched {DELTA_COUNT} streaming deltas into {update_count} native updates"
+        );
+        assert_eq!(delivered_text, "x".repeat(DELTA_COUNT));
+        assert!(
+            update_count <= 12,
+            "expected display-cadence batching, got {update_count} native updates"
+        );
     }
 
     #[test]
@@ -726,7 +795,35 @@ async fn receive_next_update(
         state.rx.recv().await?
     };
 
+    let first = coalesce_streaming_window(state, first).await?;
     coalesce_ready_updates(state, first)
+}
+
+async fn coalesce_streaming_window(
+    state: &mut AppStoreSubscriptionState,
+    mut update: AppStoreUpdateRecord,
+) -> Result<AppStoreUpdateRecord, tokio::sync::broadcast::error::RecvError> {
+    if !matches!(update, AppStoreUpdateRecord::ThreadStreamingDelta { .. }) {
+        return Ok(update);
+    }
+
+    let deadline = tokio::time::Instant::now() + STREAMING_COALESCE_WINDOW;
+    loop {
+        let next = if let Some(update) = state.buffered.pop_front() {
+            update
+        } else {
+            match tokio::time::timeout_at(deadline, state.rx.recv()).await {
+                Ok(Ok(update)) => update,
+                Ok(Err(error)) => return Err(error),
+                Err(_) => return Ok(update),
+            }
+        };
+
+        if let Err(next) = merge_app_update(&mut update, next) {
+            state.buffered.push_front(next);
+            return Ok(update);
+        }
+    }
 }
 
 fn coalesce_ready_updates(
