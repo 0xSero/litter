@@ -17,13 +17,12 @@ pub(super) fn spawn_store_listener(
                         Arc::clone(&sessions),
                         &event,
                     );
-                    if let UiEvent::TurnCompleted { key, .. } = &event {
-                        maybe_send_next_local_queued_follow_up(
-                            Arc::clone(&app_store),
-                            Arc::clone(&sessions),
-                            key.clone(),
-                        )
-                        .await;
+                    if let Some(key) = queued_follow_up_dispatch_key(&event) {
+                        let app_store = Arc::clone(&app_store);
+                        let sessions = Arc::clone(&sessions);
+                        MobileClient::spawn_detached(async move {
+                            maybe_send_next_local_queued_follow_up(app_store, sessions, key).await;
+                        });
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -33,6 +32,18 @@ pub(super) fn spawn_store_listener(
             }
         }
     });
+}
+
+fn queued_follow_up_dispatch_key(event: &UiEvent) -> Option<ThreadKey> {
+    match event {
+        UiEvent::TurnCompleted { key, .. } => Some(key.clone()),
+        UiEvent::ThreadStatusChanged { key, notification }
+            if matches!(&notification.status, upstream::ThreadStatus::Idle) =>
+        {
+            Some(key.clone())
+        }
+        _ => None,
+    }
 }
 
 fn maybe_hydrate_collab_agent_metadata(
@@ -196,7 +207,10 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
     let Some(thread) = snapshot.threads.get(&key).cloned() else {
         return;
     };
-    if thread.active_turn_id.is_some() || thread.queued_follow_up_drafts.is_empty() {
+    if thread.active_turn_id.is_some()
+        || matches!(thread.info.status, ThreadSummaryStatus::Active)
+        || thread.queued_follow_up_drafts.is_empty()
+    {
         return;
     }
 
@@ -211,28 +225,146 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
         return;
     };
 
-    let Some(draft) = app_store.claim_first_queued_follow_up_draft(&key) else {
+    let runtime_kind = thread.agent_runtime_kind.clone();
+    let Some((draft, reservation_turn_id)) =
+        app_store.claim_queued_follow_up_for_dispatch(&key)
+    else {
         return;
     };
-    let response = session.request(
-        "turn/start",
-        serde_json::json!({
-            "threadId": key.thread_id,
-            "input": draft.inputs.clone(),
-        }),
+    let optimistic_overlay_id = app_store.stage_local_user_message_overlay(&key, &draft.inputs);
+    let mut turn_start_params = draft
+        .turn_start_params
+        .clone()
+        .unwrap_or_else(|| upstream::TurnStartParams {
+            thread_id: key.thread_id.clone(),
+            input: draft.inputs.clone(),
+            ..Default::default()
+        });
+    // The controller owns permissions for Pi and Local Studio, but their
+    // mobile contract is always non-interactive full access. This path sends
+    // directly to the selected runtime, so apply the same normalization as
+    // MobileClient::request_typed_for_server_runtime.
+    if matches!(runtime_kind.as_str(), "pi" | "local-studio") {
+        turn_start_params.approval_policy = Some(upstream::AskForApproval::Never);
+        turn_start_params.sandbox_policy = Some(upstream::SandboxPolicy::DangerFullAccess);
+    }
+    turn_start_params.thread_id = key.thread_id.clone();
+    turn_start_params.input = draft.inputs.clone();
+    let command_id = app_store.begin_server_mutating_command(
+        &key.server_id,
+        ServerMutatingCommandKind::StartTurn,
+        &key.thread_id,
     );
-    if let Err(error) = response.await {
-        app_store.restore_queued_follow_up_draft_front(&key, draft);
-        warn!(
-            "MobileClient: failed to autosend queued follow-up for {} thread {}: {}",
-            key.server_id, key.thread_id, error
-        );
+    let response = session
+        .request_client_for_runtime(
+            runtime_kind,
+            upstream::ClientRequest::TurnStart {
+                request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                params: turn_start_params,
+            },
+        )
+        .await
+        .and_then(|value| {
+            serde_json::from_value::<upstream::TurnStartResponse>(value)
+                .map_err(|error| RpcError::Deserialization(error.to_string()))
+        });
+    match response {
+        Ok(response) => {
+            app_store.finish_server_mutating_command_success(&key.server_id, &command_id);
+            if let Some(overlay_id) = optimistic_overlay_id.as_deref() {
+                app_store.bind_local_user_message_overlay_to_turn(
+                    &key,
+                    overlay_id,
+                    &response.turn.id,
+                );
+            }
+            app_store.resolve_local_turn_start(
+                &key,
+                &reservation_turn_id,
+                &response.turn.id,
+            );
+        }
+        Err(error) => {
+            app_store.finish_server_mutating_command_failure(&key.server_id, &command_id);
+            if app_store.release_local_turn_start(&key, &reservation_turn_id) {
+                if let Some(overlay_id) = optimistic_overlay_id.as_deref() {
+                    app_store.remove_local_overlay_item(&key, overlay_id);
+                }
+                app_store.restore_queued_follow_up_draft_front(&key, draft);
+            }
+            warn!(
+                "MobileClient: failed to autosend queued follow-up for {} thread {}: {}",
+                key.server_id, key.thread_id, error
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conversation_uniffi::HydratedConversationItemContent;
+    use crate::session::connection::TestRequestHandler;
+    use crate::store::AppQueuedFollowUpKind;
+    use std::sync::{Arc, Mutex as StdMutex};
+
+    fn make_thread_info(id: &str) -> ThreadInfo {
+        ThreadInfo {
+            id: id.to_string(),
+            title: Some("Thread".to_string()),
+            model: Some("glm-5.2".to_string()),
+            status: ThreadSummaryStatus::Idle,
+            preview: None,
+            cwd: Some("/tmp".to_string()),
+            path: Some("/tmp/thread".to_string()),
+            model_provider: Some("local-studio".to_string()),
+            agent_nickname: None,
+            agent_role: None,
+            parent_thread_id: None,
+            forked_from_id: None,
+            agent_status: None,
+            created_at: Some(1),
+            updated_at: Some(2),
+        }
+    }
+
+    fn make_server_config(server_id: &str) -> ServerConfig {
+        ServerConfig {
+            server_id: server_id.to_string(),
+            display_name: "Local Studio".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            websocket_url: Some("ws://127.0.0.1:0".to_string()),
+            is_local: false,
+            tls: false,
+        }
+    }
+
+    fn queued_draft(text: &str) -> crate::store::QueuedFollowUpDraft {
+        queued_follow_up_draft_from_inputs(
+            &[upstream::UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new(),
+            }],
+            AppQueuedFollowUpKind::Message,
+        )
+        .expect("queued draft")
+    }
+
+    fn turn_start_response(turn_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "turn": {
+                "id": turn_id,
+                "items": [],
+                "itemsView": "full",
+                "status": "inProgress",
+                "error": null,
+                "startedAt": 1,
+                "completedAt": null,
+                "durationMs": null
+            }
+        })
+    }
 
     #[test]
     fn collab_receiver_thread_ids_extracts_spawn_agent_targets() {
@@ -293,5 +425,149 @@ mod tests {
                 vec!["child-1".to_string(), "child-2".to_string()],
             ))
         );
+    }
+
+    #[test]
+    fn idle_status_update_releases_a_queued_follow_up() {
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let event = UiEvent::ThreadStatusChanged {
+            key: key.clone(),
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: key.thread_id.clone(),
+                status: upstream::ThreadStatus::Idle,
+            },
+        };
+
+        assert_eq!(queued_follow_up_dispatch_key(&event), Some(key));
+    }
+
+    #[tokio::test]
+    async fn queued_follow_up_dispatch_is_exactly_once_and_preserves_next_message() {
+        let app_store = Arc::new(AppStoreReducer::new());
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let server_id = "srv";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let config = make_server_config(server_id);
+        app_store.upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(&key.thread_id));
+        thread.agent_runtime_kind = "local-studio".to_string();
+        app_store.upsert_thread_snapshot(thread);
+        let mut second = queued_draft("second message");
+        second.turn_start_params = Some(upstream::TurnStartParams {
+            thread_id: key.thread_id.clone(),
+            input: second.inputs.clone(),
+            model: Some("glm-5.2".to_string()),
+            ..Default::default()
+        });
+        app_store.enqueue_thread_follow_up_draft(&key, second);
+        app_store.enqueue_thread_follow_up_draft(&key, queued_draft("third message"));
+
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| {
+                requests.lock().expect("request log").push(request.clone());
+                match request {
+                    upstream::ClientRequest::TurnStart { params, .. } => {
+                        assert_eq!(params.model.as_deref(), Some("glm-5.2"));
+                        assert_eq!(params.approval_policy, Some(upstream::AskForApproval::Never));
+                        assert_eq!(
+                            params.sandbox_policy,
+                            Some(upstream::SandboxPolicy::DangerFullAccess)
+                        );
+                        Ok(turn_start_response("turn-queued"))
+                    }
+                    other => Err(RpcError::Deserialization(format!(
+                        "unexpected request: {}",
+                        other.method()
+                    ))),
+                }
+            })
+        };
+        sessions.write().expect("sessions lock").insert(
+            server_id.to_string(),
+            Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config,
+                vec![("local-studio".to_string(), handler)],
+            )),
+        );
+
+        tokio::join!(
+            maybe_send_next_local_queued_follow_up(
+                Arc::clone(&app_store),
+                Arc::clone(&sessions),
+                key.clone()
+            ),
+            maybe_send_next_local_queued_follow_up(
+                Arc::clone(&app_store),
+                Arc::clone(&sessions),
+                key.clone()
+            )
+        );
+
+        assert_eq!(requests.lock().expect("request log").len(), 1);
+        let snapshot = app_store.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread");
+        assert_eq!(thread.active_turn_id.as_deref(), Some("turn-queued"));
+        assert_eq!(thread.queued_follow_up_drafts.len(), 1);
+        assert_eq!(thread.queued_follow_up_drafts[0].preview.text, "third message");
+        assert!(thread.local_overlay_items.iter().any(|item| {
+            item.source_turn_id.as_deref() == Some("turn-queued")
+                && matches!(
+                    &item.content,
+                    HydratedConversationItemContent::User(data)
+                        if data.text == "second message"
+                )
+        }));
+    }
+
+    #[tokio::test]
+    async fn failed_queued_follow_up_dispatch_restores_message_without_a_ghost_turn() {
+        let app_store = Arc::new(AppStoreReducer::new());
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let server_id = "srv";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let config = make_server_config(server_id);
+        app_store.upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(&key.thread_id));
+        thread.agent_runtime_kind = "local-studio".to_string();
+        app_store.upsert_thread_snapshot(thread);
+        app_store.enqueue_thread_follow_up_draft(&key, queued_draft("keep me"));
+
+        let handler: TestRequestHandler = Arc::new(|request| match request {
+            upstream::ClientRequest::TurnStart { .. } => {
+                Err(RpcError::Transport(TransportError::Disconnected))
+            }
+            other => Err(RpcError::Deserialization(format!(
+                "unexpected request: {}",
+                other.method()
+            ))),
+        });
+        sessions.write().expect("sessions lock").insert(
+            server_id.to_string(),
+            Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config,
+                vec![("local-studio".to_string(), handler)],
+            )),
+        );
+
+        maybe_send_next_local_queued_follow_up(app_store.clone(), sessions, key.clone()).await;
+
+        let snapshot = app_store.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread");
+        assert_eq!(thread.active_turn_id, None);
+        assert_eq!(thread.info.status, ThreadSummaryStatus::Idle);
+        assert_eq!(thread.queued_follow_up_drafts.len(), 1);
+        assert_eq!(thread.queued_follow_up_drafts[0].preview.text, "keep me");
+        assert!(thread.local_overlay_items.is_empty());
     }
 }

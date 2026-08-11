@@ -51,6 +51,7 @@ use crate::terminal::TerminalBackendKind;
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
 const USER_INPUT_OTHER_OPTION_LABEL: &str = "None of the above";
 const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
+const LOCAL_QUEUED_TURN_RESERVATION_PREFIX: &str = "local-queued-turn:";
 const DESKTOP_FILE_CONTEXT_HEADER: &str = "# Files mentioned by the user:";
 const DESKTOP_FILE_CONTEXT_REQUEST_HEADER: &str = "## My request for Codex:";
 
@@ -699,6 +700,7 @@ impl AppStoreReducer {
                 preview,
                 inputs: Vec::new(),
                 source_message_json: None,
+                turn_start_params: None,
             },
         );
     }
@@ -719,6 +721,7 @@ impl AppStoreReducer {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn claim_first_queued_follow_up_draft(
         &self,
         key: &ThreadKey,
@@ -737,6 +740,121 @@ impl AppStoreReducer {
             self.emit_thread_metadata_changed(key);
         }
         draft
+    }
+
+    /// Atomically claim one queued message and reserve the thread's next turn.
+    ///
+    /// The reservation closes the response-before-notification window in
+    /// which two terminal notifications (or a reconnect refresh racing a
+    /// terminal notification) could both observe an idle thread and start two
+    /// queued messages. It also makes the composer reflect that work is in
+    /// flight immediately, before `turn/started` crosses the network.
+    pub(crate) fn claim_queued_follow_up_for_dispatch(
+        &self,
+        key: &ThreadKey,
+    ) -> Option<(QueuedFollowUpDraft, String)> {
+        let reservation_turn_id = format!(
+            "{LOCAL_QUEUED_TURN_RESERVATION_PREFIX}{}",
+            uuid::Uuid::new_v4()
+        );
+        let result = self
+            .mutate_thread_with_result(key, |thread| {
+                if thread.active_turn_id.is_some()
+                    || matches!(thread.info.status, ThreadSummaryStatus::Active)
+                {
+                    return None;
+                }
+                let position = thread.queued_follow_up_drafts.iter().position(|draft| {
+                    draft.preview.kind == super::snapshot::AppQueuedFollowUpKind::Message
+                })?;
+                let draft = thread.queued_follow_up_drafts.remove(position);
+                thread.active_turn_id = Some(reservation_turn_id.clone());
+                thread.info.status = ThreadSummaryStatus::Active;
+                sync_thread_follow_up_projection(thread);
+                Some((draft, reservation_turn_id.clone()))
+            })
+            .flatten();
+        if result.is_some() {
+            self.emit_thread_metadata_changed(key);
+        }
+        result
+    }
+
+    /// Reserve an idle thread before the turn/start request crosses the
+    /// network. This closes the response-before-TurnStarted window where a
+    /// rapid second send could otherwise observe the thread as idle and race
+    /// a second turn/start against the first one.
+    pub(crate) fn reserve_local_turn_start(&self, key: &ThreadKey) -> Option<String> {
+        let reservation_turn_id = format!(
+            "{LOCAL_QUEUED_TURN_RESERVATION_PREFIX}{}",
+            uuid::Uuid::new_v4()
+        );
+        let reserved = self
+            .mutate_thread_with_result(key, |thread| {
+                if thread.active_turn_id.is_some()
+                    || matches!(thread.info.status, ThreadSummaryStatus::Active)
+                {
+                    return None;
+                }
+                thread.active_turn_id = Some(reservation_turn_id.clone());
+                thread.info.status = ThreadSummaryStatus::Active;
+                Some(reservation_turn_id.clone())
+            })
+            .flatten();
+        if reserved.is_some() {
+            self.emit_thread_metadata_changed(key);
+        }
+        reserved
+    }
+
+    /// Replace a still-pending local reservation with the authoritative turn
+    /// id returned by `turn/start`. A live `turn/started` or `turn/completed`
+    /// event may already have won the race; in that case this is intentionally
+    /// a no-op so an old response can never resurrect a completed turn.
+    pub(crate) fn resolve_local_turn_start(
+        &self,
+        key: &ThreadKey,
+        reservation_turn_id: &str,
+        turn_id: &str,
+    ) {
+        let changed = self
+            .mutate_thread_with_result(key, |thread| {
+                if thread.active_turn_id.as_deref() != Some(reservation_turn_id) {
+                    return false;
+                }
+                thread.active_turn_id = Some(turn_id.to_string());
+                thread.info.status = ThreadSummaryStatus::Active;
+                true
+            })
+            .unwrap_or(false);
+        if changed {
+            self.emit_thread_metadata_changed(key);
+        }
+    }
+
+    /// Release a failed local reservation. Returns true only when the
+    /// reservation was still authoritative, which tells the caller whether it
+    /// is safe to restore the draft. If a live event already advanced the
+    /// thread, restoring would send the user's message twice.
+    pub(crate) fn release_local_turn_start(
+        &self,
+        key: &ThreadKey,
+        reservation_turn_id: &str,
+    ) -> bool {
+        let released = self
+            .mutate_thread_with_result(key, |thread| {
+                if thread.active_turn_id.as_deref() != Some(reservation_turn_id) {
+                    return false;
+                }
+                thread.active_turn_id = None;
+                thread.info.status = ThreadSummaryStatus::Idle;
+                true
+            })
+            .unwrap_or(false);
+        if released {
+            self.emit_thread_metadata_changed(key);
+        }
+        released
     }
 
     pub(crate) fn restore_queued_follow_up_draft_front(
@@ -984,6 +1102,7 @@ impl AppStoreReducer {
                 preview,
                 inputs: Vec::new(),
                 source_message_json: None,
+                turn_start_params: None,
             })
             .collect();
         self.set_thread_follow_up_drafts(key, drafts);

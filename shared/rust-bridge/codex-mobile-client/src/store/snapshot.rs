@@ -260,6 +260,10 @@ pub(crate) struct QueuedFollowUpDraft {
     pub preview: AppQueuedFollowUpPreview,
     pub inputs: Vec<upstream::UserInput>,
     pub source_message_json: Option<serde_json::Value>,
+    /// Preserve the exact turn settings selected when the user pressed send.
+    /// A queued second message must not silently lose its model, effort, mode,
+    /// or permission policy when it is dispatched after the active turn ends.
+    pub turn_start_params: Option<upstream::TurnStartParams>,
 }
 
 impl ThreadSnapshot {

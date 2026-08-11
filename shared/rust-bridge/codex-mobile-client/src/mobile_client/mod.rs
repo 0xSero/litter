@@ -2732,7 +2732,14 @@ impl MobileClient {
                 || matches!(thread.info.status, ThreadSummaryStatus::Active)
         });
         self.external_resume_thread_inner(server_id, thread_id, host_id, reconcile_active_items)
-            .await
+            .await?;
+        maybe_send_next_local_queued_follow_up(
+            Arc::clone(&self.app_store),
+            Arc::clone(&self.sessions),
+            key,
+        )
+        .await;
+        Ok(())
     }
 
     /// Force a fresh `thread/resume` against the server even if a direct
@@ -2756,7 +2763,17 @@ impl MobileClient {
         thread_id: &str,
     ) -> Result<(), RpcError> {
         self.external_resume_thread_inner(server_id, thread_id, None, true)
-            .await
+            .await?;
+        maybe_send_next_local_queued_follow_up(
+            Arc::clone(&self.app_store),
+            Arc::clone(&self.sessions),
+            ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: thread_id.to_string(),
+            },
+        )
+        .await;
+        Ok(())
     }
 
     async fn external_resume_thread_inner(
@@ -3335,23 +3352,20 @@ impl MobileClient {
             params.approval_policy = None;
             params.sandbox_policy = None;
         }
-        let has_active_turn = thread_snapshot
-            .as_ref()
-            .is_some_and(|thread| thread.active_turn_id.is_some());
+        let has_active_turn = thread_snapshot.as_ref().is_some_and(|thread| {
+            thread.active_turn_id.is_some()
+                || matches!(thread.info.status, ThreadSummaryStatus::Active)
+        });
         let direct_params = params.clone();
-        // Stage an optimistic local overlay so the user sees their message
-        // immediately, before the server echoes it back.
-        let optimistic_overlay_id = if !has_active_turn {
-            self.app_store
-                .stage_local_user_message_overlay(&thread_key, &params.input)
-        } else {
-            None
-        };
         let queued_draft = has_active_turn
             .then(|| {
                 queued_follow_up_draft_from_inputs(&params.input, AppQueuedFollowUpKind::Message)
             })
-            .flatten();
+            .flatten()
+            .map(|mut draft| {
+                draft.turn_start_params = Some(direct_params.clone());
+                draft
+            });
         if let Some(draft) = queued_draft.clone() {
             self.app_store
                 .enqueue_thread_follow_up_draft(&thread_key, draft.clone());
@@ -3398,13 +3412,31 @@ impl MobileClient {
             }
         }
 
+        let Some(reservation_turn_id) = self.app_store.reserve_local_turn_start(&thread_key) else {
+            // A TurnStarted/status event won the race after the snapshot was
+            // read. Preserve this input as the next message instead of firing
+            // a conflicting second turn/start.
+            if let Some(mut draft) = queued_follow_up_draft_from_inputs(
+                &params.input,
+                AppQueuedFollowUpKind::Message,
+            ) {
+                draft.turn_start_params = Some(direct_params.clone());
+                self.app_store
+                    .enqueue_thread_follow_up_draft(&thread_key, draft);
+                return Ok(());
+            }
+            return Err(RpcError::Deserialization(
+                "thread became active before the turn could be reserved".to_string(),
+            ));
+        };
+        // Stage an optimistic local overlay so the user sees their message
+        // immediately, before the server echoes it back.
+        let optimistic_overlay_id = self
+            .app_store
+            .stage_local_user_message_overlay(&thread_key, &params.input);
         let direct_command_id = self.app_store.begin_server_mutating_command(
             server_id,
-            if queued_draft.is_some() {
-                ServerMutatingCommandKind::SetQueuedFollowUpsState
-            } else {
-                ServerMutatingCommandKind::StartTurn
-            },
+            ServerMutatingCommandKind::StartTurn,
             &params.thread_id,
         );
         let response_result = self
@@ -3419,17 +3451,24 @@ impl MobileClient {
         let response = match response_result {
             Ok(response) => response,
             Err(error) => {
+                if self
+                    .app_store
+                    .release_local_turn_start(&thread_key, &reservation_turn_id)
+                {
+                    self.app_store
+                        .finish_server_mutating_command_failure(server_id, &direct_command_id);
+                    if let Some(overlay_id) = optimistic_overlay_id.as_ref() {
+                        self.app_store
+                            .remove_local_overlay_item(&thread_key, overlay_id);
+                    }
+                    return Err(RpcError::Deserialization(error));
+                }
+                // A live TurnStarted/TurnCompleted event already replaced the
+                // reservation, so the server accepted the turn even though
+                // its response raced a transport failure.
                 self.app_store
-                    .finish_server_mutating_command_failure(server_id, &direct_command_id);
-                if let Some(overlay_id) = optimistic_overlay_id.as_ref() {
-                    self.app_store
-                        .remove_local_overlay_item(&thread_key, overlay_id);
-                }
-                if let Some(draft) = queued_draft.as_ref() {
-                    self.app_store
-                        .remove_thread_follow_up_draft(&thread_key, &draft.preview.id);
-                }
-                return Err(RpcError::Deserialization(error));
+                    .finish_server_mutating_command_success(server_id, &direct_command_id);
+                return Ok(());
             }
         };
         self.app_store
@@ -3441,6 +3480,11 @@ impl MobileClient {
                 &response.turn.id,
             );
         }
+        self.app_store.resolve_local_turn_start(
+            &thread_key,
+            &reservation_turn_id,
+            &response.turn.id,
+        );
         Ok(())
     }
 
