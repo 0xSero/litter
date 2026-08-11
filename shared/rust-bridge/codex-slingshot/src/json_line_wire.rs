@@ -8,7 +8,6 @@
 //! the same dispatch loop over any wire. This module implements that wire for raw
 //! line-delimited JSON-RPC and exposes a `connect_json_line_stream` helper to mirror
 //! the upstream `connect_websocket_stream` API.
-use std::future::Future;
 use std::io::{Error as IoError, Result as IoResult};
 
 use codex_app_server_client::{JsonRpcWire, RemoteAppServerClient, RemoteAppServerConnectArgs};
@@ -25,63 +24,54 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    fn send_message<'a>(
-        &'a mut self,
+    async fn send_message(
+        &mut self,
         message: JSONRPCMessage,
-        label: &'a str,
-    ) -> impl Future<Output = IoResult<()>> + Send + 'a {
-        async move {
-            let payload = serde_json::to_vec(&message).map_err(IoError::other)?;
-            self.writer.write_all(&payload).await.map_err(|err| {
-                IoError::other(format!(
-                    "failed to write JSON-lines message to `{label}`: {err}"
-                ))
-            })?;
-            self.writer.write_all(b"\n").await.map_err(|err| {
-                IoError::other(format!(
-                    "failed to finish JSON-lines message to `{label}`: {err}"
-                ))
-            })?;
-            self.writer.flush().await.map_err(|err| {
-                IoError::other(format!(
-                    "failed to flush JSON-lines message to `{label}`: {err}"
-                ))
-            })
-        }
+        label: &str,
+    ) -> IoResult<()> {
+        let payload = serde_json::to_vec(&message).map_err(IoError::other)?;
+        self.writer.write_all(&payload).await.map_err(|err| {
+            IoError::other(format!(
+                "failed to write JSON-lines message to `{label}`: {err}"
+            ))
+        })?;
+        self.writer.write_all(b"\n").await.map_err(|err| {
+            IoError::other(format!(
+                "failed to finish JSON-lines message to `{label}`: {err}"
+            ))
+        })?;
+        self.writer.flush().await.map_err(|err| {
+            IoError::other(format!(
+                "failed to flush JSON-lines message to `{label}`: {err}"
+            ))
+        })
     }
 
-    fn next_message<'a>(
-        &'a mut self,
-        label: &'a str,
-    ) -> impl Future<Output = IoResult<Option<JSONRPCMessage>>> + Send + 'a {
-        async move {
-            let mut line = String::new();
-            let read = self.reader.read_line(&mut line).await.map_err(|err| {
-                IoError::other(format!(
-                    "failed to read JSON-lines message from `{label}`: {err}"
-                ))
-            })?;
-            if read == 0 {
-                return Ok(None);
-            }
-            serde_json::from_str::<JSONRPCMessage>(&line)
-                .map(Some)
-                .map_err(|err| {
-                    IoError::other(format!(
-                        "remote app server at `{label}` sent invalid JSON-RPC: {err}"
-                    ))
-                })
+    async fn next_message(&mut self, label: &str) -> IoResult<Option<JSONRPCMessage>> {
+        let mut line = String::new();
+        let read = self.reader.read_line(&mut line).await.map_err(|err| {
+            IoError::other(format!(
+                "failed to read JSON-lines message from `{label}`: {err}"
+            ))
+        })?;
+        if read == 0 {
+            return Ok(None);
         }
-    }
-
-    fn close<'a>(&'a mut self, label: &'a str) -> impl Future<Output = IoResult<()>> + Send + 'a {
-        async move {
-            self.writer.shutdown().await.map_err(|err| {
+        serde_json::from_str::<JSONRPCMessage>(&line)
+            .map(Some)
+            .map_err(|err| {
                 IoError::other(format!(
-                    "failed to close JSON-lines app server `{label}`: {err}"
+                    "remote app server at `{label}` sent invalid JSON-RPC: {err}"
                 ))
             })
-        }
+    }
+
+    async fn close(&mut self, label: &str) -> IoResult<()> {
+        self.writer.shutdown().await.map_err(|err| {
+            IoError::other(format!(
+                "failed to close JSON-lines app server `{label}`: {err}"
+            ))
+        })
     }
 }
 

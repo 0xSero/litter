@@ -677,9 +677,7 @@ fn missing_runtime_kinds(
         .cloned()
         .collect::<HashSet<_>>();
     let mut missing = requested_runtime_kinds
-        .iter()
-        .cloned()
-        .filter(|kind| !existing.contains(kind))
+        .iter().filter(|&kind| !existing.contains(kind)).cloned()
         .collect::<Vec<_>>();
     missing.sort();
     missing
@@ -1222,7 +1220,7 @@ impl MobileClient {
                 .runtime_for_selected_model(&key.server_id, model)
                 .or_else(|| runtime_for_model_hint(model));
             if let Some(runtime_kind) = runtime_kind
-                && runtime_kind != "codex".to_string()
+                && runtime_kind != "codex"
             {
                 return Some(runtime_kind);
             }
@@ -1233,7 +1231,7 @@ impl MobileClient {
             .model_provider
             .as_deref()
             .and_then(runtime_for_model_hint)
-            .filter(|runtime_kind| *runtime_kind != "codex".to_string())
+            .filter(|runtime_kind| runtime_kind != "codex")
         {
             return Some(runtime_kind);
         }
@@ -1371,16 +1369,6 @@ impl MobileClient {
             .into_iter()
             .filter_map(|mask| AppCollaborationModePreset::try_from(mask).ok())
             .collect())
-    }
-
-    fn discovery_write(&self) -> std::sync::RwLockWriteGuard<'_, DiscoveryService> {
-        match self.discovery.write() {
-            Ok(guard) => guard,
-            Err(error) => {
-                warn!("MobileClient: recovering poisoned discovery write lock");
-                error.into_inner()
-            }
-        }
     }
 
     fn discovery_read(&self) -> std::sync::RwLockReadGuard<'_, DiscoveryService> {
@@ -3237,7 +3225,7 @@ impl MobileClient {
                 })
             }
             Err(error) if is_method_not_found(&error) => {
-                if runtime_kind == "codex".to_string() {
+                if runtime_kind == "codex" {
                     self.app_store
                         .set_server_supports_turn_pagination(server_id, false);
                 }
@@ -4054,7 +4042,9 @@ impl MobileClient {
         mdns_results: Vec<MdnsSeed>,
         local_ipv4: Option<String>,
     ) -> Vec<DiscoveredServer> {
-        let discovery = self.discovery_write();
+        // DiscoveryService keeps scan results in its own shared mutexes. A
+        // one-shot clone avoids holding the outer RwLock across network I/O.
+        let discovery = self.discovery_read().clone_for_one_shot();
         discovery
             .scan_once_with_context(&mdns_results, local_ipv4.as_deref())
             .await

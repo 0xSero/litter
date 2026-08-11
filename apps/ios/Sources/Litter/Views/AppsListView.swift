@@ -33,7 +33,7 @@ struct AppsListView: View {
         .onChange(of: navigation.pendingOpenAppId) { _, newValue in
             if let id = newValue {
                 detailAppId = id
-                navigation.consumeRequest()
+                _ = navigation.consumeRequest()
             }
         }
         .navigationDestination(item: $detailAppId) { appId in

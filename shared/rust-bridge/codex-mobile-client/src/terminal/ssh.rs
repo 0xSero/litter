@@ -108,11 +108,9 @@ pub(crate) async fn open(
     // the russh handshake so future connects can detect a host-key change.
     if let (Some(store), None) = (trust_store.as_ref(), &pinned_fingerprint)
         && accept_unknown_host
-    {
-        if let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+        && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
             store.pin(normalized.clone(), port, fingerprint);
         }
-    }
 
     let shell_override = shell.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let cwd_arg = cwd.as_deref().map(str::trim).filter(|s| !s.is_empty());

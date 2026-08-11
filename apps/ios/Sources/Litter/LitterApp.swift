@@ -79,7 +79,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                 identifier: "litter.task.complete",
                 actions: [],
                 intentIdentifiers: [],
-                options: [.allowAnnouncement]
+                options: []
             ),
             UNNotificationCategory(
                 identifier: WatchApprovalNotification.categoryIdentifier,

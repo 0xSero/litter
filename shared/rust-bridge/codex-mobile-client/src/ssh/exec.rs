@@ -191,7 +191,7 @@ impl SshClient {
             .map_err(|e| SshError::ConnectionFailed(format!("exec upload: {e}")))?;
 
         channel
-            .data(&content[..])
+            .data(content)
             .await
             .map_err(|e| SshError::ConnectionFailed(format!("upload data: {e}")))?;
 

@@ -27,14 +27,22 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-ALLEYCAT_MAIN_SHA="$(
-  git ls-remote https://github.com/dnakov/alleycat.git refs/heads/main \
-    | awk '{ print $1; exit }'
-)"
-if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
-  echo "error: could not resolve dnakov/alleycat main" >&2
-  exit 1
-fi
+ALLEYCAT_MAIN_SHA=""
+
+resolve_alleycat_main() {
+  if [ -n "$ALLEYCAT_MAIN_SHA" ]; then
+    return
+  fi
+
+  ALLEYCAT_MAIN_SHA="$(
+    git ls-remote https://github.com/dnakov/alleycat.git refs/heads/main \
+      | awk '{ print $1; exit }'
+  )"
+  if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
+    echo "error: could not resolve dnakov/alleycat main" >&2
+    exit 1
+  fi
+}
 
 alleycat_is_pinned() {
   grep -q 'dnakov/alleycat\.git.*rev = ' "$1"
@@ -45,6 +53,7 @@ update_shared() {
     echo "==> shared Rust Alleycat dependencies are revision-pinned; skipping"
     return
   fi
+  resolve_alleycat_main
   echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   for package in \
     alleycat-bridge-core \
@@ -65,6 +74,7 @@ update_kittylitter() {
     echo "==> kittylitter Alleycat dependency is revision-pinned; skipping"
     return
   fi
+  resolve_alleycat_main
   echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   cargo update \
     --quiet \

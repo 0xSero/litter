@@ -15,11 +15,10 @@ async fn wait_for_host(
 ) -> PairEvent {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if let Some(ev) = handle.poll_event().await {
-            if want(&ev) {
+        if let Some(ev) = handle.poll_event().await
+            && want(&ev) {
                 return ev;
             }
-        }
         if tokio::time::Instant::now() >= deadline {
             panic!("timeout waiting for host event");
         }
@@ -33,11 +32,10 @@ async fn wait_for_client(
 ) -> PairEvent {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if let Some(ev) = handle.poll_event().await {
-            if want(&ev) {
+        if let Some(ev) = handle.poll_event().await
+            && want(&ev) {
                 return ev;
             }
-        }
         if tokio::time::Instant::now() >= deadline {
             panic!("timeout waiting for client event");
         }

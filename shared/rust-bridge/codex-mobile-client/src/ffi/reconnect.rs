@@ -47,8 +47,8 @@ fn resolved_local_display_name(
             saved_servers
                 .iter()
                 .find(|server| {
-                    (server.id == server_id || server.id == "local")
-                        && (server.source == "local" || server.id == "local")
+                    server.id == "local"
+                        || (server.id == server_id && server.source == "local")
                 })
                 .and_then(|server| normalized_local_display_name(&server.name))
         })
@@ -193,7 +193,7 @@ impl ReconnectController {
         // websocket connect path does not execute on Swift's smaller stack.
         self.rt
             .spawn(async move {
-                let result = reconnect_server_inner(
+                reconnect_server_inner(
                     Arc::clone(&inner),
                     saved_servers,
                     credential_provider,
@@ -201,8 +201,7 @@ impl ReconnectController {
                     multi_clanker_and_quic_enabled,
                     server_id,
                 )
-                .await;
-                result
+                .await
             })
             .await
             .unwrap_or_else(|error| ReconnectResult {
@@ -495,7 +494,7 @@ async fn reconnect_server_inner(
             server_id: server_id.clone(),
             display_name: resolved_local_display_name(
                 &snapshot,
-                saved_server.as_ref().map_or(&[], std::slice::from_ref),
+                saved_server.as_slice(),
                 &server_id,
             ),
             host: "127.0.0.1".to_string(),

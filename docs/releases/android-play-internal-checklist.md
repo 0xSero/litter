@@ -63,12 +63,8 @@ The source internal release must be completed for Play promotion, so the script
 does that automatically when `LITTER_PLAY_PROMOTE_TRACK` is set. The destination
 still uses the requested status.
 
-## Variant Selection
-- Default variant: `OnDeviceRelease`
-- To upload remote-only:
-```bash
-VARIANT=RemoteOnlyRelease ./apps/android/scripts/play-upload.sh
-```
+The upload script publishes the single `Release` variant used by the hybrid
+local-and-remote runtime.
 
 ## Build Only (No Upload)
 ```bash

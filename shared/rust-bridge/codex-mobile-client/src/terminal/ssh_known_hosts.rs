@@ -97,11 +97,10 @@ pub(crate) fn normalize_host(host: &str) -> String {
         .trim_matches(']')
         .to_string();
     value = value.replace("%25", "%");
-    if !value.contains(':') {
-        if let Some(idx) = value.find('%') {
+    if !value.contains(':')
+        && let Some(idx) = value.find('%') {
             value.truncate(idx);
         }
-    }
     value.to_lowercase()
 }
 

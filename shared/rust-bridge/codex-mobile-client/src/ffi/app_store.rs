@@ -590,7 +590,7 @@ impl AppStore {
             &target_key.server_id,
             &target_key.thread_id,
         )
-        .map_err(|e| ClientError::Serialization(e))?;
+        .map_err(ClientError::Serialization)?;
         let processor = Arc::clone(&self.inner.event_processor);
         for (i, (ts_ms, server_id, notification)) in entries.iter().enumerate() {
             if i > 0 {
@@ -701,15 +701,13 @@ impl AppStoreSubscription {
                     "no app-store subscriber".to_string(),
                 ))?
         };
-        let result = loop {
-            match receive_next_update(&mut state).await {
-                Ok(update) => break Ok(update.into()),
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    break Ok(AppStoreUpdateRecord::FullResync);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    break Err(ClientError::EventClosed("closed".to_string()));
-                }
+        let result = match receive_next_update(&mut state).await {
+            Ok(update) => Ok(update),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                Ok(AppStoreUpdateRecord::FullResync)
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                Err(ClientError::EventClosed("closed".to_string()))
             }
         };
         *self.state.lock().unwrap() = Some(state);
@@ -752,7 +750,7 @@ fn coalesce_ready_updates(
         };
 
         if let Err(next) = merge_app_update(&mut update, next) {
-            state.buffered.push_front(next);
+            state.buffered.push_front(*next);
             return Ok(update);
         }
     }
@@ -761,7 +759,7 @@ fn coalesce_ready_updates(
 fn merge_app_update(
     current: &mut AppStoreUpdateRecord,
     next: AppStoreUpdateRecord,
-) -> Result<(), AppStoreUpdateRecord> {
+) -> Result<(), Box<AppStoreUpdateRecord>> {
     if matches!(current, AppStoreUpdateRecord::FullResync) {
         return Ok(());
     }
@@ -826,11 +824,11 @@ fn merge_app_update(
             },
         ) if *key == next_key && item.id == next_item.id => {
             if should_preserve_thread_item_update_boundary(item, &next_item) {
-                return Err(AppStoreUpdateRecord::ThreadItemChanged {
+                return Err(Box::new(AppStoreUpdateRecord::ThreadItemChanged {
                     key: next_key,
                     item: next_item,
                     session_summary: next_summary,
-                });
+                }));
             }
             *item = next_item;
             *session_summary = next_summary;
@@ -860,7 +858,7 @@ fn merge_app_update(
             *key = next_key;
             Ok(())
         }
-        (_current, next) => Err(next),
+        (_current, next) => Err(Box::new(next)),
     }
 }
 

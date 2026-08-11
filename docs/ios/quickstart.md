@@ -1,9 +1,12 @@
 # iOS Quickstart
 
 ## Prerequisites
+
 - Xcode.app
 - xcodegen (`brew install xcodegen`)
 - Rust toolchain (`rustup`)
+- Zig matching `shared/third_party/ghostty/build.zig.zon` (normally
+  `brew install zig@0.15`)
 - Optional: sccache (`brew install sccache`) for faster Rust rebuilds
 
 ## Build with Make (recommended)
@@ -12,33 +15,53 @@
 # Full iOS build (device + simulator)
 make ios
 
-# Simulator only (faster)
-make ios-sim
+# Simulator development lane (faster; raw static library)
+make ios-sim-fast
 
-# Device only
-make ios-device
+# Device development lane (faster; raw static library)
+make ios-device-fast
 
 # Build + open Xcode
 make ios-run
 ```
 
-This handles submodule sync, patching, UniFFI bindings, Rust cross-compilation, xcframework creation, ios_system framework download, Xcode project generation, and the Xcode build — with caching so repeated runs skip completed steps.
+The Makefile handles Codex/Ghostty submodule preparation, patches, UniFFI
+bindings, Rust cross-compilation, Alpine local-runtime resources, project
+generation, and Xcode builds. Stamp files make repeated runs incremental.
 
 ## Build manually (step by step)
+
 1. Sync Codex submodule + apply iOS patch:
+
    - `./apps/ios/scripts/sync-codex.sh`
-   - This preserves the current submodule checkout by default. Use `--recorded-gitlink` only if you want to reset to the commit recorded in the parent repo.
-2. Build Rust bridge XCFramework:
-   - `./apps/ios/scripts/build-rust.sh`
-   - Add `--with-intel-sim` only if you need an Intel Mac simulator slice.
-3. Download ios_system frameworks:
-   - `./apps/ios/scripts/download-ios-system.sh`
-4. Generate project:
+   - This preserves the current submodule checkout by default. Use
+     `--recorded-gitlink` only to reset to the commit recorded in the parent
+     repo.
+
+2. Build the Rust bridge:
+
+   - package lane: `./apps/ios/scripts/build-rust.sh`
+   - simulator fast lane: `./apps/ios/scripts/build-rust.sh --fast-sim`
+   - device fast lane: `./apps/ios/scripts/build-rust.sh --fast-device`
+
+3. Generate project:
+
    - `./apps/ios/scripts/regenerate-project.sh`
-5. Build app:
-   - `xcodebuild -project apps/ios/Litter.xcodeproj -scheme Litter -configuration Debug -destination 'generic/platform=iOS Simulator' build`
+
+4. Build app:
+
+   ```bash
+   xcodebuild \
+     -project apps/ios/Litter.xcodeproj \
+     -scheme Litter \
+     -configuration Debug \
+     -destination 'generic/platform=iOS Simulator' \
+     build
+   ```
 
 ## Configuration
+
 Override via environment variables:
-- `IOS_SIM_DEVICE="iPhone 16"` — change simulator target
+
+- `IOS_SIM_DEVICE="iPhone 17 Pro"` — change simulator target
 - `XCODE_CONFIG=Release` — release build

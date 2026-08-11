@@ -11,7 +11,6 @@ codex-app-server = { path = "../third_party/codex/codex-rs/app-server" }
 codex-app-server-client = { path = "../third_party/codex/codex-rs/app-server-client" }
 codex-app-server-protocol = { path = "../third_party/codex/codex-rs/app-server-protocol" }
 codex-protocol = { path = "../third_party/codex/codex-rs/protocol" }
-codex-utils-cli = { path = "../third_party/codex/codex-rs/utils/cli" }
 codex-core = { path = "../third_party/codex/codex-rs/core" }
 codex-exec-server = { path = "../third_party/codex/codex-rs/exec-server" }
 codex-login = { path = "../third_party/codex/codex-rs/login" }
@@ -43,8 +42,7 @@ base64 = "0.22"
 sha2 = "0.10"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-russh = "0.60.1"
-russh-keys = "0.49.2"
+russh = "0.62.6"
 futures = "0.3"
 url = "2.5"
 uuid = { version = "1", features = ["v4", "serde"] }

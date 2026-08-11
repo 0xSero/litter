@@ -25,7 +25,8 @@ if [ -z "${ANDROID_NDK_HOME:-}" ] && [ -z "${ANDROID_NDK_ROOT:-}" ]; then
 fi
 
 if [ "${CARGO_INCREMENTAL:-}" != "1" ] && command -v sccache >/dev/null 2>&1; then
-  export RUSTC_WRAPPER="$(command -v sccache)"
+  sccache_path="$(command -v sccache)"
+  export RUSTC_WRAPPER="$sccache_path"
 fi
 
 # libghostty.so per-ABI must exist before the Android JNI bridge links
@@ -101,7 +102,7 @@ mkdir -p "$OUT_DIR"
 
 for abi_dir in arm64-v8a x86_64; do
   if [[ " $SELECTED_ABIS " != *" $abi_dir "* ]]; then
-    rm -rf "$OUT_DIR/$abi_dir"
+    rm -rf "${OUT_DIR:?}/$abi_dir"
   fi
 done
 

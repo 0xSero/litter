@@ -231,11 +231,10 @@ fn resolved_preferred_codex_port(server: &SavedServerRecord) -> Option<u16> {
         return None;
     }
     let ports = available_direct_codex_ports(server);
-    if let Some(pref) = server.preferred_codex_port {
-        if ports.contains(&pref) {
+    if let Some(pref) = server.preferred_codex_port
+        && ports.contains(&pref) {
             return Some(pref);
         }
-    }
     None
 }
 
@@ -297,8 +296,8 @@ pub(crate) fn compute_reconnect_plan_with_slingshot(
     }
 
     // 2. Stable Alleycat pairing wins before legacy tunnel/direct transports.
-    if multi_clanker_and_quic_enabled {
-        if let (Some(node_id), Some(token), Some(agent_name)) = (
+    if multi_clanker_and_quic_enabled
+        && let (Some(node_id), Some(token), Some(agent_name)) = (
             server.alleycat_node_id.as_ref(),
             server.alleycat_token.as_ref(),
             server.alleycat_agent_name.as_ref(),
@@ -321,7 +320,6 @@ pub(crate) fn compute_reconnect_plan_with_slingshot(
                 wire,
             });
         }
-    }
 
     // 3. SSH bridge records need to reconnect as the multiplexed in-process
     // bridge group. Falling through to the legacy SSH plan would only
@@ -393,8 +391,8 @@ pub(crate) fn compute_reconnect_plan_with_slingshot(
     }
 
     // 7. No explicit mode, but credential available → SSH (legacy fallback)
-    if mode.is_none() {
-        if let Some(cred) = credential {
+    if mode.is_none()
+        && let Some(cred) = credential {
             return Some(ReconnectPlan::Ssh {
                 server_id: server.id.clone(),
                 display_name: server.name.clone(),
@@ -403,7 +401,6 @@ pub(crate) fn compute_reconnect_plan_with_slingshot(
                 credential: cred.clone(),
             });
         }
-    }
 
     // 8. Local source → Local
     if server.source == "local" {

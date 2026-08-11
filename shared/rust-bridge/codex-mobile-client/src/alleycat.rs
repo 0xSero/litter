@@ -689,7 +689,7 @@ pub async fn bind_alleycat_endpoint(
         .dns_resolver(iroh::dns::DnsResolver::with_nameserver(
             std::net::SocketAddr::from(([8, 8, 8, 8], 53)),
         ))
-        .ca_roots_config(iroh::tls::CaRootsConfig::embedded());
+        .ca_tls_config(iroh::tls::CaTlsConfig::embedded());
     info!("alleycat: binding shared iroh endpoint");
     endpoint_builder
         .bind()

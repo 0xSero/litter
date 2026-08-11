@@ -352,8 +352,8 @@ fn find_code_fences(text: &str) -> Vec<(usize, usize, Option<String>, String)> {
         } else {
             // Check if this line opens a fence
             let first_char = trimmed.chars().next();
-            if let Some(fc) = first_char {
-                if fc == '`' || fc == '~' {
+            if let Some(fc) = first_char
+                && (fc == '`' || fc == '~') {
                     let fl = trimmed.chars().take_while(|&c| c == fc).count();
                     if fl >= 3 {
                         fence_char = Some(fc);
@@ -365,7 +365,6 @@ fn find_code_fences(text: &str) -> Vec<(usize, usize, Option<String>, String)> {
                         continue;
                     }
                 }
-            }
         }
     }
 
@@ -529,8 +528,8 @@ fn find_math_spans(
                         continue;
                     }
                 }
-            } else if bytes[cursor..].starts_with(br"\(") {
-                if let Some(close_start) =
+            } else if bytes[cursor..].starts_with(br"\(")
+                && let Some(close_start) =
                     find_closing_math_delimiter(text, cursor + 2, br"\)", false)
                 {
                     let latex = &text[cursor + 2..close_start];
@@ -546,7 +545,6 @@ fn find_math_spans(
                         continue;
                     }
                 }
-            }
         }
 
         if bytes[cursor] == b'$' && !is_escaped(text, cursor) {
@@ -702,11 +700,10 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
     // Remove overlapping spans (keep earlier ones)
     let mut deduped: Vec<(usize, usize, MessageSegment)> = Vec::new();
     for span in spans {
-        if let Some(last) = deduped.last() {
-            if span.0 < last.1 {
+        if let Some(last) = deduped.last()
+            && span.0 < last.1 {
                 continue;
             }
-        }
         deduped.push(span);
     }
 

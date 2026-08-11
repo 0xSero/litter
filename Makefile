@@ -33,7 +33,6 @@ IOS_DEVICE_PROFILE_TEMPLATE ?= Time Profiler
 IOS_DEVICE_PROFILE_TIME_LIMIT ?=
 IOS_SIM_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/ios-sim-run
 IOS_SIM_PROFILE ?= 1
-IOS_SIM_PROFILE_TEMPLATE ?= Time Profiler
 IOS_SIM_PROFILE_TIME_LIMIT ?=
 ANDROID_DEVICE_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-device-run
 ANDROID_EMULATOR_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-emulator-run
@@ -155,11 +154,7 @@ endif
 KITTYLITTER_ARGS := $(strip $(KITTYLITTER_GOAL_ARGS) $(ARGS))
 UPDATE_ALLEYCAT_MAIN := $(ROOT)/tools/scripts/update-alleycat-main.sh
 
-PATCH_FILES := \
-	$(PATCHES_DIR)/ios-exec-hook.patch \
-	$(PATCHES_DIR)/client-controlled-handoff.patch \
-	$(PATCHES_DIR)/mobile-code-mode-stub.patch \
-	$(PATCHES_DIR)/thread-read-permissions.patch
+PATCH_FILES := $(sort $(wildcard $(PATCHES_DIR)/*.patch))
 
 BOUNDARY_SOURCES := \
 	$(RUST_DIR)/codex-mobile-client/Cargo.toml \
@@ -204,7 +199,7 @@ ANDROID_RUST_SOURCES := $(shell find $(RUST_DIR) \
 $(shell mkdir -p $(STAMPS))
 
 .PHONY: all ios ios-sim ios-sim-fast ios-sim-run ios-device ios-device-fast ios-device-run ios-device-stop ios-run verify-ios-project catalyst catalyst-run catalyst-fast catalyst-fast-run mac-direct mac-direct-run mac-direct-fast mac-direct-fast-run \
-	android android-fast android-tools android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
+	android android-fast android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
 	rust-ios rust-ios-package rust-ios-device-release rust-mac-release rust-ios-device-fast rust-ios-sim-fast rust-ios-macabi-fast rust-android rust-check rust-test rust-host-dev \
 	android-alpine-fs proot-android \
 	ghostty-ios ghostty-android \
@@ -343,7 +338,6 @@ ios-sim-run: ios-sim-fast
 	@echo "==> Installing and launching on booted simulator with saved logs/profile..."
 	@cd $(ROOT) && \
 	IOS_SIM_PROFILE='$(IOS_SIM_PROFILE)' \
-	IOS_SIM_PROFILE_TEMPLATE='$(IOS_SIM_PROFILE_TEMPLATE)' \
 	IOS_SIM_PROFILE_TIME_LIMIT='$(IOS_SIM_PROFILE_TIME_LIMIT)' \
 	IOS_SIM_RUN_ARTIFACTS_DIR='$(IOS_SIM_RUN_ARTIFACTS_DIR)' \
 	$(IOS_SCRIPTS)/run-sim.sh
@@ -384,10 +378,7 @@ ios-run: ios
 	@open $(IOS_DIR)/Litter.xcodeproj
 
 android: android-fast
-android-fast: rust-android android-tools android-alpine-fs proot-android android-debug
-android-tools:
-	@echo "==> Downloading bundled Android CLI tools..."
-	@$(ROOT)/tools/scripts/download-android-tools.sh
+android-fast: rust-android android-alpine-fs proot-android android-debug
 android-emulator-fast:
 	@$(MAKE) android-fast ANDROID_ABIS="$(ANDROID_EMULATOR_ABIS)"
 android-emulator-run: android-emulator-fast
@@ -411,7 +402,7 @@ android-device-run: android-fast
 	ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH='$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)' \
 	./tools/scripts/run-android.sh
 
-android-release: android-tools android-alpine-fs proot-android
+android-release: android-alpine-fs proot-android
 	@$(MAKE) rust-android ANDROID_RUST_PROFILE=release ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)"
 	@echo "==> Building Android release..."
 	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)" ./gradlew :app:assembleRelease
@@ -445,11 +436,11 @@ rust-ios-macabi-fast: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for fast Mac Catalyst iteration (raw macabi staticlib + headers, host arch only)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --fast-macabi $(CARGO_FEATURES)
 
-rust-check: alleycat-main
+rust-check: alleycat-main $(STAMP_SYNC)
 	@echo "==> cargo check (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo check --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client
 
-rust-test: alleycat-main rust-shellcheck
+rust-test: alleycat-main $(STAMP_SYNC) rust-shellcheck
 	@echo "==> cargo test (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
@@ -510,7 +501,7 @@ help:
 	@printf '%s\n' \
 		'make ios                full iOS package lane + simulator build' \
 		'make ios-sim-fast       fast simulator lane using raw staticlib outputs' \
-		'make ios-sim-run        fast sim build + install + launch on booted simulator; saves console log and Time Profiler trace under artifacts/ios-sim-run (override IOS_SIM_PROFILE=0, IOS_SIM_PROFILE_TEMPLATE, IOS_SIM_PROFILE_TIME_LIMIT=30s to cap capture)' \
+		'make ios-sim-run        fast sim build + install + launch on booted simulator; saves console log and CPU Profiler trace under artifacts/ios-sim-run (override IOS_SIM_PROFILE=0 or IOS_SIM_PROFILE_TIME_LIMIT=30s to cap capture)' \
 		'make ios-device         full iOS package lane + device build' \
 		'make ios-device-fast    fast device lane using raw staticlib outputs' \
 		'make ios-device-run     fast device build + install + launch on connected device; saves console log and Time Profiler trace for the whole run under artifacts/ios-device-run (override IOS_DEVICE_PROFILE=0, IOS_DEVICE_PROFILE_TEMPLATE, IOS_DEVICE_PROFILE_TIME_LIMIT=30s to cap capture)' \
@@ -523,7 +514,7 @@ help:
 		'make proot-android     build Android proot executable artifacts' \
 		'make ghostty-ios        build pinned Ghostty iOS renderer artifacts' \
 		'make ghostty-android    build pinned Ghostty Android renderer artifacts (requires Android platform patch)' \
-		'make alleycat-main      refresh Alleycat git deps to latest dnakov/alleycat main' \
+		'make alleycat-main      refresh unpinned Alleycat git deps to latest dnakov/alleycat main' \
 		'make catalyst           full Mac Catalyst build (release+LTO macabi staticlib + xcodebuild)' \
 		'make catalyst-run       full Mac Catalyst build + launch' \
 		'make catalyst-fast      fast Mac Catalyst dev build (ios-dev profile, host arch)' \
@@ -539,7 +530,7 @@ help:
 		'make prune-ios-sim-only remove device/Catalyst iOS outputs; retain the simulator staticlib and generated headers'
 
 sync: $(STAMP_SYNC)
-$(STAMP_SYNC):
+$(STAMP_SYNC): $(IOS_SCRIPTS)/sync-codex.sh $(PATCH_FILES) .gitmodules
 	@echo "==> Syncing codex submodule..."
 	@$(IOS_SCRIPTS)/sync-codex.sh --preserve-current
 	@touch $@
@@ -586,7 +577,7 @@ $(STAMP_BINDINGS_K): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
 	@touch $@
 
 xcgen: $(STAMP_XCGEN)
-$(STAMP_XCGEN): $(IOS_DIR)/project.yml
+$(STAMP_XCGEN): $(IOS_DIR)/project.yml $(STAMP_BINDINGS_S) $(STAMP_ALPINE_FS)
 	@echo "==> Regenerating Xcode project..."
 	@$(IOS_SCRIPTS)/regenerate-project.sh
 	@touch $@
@@ -733,7 +724,7 @@ watch-sim-run: watch-sim
 	xcrun simctl install $$WATCH_UDID "$$APP_PATH" ; \
 	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watch
 
-android-debug:
+android-debug: $(STAMP_BINDINGS_K)
 	@echo "==> Building Android debug..."
 	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ./gradlew :app:assembleDebug
 
@@ -772,18 +763,18 @@ android-emulator-install: android-emulator-fast
 
 test: test-rust test-ios test-android
 
-test-rust: alleycat-main
+test-rust: alleycat-main $(STAMP_SYNC)
 	@echo "==> Running Rust tests..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
-test-ios: xcgen
+test-ios: rust-ios-sim-fast alpine-fs xcgen
 	@echo "==> Running iOS tests..."
 	@xcodebuild test -project $(IOS_DIR)/Litter.xcodeproj \
 		-scheme $(IOS_SCHEME) \
 		-configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIM_DEVICE)'
 
-test-android:
+test-android: $(STAMP_BINDINGS_K)
 	@echo "==> Running Android tests..."
 	@cd $(ANDROID_DIR) && ./gradlew :app:testDebugUnitTest
 

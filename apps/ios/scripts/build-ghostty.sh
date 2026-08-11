@@ -15,10 +15,7 @@ if [ ! -f "$GHOSTTY_DIR/build.zig" ]; then
     exit 1
 fi
 
-if ! command -v zig >/dev/null 2>&1; then
-    echo "error: zig is required to build Ghostty (brew install zig)" >&2
-    exit 1
-fi
+ZIG_BIN="$("$REPO_DIR/tools/scripts/resolve-ghostty-zig.sh")"
 
 # Apply Litter's mobile-embed patches if not already applied. Idempotent;
 # safe to call on every build. Required when this script is invoked
@@ -183,7 +180,7 @@ build_slice() {
     echo "==> Building Ghostty $name static library..."
     (
         cd "$GHOSTTY_DIR"
-        zig_args=(zig build \
+        zig_args=("$ZIG_BIN" build \
             -Dlitter-ios-static=true \
             -Dapp-runtime=none \
             -Drenderer=metal \

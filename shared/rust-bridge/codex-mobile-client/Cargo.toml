@@ -11,7 +11,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 uniffi = { version = "0.31.0", features = ["tokio"] }
-iroh = "0.98.1"
+iroh = "1.0.3"
 codex-app-server = { workspace = true }
 codex-app-server-client = { workspace = true }
 codex-app-server-protocol = { workspace = true }
@@ -24,7 +24,6 @@ codex-shell-command = { workspace = true }
 codex-config = { workspace = true }
 codex-cloud-requirements = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
-codex-git-utils = { workspace = true }
 codex-feedback = { workspace = true }
 codex-arg0 = { workspace = true }
 alleycat-bridge-core = { workspace = true }
@@ -43,7 +42,6 @@ chrono = { workspace = true }
 regex = { workspace = true }
 base64 = { workspace = true }
 russh = { workspace = true }
-russh-keys = { workspace = true }
 futures = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }

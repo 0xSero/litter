@@ -66,16 +66,30 @@ class VoiceTranscriptionManager {
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
+        if (bufferSize <= 0) {
+            _error.value = "Microphone is unavailable"
+            return
+        }
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            deviceSampleRate,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize * 2,
-        )
-
-        audioRecord?.startRecording()
+        val recorder = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                deviceSampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize * 2,
+            ).also { it.startRecording() }
+        } catch (_: SecurityException) {
+            _error.value = "Microphone permission required"
+            return
+        } catch (_: IllegalArgumentException) {
+            _error.value = "Microphone configuration is unsupported"
+            return
+        } catch (_: IllegalStateException) {
+            _error.value = "Microphone could not start"
+            return
+        }
+        audioRecord = recorder
         _isRecording.value = true
 
         recordingThread = Thread {

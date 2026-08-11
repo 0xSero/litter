@@ -24,7 +24,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
 use crate::logging::{LogLevelName, log_rust};
-use crate::session::remote_transport::{Reconnected, RemoteTransport, SessionKeepalive};
+use crate::session::remote_transport::{
+    Reconnected, RemoteTransport, SessionKeepalive, replace_keepalive_if_present,
+};
 use crate::ssh::{RemoteShell, SshBootstrapResult, SshBootstrapTransport, SshClient};
 use crate::transport::{RpcError, TransportError};
 use crate::types::AgentRuntimeKind;
@@ -609,14 +611,13 @@ impl ServerSession {
             }
         }
 
-        if let Some(ref working_dir) = in_process.working_directory {
-            if let Err(e) = std::env::set_current_dir(working_dir) {
+        if let Some(ref working_dir) = in_process.working_directory
+            && let Err(e) = std::env::set_current_dir(working_dir) {
                 return Err(TransportError::ConnectionFailed(format!(
                     "failed to set working directory {:?}: {e}",
                     working_dir
                 )));
             }
-        }
 
         let mut cli_overrides = vec![
             ("features.goals".to_string(), true.into()),
@@ -1277,9 +1278,7 @@ async fn reconnect_remote_client(
         match connect_result {
             Ok(next) => {
                 *client = next.client;
-                if next.keepalive.is_some() {
-                    *keepalive = next.keepalive;
-                }
+                replace_keepalive_if_present(keepalive, next.keepalive);
                 let _ = health_tx.send(ConnectionHealth::Connected);
                 info!(
                     "remote server session reconnected: {} (attempt {attempt}/{})",

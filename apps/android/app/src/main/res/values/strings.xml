@@ -1,29 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="connect_to_server">Connect to Server</string>
-    <string name="directory_picker_title">Choose Directory</string>
-    <string name="directory_picker_select_server">Select server</string>
-    <string name="directory_picker_connected_server">Connected: %1$s</string>
-    <string name="directory_picker_change_server">Change</string>
-    <string name="directory_picker_search_folders">Search folders</string>
-    <string name="directory_picker_show_hidden_folders">Show hidden folders</string>
-    <string name="directory_picker_up_one_level">Up one level</string>
-    <string name="directory_picker_loading">Loading folders...</string>
-    <string name="directory_picker_load_error">Couldn\'t load this folder.</string>
-    <string name="directory_picker_retry">Retry</string>
-    <string name="directory_picker_recent_directories">Recent Directories</string>
-    <string name="directory_picker_clear_recent_directories">Clear recent directories</string>
-    <string name="directory_picker_remove_recent">Remove recent directory</string>
-    <string name="directory_picker_continue_in_folder">Continue in %1$s</string>
-    <string name="directory_picker_choose_folder_helper">Choose a folder to continue.</string>
-    <string name="directory_picker_select_folder">Select Folder</string>
-    <string name="directory_picker_select_folder_path">Select Folder %1$s</string>
-    <string name="directory_picker_cancel">Cancel</string>
-    <string name="directory_picker_clear_recent_title">Clear recent directories?</string>
-    <string name="directory_picker_clear_recent_message">This will remove recent folders for the selected server.</string>
-    <string name="directory_picker_clear">Clear</string>
-    <string name="directory_picker_no_subdirectories">No subdirectories</string>
-    <string name="directory_picker_no_matches">No matches for &quot;%1$s&quot;</string>
     <string name="widget_description">Shows active Codex turn progress</string>
-    <string name="widget_label">Codex Turn</string>
+    <string name="widget_loading_label">Codex</string>
 </resources>

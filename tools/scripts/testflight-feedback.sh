@@ -17,9 +17,6 @@ set -euo pipefail
 #   SINCE              — optional ISO-8601 lower bound for createdDate filtering
 #   UNTIL              — optional ISO-8601 upper bound for createdDate filtering
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
 VERSION="${1:-}"
 BUNDLE_ID="${BUNDLE_ID:-com.sigkitten.litter}"
 DOWNLOAD_SCREENSHOTS="${DOWNLOAD_SCREENSHOTS:-0}"

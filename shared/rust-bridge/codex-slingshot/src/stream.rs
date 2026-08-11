@@ -184,7 +184,7 @@ impl ControlState {
         self.sent_first_client_message = true;
         let seq_id = self.allocate_sequence_id();
         let envelope = ClientWireEnvelope {
-            event: ClientWireEvent::ClientMessage { message },
+            event: ClientWireEvent::Message { message },
             client_id: self.client_id.clone(),
             env_id: Some(self.environment_id.clone()),
             stream_id: Some(self.stream_id.clone()),
@@ -196,7 +196,7 @@ impl ControlState {
 
     fn client_closed_wire(&mut self) -> ClientWireEnvelope {
         ClientWireEnvelope {
-            event: ClientWireEvent::ClientClosed,
+            event: ClientWireEvent::Closed,
             client_id: self.client_id.clone(),
             env_id: Some(self.environment_id.clone()),
             stream_id: Some(self.stream_id.clone()),
@@ -210,16 +210,19 @@ impl ControlState {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientWireEvent {
-    ClientMessage {
+    #[serde(rename = "client_message")]
+    Message {
         message: serde_json::Value,
     },
-    ClientMessageChunk {
+    #[serde(rename = "client_message_chunk")]
+    MessageChunk {
         segment_id: usize,
         segment_count: usize,
         message_size_bytes: usize,
         message_chunk_base64: String,
     },
-    ClientClosed,
+    #[serde(rename = "client_closed")]
+    Closed,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -278,7 +281,7 @@ struct ChunkAssembly {
 fn split_client_wire_envelope_for_transport(
     envelope: ClientWireEnvelope,
 ) -> Result<Vec<ClientWireEnvelope>, SlingshotApiError> {
-    if !matches!(envelope.event, ClientWireEvent::ClientMessage { .. }) {
+    if !matches!(envelope.event, ClientWireEvent::Message { .. }) {
         return Ok(vec![envelope]);
     }
 
@@ -287,7 +290,7 @@ fn split_client_wire_envelope_for_transport(
         return Ok(vec![envelope]);
     }
 
-    let ClientWireEvent::ClientMessage { message } = &envelope.event else {
+    let ClientWireEvent::Message { message } = &envelope.event else {
         unreachable!("client message variant checked above");
     };
     let raw = serde_json::to_vec(message)?;
@@ -311,7 +314,7 @@ fn split_client_wire_envelope_for_transport(
     let mut segments = Vec::with_capacity(segment_count);
     for (segment_id, chunk) in raw.chunks(chunk_size).enumerate() {
         let segment = ClientWireEnvelope {
-            event: ClientWireEvent::ClientMessageChunk {
+            event: ClientWireEvent::MessageChunk {
                 segment_id,
                 segment_count,
                 message_size_bytes,
@@ -391,19 +394,19 @@ async fn control_loop(
             "slingshot websocket connected"
         );
         let (mut ws_tx, mut ws_rx) = websocket.split();
-        if api.requires_device_key_handshake() {
-            if let Err(error) = complete_device_key_handshake(&api, &mut ws_tx, &mut ws_rx).await {
-                warn!(
-                    target: "codex_slingshot",
-                    %error,
-                    client_id = %state.client_id,
-                    environment_id = %state.environment_id,
-                    stream_id = %state.stream_id,
-                    "slingshot websocket device-key handshake failed"
-                );
-                tokio::time::sleep(RECONNECT_DELAY).await;
-                continue;
-            }
+        if api.requires_device_key_handshake()
+            && let Err(error) = complete_device_key_handshake(&api, &mut ws_tx, &mut ws_rx).await
+        {
+            warn!(
+                target: "codex_slingshot",
+                %error,
+                client_id = %state.client_id,
+                environment_id = %state.environment_id,
+                stream_id = %state.stream_id,
+                "slingshot websocket device-key handshake failed"
+            );
+            tokio::time::sleep(RECONNECT_DELAY).await;
+            continue;
         }
         if let Err(error) = replay_unacked_wire(&mut ws_tx, &state).await {
             warn!(
@@ -647,10 +650,10 @@ where
     S: Sink<Message, Error = tungstenite::Error> + Unpin,
 {
     let value: serde_json::Value = serde_json::from_slice(payload)?;
-    if !value
+    if value
         .get("type")
         .and_then(|value| value.as_str())
-        .is_some_and(|kind| kind == "device_key_challenge")
+        .is_none_or(|kind| kind != "device_key_challenge")
     {
         return Ok(false);
     }
@@ -888,9 +891,9 @@ async fn handle_inbound_wire_envelope(
 
 fn client_wire_event_name(envelope: &ClientWireEnvelope) -> &'static str {
     match &envelope.event {
-        ClientWireEvent::ClientMessage { .. } => "client_message",
-        ClientWireEvent::ClientMessageChunk { .. } => "client_message_chunk",
-        ClientWireEvent::ClientClosed => "client_closed",
+        ClientWireEvent::Message { .. } => "client_message",
+        ClientWireEvent::MessageChunk { .. } => "client_message_chunk",
+        ClientWireEvent::Closed => "client_closed",
     }
 }
 
@@ -1141,7 +1144,7 @@ mod tests {
             assert_eq!(envelope.seq_id, Some(1));
 
             match &envelope.event {
-                ClientWireEvent::ClientMessageChunk {
+                ClientWireEvent::MessageChunk {
                     segment_id: actual_segment_id,
                     segment_count,
                     message_size_bytes,

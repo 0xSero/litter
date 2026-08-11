@@ -7,7 +7,6 @@ APP_PATH="$(/bin/ls -dt "${DERIVED_DATA_ROOT}"/Litter-*/Build/Products/Debug-iph
 BUNDLE_ID="com.sigkitten.litter"
 
 PROFILE_ENABLED="${IOS_SIM_PROFILE:-0}"
-PROFILE_TEMPLATE="${IOS_SIM_PROFILE_TEMPLATE:-Time Profiler}"
 PROFILE_TIME_LIMIT="${IOS_SIM_PROFILE_TIME_LIMIT:-}"
 ARTIFACTS_ROOT="${IOS_SIM_RUN_ARTIFACTS_DIR:-${ROOT_DIR}/artifacts/ios-sim-run}"
 TIMESTAMP="$(date +"%Y%m%d-%H%M%S")"
@@ -114,7 +113,7 @@ if [[ "${PROFILE_ENABLED}" == "1" ]]; then
   APP_PID=""
   for _ in $(seq 1 20); do
     sleep 0.5
-    APP_PID="$(pgrep -f 'Litter\.app/Litter$' 2>/dev/null | while read pid; do
+    APP_PID="$(pgrep -f 'Litter\.app/Litter$' 2>/dev/null | while read -r pid; do
       if ! ps -p "$pid" -o args= 2>/dev/null | grep -q PlugIns; then
         echo "$pid"
         break

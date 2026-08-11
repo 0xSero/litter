@@ -198,7 +198,7 @@ final class MacPairingHost: NSObject {
     // MARK: - NISession
 
     private func prepareNISession() {
-        guard NISession.isSupported else {
+        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
             LLog.info("pair", "NISession unsupported on this Mac; iPhone will fall back")
             return
         }

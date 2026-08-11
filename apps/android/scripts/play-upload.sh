@@ -6,7 +6,6 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 ANDROID_DIR="$REPO_DIR/apps/android"
 GRADLEW="$ANDROID_DIR/gradlew"
 
-VARIANT="${VARIANT:-Release}"
 UPLOAD="${UPLOAD:-1}"
 TRACK="${LITTER_PLAY_TRACK:-internal}"
 # Comma-separated list of tracks to promote the uploaded artifact to.
@@ -65,8 +64,8 @@ declare -a BASE_PROPS=(
 
 # ── Local build only ───────────────────────────────────────────────────────
 if [[ "$UPLOAD" != "1" ]]; then
-    TASK=":app:bundle${VARIANT}"
-    echo "==> Building local AAB for $VARIANT (no upload)"
+    TASK=":app:bundleRelease"
+    echo "==> Building local release AAB (no upload)"
     GRADLE_TASKS=()
     if [[ -n "$EXTRA_GRADLE_TASKS" ]]; then
         EXTRA_TASKS_NORMALIZED="${EXTRA_GRADLE_TASKS//,/ }"
@@ -98,12 +97,12 @@ fi
 # Promotion requires a completed source release. Upload-only runs respect the
 # requested status and default to DRAFT so preparing an artifact cannot
 # accidentally make it visible to testers.
-PUBLISH_TASK=":app:publish${VARIANT}Bundle"
+PUBLISH_TASK=":app:publishReleaseBundle"
 status_for_upload="$RELEASE_STATUS"
 if [[ -n "$PROMOTE_TRACK" ]]; then
     status_for_upload="completed"
 fi
-echo "==> Publishing $VARIANT bundle to Google Play track '$TRACK' [status=$status_for_upload]"
+echo "==> Publishing release bundle to Google Play track '$TRACK' [status=$status_for_upload]"
 
 declare -a PUBLISH_TASKS=()
 if [[ -n "$EXTRA_GRADLE_TASKS" ]]; then
@@ -119,7 +118,7 @@ PUBLISH_TASKS+=("$PUBLISH_TASK")
 # ── Step 2: optionally promote to one or more tracks ───────────────────────
 # Each destination is an independent Play release, so fan out.
 if [[ -n "$PROMOTE_TRACK" ]]; then
-    PROMOTE_TASK=":app:promote${VARIANT}Artifact"
+    PROMOTE_TASK=":app:promoteReleaseArtifact"
     status_for_promote="$RELEASE_STATUS"
     rollout_info=""
     if [[ "$status_for_promote" == "inProgress" || "$status_for_promote" == "in_progress" ]]; then

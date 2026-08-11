@@ -13,14 +13,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$SCRIPT_DIR"
 source "$WORKSPACE_DIR/../../tools/scripts/load-sccache-aws-creds.sh"
-CRATE_DIR="$WORKSPACE_DIR/codex-mobile-client"
 OUT_SWIFT="$WORKSPACE_DIR/generated/swift"
 OUT_KOTLIN="$WORKSPACE_DIR/generated/kotlin"
 
 cd "$WORKSPACE_DIR"
 
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && [[ "${CARGO_INCREMENTAL:-}" != "1" ]] && command -v sccache >/dev/null 2>&1; then
-    export RUSTC_WRAPPER="$(command -v sccache)"
+    sccache_path="$(command -v sccache)"
+    export RUSTC_WRAPPER="$sccache_path"
 fi
 
 "$WORKSPACE_DIR/../../tools/scripts/update-alleycat-main.sh" --shared
@@ -103,6 +103,8 @@ if [[ "$GENERATE_KOTLIN" -eq 1 ]]; then
     cargo run -p uniffi-bindgen -- generate \
         --library "$DYLIB_FILE" \
         --language kotlin \
+        --config "$WORKSPACE_DIR/uniffi.toml" \
+        --no-format \
         --out-dir "$OUT_KOTLIN"
 fi
 

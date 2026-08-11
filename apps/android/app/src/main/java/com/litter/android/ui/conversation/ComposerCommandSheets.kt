@@ -149,9 +149,10 @@ private fun AppSandboxPolicy.displayTitle(): String =
 fun ComposerPermissionsSheet(threadKey: ThreadKey? = null, onDismiss: () -> Unit) {
     val appModel = LocalAppModel.current
     val launchState by appModel.launchState.snapshot.collectAsState()
+    val appSnapshot by appModel.snapshot.collectAsState()
     val selectedApproval = appModel.launchState.selectedApprovalPolicy(threadKey)
     val selectedSandbox = appModel.launchState.selectedSandboxMode(threadKey)
-    val effectiveThread = appModel.snapshot.value?.threads?.firstOrNull { it.key == threadKey }
+    val effectiveThread = appSnapshot?.threads?.firstOrNull { it.key == threadKey }
     val selectedRuntime = effectiveThread?.agentRuntimeKind ?: launchState.selectedAgentRuntimeKind
     val currentRuntimeSupportsPermissionOverrides =
         selectedRuntime?.supportsThreadPermissionOverrides ?: true

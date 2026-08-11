@@ -456,7 +456,7 @@ final class NetworkDiscovery {
         serviceType: String,
         timeout: TimeInterval
     ) async -> [BonjourDiscoverySeed] {
-        let browser = await BonjourServiceDiscoverer(serviceType: serviceType)
+        let browser = BonjourServiceDiscoverer(serviceType: serviceType)
         return await browser.discover(timeout: timeout)
     }
 

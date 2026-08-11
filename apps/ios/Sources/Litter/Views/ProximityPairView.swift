@@ -75,7 +75,6 @@ struct ProximityPairView: View {
         ZStack {
             backgroundGradient
             TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                let frame = currentFrame()
                 let t = context.date.timeIntervalSinceReferenceDate
                 pulseField(score: animatedScore, time: t)
                     .blendMode(.plusLighter)
@@ -376,4 +375,3 @@ struct ProximityPairView: View {
         #endif
     }
 }
-

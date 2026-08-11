@@ -67,7 +67,7 @@ pub(crate) fn new_ambient_cache() -> AmbientCache {
 pub(crate) fn ambient_bucket(project_root: &str) -> String {
     let mut hasher = Sha1::new();
     hasher.update(b"local");
-    hasher.update(&[0u8]);
+    hasher.update([0u8]);
     hasher.update(project_root.as_bytes());
     hex::encode(hasher.finalize())
 }

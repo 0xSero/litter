@@ -119,7 +119,7 @@ fn now_ms() -> i64 {
 }
 
 fn is_platform_key(key: &str) -> bool {
-    PLATFORM_KEYS.iter().any(|candidate| *candidate == key)
+    PLATFORM_KEYS.contains(&key)
 }
 
 fn build_snapshot(directory: &str, device_id: &str) -> CloudSnapshot {
@@ -440,7 +440,6 @@ mod tests {
                 pinned_threads: vec![pin("s", "a")],
                 hidden_threads: vec![],
                 home_selection: HomeSelection::default(),
-                ..Default::default()
             },
         );
 
@@ -465,7 +464,6 @@ mod tests {
                 pinned_threads: vec![pin("s", "a")],
                 hidden_threads: vec![],
                 home_selection: HomeSelection::default(),
-                ..Default::default()
             },
         );
 

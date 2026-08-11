@@ -25,22 +25,12 @@ pub struct PinnedThreadKey {
     pub thread_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct HomeSelection {
     pub selected_server_id: Option<String>,
     pub selected_project_id: Option<String>,
 }
-
-impl Default for HomeSelection {
-    fn default() -> Self {
-        Self {
-            selected_server_id: None,
-            selected_project_id: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct MobilePreferences {
     pub pinned_threads: Vec<PinnedThreadKey>,
     /// Threads the user swiped to hide from the home list. Does not delete
@@ -48,17 +38,6 @@ pub struct MobilePreferences {
     pub hidden_threads: Vec<PinnedThreadKey>,
     pub home_selection: HomeSelection,
 }
-
-impl Default for MobilePreferences {
-    fn default() -> Self {
-        Self {
-            pinned_threads: Vec::new(),
-            hidden_threads: Vec::new(),
-            home_selection: HomeSelection::default(),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 struct PersistedPreferences {
     version: u32,
