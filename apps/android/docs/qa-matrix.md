@@ -33,7 +33,7 @@ Current automated checks:
 | App launch | App launches and can start a local bridge-backed session |
 | Connect local/on-device | Success (`ServerConfig.local`) |
 | Connect remote server | Success |
-| SSH-discovered remote server | Prompts for SSH credentials, connects through SSH port forwarding, and never attempts `ws://host:22` directly |
+| Manual or saved SSH server | Prompts for SSH credentials, connects through SSH port forwarding, and never attempts `ws://host:22` directly |
 | Local transport drop | Reconnect and one-time reinitialize before the next non-initialize RPC |
 | Remote transport drop | Reconnect behavior via Rust `AppStore` updates and resumed RPC notifications |
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when Linux sandboxing is unavailable |
