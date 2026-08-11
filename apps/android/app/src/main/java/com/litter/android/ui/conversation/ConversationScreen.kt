@@ -102,6 +102,7 @@ fun ConversationScreen(
 ) {
     val appModel = LocalAppModel.current
     val snapshot by appModel.snapshot.collectAsState()
+    val launchState by appModel.launchState.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -944,7 +945,7 @@ fun ConversationScreen(
             ) {
                 ComposerSkillsSheet(
                     serverId = threadKey.serverId,
-                    cwd = thread?.info?.cwd ?: appModel.launchState.snapshot.value.currentCwd.ifBlank { "/" },
+                    cwd = thread?.info?.cwd ?: launchState.currentCwd.ifBlank { "/" },
                     onDismiss = { showSkillsSheet = false },
                     onError = { slashErrorMessage = it },
                 )

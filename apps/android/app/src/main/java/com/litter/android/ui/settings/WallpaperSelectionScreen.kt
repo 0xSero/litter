@@ -405,7 +405,7 @@ fun WallpaperSelectionScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                if (!isServerOnly && threadKey != null) {
+                if (threadKey != null) {
                     Button(
                         onClick = {
                             val config = (previewConfig ?: WallpaperConfig(type = WallpaperType.NONE)).copy(

@@ -3,7 +3,6 @@ package com.litter.android.ui.home
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -63,7 +62,7 @@ fun ResponsePreview(
         modifier = modifier.padding(top = 4.dp).fillMaxWidth(),
         label = "ResponsePreviewCrossfade",
     ) { keyedId ->
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
             ShrinkOrCapMarkdown(
                 text = text,
                 itemId = keyedId,
@@ -157,4 +156,3 @@ private fun fadeMaskBrush(heightPx: Float): Brush {
         endY = heightPx,
     )
 }
-

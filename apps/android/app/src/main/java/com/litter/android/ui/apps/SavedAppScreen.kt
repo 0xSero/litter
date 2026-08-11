@@ -433,7 +433,9 @@ private fun TopBar(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+// Both registered bridge classes annotate every method exposed to JavaScript;
+// lint loses those annotations when the remembered Kotlin objects cross into WebView.
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 private fun AppModeWebView(
     payload: SavedAppWithPayload,
