@@ -48,7 +48,6 @@ final class AppModel {
     private struct RustBridges: @unchecked Sendable {
         let store: AppStore
         let client: AppClient
-        let discovery: DiscoveryBridge
         let serverBridge: ServerBridge
         let ssh: SshBridge
         let reconnectController: ReconnectController
@@ -73,7 +72,6 @@ final class AppModel {
         return RustBridges(
             store: AppStore(),
             client: AppClient(),
-            discovery: DiscoveryBridge(),
             serverBridge: ServerBridge(),
             ssh: SshBridge(),
             reconnectController: rc
@@ -90,7 +88,6 @@ final class AppModel {
 
     let store: AppStore
     let client: AppClient
-    let discovery: DiscoveryBridge
     let serverBridge: ServerBridge
     let ssh: SshBridge
     let reconnectController: ReconnectController
@@ -134,7 +131,6 @@ final class AppModel {
     init(
         store: AppStore? = nil,
         client: AppClient? = nil,
-        discovery: DiscoveryBridge? = nil,
         serverBridge: ServerBridge? = nil,
         ssh: SshBridge? = nil,
         reconnectController: ReconnectController? = nil
@@ -142,7 +138,6 @@ final class AppModel {
         let bridges = Self._prewarmResult
         self.store = store ?? bridges.store
         self.client = client ?? bridges.client
-        self.discovery = discovery ?? bridges.discovery
         self.serverBridge = serverBridge ?? bridges.serverBridge
         self.ssh = ssh ?? bridges.ssh
         self.reconnectController = reconnectController ?? bridges.reconnectController

@@ -3,7 +3,6 @@ import SwiftUI
 struct DiscoveryView: View {
     var onServerSelected: ((DiscoveredServer) -> Void)?
     @Environment(AppModel.self) private var appModel
-    @State private var discovery: NetworkDiscovery
     @State private var sshServer: DiscoveredServer?
     @State private var pendingSSHServer: DiscoveredServer?
     @State private var sshAgentContext: SSHBridgeAgentContext?
@@ -24,21 +23,19 @@ struct DiscoveryView: View {
     @State private var pendingAutoNavigateServer: DiscoveredServer?
     @State private var connectError: String?
     @Environment(AppState.self) private var appState
-    private let autoStartDiscovery: Bool
+    private let autoStartSimulatorSSH: Bool
     private let slingshotBaseURL = "https://chatgpt.com/backend-api"
 
     init(
         onServerSelected: ((DiscoveredServer) -> Void)? = nil,
-        discovery: NetworkDiscovery? = nil,
-        autoStartDiscovery: Bool = true
+        autoStartSimulatorSSH: Bool = true
     ) {
         self.onServerSelected = onServerSelected
-        _discovery = State(initialValue: discovery ?? NetworkDiscovery())
-        self.autoStartDiscovery = autoStartDiscovery
+        self.autoStartSimulatorSSH = autoStartSimulatorSSH
     }
 
     private func handleAppear() {
-        guard autoStartDiscovery else { return }
+        guard autoStartSimulatorSSH else { return }
         maybeStartSimulatorAutoSSH()
     }
 
@@ -118,8 +115,7 @@ struct DiscoveryView: View {
             }
             if serverSnapshot.health == .connected {
                 self.pendingAutoNavigateServerId = nil
-                if let server = pendingAutoNavigateServer
-                    ?? discovery.servers.first(where: { $0.id == pendingAutoNavigateServerId }) {
+                if let server = pendingAutoNavigateServer {
                     self.pendingAutoNavigateServer = nil
                     navigateAfterConnect(server)
                 }
@@ -1146,7 +1142,7 @@ private enum ManualConnectionMode: String, CaseIterable, Identifiable {
         includeBackground: false
     ) {
         NavigationStack {
-            DiscoveryView(autoStartDiscovery: false)
+            DiscoveryView(autoStartSimulatorSSH: false)
         }
     }
 }
