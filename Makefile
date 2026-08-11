@@ -199,7 +199,7 @@ ANDROID_RUST_SOURCES := $(shell find $(RUST_DIR) \
 $(shell mkdir -p $(STAMPS))
 
 .PHONY: all ios ios-sim ios-sim-fast ios-sim-run ios-device ios-device-fast ios-device-run ios-device-stop ios-run verify-ios-project catalyst catalyst-run catalyst-fast catalyst-fast-run mac-direct mac-direct-run mac-direct-fast mac-direct-fast-run \
-	android android-fast android-tools android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
+	android android-fast android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
 	rust-ios rust-ios-package rust-ios-device-release rust-mac-release rust-ios-device-fast rust-ios-sim-fast rust-ios-macabi-fast rust-android rust-check rust-test rust-host-dev \
 	android-alpine-fs proot-android \
 	ghostty-ios ghostty-android \
@@ -378,10 +378,7 @@ ios-run: ios
 	@open $(IOS_DIR)/Litter.xcodeproj
 
 android: android-fast
-android-fast: rust-android android-tools android-alpine-fs proot-android android-debug
-android-tools:
-	@echo "==> Downloading bundled Android CLI tools..."
-	@$(ROOT)/tools/scripts/download-android-tools.sh
+android-fast: rust-android android-alpine-fs proot-android android-debug
 android-emulator-fast:
 	@$(MAKE) android-fast ANDROID_ABIS="$(ANDROID_EMULATOR_ABIS)"
 android-emulator-run: android-emulator-fast
@@ -405,7 +402,7 @@ android-device-run: android-fast
 	ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH='$(ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH)' \
 	./tools/scripts/run-android.sh
 
-android-release: android-tools android-alpine-fs proot-android
+android-release: android-alpine-fs proot-android
 	@$(MAKE) rust-android ANDROID_RUST_PROFILE=release ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)"
 	@echo "==> Building Android release..."
 	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ANDROID_ABIS="$(ANDROID_RELEASE_ABIS)" ./gradlew :app:assembleRelease
