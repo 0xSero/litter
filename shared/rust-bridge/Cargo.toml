@@ -11,7 +11,6 @@ codex-app-server = { path = "../third_party/codex/codex-rs/app-server" }
 codex-app-server-client = { path = "../third_party/codex/codex-rs/app-server-client" }
 codex-app-server-protocol = { path = "../third_party/codex/codex-rs/app-server-protocol" }
 codex-protocol = { path = "../third_party/codex/codex-rs/protocol" }
-codex-utils-cli = { path = "../third_party/codex/codex-rs/utils/cli" }
 codex-core = { path = "../third_party/codex/codex-rs/core" }
 codex-exec-server = { path = "../third_party/codex/codex-rs/exec-server" }
 codex-login = { path = "../third_party/codex/codex-rs/login" }
