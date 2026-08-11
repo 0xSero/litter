@@ -68,7 +68,7 @@ tools/scripts/             Cross-platform helper scripts
 
 ## Architecture
 
-Both platforms share a single Rust core (`codex-mobile-client`) via UniFFI-generated bindings. Platform code (Swift/Kotlin) stays thin: UI, permissions, notifications, and platform APIs only. Session state, streaming, hydration, discovery, and auth logic live in Rust.
+Both platforms share a single Rust core (`codex-mobile-client`) via UniFFI-generated bindings. Platform code (Swift/Kotlin) stays thin: UI, permissions, notifications, and platform APIs only. Session state, streaming, hydration, reconnect, SSH, and auth logic live in Rust.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for ownership boundaries, runtime flows, generated-code rules, and the main maintenance risks.
 

@@ -19,7 +19,7 @@ codex-mobile-client (Rust)
   ├─ AppStore + reducer + snapshots
   ├─ MobileClient session/runtime facade
   ├─ AppClient direct RPC surface
-  ├─ discovery, reconnect and SSH
+  ├─ reconnect and SSH
   ├─ hydration and conversation shaping
   ├─ voice handoff state machine
   └─ terminal, local runtime and platform hooks
@@ -57,14 +57,19 @@ It must not parse upstream wire strings or maintain a second reducer.
 
 ## Server and transport flow
 
-1. Platform discovery supplies mDNS/NSD seeds and network hints.
-2. Rust merges LAN, Tailscale, Bonjour, ARP and manual discoveries.
-3. A server connection selects the appropriate direct, SSH, Alleycat or local
+1. Add Server selects an explicit Kittylitter, Local Studio,
+   connected-computer, direct URL or SSH path.
+2. A server connection selects the appropriate direct, SSH, Alleycat or local
    runtime transport.
-4. `MobileClient` owns live sessions and routes typed requests/events.
-5. Events are hydrated into mobile conversation items and reduced into
+3. `MobileClient` owns live sessions and routes typed requests/events.
+4. Events are hydrated into mobile conversation items and reduced into
    `AppStore`.
-6. SwiftUI or Compose re-renders from the typed snapshot/update stream.
+5. SwiftUI or Compose re-renders from the typed snapshot/update stream.
+
+iPhone first-launch nearby-Mac pairing uses the separate `_litter-pair._tcp.`
+Bonjour service. Swift owns that platform browse; Rust owns only the pair
+protocol and resulting saved-server/session flow. Neither platform runs a
+general LAN, Tailscale, Codex Bonjour, SSH Bonjour or ARP discovery scan.
 
 `codex-slingshot` adapts JSON-line and HTTP stream transports to the same RPC
 wire abstraction used by the patched Codex app-server client. SSH bootstrap,
