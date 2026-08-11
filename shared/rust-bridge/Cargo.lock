@@ -3005,7 +3005,6 @@ dependencies = [
  "reqwest 0.12.28",
  "rusqlite",
  "russh",
- "semver",
  "serde",
  "serde_json",
  "shlex",

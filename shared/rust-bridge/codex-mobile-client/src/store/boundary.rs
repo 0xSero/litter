@@ -36,10 +36,6 @@ pub struct AppServerSnapshot {
     pub agent_runtimes: Vec<crate::types::AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub usage_stats: Option<AppServerUsageStats>,
-    /// Semver version string parsed from the server's `initialize.user_agent`,
-    /// or `None` when the user-agent did not match a recognised codex
-    /// originator format.
-    pub codex_version: Option<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Enum)]
@@ -68,8 +64,8 @@ pub struct AppServerCapabilities {
     pub can_resume_threads: bool,
     /// Whether the remote server supports paginated turn fetching via
     /// `thread/turns/list` and the `exclude_turns` resume/fork parameter.
-    /// Derived from `codex_version >= 0.125.0`, with runtime fallback when
-    /// the RPC returns method-not-found.
+    /// Defaults to enabled and flips off when runtime response inspection
+    /// detects a legacy remote.
     pub supports_turn_pagination: bool,
 }
 
@@ -516,7 +512,6 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     agent_runtimes: server.agent_runtimes,
                     connection_progress: server.connection_progress,
                     usage_stats,
-                    codex_version: server.codex_version,
                 }
             })
             .collect::<Vec<_>>();

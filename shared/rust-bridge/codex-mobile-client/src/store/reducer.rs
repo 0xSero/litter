@@ -192,7 +192,6 @@ impl AppStoreReducer {
                 existing_agent_runtimes,
                 existing_connection_progress,
                 existing_transport,
-                existing_codex_version,
                 existing_supports_turn_pagination,
             ) = if let Some(existing) = snapshot.servers.get(&config.server_id) {
                 (
@@ -205,7 +204,6 @@ impl AppStoreReducer {
                     existing.agent_runtimes.clone(),
                     existing.connection_progress.clone(),
                     existing.transport.clone(),
-                    existing.codex_version.clone(),
                     existing.supports_turn_pagination,
                 )
             } else {
@@ -224,7 +222,6 @@ impl AppStoreReducer {
                     }],
                     None,
                     ServerTransportDiagnostics::default(),
-                    None,
                     true,
                 )
             };
@@ -246,7 +243,6 @@ impl AppStoreReducer {
                     agent_runtimes: existing_agent_runtimes,
                     connection_progress: existing_connection_progress,
                     transport: existing_transport,
-                    codex_version: existing_codex_version,
                     supports_turn_pagination: existing_supports_turn_pagination,
                 },
             );
