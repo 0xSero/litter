@@ -42,7 +42,7 @@
 ## Testing & Coverage
 
 - Every task adds or updates realistic unit and integration tests for its changed behavior.
-- All mission worktrees share one repository-local Cargo target cache under the Git common directory with `CARGO_INCREMENTAL=0`; reuse stable artifacts without sharing incremental dep graphs, and do not create a fresh Rust target tree per worktree.
+- All mission worktrees share one repository-local Cargo target cache under the Git common directory; the coordinator launches at most one Cargo-capable mission at a time so incremental artifacts have a single writer, while non-Rust missions may still run concurrently.
 - A mission that runs Cargo applies the pinned Codex patch set once with `./apps/ios/scripts/sync-codex.sh --preserve-current` before its first Rust command, keeps it applied across all focused validations, and restores the submodule only after the last Rust command. Never alternate patched and unpatched dependency graphs in the shared cache.
 - During implementation, run the narrowest relevant package and test filters. A compile-only baseline before editing is optional, not a gate.
 - Full crate, platform, and workspace suites run once on the combined wave validator unless a task brief explicitly names one final pre-integration gate.
