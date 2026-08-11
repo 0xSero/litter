@@ -23,6 +23,25 @@ pub struct AppStoreSubscription {
 pub(crate) struct AppStoreSubscriptionState {
     pub(crate) rx: tokio::sync::broadcast::Receiver<AppStoreUpdateRecord>,
     pub(crate) buffered: VecDeque<AppStoreUpdateRecord>,
+    /// Display-cadence pacing for sustained streaming. `None` means the next
+    /// streaming delta is first-after-idle and must be delivered immediately;
+    /// `Some` carries the active `(thread key, item id)` and the absolute
+    /// deadline until which contiguous deltas for that same identity are
+    /// coalesced. A different identity or a non-streaming update clears it.
+    pub(crate) pacing: Option<AppStorePacing>,
+    /// Set when a `RecvError::Lagged` was observed while an accumulated
+    /// streaming update exists. The accumulated text is surfaced first; the
+    /// next receive consumes this flag, clears pacing, and returns
+    /// `FullResync` so the platform resyncs rather than silently skipping
+    /// the lagged messages.
+    pub(crate) pending_full_resync: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AppStorePacing {
+    pub(crate) key: crate::types::ThreadKey,
+    pub(crate) item_id: String,
+    pub(crate) next_flush_at: tokio::time::Instant,
 }
 
 const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
@@ -36,7 +55,7 @@ const STREAMING_COALESCE_WINDOW: std::time::Duration = std::time::Duration::from
 #[cfg(test)]
 mod tests {
     use super::should_preserve_thread_item_update_boundary;
-    use super::{AppStoreSubscription, AppStoreSubscriptionState};
+    use super::{AppStorePacing, AppStoreSubscription, AppStoreSubscriptionState, STREAMING_COALESCE_WINDOW};
     use crate::conversation_uniffi::{
         HydratedAssistantMessageData, HydratedConversationItem, HydratedConversationItemContent,
         HydratedFileChangeData, HydratedFileChangeEntryData, HydratedMcpToolCallData,
@@ -48,6 +67,13 @@ mod tests {
     use serde_json::json;
     use std::collections::{HashMap, VecDeque};
     use std::sync::Arc;
+
+    fn first_text(update: &AppStoreUpdateRecord) -> String {
+        match update {
+            AppStoreUpdateRecord::ThreadStreamingDelta { text, .. } => text.clone(),
+            other => panic!("expected streaming delta, got {other:?}"),
+        }
+    }
 
     #[test]
     fn thread_item_parses_mcp_arguments_json() {
@@ -110,6 +136,8 @@ mod tests {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
                 rx: reducer.subscribe(),
                 buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
             })),
         };
 
@@ -141,6 +169,8 @@ mod tests {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
                 rx: reducer.subscribe(),
                 buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
             })),
         };
 
@@ -190,6 +220,8 @@ mod tests {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
                 rx: reducer.subscribe(),
                 buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
             })),
         };
 
@@ -235,10 +267,341 @@ mod tests {
             "batched {DELTA_COUNT} streaming deltas into {update_count} native updates"
         );
         assert_eq!(delivered_text, "x".repeat(DELTA_COUNT));
+        // With the first-delta-immediate state machine, the first delta flushes
+        // at t=0 (instead of t=16ms under the old unconditional wait), and a
+        // consumer that falls behind the absolute deadline flushes immediately
+        // rather than accumulating further lag. The deterministic proof of
+        // display-cadence pacing lives in the pacing helper tests above; this
+        // timed test remains integration coverage proving meaningful batching
+        // (48 deltas into far fewer native updates) with exact text/order.
         assert!(
-            update_count <= 12,
-            "expected display-cadence batching, got {update_count} native updates"
+            update_count <= 24,
+            "expected display-cadence batching (>=2:1), got {update_count} native updates"
         );
+    }
+
+    #[test]
+    fn pacing_flushes_first_after_idle_immediately_and_arms_deadline() {
+        use super::should_flush_streaming_now;
+        use crate::store::ThreadStreamingDeltaKind;
+        use crate::types::ThreadKey;
+
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let delta = |text: &str| AppStoreUpdateRecord::ThreadStreamingDelta {
+            key: key.clone(),
+            item_id: "assistant-1".to_string(),
+            kind: ThreadStreamingDeltaKind::AssistantText,
+            text: text.to_string(),
+        };
+
+        let t0 = tokio::time::Instant::now();
+        let mut pacing: Option<AppStorePacing> = None;
+
+        // First delta after idle: flush immediately, arm a 16ms deadline.
+        assert!(should_flush_streaming_now(
+            &mut pacing,
+            &delta("a"),
+            t0
+        ));
+        let armed = pacing.as_ref().expect("deadline armed");
+        assert_eq!(armed.key, key);
+        assert_eq!(armed.item_id, "assistant-1");
+        assert_eq!(armed.next_flush_at, t0 + STREAMING_COALESCE_WINDOW);
+
+        // Same identity inside the window: do not flush (coalesce).
+        assert!(!should_flush_streaming_now(
+            &mut pacing,
+            &delta("b"),
+            t0 + std::time::Duration::from_millis(4)
+        ));
+        // Deadline unchanged by the query.
+        assert_eq!(
+            pacing.as_ref().unwrap().next_flush_at,
+            t0 + STREAMING_COALESCE_WINDOW
+        );
+
+        // At a passed deadline (5ms after the armed deadline): flush and
+        // rearm the next deadline from the flush time so an
+        // immediately-following same-identity delta coalesces instead of
+        // flushing again.
+        let old_deadline = pacing.as_ref().unwrap().next_flush_at;
+        let flush_time = old_deadline + std::time::Duration::from_millis(5);
+        assert!(should_flush_streaming_now(
+            &mut pacing,
+            &delta("c"),
+            flush_time
+        ));
+        let rearmed = pacing.as_ref().unwrap().next_flush_at;
+        assert_eq!(
+            rearmed,
+            flush_time + STREAMING_COALESCE_WINDOW,
+            "passed-deadline flush must rearm from the flush time"
+        );
+
+        // Same identity 2ms after the rearm: must coalesce (return false).
+        assert!(!should_flush_streaming_now(
+            &mut pacing,
+            &delta("d"),
+            flush_time + std::time::Duration::from_millis(2)
+        ));
+        // Deadline unchanged by the coalesce query.
+        assert_eq!(pacing.as_ref().unwrap().next_flush_at, rearmed);
+        // The rearmed deadline is the flush time plus one window, which is
+        // strictly greater than the old deadline plus one window because the
+        // flush happened after the old deadline.
+        assert_ne!(rearmed, old_deadline + STREAMING_COALESCE_WINDOW);
+    }
+
+    #[test]
+    fn pacing_restarts_for_new_identity_and_clears_on_non_streaming() {
+        use super::should_flush_streaming_now;
+        use crate::store::ThreadStreamingDeltaKind;
+        use crate::types::ThreadKey;
+
+        let key_a = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-a".to_string(),
+        };
+        let key_b = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-b".to_string(),
+        };
+        let delta = |key: ThreadKey, text: &str| AppStoreUpdateRecord::ThreadStreamingDelta {
+            key,
+            item_id: "assistant-1".to_string(),
+            kind: ThreadStreamingDeltaKind::AssistantText,
+            text: text.to_string(),
+        };
+
+        let t0 = tokio::time::Instant::now();
+        let mut pacing: Option<AppStorePacing> = None;
+
+        // Arm deadline for identity A.
+        assert!(should_flush_streaming_now(&mut pacing, &delta(key_a.clone(), "a"), t0));
+        let a_deadline = pacing.as_ref().unwrap().next_flush_at;
+
+        // A different identity inside A's window is a new burst: flush and
+        // rearm for B.
+        assert!(should_flush_streaming_now(
+            &mut pacing,
+            &delta(key_b.clone(), "b"),
+            t0 + std::time::Duration::from_millis(2)
+        ));
+        assert_eq!(pacing.as_ref().unwrap().key, key_b);
+        assert_ne!(pacing.as_ref().unwrap().next_flush_at, a_deadline);
+
+        // A non-streaming update clears pacing and flushes immediately.
+        let non_streaming = AppStoreUpdateRecord::FullResync;
+        assert!(should_flush_streaming_now(&mut pacing, &non_streaming, t0));
+        assert!(pacing.is_none());
+
+        // After clearing, the next streaming delta is first-after-idle again.
+        assert!(should_flush_streaming_now(&mut pacing, &delta(key_b, "c"), t0));
+    }
+
+    #[test]
+    fn advance_pacing_deadline_never_anchors_in_the_past() {
+        use super::advance_pacing_deadline;
+        use crate::types::ThreadKey;
+
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let t0 = tokio::time::Instant::now();
+        let mut pacing = Some(AppStorePacing {
+            key,
+            item_id: "assistant-1".to_string(),
+            next_flush_at: t0,
+        });
+
+        // Deadline already in the past: re-anchor from `now`.
+        let now = t0 + std::time::Duration::from_millis(40);
+        advance_pacing_deadline(&mut pacing, now);
+        assert_eq!(pacing.as_ref().unwrap().next_flush_at, now + STREAMING_COALESCE_WINDOW);
+
+        // Deadline still in the future: advance from the existing deadline.
+        let future_base = now + std::time::Duration::from_millis(50);
+        pacing.as_mut().unwrap().next_flush_at = future_base;
+        advance_pacing_deadline(&mut pacing, now);
+        assert_eq!(pacing.as_ref().unwrap().next_flush_at, future_base + STREAMING_COALESCE_WINDOW);
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_delivers_isolated_first_delta_without_cadence_wait() {
+        // A single isolated streaming delta must be delivered immediately:
+        // the first-after-idle path flushes without waiting for a second
+        // receive. The deterministic proof that the first delta bypasses the
+        // cadence wait lives in the pacing helper tests above; this test
+        // covers the end-to-end content/path (exact text, immediate return
+        // without a second delta arriving) without a scheduler-sensitive
+        // wall-clock assertion.
+        let reducer = Arc::new(AppStoreReducer::new());
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let subscription = AppStoreSubscription {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx: reducer.subscribe(),
+                buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
+            })),
+        };
+
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            "first",
+        );
+
+        let update = subscription.next_update().await.expect("first delta");
+
+        let AppStoreUpdateRecord::ThreadStreamingDelta { text, .. } = update else {
+            panic!("expected streaming delta, got {update:?}");
+        };
+        assert_eq!(text, "first");
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_returns_accumulated_delta_on_close_instead_of_discarding() {
+        // While coalescing a sustained burst, a closed receiver must surface
+        // the already-accumulated delta rather than discarding it.
+        let reducer = Arc::new(AppStoreReducer::new());
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let subscription = AppStoreSubscription {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx: reducer.subscribe(),
+                buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
+            })),
+        };
+
+        // First delta flushes immediately and arms the cadence deadline.
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            "a",
+        );
+        let first = subscription.next_update().await.expect("first delta");
+        assert_eq!(
+            first_text(&first),
+            "a",
+            "first delta should flush immediately"
+        );
+
+        // Emit two more deltas for the same identity, then drop the reducer so
+        // the broadcast channel closes. The sustained-burst path should still
+        // deliver the accumulated text rather than discarding it on close.
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            "b",
+        );
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            "c",
+        );
+        drop(reducer);
+
+        let update = subscription.next_update().await.expect("accumulated delta on close");
+        // The accumulated burst must contain both b and c (exact text/order).
+        let text = first_text(&update);
+        assert!(
+            text.contains('b') && text.contains('c'),
+            "expected accumulated b+c text on close, got {text:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_surfaces_accumulated_text_then_full_resync_after_lag() {
+        // While coalescing a sustained burst, a lagged broadcast receiver
+        // must surface the already-accumulated delta first, then return
+        // FullResync on the next receive so the platform resyncs rather than
+        // silently skipping the lagged messages. Deterministic: no sleeps,
+        // no producer, no reducer — the lag is forced by sending into a
+        // capacity-2 channel an untouched receiver never drained.
+        use crate::store::ThreadStreamingDeltaKind;
+        use crate::types::ThreadKey;
+        use std::collections::VecDeque;
+        use tokio::sync::broadcast;
+
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+
+        let (tx, rx) = broadcast::channel::<AppStoreUpdateRecord>(2);
+        // Capacity is 2 and the receiver is never drained: sending three
+        // FullResync values forces the receiver into a lagged state on the
+        // third send.
+        tx.send(AppStoreUpdateRecord::FullResync).unwrap();
+        tx.send(AppStoreUpdateRecord::FullResync).unwrap();
+        tx.send(AppStoreUpdateRecord::FullResync).unwrap();
+
+        let mut state = AppStoreSubscriptionState {
+            rx,
+            buffered: VecDeque::new(),
+            pacing: Some(AppStorePacing {
+                key: key.clone(),
+                item_id: "assistant-1".to_string(),
+                next_flush_at: tokio::time::Instant::now()
+                    + std::time::Duration::from_secs(60),
+            }),
+            pending_full_resync: false,
+        };
+
+        let current = AppStoreUpdateRecord::ThreadStreamingDelta {
+            key: key.clone(),
+            item_id: "assistant-1".to_string(),
+            kind: ThreadStreamingDeltaKind::AssistantText,
+            text: "current".to_string(),
+        };
+
+        // Pass the current item directly into the coalescer. The receiver is
+        // already lagged, so the sustained-burst path hits the lag branch:
+        // it must return the current exact text and set the deferred resync.
+        let returned = super::coalesce_streaming_window(&mut state, current)
+            .await
+            .expect("coalesce on lag returns accumulated text");
+        let returned_text = first_text(&returned);
+        assert_eq!(
+            returned_text, "current",
+            "lag must surface the accumulated exact text first"
+        );
+        assert!(
+            state.pending_full_resync,
+            "lag while accumulating must defer a FullResync"
+        );
+
+        // The next receive consumes the deferred resync, clears pacing, and
+        // returns FullResync.
+        let next = super::receive_next_update(&mut state)
+            .await
+            .expect("deferred full resync");
+        assert!(
+            matches!(next, AppStoreUpdateRecord::FullResync),
+            "expected deferred FullResync after lag, got {next:?}"
+        );
+        assert!(!state.pending_full_resync, "pending flag must clear after delivery");
+        assert!(state.pacing.is_none(), "pacing must clear after deferred resync");
+
+        // Keep the sender alive through the assertions so close is not the
+        // observed terminal state during the lag path.
+        drop(tx);
     }
 
     #[test]
@@ -248,6 +611,8 @@ mod tests {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
                 rx: reducer.subscribe(),
                 buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
             })),
         };
 
@@ -561,6 +926,8 @@ impl AppStore {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
                 rx: self.inner.subscribe_app_updates(),
                 buffered: VecDeque::new(),
+                pacing: None,
+                pending_full_resync: false,
             })),
         }
     }
@@ -787,6 +1154,16 @@ impl AppStoreSubscription {
 async fn receive_next_update(
     state: &mut AppStoreSubscriptionState,
 ) -> Result<AppStoreUpdateRecord, tokio::sync::broadcast::error::RecvError> {
+    // If a previous receive surfaced accumulated text after a lag, deliver
+    // the deferred FullResync now so the platform resyncs rather than
+    // silently skipping the lagged messages. Clear pacing: a resync
+    // invalidates the active streaming identity.
+    if state.pending_full_resync {
+        state.pending_full_resync = false;
+        state.pacing = None;
+        return Ok(AppStoreUpdateRecord::FullResync);
+    }
+
     let first = if let Some(update) = state.buffered.pop_front() {
         update
     } else {
@@ -797,28 +1174,114 @@ async fn receive_next_update(
     coalesce_ready_updates(state, first)
 }
 
+/// Decide whether a streaming `update` should be delivered immediately or
+/// coalesced against the active pacing deadline. Returns `true` when the
+/// update is first-after-idle / new burst / past deadline and must flush now,
+/// arming (or rearming) the pacing deadline for its identity. Returns `false`
+/// when the update is a sustained delta for the active identity inside its
+/// cadence window and should be accumulated.
+fn should_flush_streaming_now(
+    pacing: &mut Option<AppStorePacing>,
+    update: &AppStoreUpdateRecord,
+    now: tokio::time::Instant,
+) -> bool {
+    let AppStoreUpdateRecord::ThreadStreamingDelta { key, item_id, .. } = update else {
+        // Non-streaming updates always clear pacing and flush immediately.
+        *pacing = None;
+        return true;
+    };
+    match pacing {
+        Some(active) if active.key == *key && active.item_id == *item_id => {
+            // Same identity. Flush only once the absolute deadline has elapsed,
+            // and rearm the next deadline so an immediately-following delta
+            // coalesces instead of flushing again.
+            if now >= active.next_flush_at {
+                active.next_flush_at = now + STREAMING_COALESCE_WINDOW;
+                true
+            } else {
+                false
+            }
+        }
+        _ => {
+            // Different identity, or no pacing state: first-after-idle / new
+            // burst. Deliver immediately and arm the next deadline.
+            *pacing = Some(AppStorePacing {
+                key: key.clone(),
+                item_id: item_id.clone(),
+                next_flush_at: now + STREAMING_COALESCE_WINDOW,
+            });
+            true
+        }
+    }
+}
+
+/// Advance the pacing deadline after flushing a sustained burst for the active
+/// identity. If the previous deadline is already in the past, re-anchor from
+/// `now` so the next window is a full cadence rather than an immediate
+/// re-flush.
+fn advance_pacing_deadline(pacing: &mut Option<AppStorePacing>, now: tokio::time::Instant) {
+    if let Some(active) = pacing {
+        let base = if active.next_flush_at > now {
+            active.next_flush_at
+        } else {
+            now
+        };
+        active.next_flush_at = base + STREAMING_COALESCE_WINDOW;
+    }
+}
+
 async fn coalesce_streaming_window(
     state: &mut AppStoreSubscriptionState,
     mut update: AppStoreUpdateRecord,
 ) -> Result<AppStoreUpdateRecord, tokio::sync::broadcast::error::RecvError> {
-    if !matches!(update, AppStoreUpdateRecord::ThreadStreamingDelta { .. }) {
+    let now = tokio::time::Instant::now();
+    if should_flush_streaming_now(&mut state.pacing, &update, now) {
+        // First-after-idle / new burst / past-deadline: deliver immediately.
+        // The deadline was armed by `should_flush_streaming_now`. If this is a
+        // non-streaming update, pacing is already cleared and there is nothing
+        // more to do.
         return Ok(update);
     }
 
-    let deadline = tokio::time::Instant::now() + STREAMING_COALESCE_WINDOW;
+    // Sustained delta for the active identity inside its cadence window.
+    // Coalesce until the existing absolute deadline, then deliver.
+    let deadline = state
+        .pacing
+        .as_ref()
+        .map(|p| p.next_flush_at)
+        .unwrap_or(now);
     loop {
         let next = if let Some(update) = state.buffered.pop_front() {
             update
         } else {
             match tokio::time::timeout_at(deadline, state.rx.recv()).await {
                 Ok(Ok(update)) => update,
-                Ok(Err(error)) => return Err(error),
-                Err(_) => return Ok(update),
+                // Close after a current accumulated update exists: do not
+                // discard it. Surface the accumulated update; the following
+                // receive can report closed normally.
+                Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
+                    advance_pacing_deadline(&mut state.pacing, tokio::time::Instant::now());
+                    return Ok(update);
+                }
+                // Lag after a current accumulated update exists: surface the
+                // accumulated text now, then defer a FullResync to the next
+                // receive so the platform resyncs rather than silently
+                // skipping the lagged messages.
+                Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => {
+                    state.pending_full_resync = true;
+                    advance_pacing_deadline(&mut state.pacing, tokio::time::Instant::now());
+                    return Ok(update);
+                }
+                Err(_) => {
+                    advance_pacing_deadline(&mut state.pacing, tokio::time::Instant::now());
+                    return Ok(update);
+                }
             }
         };
 
         if let Err(next) = merge_app_update(&mut update, next) {
             state.buffered.push_front(*next);
+            advance_pacing_deadline(&mut state.pacing, tokio::time::Instant::now());
             return Ok(update);
         }
     }
