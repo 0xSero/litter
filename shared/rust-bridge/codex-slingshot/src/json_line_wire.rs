@@ -14,43 +14,6 @@ use codex_app_server_client::{JsonRpcWire, RemoteAppServerClient, RemoteAppServe
 use codex_app_server_protocol::JSONRPCMessage;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-/// Non-Codex bridges can intentionally trail the upstream app-server schema.
-/// v0.129 made lifecycle timestamps mandatory; older Pi/Local Studio bridges
-/// still emit otherwise-valid item notifications without them. Normalize at
-/// the raw JSONL boundary, before `RemoteAppServerClient` strict-decodes and
-/// silently drops the entire notification (including tool calls/results).
-fn normalize_legacy_item_lifecycle_notification(value: &mut serde_json::Value) {
-    let Some(message) = value.as_object_mut() else {
-        return;
-    };
-    let timestamp_field = match message.get("method").and_then(serde_json::Value::as_str) {
-        Some("item/started") => "startedAtMs",
-        Some("item/completed") => "completedAtMs",
-        _ => return,
-    };
-    let Some(params) = message
-        .get_mut("params")
-        .and_then(serde_json::Value::as_object_mut)
-    else {
-        return;
-    };
-    params
-        .entry(timestamp_field.to_string())
-        .or_insert_with(|| serde_json::Value::Number(0.into()));
-    if let Some(item) = params
-        .get_mut("item")
-        .and_then(serde_json::Value::as_object_mut)
-        && item.get("type").and_then(serde_json::Value::as_str) == Some("commandExecution")
-        && item
-            .get("cwd")
-            .and_then(serde_json::Value::as_str)
-            .is_none_or(str::is_empty)
-    {
-        // AbsolutePathBuf rejects the empty cwd emitted by older Pi bridges.
-        item.insert("cwd".to_string(), serde_json::Value::String("/".to_string()));
-    }
-}
-
 struct JsonLineWire<R, W> {
     reader: BufReader<R>,
     writer: W,
@@ -94,13 +57,7 @@ where
         if read == 0 {
             return Ok(None);
         }
-        let mut value = serde_json::from_str::<serde_json::Value>(&line).map_err(|err| {
-            IoError::other(format!(
-                "remote app server at `{label}` sent invalid JSON-RPC: {err}"
-            ))
-        })?;
-        normalize_legacy_item_lifecycle_notification(&mut value);
-        serde_json::from_value::<JSONRPCMessage>(value)
+        serde_json::from_str::<JSONRPCMessage>(&line)
             .map(Some)
             .map_err(|err| {
                 IoError::other(format!(
@@ -115,89 +72,6 @@ where
                 "failed to close JSON-lines app server `{label}`: {err}"
             ))
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_legacy_item_lifecycle_notification;
-    use codex_app_server_protocol::{JSONRPCMessage, ServerNotification};
-    use serde_json::json;
-
-    #[test]
-    fn legacy_item_lifecycle_notifications_survive_strict_upstream_decode() {
-        for (method, timestamp_field) in [
-            ("item/started", "startedAtMs"),
-            ("item/completed", "completedAtMs"),
-        ] {
-            let mut value = json!({
-                "jsonrpc": "2.0",
-                "method": method,
-                "params": {
-                    "threadId": "thread-1",
-                    "turnId": "turn-1",
-                    "item": {
-                        "type": "userMessage",
-                        "id": "user-1",
-                        "content": []
-                    }
-                }
-            });
-            normalize_legacy_item_lifecycle_notification(&mut value);
-            assert_eq!(value["params"][timestamp_field], 0);
-            let message: JSONRPCMessage = serde_json::from_value(value).expect("json-rpc");
-            let JSONRPCMessage::Notification(notification) = message else {
-                panic!("expected notification");
-            };
-            ServerNotification::try_from(notification)
-                .expect("upstream should accept normalized lifecycle notification");
-        }
-    }
-
-    #[test]
-    fn explicit_lifecycle_timestamp_is_never_overwritten() {
-        let mut value = json!({
-            "jsonrpc": "2.0",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "completedAtMs": 42,
-                "item": { "type": "userMessage", "id": "user-1", "content": [] }
-            }
-        });
-        normalize_legacy_item_lifecycle_notification(&mut value);
-        assert_eq!(value["params"]["completedAtMs"], 42);
-    }
-
-    #[test]
-    fn legacy_command_item_with_empty_cwd_survives_strict_upstream_decode() {
-        let mut value = json!({
-            "jsonrpc": "2.0",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "item": {
-                    "type": "commandExecution",
-                    "id": "command-1",
-                    "command": "printf OK",
-                    "cwd": "",
-                    "source": "agent",
-                    "status": "completed",
-                    "commandActions": [],
-                    "aggregatedOutput": "OK"
-                }
-            }
-        });
-        normalize_legacy_item_lifecycle_notification(&mut value);
-        assert_eq!(value["params"]["item"]["cwd"], "/");
-        let message: JSONRPCMessage = serde_json::from_value(value).expect("json-rpc");
-        let JSONRPCMessage::Notification(notification) = message else {
-            panic!("expected notification");
-        };
-        ServerNotification::try_from(notification)
-            .expect("upstream should accept normalized command lifecycle notification");
     }
 }
 
