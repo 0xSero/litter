@@ -11,7 +11,6 @@ use crate::alleycat::{
     AgentInfo as AlleycatAgentInfo, AgentWire as AlleycatAgentWire, AlleycatReconnectTransport,
     ParsedPairPayload as ParsedAlleycatPairPayload,
 };
-use crate::discovery::{DiscoveredServer, DiscoveryConfig, DiscoveryService, MdnsSeed};
 use crate::session::connection::InProcessConfig;
 use crate::session::connection::{
     RemoteSessionExtras, RuntimeRemoteSessionResource, ServerConfig, ServerEvent, ServerSession,
@@ -54,14 +53,13 @@ pub use self::thread_projection::{
 /// Top-level entry point for platform code (iOS / Android).
 ///
 /// Ties together server sessions, thread management, event processing,
-/// discovery, auth, caching, and voice handoff into a single facade.
+/// auth, caching, and voice handoff into a single facade.
 /// All methods are safe to call from any thread (`Send + Sync`).
 pub struct MobileClient {
     pub(crate) sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
     pub(crate) event_processor: Arc<EventProcessor>,
     pub app_store: Arc<AppStoreReducer>,
     pub agent_metadata: Arc<crate::store::AgentMetadataStore>,
-    pub(crate) discovery: RwLock<DiscoveryService>,
     oauth_callback_tunnels: Arc<Mutex<HashMap<String, OAuthCallbackTunnel>>>,
     slingshot_apis: Arc<StdMutex<HashMap<String, codex_slingshot::SlingshotApi>>>,
     pub(crate) recorder: Arc<crate::recorder::MessageRecorder>,
@@ -763,7 +761,6 @@ impl MobileClient {
             event_processor,
             app_store,
             agent_metadata: crate::store::AgentMetadataStore::new(),
-            discovery: RwLock::new(DiscoveryService::new(DiscoveryConfig::default())),
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
             slingshot_apis: Arc::new(StdMutex::new(HashMap::new())),
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),
@@ -1367,16 +1364,6 @@ impl MobileClient {
             .into_iter()
             .filter_map(|mask| AppCollaborationModePreset::try_from(mask).ok())
             .collect())
-    }
-
-    fn discovery_read(&self) -> std::sync::RwLockReadGuard<'_, DiscoveryService> {
-        match self.discovery.read() {
-            Ok(guard) => guard,
-            Err(error) => {
-                warn!("MobileClient: recovering poisoned discovery read lock");
-                error.into_inner()
-            }
-        }
     }
 
     async fn clear_oauth_callback_tunnel(&self, server_id: &str) {
@@ -4035,35 +4022,6 @@ impl MobileClient {
         self.app_store.set_voice_handoff_thread(key);
     }
 
-    pub async fn scan_servers_with_mdns_context(
-        &self,
-        mdns_results: Vec<MdnsSeed>,
-        local_ipv4: Option<String>,
-    ) -> Vec<DiscoveredServer> {
-        // DiscoveryService keeps scan results in its own shared mutexes. A
-        // one-shot clone avoids holding the outer RwLock across network I/O.
-        let discovery = self.discovery_read().clone_for_one_shot();
-        discovery
-            .scan_once_with_context(&mdns_results, local_ipv4.as_deref())
-            .await
-    }
-
-    pub fn subscribe_scan_servers_with_mdns_context(
-        &self,
-        mdns_results: Vec<MdnsSeed>,
-        local_ipv4: Option<String>,
-    ) -> broadcast::Receiver<crate::discovery::ProgressiveDiscoveryUpdate> {
-        let (tx, rx) = broadcast::channel(32);
-        let discovery = self.discovery_read().clone_for_one_shot();
-
-        Self::spawn_detached(async move {
-            let _ = discovery
-                .scan_once_progressive_with_context(&mdns_results, local_ipv4.as_deref(), &tx)
-                .await;
-        });
-
-        rx
-    }
 }
 
 /// Listener that feeds session output bytes into the reducer's ring

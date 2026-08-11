@@ -8,11 +8,11 @@ pub(crate) mod alleycat;
 mod android;
 mod app_store;
 mod client;
-mod discovery;
 mod errors;
 mod parser;
 mod reconnect;
 mod remote_path;
+mod server;
 pub(crate) mod shared;
 mod ssh;
 mod terminal;
@@ -24,13 +24,11 @@ pub use alleycat::{
 };
 pub use app_store::{AppStore, AppStoreSubscription};
 pub use client::AppClient;
-pub use discovery::{
-    AppSlingshotEnvironment, DiscoveryBridge, DiscoveryScanSubscription, ServerBridge,
-};
 pub use errors::ClientError;
 pub use parser::MessageParser;
 pub use reconnect::ReconnectController;
 pub use remote_path::RemotePath;
+pub use server::{AppSlingshotEnvironment, ServerBridge};
 pub use ssh::{AppSshBridgeConnectResult, AppSshConnectionResult, AppSshSessionResult, SshBridge};
 pub use terminal::{
     TerminalBackendKind, TerminalCellMetrics, TerminalCellRange, TerminalConfig,
