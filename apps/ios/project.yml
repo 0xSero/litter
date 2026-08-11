@@ -191,7 +191,6 @@ targets:
           - Views/LiveActivityPreview.swift
           - Views/LockScreenCardView.swift
           - Views/RealtimeVoiceScreen.swift
-          - Views/VoiceCallView.swift
           - "**/*.h"
       - path: Sources/Litter/Bridge/UniFFICodexClient.generated.swift
     resources:

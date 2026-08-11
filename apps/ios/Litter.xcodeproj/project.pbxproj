@@ -499,7 +499,6 @@
 		BBA3818C96635CEB35946AA5 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D216CEBFB1B4B71CFC2C0F8 /* AppearanceSettingsView.swift */; };
 		BC367649F14821FD0517BFF1 /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 991F612D39C0762BB7657452 /* CarPlay.framework */; };
 		BCA65492090DEDCFF7BB9A54 /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFE934B56ED67FA473EA25A /* MacCommands.swift */; };
-		BD6FE62FBDFE995C765D197A /* VoiceCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A12810E0889BDD245C2379 /* VoiceCallView.swift */; };
 		BDA5AF84E534EAF389A33C0E /* StreamingAssistantRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8148E90D1A219FEE664EB9A1 /* StreamingAssistantRenderCache.swift */; };
 		BDB323E1E38558C84E479D50 /* AlleycatAddServerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1ADE6881ED6E3294413133 /* AlleycatAddServerSheet.swift */; };
 		BDC09E8F6B156DB1FD6A0059 /* ChatGPTOAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */; };
@@ -1139,7 +1138,6 @@
 		F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDisplayUITestHarnessView.swift; sourceTree = "<group>"; };
 		F7B0CCBCA4896FF05C5CEDDC /* LitterWatchShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterWatchShortcuts.swift; sourceTree = "<group>"; };
 		F834CA5079226BE75FF8DC9E /* usgc-highk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "usgc-highk.json"; sourceTree = "<group>"; };
-		F8A12810E0889BDD245C2379 /* VoiceCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCallView.swift; sourceTree = "<group>"; };
 		F8A5A95314CD68B7C7276BFD /* TipJarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TipJarStore.swift; sourceTree = "<group>"; };
 		F98A952845B6690CEC61680E /* ServerPillRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerPillRow.swift; sourceTree = "<group>"; };
 		F9F1AA9A960B33D4BF4DEA49 /* SessionsTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsTypes.swift; sourceTree = "<group>"; };
@@ -1730,7 +1728,6 @@
 				41B0E2A4F7ED660B3B053076 /* TranscriptTurn.swift */,
 				9F86295AB7DE370727377248 /* UWBDebugView.swift */,
 				B361A4FDCFF12B0FE7E893EC /* VideoWallpaperPlayerView.swift */,
-				F8A12810E0889BDD245C2379 /* VoiceCallView.swift */,
 				8BE99A02238FD8184F77DD49 /* WallpaperAdjustView.swift */,
 				0B9D672BC45E421DF00ED227 /* WallpaperSelectionView.swift */,
 				EF1C08AB8EA89D69A67AA7B2 /* WidgetWebView.swift */,
@@ -2487,7 +2484,6 @@
 				03B054AAAFF1A47EB7582377 /* UserMountStore.swift in Sources */,
 				62816361851EAD6AC2299E97 /* VideoWallpaperPlayerView.swift in Sources */,
 				D07B503DB96496A43AE6FC20 /* VideoWallpaperProcessor.swift in Sources */,
-				BD6FE62FBDFE995C765D197A /* VoiceCallView.swift in Sources */,
 				6581AC9CBF009DB91CA3325C /* VoiceRuntimeController.swift in Sources */,
 				72D8BB1A1C9A959CFE255E63 /* VoiceSessionControl.swift in Sources */,
 				5DCD93AFDFF3C4BF1388D5A9 /* VoiceSessionModels.swift in Sources */,
