@@ -154,11 +154,7 @@ endif
 KITTYLITTER_ARGS := $(strip $(KITTYLITTER_GOAL_ARGS) $(ARGS))
 UPDATE_ALLEYCAT_MAIN := $(ROOT)/tools/scripts/update-alleycat-main.sh
 
-PATCH_FILES := \
-	$(PATCHES_DIR)/ios-exec-hook.patch \
-	$(PATCHES_DIR)/client-controlled-handoff.patch \
-	$(PATCHES_DIR)/mobile-code-mode-stub.patch \
-	$(PATCHES_DIR)/thread-read-permissions.patch
+PATCH_FILES := $(sort $(wildcard $(PATCHES_DIR)/*.patch))
 
 BOUNDARY_SOURCES := \
 	$(RUST_DIR)/codex-mobile-client/Cargo.toml \
@@ -537,7 +533,7 @@ help:
 		'make prune-ios-sim-only remove device/Catalyst iOS outputs; retain the simulator staticlib and generated headers'
 
 sync: $(STAMP_SYNC)
-$(STAMP_SYNC):
+$(STAMP_SYNC): $(IOS_SCRIPTS)/sync-codex.sh $(PATCH_FILES) .gitmodules
 	@echo "==> Syncing codex submodule..."
 	@$(IOS_SCRIPTS)/sync-codex.sh --preserve-current
 	@touch $@
