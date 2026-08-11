@@ -138,7 +138,8 @@ trap cleanup_patch EXIT
 mkdir -p "$FRAMEWORKS_DIR" "$GENERATED_HEADERS_DIR" "$GENERATED_DEVICE_DIR" "$GENERATED_SIM_DIR" "$GENERATED_MACABI_DIR"
 
 if [ -z "${RUSTC_WRAPPER:-}" ] && [ "${CARGO_INCREMENTAL:-}" != "1" ] && command -v sccache >/dev/null 2>&1; then
-  export RUSTC_WRAPPER="$(command -v sccache)"
+  sccache_path="$(command -v sccache)"
+  export RUSTC_WRAPPER="$sccache_path"
 fi
 
 "$REPO_DIR/tools/scripts/update-alleycat-main.sh" --shared

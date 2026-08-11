@@ -33,7 +33,6 @@ IOS_DEVICE_PROFILE_TEMPLATE ?= Time Profiler
 IOS_DEVICE_PROFILE_TIME_LIMIT ?=
 IOS_SIM_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/ios-sim-run
 IOS_SIM_PROFILE ?= 1
-IOS_SIM_PROFILE_TEMPLATE ?= Time Profiler
 IOS_SIM_PROFILE_TIME_LIMIT ?=
 ANDROID_DEVICE_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-device-run
 ANDROID_EMULATOR_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/android-emulator-run
@@ -343,7 +342,6 @@ ios-sim-run: ios-sim-fast
 	@echo "==> Installing and launching on booted simulator with saved logs/profile..."
 	@cd $(ROOT) && \
 	IOS_SIM_PROFILE='$(IOS_SIM_PROFILE)' \
-	IOS_SIM_PROFILE_TEMPLATE='$(IOS_SIM_PROFILE_TEMPLATE)' \
 	IOS_SIM_PROFILE_TIME_LIMIT='$(IOS_SIM_PROFILE_TIME_LIMIT)' \
 	IOS_SIM_RUN_ARTIFACTS_DIR='$(IOS_SIM_RUN_ARTIFACTS_DIR)' \
 	$(IOS_SCRIPTS)/run-sim.sh
@@ -510,7 +508,7 @@ help:
 	@printf '%s\n' \
 		'make ios                full iOS package lane + simulator build' \
 		'make ios-sim-fast       fast simulator lane using raw staticlib outputs' \
-		'make ios-sim-run        fast sim build + install + launch on booted simulator; saves console log and Time Profiler trace under artifacts/ios-sim-run (override IOS_SIM_PROFILE=0, IOS_SIM_PROFILE_TEMPLATE, IOS_SIM_PROFILE_TIME_LIMIT=30s to cap capture)' \
+		'make ios-sim-run        fast sim build + install + launch on booted simulator; saves console log and CPU Profiler trace under artifacts/ios-sim-run (override IOS_SIM_PROFILE=0 or IOS_SIM_PROFILE_TIME_LIMIT=30s to cap capture)' \
 		'make ios-device         full iOS package lane + device build' \
 		'make ios-device-fast    fast device lane using raw staticlib outputs' \
 		'make ios-device-run     fast device build + install + launch on connected device; saves console log and Time Profiler trace for the whole run under artifacts/ios-device-run (override IOS_DEVICE_PROFILE=0, IOS_DEVICE_PROFILE_TEMPLATE, IOS_DEVICE_PROFILE_TIME_LIMIT=30s to cap capture)' \
