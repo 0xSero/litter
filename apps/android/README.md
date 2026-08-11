@@ -9,7 +9,9 @@ Android runtime is now on the same Rust-first architecture as iOS:
 
 - Canonical runtime state lives in Rust `AppStore` and is observed from `app/src/main/java/com/litter/android/state/AppModel.kt`.
 - Direct server operations come from the shared Rust `AppClient` surface.
-- Discovery uses Android NSD only for mDNS seeds; merge/dedupe/probing live in Rust `DiscoveryBridge`.
+- Add Server uses explicit kittylitter, Local Studio, connected-computer, and
+  manual SSH/Codex URL paths. The current Android chooser does not run a
+  background NSD or subnet-discovery scan.
 - SSH uses Rust `SshBridge`.
 - Voice runtime uses Rust store/RPC for realtime state and Android-only code for audio capture/playback, AEC, and services.
 

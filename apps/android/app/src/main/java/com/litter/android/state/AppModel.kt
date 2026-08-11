@@ -30,7 +30,6 @@ import uniffi.codex_mobile_client.AppThreadSortKey
 import uniffi.codex_mobile_client.AppThreadSourceKind
 import uniffi.codex_mobile_client.ThreadStreamingDeltaKind
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
-import uniffi.codex_mobile_client.DiscoveryBridge
 import uniffi.codex_mobile_client.HydratedConversationItem
 import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.HandoffManager
@@ -109,7 +108,6 @@ class AppModel private constructor(context: android.content.Context) {
 
     val store: AppStore
     val client: AppClient
-    val discovery: DiscoveryBridge
     val serverBridge: ServerBridge
     val ssh: SshBridge
     val sshSessionStore: SshSessionStore
@@ -134,7 +132,6 @@ class AppModel private constructor(context: android.content.Context) {
         // directory. Without setting it at launch the hook is a silent no-op.
         client.setSavedAppsDirectory(SavedAppsDirectory.path(context))
         client.setSlingshotCredentialsDirectory(MobilePreferencesDirectory.path(context))
-        discovery = DiscoveryBridge()
         serverBridge = ServerBridge()
         ssh = SshBridge()
         sshSessionStore = SshSessionStore(ssh)
