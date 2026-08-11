@@ -16,7 +16,7 @@ jobs:
       run_release: ${{ steps.filter.outputs.run_release }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -97,14 +97,14 @@ jobs:
 
       - name: Setup sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Sync codex submodule
         run: ./apps/ios/scripts/sync-codex.sh --preserve-current
 
       - name: Restore generated mobile bindings cache
         id: mobile-bindings-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             shared/rust-bridge/generated
@@ -125,7 +125,7 @@ jobs:
             shared/rust-bridge/generated \
 
       - name: Upload shared prep artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shared-prep
           path: .ci-prep/shared
@@ -149,19 +149,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: '12266719'
 
       - name: Install Android platforms and NDK
         run: |
@@ -195,7 +197,7 @@ jobs:
 
       - name: Setup sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Prime sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
@@ -207,7 +209,7 @@ jobs:
           sccache --show-stats || true
 
       - name: Download shared prep artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shared-prep
           path: .ci-prep/shared
@@ -234,7 +236,7 @@ jobs:
         run: make rust-android
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Decode upload keystore
         env:
@@ -264,7 +266,7 @@ jobs:
 
       - name: Upload build artifact (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: app-release
           path: |
@@ -273,7 +275,7 @@ jobs:
 
       - name: Publish GitHub Release (tag runs)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             apps/android/app/build/outputs/apk/release/app-release.apk
