@@ -1942,7 +1942,7 @@ final class AppModel {
             return key
         }
 
-        var currentKey = key
+        let currentKey = key
         for attempt in 0..<maxAttempts {
             var readSucceeded = false
             do {

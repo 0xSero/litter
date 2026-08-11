@@ -309,7 +309,7 @@ final class NearbyMacPairing: NSObject {
     /// this device has no UWB radio. The Rust pair host accepts empty tokens
     /// and downgrades to "no NI ranging" — BLE proximity still gates pair.
     private func prepareNISession() -> String {
-        guard NISession.isSupported else {
+        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
             LLog.info("pair", "NISession unsupported on this iPhone — relying on BLE proximity")
             return ""
         }
