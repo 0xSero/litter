@@ -92,7 +92,12 @@ The validated changes include:
   debt; and
 - replaced Alleycat ACP documentation that contradicted its own implementation,
   while changing an unroutable terminal-termination false success into an
-  explicit unsupported-method result.
+  explicit unsupported-method result;
+- upgraded Litter and Alleycat to Iroh 1.0.3, replacing the vulnerable Hickory
+  beta line with 0.26.1 and the release-candidate SHA-2 stack with stable
+  releases; and
+- upgraded Litter's direct SSH stack to Russh 0.62.6, removing both unbounded
+  allocation advisories and the obsolete workspace-only `russh-keys` entry.
 
 Against their starting `origin/main` revisions, Litter is 4,303 net lines
 smaller (1,170 additions and 5,473 deletions across 146 paths), while Alleycat
@@ -105,21 +110,26 @@ is 520 net lines smaller (991 additions and 1,511 deletions across 85 paths).
 RustSec initially reported 19 vulnerabilities in Litter's shared mobile lock,
 and six each in Alleycat and the packaged `kittylitter` lock. Patch-compatible
 updates removed the crossbeam pointer issue, the locked QUIC reassembly issue,
-and Litter's two rustls-webpki certificate-validation issues. The remaining
-counts are 14 for the broad Litter lock and four for each Alleycat-derived lock.
+and Litter's two rustls-webpki certificate-validation issues. The Iroh 1.0.3
+and Russh 0.62.6 compatibility updates then removed the Hickory beta and SSH
+allocation advisories. The remaining counts are nine for the broad Litter
+lock, two for Alleycat `main`, and four for the packaged `kittylitter` lock,
+which still follows Litter's older production Alleycat revision.
 
 The unresolved advisories are rooted in dependency contracts that require
 coordinated upgrades rather than a lockfile-only refresh:
 
-- Iroh 0.98 pins vulnerable Hickory beta DNS crates and a plist/quick-xml chain;
 - upstream Codex 0.132 pins an older quick-xml, RMCP 0.15, and a Hickory 0.25
   network-proxy chain;
-- the direct Russh fix conflicts with Iroh's release-candidate SHA-2 pin; and
+- Iroh 1.0.3 still reaches quick-xml 0.39 through the current plist contract;
+  the fixed quick-xml 0.41 line is not semver-compatible with that dependency;
 - two RSA versions have no fixed release in their current dependency lines.
 
-Do not suppress these advisories. The next release wave should upgrade Iroh,
-Codex/RMCP, and Russh as separate compatibility changes, rerun RustSec after
-each, and finish with installed-device network, SSH, MCP, and pairing tests.
+Do not suppress these advisories. The next release wave should upgrade
+Codex/RMCP and track the plist/quick-xml and RSA owners, rerun RustSec after
+each compatibility change, and finish with installed-device network, SSH, MCP,
+and pairing tests. The Iroh and Russh source/test gates are green, but their
+network and SSH behavior still requires physical-device acceptance.
 
 Alleycat production history must also be reconciled onto `main`. Advancing
 Litter to the current Alleycat `main` would regress the shipping bridge stack;
@@ -188,9 +198,10 @@ changed; blanket allows would erase useful architecture signals.
 
 ## Recommended execution waves
 
-1. **Security compatibility.** Upgrade Iroh and Hickory, then plist/quick-xml,
-   Russh/SHA-2, upstream Codex/RMCP, and RSA owners. Gate each change with
-   RustSec, host tests, both mobile builds, and physical network/SSH/MCP checks.
+1. **Security compatibility.** Iroh/Hickory and Russh/SHA-2 are upgraded. Next,
+   upgrade upstream Codex/RMCP and track plist/quick-xml plus RSA owners. Gate
+   each change with RustSec, host tests, both mobile builds, and physical
+   network/SSH/MCP checks.
 2. **Alleycat lineage.** Reconcile the production pin's 56-commit lineage onto
    Alleycat `main`, preserve the user's local Design A cleanup, run live bridge
    conformance, then update Litter's explicit revision.
