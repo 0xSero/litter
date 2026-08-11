@@ -23,8 +23,7 @@ Android runtime is now on the same Rust-first architecture as iOS:
 Examples:
 
 ```bash
-./gradlew :app:assembleOnDeviceDebug
-./gradlew :app:assembleRemoteOnlyDebug
+./gradlew :app:assembleDebug
 ```
 
 Open in Android Studio (macOS):
@@ -39,12 +38,10 @@ Rebuild + reopen workflow:
 ./apps/android/scripts/rebuild-and-reopen.sh
 ```
 
-Optional variants:
+Optional controls:
 
 ```bash
-./apps/android/scripts/rebuild-and-reopen.sh --on-device
-./apps/android/scripts/rebuild-and-reopen.sh --remote-only
-./apps/android/scripts/rebuild-and-reopen.sh --both --with-rust
+./apps/android/scripts/rebuild-and-reopen.sh --with-rust
 ./apps/android/scripts/rebuild-and-reopen.sh --no-open
 ```
 

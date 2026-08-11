@@ -121,9 +121,9 @@ xcodebuild -project apps/ios/Litter.xcodeproj -scheme Litter -configuration Debu
 Prerequisites: Java 17, Android SDK + build tools for API 35, Gradle 8.x.
 
 ```bash
-open -a "Android Studio" apps/android                                  # open in Android Studio
-cd apps/android && ./gradlew :app:testDebugUnitTest                    # run tests
-gradle -p apps/android :app:assembleOnDeviceDebug :app:assembleRemoteOnlyDebug  # build flavors
+open -a "Android Studio" apps/android  # open in Android Studio
+make test-android                      # generate bindings and run unit tests
+make android-debug                     # generate bindings and build debug APK
 ```
 
 ## TestFlight (iOS)

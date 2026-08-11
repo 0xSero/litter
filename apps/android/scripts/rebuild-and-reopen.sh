@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 ANDROID_DIR="$REPO_DIR/apps/android"
 
-BUILD_MODE="both"
 WITH_RUST=0
 NO_OPEN=0
 
@@ -13,12 +12,9 @@ usage() {
   cat <<'EOF'
 Usage: ./apps/android/scripts/rebuild-and-reopen.sh [options]
 
-Rebuild Android app variants and reopen the Android project in Android Studio.
+Rebuild the Android debug app and reopen the project in Android Studio.
 
 Options:
-      --on-device    Build only :app:assembleOnDeviceDebug
-      --remote-only  Build only :app:assembleRemoteOnlyDebug
-      --both         Build both debug variants (default)
       --with-rust    Rebuild Android Rust JNI bridge libs first
       --no-open      Skip reopening Android Studio
   -h, --help         Show this help
@@ -27,18 +23,6 @@ EOF
 
 while [ "${1:-}" != "" ]; do
   case "$1" in
-    --on-device)
-      BUILD_MODE="on_device"
-      shift
-      ;;
-    --remote-only)
-      BUILD_MODE="remote_only"
-      shift
-      ;;
-    --both)
-      BUILD_MODE="both"
-      shift
-      ;;
     --with-rust)
       WITH_RUST=1
       shift
@@ -59,21 +43,13 @@ while [ "${1:-}" != "" ]; do
   esac
 done
 
-if [ "$BUILD_MODE" = "on_device" ]; then
-  GRADLE_TASKS=(":app:assembleOnDeviceDebug")
-elif [ "$BUILD_MODE" = "remote_only" ]; then
-  GRADLE_TASKS=(":app:assembleRemoteOnlyDebug")
-else
-  GRADLE_TASKS=(":app:assembleOnDeviceDebug" ":app:assembleRemoteOnlyDebug")
-fi
-
 if [ "$WITH_RUST" -eq 1 ]; then
   echo "==> Rebuilding Android Rust bridge JNI libs..."
-  "$REPO_DIR/tools/scripts/build-android-rust.sh"
+  make -C "$REPO_DIR" rust-android
 fi
 
-echo "==> Rebuilding Android app (${BUILD_MODE})..."
-"$ANDROID_DIR/gradlew" -p "$ANDROID_DIR" clean "${GRADLE_TASKS[@]}"
+echo "==> Rebuilding Android debug app..."
+make -C "$REPO_DIR" android-debug
 
 if [ "$NO_OPEN" -eq 1 ]; then
   echo "==> Build complete (skipped reopen)."
