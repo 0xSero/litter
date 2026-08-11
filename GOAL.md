@@ -89,6 +89,8 @@ Codex is the coordinator and reviewer. Codex creates the branch and worktree fro
 
 The helper pins `homelab/glm-5.2`, names the mission, preserves the Pi UUID, and records JSON events locally. It does not create the branch, push, merge, publish, or touch another worktree.
 
+The helper also points every mission at one Cargo target cache under the repository's Git common directory. Implementation missions use focused test filters while iterating. Expensive full crate, platform, and workspace suites run once on the combined wave validator, except where a brief explicitly names one final pre-integration gate. A timed-out full suite is recorded and returned to Codex; Pi must not blindly restart it. Codex does not duplicate an unchanged full suite merely to re-prove Pi's valid event-log evidence.
+
 When Pi returns `READY_FOR_REVIEW`, Codex independently reviews:
 
 1. Base and branch identity, changed paths, diff, submodules, and commit scope.
@@ -149,7 +151,7 @@ NEXT_MESSAGE_FOR_CODEX
 
 | Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `pi-chat-w00-m00-reconcile` | investigate, then implement only if evidence requires it | Candidate commits and integration branch | none | Commit-by-commit disposition matrix, integrated candidate base, full Rust validation |
+| `pi-chat-w00-m00-reconcile` | investigate, then implement only if evidence requires it | Candidate commits and integration branch | none | Commit-by-commit disposition matrix, integrated candidate base, focused candidate tests plus one final combined Rust gate |
 | `pi-chat-w00-m01-rust-observability` | implementation | Shared Rust spans, replay fixtures, perf smoke tests | M00 | Deterministic replay plus store/transport/send spans and CI-safe smoke budgets |
 | `pi-chat-w00-m02-ios-observability` | implementation | iOS signposts and fixture metrics | M00 | Send-to-frame signposts and repeatable Instruments lane |
 | `pi-chat-w00-m03-android-observability` | implementation | Android tracing, JankStats, Compose metrics | M00 | Send-to-frame traces and repeatable Perfetto lane |
@@ -247,7 +249,7 @@ Update this table as missions launch and after every Codex review. Never create 
 
 | Task | Pi mission name | Mission status | Review | Branch | Pi UUID | Accepted commit | Brief |
 |---|---|---|---|---|---|---|---|
-| 00 | `pi-chat-w00-m00-reconcile` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m00-reconcile` | — | — | `work/chat-performance/tasks/task-00.md` |
+| 00 | `pi-chat-w00-m00-reconcile` | RUNNING | NOT_REVIEWED | `codex/pi-chat-w00-m00-reconcile` | `019ff2c5-ca5b-7659-9c70-c62941da9a94` | — | `work/chat-performance/tasks/task-00.md` |
 | 01 | `pi-chat-w00-m01-rust-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m01-rust-observability` | — | — | `work/chat-performance/tasks/task-01.md` |
 | 02 | `pi-chat-w00-m02-ios-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m02-ios-observability` | — | — | `work/chat-performance/tasks/task-02.md` |
 | 03 | `pi-chat-w00-m03-android-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m03-android-observability` | — | — | `work/chat-performance/tasks/task-03.md` |
