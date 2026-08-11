@@ -96,7 +96,10 @@ Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/v2/realtim
 
 Reuses upstream's existing `RealtimeWebsocketWriter::send_conversation_function_call_output` rather than introducing a parallel V2 helper.
 
-Consumed by `shared/rust-bridge/codex-mobile-client/src/session/voice_handoff.rs::voice_dynamic_tools()` (defines the `list_servers` and `list_sessions` tools).
+Consumed by the typed realtime request surface in
+`shared/rust-bridge/codex-mobile-client/src/types/server_requests.rs`, the
+active `HandoffManager` in `src/session/voice_handoff.rs`, and the dynamic-tool
+router in `src/mobile_client/dynamic_tools.rs`.
 
 ### `realtime-client-controlled-handoff.patch`
 When `client_controlled_handoff: true`, suppresses upstream's automatic "route handoff to background agent" path in `handle_start_inner` so the client can resolve the handoff its own way (e.g., dispatching to a remote server over SSH).

@@ -1,24 +1,32 @@
 # Android Quickstart
 
 ## Prerequisites
-- Java 17
-- Android SDK (API 35 + build-tools 35.0.0)
-- Gradle 8.x
-- Optional Rust bridge prerequisites:
-  - Rust toolchain
-  - Android NDK (`ANDROID_NDK_HOME` or `ANDROID_NDK_ROOT`)
-  - `cargo-ndk` (`cargo install cargo-ndk`)
+
+- Android SDK (API 36 + build-tools 36.0.0)
+- Java 17 or newer; use the checked-in Gradle 9 wrapper
+- Rust toolchain and Zig 0.15.x
+- Android NDK (`ANDROID_NDK_HOME` or `ANDROID_NDK_ROOT`)
+- `cargo-ndk` (`cargo install cargo-ndk`)
 
 ## Build Steps
-1. Build Android app:
-   - `gradle -p apps/android :app:assembleDebug`
-2. Build Rust JNI bridge libs (optional, for on-device bridge runtime):
-   - `./tools/scripts/build-android-rust.sh`
+
+1. Full mobile pipeline (bindings, Rust/JNI, app):
+
+   - `make android`
+
+2. Emulator development lane (host emulator ABI only):
+
+   - `make android-emulator-fast`
+
+3. Android unit tests:
+
+   - `make test-android`
 
 ## Modules
+
 - `:app`
-- `:core:network`
 - `:core:bridge`
-- `:feature:discovery`
-- `:feature:sessions`
-- `:feature:conversation`
+
+The app consumes UniFFI Kotlin sources directly from
+`shared/rust-bridge/generated/kotlin/`; generated bindings are not copied into
+an Android source tree.

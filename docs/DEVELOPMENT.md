@@ -8,7 +8,10 @@
   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
   ```
 
-- **Rust via rustup** with iOS targets. If Homebrew's `rust` formula is installed, its `cargo`/`rustc` will shadow rustup and break cross-compilation. Either `brew uninstall rust` or ensure `~/.cargo/bin` appears before `/opt/homebrew/bin` in your `PATH`.
+- **Rust via rustup** with iOS targets. If Homebrew's `rust` formula is
+  installed, its `cargo`/`rustc` will shadow rustup and break
+  cross-compilation. Either `brew uninstall rust` or ensure `~/.cargo/bin`
+  appears before `/opt/homebrew/bin` in your `PATH`.
 
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -27,34 +30,51 @@
   brew install xcodegen
   ```
 
+- **Zig 0.15.x** (for the pinned Ghostty terminal library). The build resolves
+  the exact version declared by the Ghostty submodule. Install the matching
+  Homebrew formula when the default `zig` is a different version:
+
+  ```bash
+  brew install zig@0.15
+  ```
+
 ## Connect Your Mac to Litter Over SSH
 
-Use this flow to make Codex sessions from your Mac visible in the iOS/Android app.
+Use this flow to make Codex sessions from your Mac visible in the iOS/Android
+app.
 
 1. Enable SSH on the Mac.
 
    - UI: `System Settings` -> `General` -> `Sharing` -> enable `Remote Login`.
    - CLI:
+
      ```bash
      sudo systemsetup -setremotelogin on
      ```
-   - If you get a Full Disk Access error, grant it to your terminal app in `System Settings` -> `Privacy & Security` -> `Full Disk Access`, then restart terminal and retry.
+
+   - If you get a Full Disk Access error, grant it to your terminal app in
+     `System Settings` -> `Privacy & Security` -> `Full Disk Access`, then
+     restart the terminal and retry.
 
 2. Verify SSH and Codex binaries from a non-interactive SSH shell.
 
    ```bash
    ssh <mac-user>@<mac-host-or-ip> 'echo ok'
-   ssh <mac-user>@<mac-host-or-ip> 'command -v codex || command -v codex-app-server'
+   ssh <mac-user>@<mac-host-or-ip> \
+     'command -v codex || command -v codex-app-server'
    ```
 
-   If the second command prints nothing, install Codex and/or fix shell PATH startup files.
+   If the second command prints nothing, install Codex and/or fix shell PATH
+   startup files.
 
 3. Connect from the Litter app.
 
    - Keep phone and Mac on the same LAN (or same Tailnet).
-   - In Discovery: tap a host showing `codex running` to connect directly, or tap an `SSH` host and enter credentials.
+   - In Discovery: tap a host showing `codex running` to connect directly, or
+     tap an `SSH` host and enter credentials.
 
-4. Fallback: run app-server manually bound to loopback and forward the port over SSH.
+4. Fallback: run app-server manually bound to loopback and forward the port
+   over SSH.
 
    On the Mac:
 
@@ -62,24 +82,23 @@ Use this flow to make Codex sessions from your Mac visible in the iOS/Android ap
    codex app-server --listen ws://127.0.0.1:8390
    ```
 
-   Then connect the phone via the `SSH` flow in Discovery — Litter opens the SSH connection, port-forwards `127.0.0.1:8390`, and connects through the tunnel. Do not bind `0.0.0.0` unless you fully understand the exposure; the SSH flow is the supported path.
+   Then connect the phone via the `SSH` flow in Discovery. Litter opens the SSH
+   connection, port-forwards `127.0.0.1:8390`, and connects through the tunnel.
+   Do not bind `0.0.0.0` unless you fully understand the exposure; the SSH flow
+   is the supported path.
 
-5. Thread/session listing is `cwd`-scoped. If expected sessions are missing, choose the same working directory used when those sessions were created.
+5. Thread/session listing is `cwd`-scoped. If expected sessions are missing,
+   choose the same working directory used when those sessions were created.
 
 ## Codex Submodule + Patches
 
 Upstream Codex is vendored as a submodule at `shared/third_party/codex`.
 
-Current local patch set (applied by `sync-codex.sh`):
-
-- `patches/codex/ios-exec-hook.patch`
-- `patches/codex/client-controlled-handoff.patch`
-- `patches/codex/mobile-code-mode-stub.patch`
-
-Additional patches (not auto-applied):
-
-- `patches/codex/android-vendored-openssl.patch`
-- `patches/codex/realtime-transcript-deltas.patch`
+Every `patches/codex/*.patch` file is part of the active mobile patch set.
+`sync-codex.sh` owns the dependency-sensitive apply order; the Makefile uses
+the same directory as its invalidation and unpatch manifest. See
+[`patches/codex/README.md`](../patches/codex/README.md) for each patch's intent
+and downstream consumer.
 
 Sync/apply (idempotent):
 
@@ -87,12 +106,13 @@ Sync/apply (idempotent):
 ./apps/ios/scripts/sync-codex.sh
 ```
 
-Pass `--recorded-gitlink` to reset the submodule to the commit recorded in the superproject.
+Pass `--recorded-gitlink` to reset the submodule to the commit recorded in the
+superproject.
 
 ## Build the Rust Bridge
 
 ```bash
-./apps/ios/scripts/build-rust.sh              # package mode (device + sim + xcframework)
+./apps/ios/scripts/build-rust.sh # package mode: device + sim + xcframework
 ./apps/ios/scripts/build-rust.sh --fast-device # raw device staticlib only
 ```
 
@@ -113,17 +133,25 @@ open apps/ios/Litter.xcodeproj
 CLI build:
 
 ```bash
-xcodebuild -project apps/ios/Litter.xcodeproj -scheme Litter -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild \
+  -project apps/ios/Litter.xcodeproj \
+  -scheme Litter \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  build
 ```
 
 ## Build and Run Android
 
-Prerequisites: Java 17, Android SDK + build tools for API 35, Gradle 8.x.
+Prerequisites: Java 17 or newer, Android SDK + build tools for API 36, and the
+checked-in Gradle 9 wrapper. The Rust/JNI lane also requires the Android NDK
+and `cargo-ndk`.
 
 ```bash
 open -a "Android Studio" apps/android  # open in Android Studio
 make test-android                      # generate bindings and run unit tests
-make android-debug                     # generate bindings and build debug APK
+make android                           # full Rust/JNI + debug APK pipeline
+make android-emulator-fast             # host emulator ABI only
 ```
 
 ## TestFlight (iOS)
@@ -157,7 +185,8 @@ make android-debug                     # generate bindings and build debug APK
    ./apps/ios/scripts/testflight-upload.sh
    ```
 
-   - Reads `MARKETING_VERSION` from `apps/ios/project.yml`; auto-bumps patch if the version is already live.
+   - Reads `MARKETING_VERSION` from `apps/ios/project.yml`; auto-bumps the patch
+     version if it is already live.
    - Auto-increments build number from the latest App Store Connect build.
 
 ## App Store Release (iOS)

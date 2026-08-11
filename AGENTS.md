@@ -50,14 +50,14 @@
 ## Where To Implement New Work
 - Add or change direct server coverage:
   - update `shared/rust-bridge/codex-mobile-client/src/ffi/client.rs`
-  - update `shared/rust-bridge/codex-mobile-client/src/rpc/client_impl.rs` and/or reconciliation code as needed
+  - update `shared/rust-bridge/codex-mobile-client/src/mobile_client/` and/or reconciliation code as needed
   - regenerate bindings
 - Add canonical runtime state, reducer logic, or reconciliation:
   - `shared/rust-bridge/codex-mobile-client/src/store/`
 - Add conversation hydration, typed item shaping, or shared status normalization:
   - `shared/rust-bridge/codex-mobile-client/src/conversation.rs`
   - `shared/rust-bridge/codex-mobile-client/src/conversation_uniffi.rs`
-  - `shared/rust-bridge/codex-mobile-client/src/uniffi_shared.rs`
+  - `shared/rust-bridge/codex-mobile-client/src/types/` and `src/store/boundary.rs`
 - Add discovery ranking/dedupe/reconciliation:
   - `shared/rust-bridge/codex-mobile-client/src/discovery.rs`
   - `shared/rust-bridge/codex-mobile-client/src/discovery_uniffi.rs`
@@ -119,8 +119,8 @@ Incremental policy:
 ### Common targets
 | Target | Description |
 |---|---|
-| `make ios` | Full iOS package lane: sync → patch → bindings → rust (device+sim) → xcframework → litter-ish → xcgen → simulator build |
-| `make litter-ish` | Download the pinned `dnakov/litter-ish` release (xcframework + Alpine fakefs). Bump `LITTER_ISH_VERSION` in `Makefile` to upgrade. |
+| `make ios` | Full iOS package lane: sync → patch → bindings → Rust/Ghostty (device+sim) → xcframework → Alpine fs → xcgen → simulator build |
+| `make alpine-fs` | Download the pinned Alpine fakefs used by the embedded iSH runtime. Bump `ALPINE_FS_VERSION` in `Makefile` to upgrade. |
 | `make ios-sim` | Full iOS package lane + simulator build |
 | `make ios-sim-fast` | Fast iOS simulator lane using raw simulator staticlib outputs in `GeneratedRust/ios-sim` |
 | `make ios-device` | Full iOS package lane + device build |
@@ -157,7 +157,7 @@ Incremental policy:
 
 ### Individual scripts (called by Make, can also be run standalone)
 - `./apps/ios/scripts/build-rust.sh` — cross-compile Rust for iOS; in fast mode it emits raw staticlibs + headers to `apps/ios/GeneratedRust/`, and in package mode it also creates `codex_mobile_client.xcframework`
-- `./apps/ios/scripts/download-litter-ish.sh` — fetch the pinned `dnakov/litter-ish` GitHub release, extract `litter_ish.xcframework` into `apps/ios/Frameworks/` and `alpine-fakefs/` into `apps/ios/Resources/`. Reads `LITTER_ISH_VERSION` from env (set by `make litter-ish`).
+- `./apps/ios/scripts/download-alpine-fs.sh` — fetch the pinned Alpine fakefs into `apps/ios/Resources/alpine-fakefs/`. Reads `ALPINE_FS_VERSION` from env (set by `make alpine-fs`).
 - `./apps/ios/scripts/sync-codex.sh` — sync codex submodule + apply patches
 - `./apps/ios/scripts/regenerate-project.sh` — regenerate Xcode project via xcodegen; this is the safe path because it removes any accidental nested `apps/ios/Litter.xcodeproj/Litter.xcodeproj` before regenerating
 - `./apps/ios/scripts/testflight-upload.sh` — archive, export IPA, upload to TestFlight
