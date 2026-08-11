@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -81,14 +81,14 @@ jobs:
 
       - name: Setup sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Sync codex submodule
         run: ./apps/ios/scripts/sync-codex.sh --preserve-current
 
       - name: Restore generated mobile bindings cache
         id: mobile-bindings-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             shared/rust-bridge/generated
@@ -129,7 +129,7 @@ jobs:
             apps/ios/GeneratedRust/Headers
 
       - name: Upload shared prep artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shared-prep
           path: .ci-prep/shared
@@ -150,19 +150,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: '12266719'
 
       - name: Install Android platforms and NDK
         run: |
@@ -196,10 +198,10 @@ jobs:
 
       - name: Setup sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Download shared prep artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shared-prep
           path: .ci-prep/shared
@@ -226,7 +228,7 @@ jobs:
         run: make rust-android
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Assemble debug
         run: apps/android/gradlew -p apps/android :app:assembleDebug
@@ -239,7 +241,7 @@ jobs:
 
       - name: Upload Android test report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-test-report
           path: apps/android/app/build/reports/tests/testDebugUnitTest
@@ -261,7 +263,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -298,10 +300,10 @@ jobs:
 
       - name: Setup sccache
         if: env.SCCACHE_ENDPOINT != '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Download shared prep artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shared-prep
           path: .ci-prep/shared
