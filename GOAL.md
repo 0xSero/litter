@@ -249,7 +249,7 @@ Update this table as missions launch and after every Codex review. Never create 
 
 | Task | Pi mission name | Mission status | Review | Branch | Pi UUID | Accepted commit | Brief |
 |---|---|---|---|---|---|---|---|
-| 00 | `pi-chat-w00-m00-reconcile` | RUNNING | NOT_REVIEWED | `codex/pi-chat-w00-m00-reconcile` | `019ff2c5-ca5b-7659-9c70-c62941da9a94` | — | `work/chat-performance/tasks/task-00.md` |
+| 00 | `pi-chat-w00-m00-reconcile` | RUNNING | CHANGES_REQUESTED | `codex/pi-chat-w00-m00-reconcile` | `019ff2c5-ca5b-7659-9c70-c62941da9a94` | — | `work/chat-performance/tasks/task-00.md` |
 | 01 | `pi-chat-w00-m01-rust-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m01-rust-observability` | — | — | `work/chat-performance/tasks/task-01.md` |
 | 02 | `pi-chat-w00-m02-ios-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m02-ios-observability` | — | — | `work/chat-performance/tasks/task-02.md` |
 | 03 | `pi-chat-w00-m03-android-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m03-android-observability` | — | — | `work/chat-performance/tasks/task-03.md` |
