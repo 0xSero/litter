@@ -79,6 +79,7 @@ node_modules/
 # Local env (credentials)
 .env
 .envrc
+.local/
 
 # Factory/Droid
 .factory/
