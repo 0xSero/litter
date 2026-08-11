@@ -48,8 +48,6 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 shlex = { workspace = true }
-sha1 = "0.10"
-hex = "0.4"
 semver = { version = "1", default-features = false }
 linkify = "0.10"
 unicode-segmentation = "1"
