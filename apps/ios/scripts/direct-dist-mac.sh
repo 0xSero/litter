@@ -240,7 +240,7 @@ if [[ "$EXPORT_SIGNING_STYLE" != "automatic" && "$EXPORT_SIGNING_STYLE" != "manu
 fi
 
 mkdir -p "$BUILD_DIR" "$EXPORT_DIR"
-rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR"/*
+rm -rf "${ARCHIVE_PATH:?}" "${EXPORT_DIR:?}"/*
 
 if [[ -z "$MARKETING_VERSION" ]]; then
     MARKETING_VERSION="$(read_project_marketing_version)"

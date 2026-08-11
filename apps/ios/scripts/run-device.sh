@@ -214,6 +214,8 @@ PY
 start_tailscale_tunnel() {
   local log="${RUN_DIR}/tunnel.log"
   echo "==> Starting pymobiledevice3 WiFi tunnel for ${DEVICE_NAME} (${DEVICE_UDID})..."
+  # The privileged process does not need to own this caller-created log file.
+  # shellcheck disable=SC2024
   sudo -n /usr/local/bin/litter-ios-remote start-tunnel --connection-type wifi --udid "${DEVICE_UDID}" \
     > "${log}" 2>&1 &
   TUNNEL_PID=$!
@@ -346,7 +348,7 @@ if [[ -z "${DEVICE_SELECTION}" ]]; then
   exit 1
 fi
 
-IFS=$'\t' read -r DEVICE_ID XCTRACE_DEVICE_ID DEVICE_NAME DEVICE_TUNNEL_STATE DEVICE_PAIRING_STATE DEVICE_DDI_AVAILABLE DEVICE_STATE_RANK <<<"${DEVICE_SELECTION}"
+IFS=$'\t' read -r DEVICE_ID XCTRACE_DEVICE_ID DEVICE_NAME DEVICE_TUNNEL_STATE _DEVICE_PAIRING_STATE DEVICE_DDI_AVAILABLE DEVICE_STATE_RANK <<<"${DEVICE_SELECTION}"
 
 if [[ -z "${DEVICE_ID}" ]]; then
   echo "ERROR: failed to resolve a usable device identifier" >&2
