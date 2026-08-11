@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
-import uniffi.codex_mobile_client.AppDiscoveredServer
-import uniffi.codex_mobile_client.AppDiscoverySource
 import uniffi.codex_mobile_client.SavedServerRecord
 
 /**
@@ -152,34 +150,6 @@ data class SavedServer(
         codexPort = resolvedPreferredCodexPort ?: availableDirectCodexPorts.firstOrNull(),
     )
 
-    fun toDiscoveredServer(): AppDiscoveredServer {
-        val codexPort = if (hasCodexServer) (preferredCodexPort ?: port) else null
-        val resolvedSshPort = sshPort ?: if (hasCodexServer) null else port
-        return AppDiscoveredServer(
-            id = id,
-            displayName = name,
-            host = hostname,
-            port = codexPort?.toUShort() ?: 0u,
-            codexPort = codexPort?.toUShort(),
-            codexPorts = availableDirectCodexPorts.map { it.toUShort() },
-            sshPort = resolvedSshPort?.toUShort(),
-            source = toAppDiscoverySource(source),
-            reachable = true,
-            os = os,
-            sshBanner = sshBanner,
-        )
-    }
-
-    private fun toAppDiscoverySource(source: String): AppDiscoverySource = when (source.lowercase()) {
-        "bonjour" -> AppDiscoverySource.BONJOUR
-        "tailscale" -> AppDiscoverySource.TAILSCALE
-        "lanprobe", "lan_probe" -> AppDiscoverySource.LAN_PROBE
-        "arpscan", "arp_scan" -> AppDiscoverySource.ARP_SCAN
-        "manual" -> AppDiscoverySource.MANUAL
-        "local" -> AppDiscoverySource.LOCAL
-        else -> AppDiscoverySource.MANUAL
-    }
-
     companion object {
         fun normalizeWakeMac(raw: String?): String? {
             val compact = raw
@@ -238,25 +208,6 @@ data class SavedServer(
             alleycatAgentWire = obj.optString("alleycatAgentWire").ifBlank { null },
         )
 
-        fun from(server: AppDiscoveredServer): SavedServer = SavedServer(
-            id = server.id,
-            name = server.displayName,
-            hostname = server.host,
-            port = server.codexPort?.toInt() ?: server.port.toInt(),
-            codexPorts = server.codexPorts.map { it.toInt() },
-            sshPort = server.sshPort?.toInt(),
-            source = when (server.source) {
-                AppDiscoverySource.BONJOUR -> "bonjour"
-                AppDiscoverySource.TAILSCALE -> "tailscale"
-                AppDiscoverySource.LAN_PROBE -> "lanProbe"
-                AppDiscoverySource.ARP_SCAN -> "arpScan"
-                AppDiscoverySource.MANUAL -> "manual"
-                AppDiscoverySource.LOCAL -> "local"
-            },
-            hasCodexServer = server.codexPort != null || server.codexPorts.isNotEmpty(),
-            os = if (server.sshBanner != null) server.os else server.os,
-            sshBanner = server.sshBanner,
-        )
     }
 }
 

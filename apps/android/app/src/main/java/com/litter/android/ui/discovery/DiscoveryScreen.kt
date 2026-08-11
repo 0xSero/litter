@@ -107,7 +107,6 @@ import com.litter.android.ui.common.runtimeSortIndex
 import uniffi.codex_mobile_client.AppSshSessionResult
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
-import uniffi.codex_mobile_client.AppDiscoveredServer
 import uniffi.codex_mobile_client.RemoteAgentAvailability
 import uniffi.codex_mobile_client.AppSlingshotEnvironment
 import uniffi.codex_mobile_client.SshBridgeTransport
@@ -123,16 +122,10 @@ private data class SshBridgeAgentContext(
 private const val SLINGSHOT_BASE_URL = "https://chatgpt.com/backend-api"
 
 /**
- * Server discovery and connection screen.
- * Displays discovered + saved servers merged.
+ * Server connection screen.
  */
 @Composable
 fun DiscoveryScreen(
-    discoveredServers: List<AppDiscoveredServer>,
-    isScanning: Boolean,
-    scanProgress: Float = 0f,
-    scanProgressLabel: String? = null,
-    onRefresh: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val logTag = "DiscoveryScreen"
@@ -180,11 +173,6 @@ fun DiscoveryScreen(
         authorizedSlingshotConnect = environment to stepUpToken
     }
 
-    var savedServers by remember { mutableStateOf(SavedServerStore.load(context)) }
-    LaunchedEffect(Unit) {
-        savedServers = SavedServerStore.load(context)
-    }
-
     LaunchedEffect(showManualEntry, pendingManualSshServer) {
         if (!showManualEntry && pendingManualSshServer != null) {
             sshServer = pendingManualSshServer
@@ -204,14 +192,6 @@ fun DiscoveryScreen(
                 connectError = message
             }
         }
-    }
-
-    val merged = remember(discoveredServers, savedServers) {
-        mergeServers(discoveredServers, savedServers)
-    }
-
-    suspend fun reloadSavedServers() {
-        savedServers = SavedServerStore.load(context)
     }
 
     suspend fun loadSlingshotEnvironments() {
@@ -256,7 +236,6 @@ fun DiscoveryScreen(
             stepUpToken,
         )
         SavedServerStore.remember(context, server.normalizedForPersistence())
-        reloadSavedServers()
         appModel.refreshSnapshot()
     }
 
@@ -479,7 +458,6 @@ fun DiscoveryScreen(
                     )
                     appModel.restoreStoredLocalAuthState(prepared.id)
                     SavedServerStore.remember(context, prepared.normalizedForPersistence())
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                     onDismiss()
                 }
@@ -487,7 +465,6 @@ fun DiscoveryScreen(
                 prepared.websocketURL != null -> {
                     connectPreparedRemoteUrl(prepared)
                     SavedServerStore.remember(context, prepared.normalizedForPersistence())
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                     onDismiss()
                 }
@@ -511,7 +488,6 @@ fun DiscoveryScreen(
                         context,
                         prepared.withPreferredConnection("directCodex", prepared.directCodexPort),
                     )
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                     onDismiss()
                 }
@@ -675,7 +651,6 @@ fun DiscoveryScreen(
                                             context,
                                             server.withPreferredConnection("directCodex", port),
                                         )
-                                        reloadSavedServers()
                                         appModel.refreshSnapshot()
                                         onDismiss()
                                     } catch (e: Exception) {
@@ -773,7 +748,6 @@ fun DiscoveryScreen(
                             context,
                             server.withPreferredConnection("ssh"),
                         )
-                        reloadSavedServers()
                         appModel.refreshSnapshot()
                         pendingAutoNavigateServerId = server.id
                         LLog.t(
@@ -824,7 +798,6 @@ fun DiscoveryScreen(
                         context,
                         agentContext.server.withPreferredConnection("ssh"),
                     )
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                     pendingAutoNavigateServerId = agentContext.server.id
                     sshAgentContext = null
@@ -854,7 +827,6 @@ fun DiscoveryScreen(
                     )
                     appModel.sshSessionStore.record(result.serverId, agentContext.sessionId)
                     SavedServerStore.remember(context, server)
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                     pendingAutoNavigateServerId = result.serverId
                     sshAgentContext = null
@@ -885,7 +857,6 @@ fun DiscoveryScreen(
                         context,
                         server.copy(name = newName.ifBlank { server.hostname }).normalizedForPersistence(),
                     )
-                    reloadSavedServers()
                     appModel.refreshSnapshot()
                 }
                 renameTarget = null
@@ -929,7 +900,6 @@ fun DiscoveryScreen(
                             agentName = result.agentName,
                             agentWire = alleycatWireStorageValue(result.agentWire),
                         )
-                        reloadSavedServers()
                         appModel.refreshSnapshot()
                         pendingAutoNavigateServerId = result.serverId
                     }
@@ -1944,81 +1914,6 @@ private fun connectedSnapshot(
     servers: List<AppServerSnapshot>,
 ): AppServerSnapshot? = servers.firstOrNull { it.serverId == entry.id }
     ?: servers.firstOrNull { it.host.lowercase().trim().trimStart('[').trimEnd(']') == entry.deduplicationKey }
-
-private fun mergeServers(
-    discovered: List<AppDiscoveredServer>,
-    saved: List<SavedServer>,
-): List<SavedServer> {
-    val merged = linkedMapOf<String, SavedServer>()
-
-    fun sourceRank(source: String): Int = when (source) {
-        "bonjour" -> 0
-        "tailscale" -> 1
-        "lanProbe" -> 2
-        "arpScan" -> 3
-        "ssh" -> 4
-        "manual" -> 5
-        "local" -> 6
-        else -> 7
-    }
-
-    fun mergeCandidate(existing: SavedServer, candidate: SavedServer): SavedServer {
-        val betterSource = sourceRank(candidate.source) < sourceRank(existing.source)
-        val hasCodexUpgrade = candidate.hasCodexServer && !existing.hasCodexServer
-        val betterCodexPort = candidate.availableDirectCodexPorts.any { it !in existing.availableDirectCodexPorts }
-        val betterName = existing.name == existing.hostname && candidate.name != candidate.hostname
-        val preferCandidate = betterSource || hasCodexUpgrade || betterCodexPort || betterName
-
-        val mergedCodexPorts = buildList {
-            addAll(existing.availableDirectCodexPorts)
-            addAll(candidate.availableDirectCodexPorts)
-        }.distinct()
-
-        val mergedOs = if (candidate.sshBanner != null) candidate.os else (candidate.os ?: existing.os)
-        val mergedBanner = candidate.sshBanner ?: existing.sshBanner
-
-        val mergedServer = if (preferCandidate) {
-            candidate.copy(
-                id = existing.id,
-                codexPorts = mergedCodexPorts,
-                wakeMAC = candidate.wakeMAC ?: existing.wakeMAC,
-                preferredConnectionMode = existing.resolvedPreferredConnectionMode ?: candidate.resolvedPreferredConnectionMode,
-                preferredCodexPort = existing.resolvedPreferredCodexPort ?: candidate.resolvedPreferredCodexPort,
-                sshPortForwardingEnabled = null,
-                websocketURL = candidate.websocketURL ?: existing.websocketURL,
-                os = mergedOs,
-                sshBanner = mergedBanner,
-            )
-        } else {
-            existing.copy(
-                codexPorts = mergedCodexPorts,
-                sshPort = existing.sshPort ?: candidate.sshPort,
-                wakeMAC = existing.wakeMAC ?: candidate.wakeMAC,
-                preferredConnectionMode = existing.resolvedPreferredConnectionMode ?: candidate.resolvedPreferredConnectionMode,
-                preferredCodexPort = existing.resolvedPreferredCodexPort ?: candidate.resolvedPreferredCodexPort,
-                sshPortForwardingEnabled = null,
-                websocketURL = existing.websocketURL ?: candidate.websocketURL,
-                os = mergedOs,
-                sshBanner = mergedBanner,
-            )
-        }
-
-        return mergedServer.normalizedForPersistence()
-    }
-
-    for (server in saved) {
-        merged[server.deduplicationKey] = server
-    }
-
-    for (server in discovered.map(SavedServer::from)) {
-        val key = server.deduplicationKey
-        merged[key] = merged[key]?.let { existing -> mergeCandidate(existing, server) } ?: server
-    }
-
-    return merged.values.sortedWith(
-        compareBy<SavedServer> { sourceRank(it.source) }.thenBy { it.name.lowercase() },
-    )
-}
 
 private fun connectionChoiceMessage(server: SavedServer): String {
     val directPorts = server.availableDirectCodexPorts.map(Int::toString)
