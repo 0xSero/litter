@@ -17,12 +17,14 @@ Current automated checks:
 - `RuntimeFlavorConfigTest`
   - validates startup mode/build config parity (`ENABLE_ON_DEVICE_BRIDGE`, `RUNTIME_STARTUP_MODE`)
   - validates canonical app runtime transport declaration (`APP_RUNTIME_TRANSPORT`)
-- `BridgeTransportReliabilityPolicyTest`
-  - validates reconnect detection policy for healthy/stale websocket state
-- `CodexRuntimeStartupPolicyTest`
-  - validates startup toggle parsing and precedence logic
-- `ThreadPlaceholderPrunePolicyTest`
-  - validates placeholder prune-on-refresh behavior (including active-thread exemption)
+- `SavedServerTransportTest` and `SessionsDerivationTests`
+  - validate persisted transport selection and session-list projection
+- `AppComposerPayloadTest`, `SnapshotExtensionsTest`, and conversation UI tests
+  - validate typed composer inputs, snapshot projection, markdown sizing, slash commands, math, and response errors
+- `RealtimeWebRtcTransportTest` and `RealtimeWebRtcSessionTest`
+  - validate the typed SDP transport and native WebRTC session lifecycle
+- OAuth, discovery pairing, appearance, and home-dashboard tests
+  - validate their platform adapters without duplicating the Rust reducer
 
 ## Manual Matrix
 

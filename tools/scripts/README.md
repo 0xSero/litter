@@ -1,6 +1,8 @@
-# Shared Scripts (Planned)
+# Shared Scripts
 
-Cross-platform automation scripts will move here over time.
+Repository-wide build, release, runtime, feedback, and desktop-automation
+helpers live here. The root Makefile is the supported build entry point;
+invoke individual scripts when debugging their lane.
 
 - `build-android-rust.sh`: builds Android Rust bridge JNI libs into `apps/android/core/bridge/src/main/jniLibs`.
 - `codex-app-driver.applescript`: launches `Codex.app`, opens a project root, creates a thread, and pastes/sends prompts through GUI scripting for desktop-side conversation automation.

@@ -58,8 +58,10 @@ apps/ios/                  iOS app (Litter scheme, project.yml is source of trut
 apps/android/              Android app (Compose UI, Gradle build)
 shared/rust-bridge/
   codex-mobile-client/     Shared Rust client crate + UniFFI surface (iOS & Android)
-  codex-ios-audio/         iOS-only audio/AEC crate
+  codex-slingshot/         Slingshot HTTP/stream transport
+  uniffi-bindgen/          Local binding generator wrapper
 shared/third_party/codex/  Upstream Codex submodule
+shared/third_party/ghostty Upstream Ghostty submodule for the terminal renderer
 patches/codex/             Local patch set applied during builds
 tools/scripts/             Cross-platform helper scripts
 ```
@@ -67,6 +69,8 @@ tools/scripts/             Cross-platform helper scripts
 ## Architecture
 
 Both platforms share a single Rust core (`codex-mobile-client`) via UniFFI-generated bindings. Platform code (Swift/Kotlin) stays thin: UI, permissions, notifications, and platform APIs only. Session state, streaming, hydration, discovery, and auth logic live in Rust.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for ownership boundaries, runtime flows, generated-code rules, and the main maintenance risks.
 
 ## Contributing
 
