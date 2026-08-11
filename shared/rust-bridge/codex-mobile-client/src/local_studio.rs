@@ -219,8 +219,7 @@ mod tests {
         ) -> BoxFuture<'_, std::io::Result<Box<dyn ChildProcess>>> {
             *self.captured.lock().expect("capture mutex poisoned") = Some(spec);
             Box::pin(async {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(std::io::Error::other(
                     "capturing launcher does not spawn",
                 ))
             })

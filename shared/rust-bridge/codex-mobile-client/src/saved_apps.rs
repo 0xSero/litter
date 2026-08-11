@@ -792,8 +792,8 @@ pub fn saved_app_load_state(directory: String, app_id: String) -> Option<SavedAp
 
 // ── Internal helpers consumed by `AppClient::update_saved_app` ──────────
 
-/// Short-form description of a state blob for the model: top-level keys
-/// + a single compact example value each. Returns `None` when no state
+/// Short-form description of a state blob for the model: top-level keys with
+/// a single compact example value each. Returns `None` when no state
 /// file exists. Designed for seeding an update prompt; never exposes the
 /// raw user data in full.
 pub(crate) fn abbreviated_state_shape(directory: &str, app_id: &str) -> Option<String> {
@@ -811,7 +811,7 @@ pub(crate) fn abbreviated_state_shape(directory: &str, app_id: &str) -> Option<S
                 format!("[{}, ... ({} items)]", first, items.len())
             }
             serde_json::Value::Object(_) => {
-                format!("{{...}}")
+                "{...}".to_string()
             }
             serde_json::Value::String(s) => format!("{:?}", truncate(s, 120)),
             other => truncate(&other.to_string(), 120),
@@ -988,7 +988,7 @@ mod tests {
         let app = promote_sample(&d, "Orig");
 
         let long = "z".repeat(500);
-        let with_control = format!("hello\x07world");
+        let with_control = "hello\x07world".to_string();
         let renamed = saved_app_rename(d.clone(), app.id.clone(), with_control).unwrap();
         assert_eq!(renamed.title, "helloworld");
 

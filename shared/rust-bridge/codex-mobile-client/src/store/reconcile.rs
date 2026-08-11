@@ -231,7 +231,7 @@ impl MobileClient {
                 .reasoning_effort
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
-            Some(response.approval_policy.clone().into()),
+            Some(response.approval_policy.into()),
             Some(response.sandbox.clone().into()),
         )
         .map_err(|e| e.to_string())?;
@@ -257,7 +257,7 @@ impl MobileClient {
             response.thread.clone(),
             None,
             None,
-            response.approval_policy.clone().map(Into::into),
+            response.approval_policy.map(Into::into),
             response.sandbox.clone().map(Into::into),
         )
         .map_err(|e| e.to_string())?;
@@ -295,7 +295,7 @@ impl MobileClient {
                 .reasoning_effort
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
-            Some(response.approval_policy.clone().into()),
+            Some(response.approval_policy.into()),
             Some(response.sandbox.clone().into()),
         )
         .map_err(|e| e.to_string())?;
@@ -320,7 +320,7 @@ impl MobileClient {
                 .reasoning_effort
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
-            Some(response.approval_policy.clone().into()),
+            Some(response.approval_policy.into()),
             Some(response.sandbox.clone().into()),
         )
         .map_err(|e| e.to_string())?;
@@ -597,8 +597,8 @@ fn merge_paged_turns(
                         | HydratedConversationItemContent::Reasoning(_)
                 )
         });
-        if let Some(id) = group_turn_id.as_deref() {
-            if existing_turn_ids.contains(id) {
+        if let Some(id) = group_turn_id.as_deref()
+            && existing_turn_ids.contains(id) {
                 // A reconnect repair page is authoritative for completed turn
                 // text. Drop stale streaming assistant/reasoning placeholders
                 // absent from the replay, while preserving the historical
@@ -616,7 +616,6 @@ fn merge_paged_turns(
                 }
                 continue;
             }
-        }
         if thread.active_turn_id.is_none()
             && group_replays_existing_user
             && group_has_persisted_text

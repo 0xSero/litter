@@ -611,14 +611,13 @@ impl ServerSession {
             }
         }
 
-        if let Some(ref working_dir) = in_process.working_directory {
-            if let Err(e) = std::env::set_current_dir(working_dir) {
+        if let Some(ref working_dir) = in_process.working_directory
+            && let Err(e) = std::env::set_current_dir(working_dir) {
                 return Err(TransportError::ConnectionFailed(format!(
                     "failed to set working directory {:?}: {e}",
                     working_dir
                 )));
             }
-        }
 
         let mut cli_overrides = vec![
             ("features.goals".to_string(), true.into()),

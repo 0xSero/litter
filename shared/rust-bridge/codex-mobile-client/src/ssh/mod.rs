@@ -123,11 +123,10 @@ pub(super) fn remote_shell_name(shell: RemoteShell) -> &'static str {
 pub(super) fn normalize_host(host: &str) -> String {
     let mut h = host.trim().trim_matches('[').trim_matches(']').to_string();
     h = h.replace("%25", "%");
-    if !h.contains(':') {
-        if let Some(idx) = h.find('%') {
+    if !h.contains(':')
+        && let Some(idx) = h.find('%') {
             h.truncate(idx);
         }
-    }
     h
 }
 

@@ -2085,15 +2085,12 @@ impl AppStoreReducer {
                     .voice_state
                     .handle_typed_transcript_delta(key, role, text)
                 {
-                    match update {
-                        VoiceDerivedUpdate::Transcript(update) => {
-                            self.apply_voice_transcript_update(key, &update);
-                            self.emit(AppStoreUpdateRecord::RealtimeTranscriptUpdated {
-                                key: key.clone(),
-                                update,
-                            });
-                        }
-                        _ => {}
+                    if let VoiceDerivedUpdate::Transcript(update) = update {
+                        self.apply_voice_transcript_update(key, &update);
+                        self.emit(AppStoreUpdateRecord::RealtimeTranscriptUpdated {
+                            key: key.clone(),
+                            update,
+                        });
                     }
                 }
             }
@@ -3978,8 +3975,8 @@ mod tests {
 
         let page_one = make_thread_info("page-one");
         let page_two = make_thread_info("page-two");
-        reducer.upsert_thread_list_page("srv", &[page_one.clone()]);
-        reducer.upsert_thread_list_page("srv", &[page_two.clone()]);
+        reducer.upsert_thread_list_page("srv", std::slice::from_ref(&page_one));
+        reducer.upsert_thread_list_page("srv", std::slice::from_ref(&page_two));
         reducer.finalize_thread_list_sync(
             "srv",
             &HashSet::from([page_one.id.clone(), page_two.id.clone()]),
@@ -5943,9 +5940,7 @@ fn classify_item_mutation(
     item: &HydratedConversationItem,
 ) -> Option<ItemMutationUpdate> {
     let Some(existing) = existing else {
-        return Some(ItemMutationUpdate::Upsert(HydratedConversationItem::from(
-            item.clone(),
-        )));
+        return Some(ItemMutationUpdate::Upsert(item.clone()));
     };
 
     match (&existing.content, &item.content) {
@@ -5962,9 +5957,7 @@ fn classify_item_mutation(
                 || existing_data.cwd != projected_data.cwd
                 || existing_data.actions != projected_data.actions
             {
-                return Some(ItemMutationUpdate::Upsert(HydratedConversationItem::from(
-                    item.clone(),
-                )));
+                return Some(ItemMutationUpdate::Upsert(item.clone()));
             }
 
             let output_delta =
@@ -5976,15 +5969,11 @@ fn classify_item_mutation(
             if output_delta.is_empty() && !status_changed {
                 None
             } else {
-                Some(ItemMutationUpdate::Upsert(HydratedConversationItem::from(
-                    item.clone(),
-                )))
+                Some(ItemMutationUpdate::Upsert(item.clone()))
             }
         }
         _ if existing.content == item.content => None,
-        _ => Some(ItemMutationUpdate::Upsert(HydratedConversationItem::from(
-            item.clone(),
-        ))),
+        _ => Some(ItemMutationUpdate::Upsert(item.clone())),
     }
 }
 

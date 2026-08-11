@@ -760,14 +760,13 @@ impl DiscoveryService {
 
             let mut metadata = seed.txt;
             metadata.insert("service_type".to_string(), seed.service_type);
-            if let Some(sp) = ssh_port {
-                if let Some(banner) = grab_ssh_banner(&host, sp, self.config.probe_timeout).await {
+            if let Some(sp) = ssh_port
+                && let Some(banner) = grab_ssh_banner(&host, sp, self.config.probe_timeout).await {
                     if let Some(os) = parse_ssh_banner_os(&banner) {
                         metadata.insert("os".to_string(), os);
                     }
                     metadata.insert("ssh_banner".to_string(), banner);
                 }
-            }
             let port = primary_port(codex_port, ssh_port);
             if port == 0 {
                 continue;
@@ -930,14 +929,13 @@ async fn server_from_reachable_ports(
     let port = primary_port(codex_port, ssh_port);
 
     let mut metadata = HashMap::new();
-    if ssh_port.is_some() {
-        if let Some(banner) = grab_ssh_banner(host, SSH_PORT, probe_timeout).await {
+    if ssh_port.is_some()
+        && let Some(banner) = grab_ssh_banner(host, SSH_PORT, probe_timeout).await {
             if let Some(os) = parse_ssh_banner_os(&banner) {
                 metadata.insert("os".to_string(), os);
             }
             metadata.insert("ssh_banner".to_string(), banner);
         }
-    }
 
     DiscoveredServer {
         id: format!("network-{}", host),
@@ -1261,8 +1259,8 @@ fn parse_arp_table() -> Vec<String> {
     if let Ok(output) = std::process::Command::new("arp").arg("-a").output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
-            if let Some(start) = line.find('(') {
-                if let Some(end) = line.find(')') {
+            if let Some(start) = line.find('(')
+                && let Some(end) = line.find(')') {
                     let ip = &line[start + 1..end];
                     if ip != "127.0.0.1" && is_likely_ipv4(ip) {
                         // Skip incomplete entries
@@ -1271,7 +1269,6 @@ fn parse_arp_table() -> Vec<String> {
                         }
                     }
                 }
-            }
         }
     }
 

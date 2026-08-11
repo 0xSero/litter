@@ -175,10 +175,10 @@ pub(crate) fn build_developer_instructions(
     };
 
     let user_ctx = last_user
-        .map(|s| truncate(s))
+        .map(&truncate)
         .unwrap_or_else(|| "(none)".to_string());
     let assistant_ctx = last_assistant
-        .map(|s| truncate(s))
+        .map(truncate)
         .unwrap_or_else(|| "(none, still generating)".to_string());
 
     format!(

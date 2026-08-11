@@ -85,11 +85,10 @@ pub fn derive_projects(sessions: Vec<AppSessionSummary>) -> Vec<AppProject> {
             cwd,
             last_used_at_ms: None,
         });
-        if let Some(ts) = summary.updated_at {
-            if entry.last_used_at_ms.map_or(true, |prev| ts > prev) {
+        if let Some(ts) = summary.updated_at
+            && entry.last_used_at_ms.is_none_or(|prev| ts > prev) {
                 entry.last_used_at_ms = Some(ts);
             }
-        }
     }
 
     let mut projects: Vec<AppProject> = by_id.into_values().collect();

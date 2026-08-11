@@ -668,12 +668,11 @@ fn spawn_tick_task(inner: &Arc<RendererInner>) {
             if strong.stopped.load(Ordering::Acquire) {
                 break;
             }
-            if strong.dirty.swap(false, Ordering::AcqRel) {
-                if let Some(backend) = strong.current_backend() {
+            if strong.dirty.swap(false, Ordering::AcqRel)
+                && let Some(backend) = strong.current_backend() {
                     drop(strong);
                     backend.request_redraw();
                 }
-            }
         }
     });
 }

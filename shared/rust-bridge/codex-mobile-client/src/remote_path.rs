@@ -253,7 +253,7 @@ pub fn parse_directory_listing(stdout: &str, is_windows: bool) -> Vec<String> {
             .map(|l| l.trim_end_matches('/').to_string())
             .collect()
     };
-    dirs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    dirs.sort_by_key(|a| a.to_lowercase());
     dirs
 }
 

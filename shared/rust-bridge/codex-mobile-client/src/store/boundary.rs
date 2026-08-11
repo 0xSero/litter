@@ -144,7 +144,7 @@ fn merged_hydrated_items(
     local_overlay_items: &[crate::conversation_uniffi::HydratedConversationItem],
 ) -> Vec<HydratedConversationItem> {
     let mut merged = Vec::with_capacity(items.len() + local_overlay_items.len());
-    merged.extend(items.iter().cloned().map(Into::into));
+    merged.extend(items.iter().cloned());
 
     let mut selected_overlays: Vec<&crate::conversation_uniffi::HydratedConversationItem> =
         Vec::new();
@@ -160,7 +160,7 @@ fn merged_hydrated_items(
         }
     }
     for overlay in selected_overlays {
-        insert_overlay_item(&mut merged, overlay.clone().into());
+        insert_overlay_item(&mut merged, overlay.clone());
     }
     merged
 }

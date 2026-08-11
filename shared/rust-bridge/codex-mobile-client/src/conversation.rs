@@ -1672,13 +1672,11 @@ fn build_computer_use_view(
                     if screenshot_png.is_some() {
                         continue;
                     }
-                    if let Some(data) = obj.get("data").and_then(|v| v.as_str()) {
-                        if let Ok(bytes) = engine.decode(data) {
-                            if !bytes.is_empty() {
+                    if let Some(data) = obj.get("data").and_then(|v| v.as_str())
+                        && let Ok(bytes) = engine.decode(data)
+                            && !bytes.is_empty() {
                                 screenshot_png = Some(bytes);
                             }
-                        }
-                    }
                 }
                 Some("text") => {
                     if accessibility_text.is_some() {

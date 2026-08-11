@@ -530,7 +530,7 @@ async fn connect_app_server_client_via_ssh_with_close(
                 None => Arc::clone(&launcher),
             };
             let hydrator =
-                match scan_remote_pi_sessions(&ssh, shell, local_studio_agent_dir.as_deref()).await
+                match scan_remote_pi_sessions(&ssh, shell, local_studio_agent_dir).await
                 {
                     Ok(sessions) => {
                         info!(
@@ -780,9 +780,8 @@ async fn resolve_remote_cli(
         .collect::<Vec<_>>()
         .join(" ");
     let script = format!(
-        "{PROFILE_INIT}\n{}",
-        format!(
-            r#"for cmd in {candidate_list}; do
+        r#"{PROFILE_INIT}
+for cmd in {candidate_list}; do
   case "$cmd" in
     */*)
       if [ -x "$cmd" ]; then
@@ -800,7 +799,6 @@ async fn resolve_remote_cli(
   esac
 done
 exit 127"#
-        )
     );
     let result = ssh.exec_shell(&script, shell).await?;
     if result.exit_code == 0 {

@@ -388,12 +388,12 @@ impl SshBridge {
 
     pub(crate) async fn ssh_read_wake_mac(&self, session: Arc<SshClient>) -> Option<String> {
         let rt = Arc::clone(&self.rt);
-        let result = tokio::task::spawn_blocking(move || {
+
+        tokio::task::spawn_blocking(move || {
             rt.block_on(async move { read_wake_mac(session).await })
         })
         .await
-        .ok()?;
-        result
+        .ok()?
     }
 }
 
@@ -664,19 +664,17 @@ pub(crate) fn ssh_auth(
 
 pub(crate) fn normalize_ssh_host(host: &str) -> String {
     let mut normalized = host.trim().trim_matches(['[', ']']).replace("%25", "%");
-    if !normalized.contains(':') {
-        if let Some((base, _scope)) = normalized.split_once('%') {
+    if !normalized.contains(':')
+        && let Some((base, _scope)) = normalized.split_once('%') {
             normalized = base.to_string();
         }
-    }
     normalized
 }
 
 fn normalize_wake_mac(raw: &str) -> Option<String> {
     let compact = raw
         .trim()
-        .replace(':', "")
-        .replace('-', "")
+        .replace([':', '-'], "")
         .to_ascii_lowercase();
     if compact.len() != 12 || !compact.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return None;
