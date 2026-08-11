@@ -1,8 +1,8 @@
 # Task 05 — Narrow shared active-stream state
 
-## Session
+## Delegated Mission
 
-`chat-w01-s05-shared-stream-state` · Wave 1 · implementation.
+`pi-chat-w01-m05-shared-stream-state` · Wave 1 · implementation.
 
 ## Objective
 

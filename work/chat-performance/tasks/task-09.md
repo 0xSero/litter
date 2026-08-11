@@ -1,8 +1,8 @@
 # Task 09 — Stabilize iOS tail-follow
 
-## Session
+## Delegated Mission
 
-`chat-w02-s09-ios-tail-follow` · Wave 2 · implementation.
+`pi-chat-w02-m09-ios-tail-follow` · Wave 2 · implementation.
 
 ## Objective
 

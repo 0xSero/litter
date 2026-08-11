@@ -1,8 +1,8 @@
 # Task 10 — Stabilize Android tail-follow
 
-## Session
+## Delegated Mission
 
-`chat-w02-s10-android-tail-follow` · Wave 2 · implementation.
+`pi-chat-w02-m10-android-tail-follow` · Wave 2 · implementation.
 
 ## Objective
 

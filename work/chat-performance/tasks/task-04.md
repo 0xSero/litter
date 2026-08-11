@@ -1,8 +1,8 @@
 # Task 04 — Establish the baseline and close Wave 0
 
-## Session
+## Delegated Mission
 
-`chat-w00-s04-baseline-gate` · Wave 0 · validation only.
+`pi-chat-w00-m04-baseline-gate` · Wave 0 · validation only.
 
 ## Objective
 
@@ -17,7 +17,7 @@ Run the combined observability branch against the agreed fixture/device matrix, 
 
 ## Changes
 
-1. Verify Sessions 01–03 landed without overlapping ownership or behavior changes.
+1. Verify Missions 01–03 landed without overlapping ownership or behavior changes.
 2. Run 10/100/500/1,500-item, long-response, tool-storm, rapid-send, reconnect, and resume cases at least five times.
 3. Report p50/p95/p99, variance, device/build identity, CPU, memory, frame health, and any missing span.
 4. Separate simulator/emulator diagnostics from physical-device claims.

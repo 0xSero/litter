@@ -1,8 +1,8 @@
 # Task 11 — Optimize rendering only when profiles trigger it
 
-## Session
+## Delegated Mission
 
-`chat-w02-s11-profiled-rendering` · Wave 2 · evidence-gated implementation.
+`pi-chat-w02-m11-profiled-rendering` · Wave 2 · evidence-gated implementation.
 
 ## Objective
 
@@ -17,7 +17,7 @@ Use Wave 1/2 traces to decide whether Markdown, code, math, image, reasoning, or
 
 ## Changes
 
-1. Attribute main-thread time by content type after Sessions 09–10.
+1. Attribute main-thread time by content type after Missions 09–10.
 2. If parsing/rendering is below 10%, change no production code and document the result.
 3. If triggered, key bounded caches by immutable content hash plus theme/width/options; never cache sensitive content to disk.
 4. Keep streaming text incremental where the renderer supports it and flush exact final content on settle.

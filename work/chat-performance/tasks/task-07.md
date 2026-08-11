@@ -1,8 +1,8 @@
 # Task 07 — Isolate Android streaming state
 
-## Session
+## Delegated Mission
 
-`chat-w01-s07-android-state-isolation` · Wave 1 · implementation.
+`pi-chat-w01-m07-android-state-isolation` · Wave 1 · implementation.
 
 ## Objective
 
@@ -12,7 +12,7 @@ Consume the narrow Rust stream contract through scoped StateFlows so only active
 
 - `apps/android/app/src/main/java/com/litter/android/state/AppModel.kt` — flow ownership and JNI/store application.
 - `apps/android/app/src/main/java/com/litter/android/ui/conversation/ConversationScreen.kt` — scoped collection.
-- `ComposerBar.kt`, header/sidebar, approval, and home-summary consumers identified by Session 03.
+- `ComposerBar.kt`, header/sidebar, approval, and home-summary consumers identified by Mission 03.
 - `TurnGrouping.kt` and `SelectableConversationText.kt` — render-ready derivation/text accumulation.
 - `apps/android/app/src/test/` and `src/androidTest/` — flow/recomposition tests.
 

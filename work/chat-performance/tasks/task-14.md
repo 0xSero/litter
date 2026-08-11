@@ -1,8 +1,8 @@
 # Task 14 — Prove physical-device acceptance
 
-## Session
+## Delegated Mission
 
-`chat-w04-s14-device-acceptance` · Wave 4 · validation only.
+`pi-chat-w04-m14-device-acceptance` · Wave 4 · validation only.
 
 ## Objective
 
@@ -12,7 +12,7 @@ Install the combined build on physical iOS and Android performance-floor devices
 
 - `work/chat-performance/evidence/wave-04/` — device/build manifest, metrics, screenshots, and verdict.
 - `apps/android/docs/qa-matrix.md` — completed parity rows.
-- No production-code ownership; defects return to the owning Wave 1–3 session.
+- No production-code ownership; defects return to the owning Wave 1–3 mission.
 
 ## Changes
 
@@ -39,4 +39,4 @@ make android
 
 - Both installed apps pass the complete scenario matrix on physical devices.
 - p50/p95/p99, frame health, CPU, and memory are recorded against the GOAL budgets.
-- Failures contain a reproducible fixture and return to a named owning session; they are not patched in the validator.
+- Failures contain a reproducible fixture and return to a named owning mission; they are not patched in the validator.

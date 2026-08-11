@@ -1,8 +1,8 @@
 # Task 02 — Add iOS send-to-frame observability
 
-## Session
+## Delegated Mission
 
-`chat-w00-s02-ios-observability` · Wave 0 · implementation.
+`pi-chat-w00-m02-ios-observability` · Wave 0 · implementation.
 
 ## Objective
 

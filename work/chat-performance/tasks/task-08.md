@@ -1,18 +1,18 @@
 # Task 08 — Validate the combined state wave
 
-## Session
+## Delegated Mission
 
-`chat-w01-s08-state-wave-validator` · Wave 1 · validation only.
+`pi-chat-w01-m08-state-wave-validator` · Wave 1 · validation only.
 
 ## Objective
 
-Test Sessions 05–07 together, resolve contract mismatches through their owning sessions, and prove the state-amplification hypothesis is fixed without correctness or first-token regressions.
+Test Missions 05–07 together, resolve contract mismatches through their owning missions, and prove the state-amplification hypothesis is fixed without correctness or first-token regressions.
 
 ## Files Involved
 
 - `work/chat-performance/evidence/wave-01/` — combined benchmark and correctness report.
 - `GOAL.md` — status and frozen Wave 2 base only.
-- No production-code ownership; defects return to Sessions 05–07.
+- No production-code ownership; defects return to Missions 05–07.
 
 ## Changes
 

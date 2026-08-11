@@ -84,6 +84,7 @@ node_modules/
 # Factory/Droid
 .factory/
 .claude/
+.pi-missions/
 shared/third_party/codex/
 .wrangler/
 artifacts/

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Execute the wave plan in [`GOAL.md`](../../GOAL.md) until Litter chat is measurably immediate, frame-stable, and robust on iOS and Android, with shared behavior owned in Rust and installed-runtime evidence on both platforms.
+Execute the supervised Pi mission waves in [`GOAL.md`](../../GOAL.md) until Litter chat is measurably immediate, frame-stable, and robust on iOS and Android, with shared behavior owned in Rust, independent Codex review, and installed-runtime evidence on both platforms.
 
 ## Context
 

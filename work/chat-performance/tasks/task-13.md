@@ -1,8 +1,8 @@
 # Task 13 — Bound reconnect and hydration
 
-## Session
+## Delegated Mission
 
-`chat-w03-s13-reconnect-and-hydration` · Wave 3 · implementation.
+`pi-chat-w03-m13-reconnect-and-hydration` · Wave 3 · implementation.
 
 ## Objective
 

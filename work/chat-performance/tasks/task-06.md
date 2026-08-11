@@ -1,8 +1,8 @@
 # Task 06 — Isolate iOS streaming observation
 
-## Session
+## Delegated Mission
 
-`chat-w01-s06-ios-state-isolation` · Wave 1 · implementation.
+`pi-chat-w01-m06-ios-state-isolation` · Wave 1 · implementation.
 
 ## Objective
 
@@ -13,7 +13,7 @@ Consume the narrow Rust stream contract so active transcript updates invalidate 
 - `apps/ios/Sources/Litter/Models/AppModel.swift` — snapshot/update routing.
 - `apps/ios/Sources/Litter/Views/ConversationScreenModel.swift` — active-thread projection.
 - `apps/ios/Sources/Litter/Views/ConversationView.swift` — observation boundaries.
-- iOS watch/widget, PiP, home-summary, and approval projection files discovered during Session 02.
+- iOS watch/widget, PiP, home-summary, and approval projection files discovered during Mission 02.
 - `apps/ios/Tests/LitterTests/` — invalidation and freshness tests.
 
 ## Changes

@@ -1,8 +1,8 @@
 # Task 01 — Add shared replay and latency observability
 
-## Session
+## Delegated Mission
 
-`chat-w00-s01-rust-observability` · Wave 0 · implementation.
+`pi-chat-w00-m01-rust-observability` · Wave 0 · implementation.
 
 ## Objective
 

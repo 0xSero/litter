@@ -2,9 +2,9 @@
 
 ## Mission
 
-Make Litter chat measurably low-latency, responsive, and robust on iOS and Android without duplicating shared behavior across Swift and Kotlin. The work is executed in waves. Every wave is composed of named Claude Code sessions with explicit ownership, dependencies, deliverables, and acceptance gates.
+Make Litter chat measurably low-latency, responsive, and robust on iOS and Android without duplicating shared behavior across Swift and Kotlin. The work is executed in waves. Every wave is composed of named delegated Pi missions with explicit ownership, dependencies, deliverables, and acceptance gates.
 
-This file is the orchestration source of truth. Detailed session briefs live in [`work/chat-performance/tasks/`](work/chat-performance/tasks/).
+This file is the orchestration source of truth. Detailed mission briefs live in [`work/chat-performance/tasks/`](work/chat-performance/tasks/).
 
 ## Ground truth
 
@@ -15,7 +15,7 @@ This file is the orchestration source of truth. Detailed session briefs live in 
   - `96e77deb` — display-cadence streaming batching.
   - `a4cbf2df` — 2.0 release metadata.
 - Wave 0 must disposition these commits before new implementation. Do not reimplement or silently discard them.
-- The original checkout may contain dirty submodules and unrelated files. Every session uses a dedicated worktree.
+- The original checkout may contain dirty submodules and unrelated files. Every mission uses a dedicated worktree.
 - `shared/third_party/codex` is out of scope unless the user explicitly authorizes a separate submodule change.
 
 ## Success contract
@@ -54,101 +54,106 @@ Additional ceilings:
 - CPU: no more than 25% of one core for a steady stream on the performance-floor device.
 - Memory: RSS no more than 300 MB for 1,500 items and no more than 50 MB growth during a ten-minute stream.
 
-## Claude Code session contract
+## Supervised Pi mission contract
 
 ### Runtime
 
-- Model: `fable`, proven through `modelUsage` as `claude-fable-5` before Wave 0.
-- Reasoning: `max` for implementation and integration sessions; `high` is acceptable for bounded validation-only resumptions.
-- Chrome integration: disabled unless a session explicitly needs a browser acceptance surface.
-- Investigation and validation sessions: `--permission-mode plan`.
-- Authorized implementation sessions: `--permission-mode acceptEdits`.
-- Never use `--dangerously-skip-permissions` or `--bare`.
-- One durable session per brief. Resume the same UUID after failure; do not create duplicates.
+- Agent: Pi coding agent.
+- Provider: `homelab`; model ID: `glm-5.2`. The similarly named cloud model is not an allowed fallback.
+- Model proof: every mission's Pi event stream must contain `provider=homelab` and `model=glm-5.2` before its work is reviewed.
+- Reasoning: `high` by default; `max` is allowed for implementation or integration missions that need it.
+- Pi runs with its normal coding tools and explicit project trust inside the mission worktree. It may edit, test, and commit only within the brief.
+- One durable Pi session per brief. Resume the same UUID for questions, failures, and review corrections; never create a replacement merely to get a different answer.
+- Pi receives no secrets, pairing material, account tokens, private trace contents, or protected submission authority.
 
 ### Isolation
 
-Each session receives:
+Each mission receives:
 
 - A dedicated worktree based on the frozen wave base.
-- A branch named `codex/chat-w<NN>-s<NN>-<slug>`.
+- A branch named `codex/pi-chat-w<NN>-m<NN>-<slug>`.
 - Exclusive ownership of the files listed in its task brief.
-- A named Claude session `chat-w<NN>-s<NN>-<slug>`.
+- A named Pi session `pi-chat-w<NN>-m<NN>-<slug>`.
 - The relevant task file as its first prompt.
+- A local, ignored `.pi-missions/task-<NN>/` directory containing its event logs, UUID, and review messages.
 
-Sessions are not alone in the repository. They must fetch before beginning, must not revert other sessions, and must adapt to commits already integrated by the wave coordinator.
+Missions are not alone in the repository. They must fetch before beginning, must not revert other missions, and must adapt to commits already integrated by the wave coordinator.
 
 ### Launch and supervision runbook
 
-The coordinator, not an implementation session, creates each worktree from the frozen wave base. Before the first session in a wave:
+Codex is the coordinator and reviewer. Codex creates the branch and worktree from the frozen wave base, verifies a clean status, and launches the task through the repository helper:
 
 ```sh
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh doctor <worktree>
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh verify-model <worktree>
+./tools/scripts/pi-mission.sh start <task-number> <worktree>
 ```
 
-For a plan/validation brief, store a prompt containing the task file, this GOAL, `scope.md`, and `rules.md`, then launch:
+The helper pins `homelab/glm-5.2`, names the mission, preserves the Pi UUID, and records JSON events locally. It does not create the branch, push, merge, publish, or touch another worktree.
+
+When Pi returns `READY_FOR_REVIEW`, Codex independently reviews:
+
+1. Base and branch identity, changed paths, diff, submodules, and commit scope.
+2. Every claim in the handoff against source, commands, fixtures, and produced artifacts.
+3. Focused tests plus the task's integration and acceptance surfaces.
+4. Security/privacy boundaries, platform parity, Rust-first placement, and performance evidence quality.
+
+Codex records one of two verdicts. `ACCEPTED` means every acceptance criterion is proven. `CHANGES_REQUESTED` lists concrete failures with file/line or command evidence and the exact required result.
+
+For corrections, Codex writes the review to a local file and resumes the same Pi session:
 
 ```sh
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh start <worktree> <session-name> <prompt-file>
+./tools/scripts/pi-mission.sh repair <task-number> <worktree> <review-file>
 ```
 
-For an authorized implementation brief, launch the named background session from its worktree with the same prompt and the narrow edit mode:
+Pi fixes the rejected work, reruns validation, and returns a new handoff. Codex repeats review until accepted or genuinely blocked. A mission is not allowed to self-approve, and Codex does not quietly repair Pi's implementation instead of sending defects back to the same mission.
+
+Inspect the saved identity and latest turn without launching another agent:
 
 ```sh
-claude --model fable --effort max --permission-mode acceptEdits --no-chrome --name <session-name> --bg "Read GOAL.md, work/chat-performance/scope.md, work/chat-performance/rules.md, and your assigned task file. Execute only that brief and finish with the required handoff."
+./tools/scripts/pi-mission.sh status <task-number> <worktree>
 ```
-
-Supervise without starting duplicates:
-
-```sh
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh list
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh snapshot <short-id>
-/Users/sero/.codex/skills/manage-fable-sessions/scripts/fable-session.sh attach <short-id>
-```
-
-If a process stops, resume its full UUID from the same worktree with `claude --resume <uuid>`. Record the proven model, permission mode, short ID, full UUID, branch, and base commit in the registry before accepting any work.
 
 ### Handoff format
 
-Every session ends with:
+Every mission ends with:
 
 ```text
-STATUS
+MISSION_STATUS
+MODEL_PROOF
 BASE_AND_HEAD
 CHANGES
 EVIDENCE
 VALIDATION
 ACCEPTANCE
 RISKS
-QUESTIONS_FOR_COORDINATOR
-NEXT_MESSAGE_FOR_COORDINATOR
+QUESTIONS_FOR_CODEX
+NEXT_MESSAGE_FOR_CODEX
 ```
 
-`STATUS=complete` means the owned change is committed, its scoped tests pass, and the acceptance evidence is attached. A running process, a plausible diff, or a unit-test-only result is not completion.
+`MISSION_STATUS=READY_FOR_REVIEW` means the owned change is committed, scoped tests pass, and evidence is attached. It does not mean Codex accepted the result. A running process, plausible diff, or unit-test-only result is not completion.
 
 ### Integration discipline
 
-1. Sessions make small, scoped commits as logical pieces validate.
-2. A session pushes only its own branch.
-3. The wave coordinator fetches each branch and verifies the commit list and changed paths.
-4. The wave validator tests the combined wave branch, not isolated session branches.
-5. A wave advances only after its gate passes.
-6. After protected-main merge, the coordinator fetches and proves local `main == origin/main` before the next wave freezes its base.
+1. Pi missions make small, scoped local commits as logical pieces validate.
+2. Pi never pushes, opens a PR, merges, publishes, releases, or changes authentication.
+3. Codex pushes a mission branch only after an `ACCEPTED` review and records the accepted commit in the registry.
+4. The wave coordinator fetches each accepted branch and verifies the commit list and changed paths.
+5. The wave validator tests the combined wave branch, not isolated mission branches.
+6. A wave advances only after its gate passes.
+7. After protected-main merge, the coordinator fetches and proves local `main == origin/main` before the next wave freezes its base.
 
 ## Wave 0 — Reconcile, instrument, and baseline
 
 **Purpose:** establish current truth, integrate rather than duplicate existing candidate repairs, and make latency measurable before behavior changes continue.
 
-**Frozen base:** `origin/main` plus only the candidate commits accepted by Session 00.
+**Frozen base:** `origin/main` plus only the candidate commits accepted by Mission 00.
 
-| Session | Mode | Ownership | Depends on | Deliverable |
+| Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `chat-w00-s00-reconcile` | plan, then narrowly authorized edits | Candidate commits and integration branch | none | Commit-by-commit disposition matrix, integrated candidate base, full Rust validation |
-| `chat-w00-s01-rust-observability` | acceptEdits | Shared Rust spans, replay fixtures, perf smoke tests | S00 | Deterministic replay plus store/transport/send spans and CI-safe smoke budgets |
-| `chat-w00-s02-ios-observability` | acceptEdits | iOS signposts and fixture metrics | S00 | Send-to-frame signposts and repeatable Instruments lane |
-| `chat-w00-s03-android-observability` | acceptEdits | Android tracing, JankStats, Compose metrics | S00 | Send-to-frame traces and repeatable Perfetto lane |
-| `chat-w00-s04-baseline-gate` | plan | Combined wave, baseline summaries only | S01-S03 | Cross-platform baseline report and Wave 0 acceptance verdict |
+| `pi-chat-w00-m00-reconcile` | investigate, then implement only if evidence requires it | Candidate commits and integration branch | none | Commit-by-commit disposition matrix, integrated candidate base, full Rust validation |
+| `pi-chat-w00-m01-rust-observability` | implementation | Shared Rust spans, replay fixtures, perf smoke tests | M00 | Deterministic replay plus store/transport/send spans and CI-safe smoke budgets |
+| `pi-chat-w00-m02-ios-observability` | implementation | iOS signposts and fixture metrics | M00 | Send-to-frame signposts and repeatable Instruments lane |
+| `pi-chat-w00-m03-android-observability` | implementation | Android tracing, JankStats, Compose metrics | M00 | Send-to-frame traces and repeatable Perfetto lane |
+| `pi-chat-w00-m04-baseline-gate` | validation | Combined wave, baseline summaries only | M01-M03 | Cross-platform baseline report and Wave 0 acceptance verdict |
 
 ### Wave 0 gate
 
@@ -164,12 +169,12 @@ NEXT_MESSAGE_FOR_COORDINATOR
 
 **Purpose:** eliminate the highest-confidence structural cost before adding more batching.
 
-| Session | Mode | Ownership | Depends on | Deliverable |
+| Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `chat-w01-s05-shared-stream-state` | acceptEdits | Shared store/update boundary and emit costs | Wave 0 | Narrow active-thread streaming update contract, bounded text accumulation, lower emit cost |
-| `chat-w01-s06-ios-state-isolation` | acceptEdits | `AppModel`, screen projection, watch/log side effects | S05 contract | Narrow observable projections; no whole-app invalidation per token |
-| `chat-w01-s07-android-state-isolation` | acceptEdits | Android `AppModel`, StateFlows, composer/header collectors | S05 contract | Narrow flows, off-main blocking calls, no O(n²) string concatenation |
-| `chat-w01-s08-state-wave-validator` | plan | Combined Wave 1 | S05-S07 | Replay, recomposition/body-update, memory, CPU, and latency verdict |
+| `pi-chat-w01-m05-shared-stream-state` | implementation | Shared store/update boundary and emit costs | Wave 0 | Narrow active-thread streaming update contract, bounded text accumulation, lower emit cost |
+| `pi-chat-w01-m06-ios-state-isolation` | implementation | `AppModel`, screen projection, watch/log side effects | M05 contract | Narrow observable projections; no whole-app invalidation per token |
+| `pi-chat-w01-m07-android-state-isolation` | implementation | Android `AppModel`, StateFlows, composer/header collectors | M05 contract | Narrow flows, off-main blocking calls, no O(n²) string concatenation |
+| `pi-chat-w01-m08-state-wave-validator` | validation | Combined Wave 1 | M05-M07 | Replay, recomposition/body-update, memory, CPU, and latency verdict |
 
 ### Wave 1 gate
 
@@ -184,11 +189,11 @@ NEXT_MESSAGE_FOR_COORDINATOR
 
 **Purpose:** remove render-to-scroll feedback and optimize Markdown or media only where Wave 0/1 profiles prove material cost.
 
-| Session | Mode | Ownership | Depends on | Deliverable |
+| Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `chat-w02-s09-ios-tail-follow` | acceptEdits | iOS conversation scrolling and row geometry | Wave 1 | One settled, non-animated streaming tail-follow path |
-| `chat-w02-s10-android-tail-follow` | acceptEdits | Android LazyColumn, keys, content types, follow loop | Wave 1 | Stable keys and one conflated tail-follow loop with drag protection |
-| `chat-w02-s11-profiled-rendering` | acceptEdits only if triggered | iOS/Android renderer caches listed in brief | S09-S10 plus profile trigger | Only measured renderer/cache improvements; otherwise a documented no-op verdict |
+| `pi-chat-w02-m09-ios-tail-follow` | implementation | iOS conversation scrolling and row geometry | Wave 1 | One settled, non-animated streaming tail-follow path |
+| `pi-chat-w02-m10-android-tail-follow` | implementation | Android LazyColumn, keys, content types, follow loop | Wave 1 | Stable keys and one conflated tail-follow loop with drag protection |
+| `pi-chat-w02-m11-profiled-rendering` | evidence-gated implementation | iOS/Android renderer caches listed in brief | M09-M10 plus profile trigger | Only measured renderer/cache improvements; otherwise a documented no-op verdict |
 
 ### Wave 2 gate
 
@@ -203,10 +208,10 @@ NEXT_MESSAGE_FOR_COORDINATOR
 
 **Purpose:** ensure responsiveness survives concurrency, slow RPCs, reconnects, and large histories.
 
-| Session | Mode | Ownership | Depends on | Deliverable |
+| Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `chat-w03-s12-queue-and-transport` | acceptEdits | Shared turn reservation, queue flush, remote request/event loop | Wave 2 | Atomic rapid-send semantics, non-blocking event ingestion, RPC timeouts |
-| `chat-w03-s13-reconnect-and-hydration` | acceptEdits | Shared reconnect/hydration plus thin lifecycle callers | S12 | Prioritized bounded recovery, reduced cloning, evidence-gated legacy shim |
+| `pi-chat-w03-m12-queue-and-transport` | implementation | Shared turn reservation, queue flush, remote request/event loop | Wave 2 | Atomic rapid-send semantics, non-blocking event ingestion, RPC timeouts |
+| `pi-chat-w03-m13-reconnect-and-hydration` | implementation | Shared reconnect/hydration plus thin lifecycle callers | M12 | Prioritized bounded recovery, reduced cloning, evidence-gated legacy shim |
 
 ### Wave 3 gate
 
@@ -222,10 +227,10 @@ NEXT_MESSAGE_FOR_COORDINATOR
 
 **Purpose:** prove the complete experience on the actual acceptance surfaces and finish on synchronized main.
 
-| Session | Mode | Ownership | Depends on | Deliverable |
+| Mission | Mode | Ownership | Depends on | Deliverable |
 |---|---|---|---|---|
-| `chat-w04-s14-device-acceptance` | plan | Installed iOS/Android apps, evidence artifacts, QA matrix | Wave 3 | Physical-device two-turn/tool/reconnect/long-thread acceptance report |
-| `chat-w04-s15-final-integration` | plan, edits limited to CI/docs/fixes found | CI, QA docs, combined branch | S14 | Full validation, protected-main merge readiness, rollback map, synchronized-main proof |
+| `pi-chat-w04-m14-device-acceptance` | validation | Installed iOS/Android apps, evidence artifacts, QA matrix | Wave 3 | Physical-device two-turn/tool/reconnect/long-thread acceptance report |
+| `pi-chat-w04-m15-final-integration` | validation; CI/docs or assigned fixes only | CI, QA docs, combined branch | M14 | Full validation, protected-main merge readiness, rollback map, synchronized-main proof |
 
 ### Wave 4 gate
 
@@ -236,39 +241,39 @@ NEXT_MESSAGE_FOR_COORDINATOR
 - Every workpack task has an evidence-backed disposition.
 - The final merge uses the normal protected-main workflow, then local `main` and `origin/main` resolve to the same commit.
 
-## Session registry
+## Delegated mission registry
 
-Update this table as sessions launch. Never create a second session for the same row; resume its UUID.
+Update this table as missions launch and after every Codex review. Never create a second Pi session for the same row; resume its UUID.
 
-| Task | Session name | Status | Branch | Short ID | Full UUID | Handoff |
-|---|---|---|---|---|---|---|
-| 00 | `chat-w00-s00-reconcile` | NOT_STARTED | `codex/chat-w00-s00-reconcile` | — | — | `work/chat-performance/tasks/task-00.md` |
-| 01 | `chat-w00-s01-rust-observability` | NOT_STARTED | `codex/chat-w00-s01-rust-observability` | — | — | `work/chat-performance/tasks/task-01.md` |
-| 02 | `chat-w00-s02-ios-observability` | NOT_STARTED | `codex/chat-w00-s02-ios-observability` | — | — | `work/chat-performance/tasks/task-02.md` |
-| 03 | `chat-w00-s03-android-observability` | NOT_STARTED | `codex/chat-w00-s03-android-observability` | — | — | `work/chat-performance/tasks/task-03.md` |
-| 04 | `chat-w00-s04-baseline-gate` | NOT_STARTED | `codex/chat-w00-s04-baseline-gate` | — | — | `work/chat-performance/tasks/task-04.md` |
-| 05 | `chat-w01-s05-shared-stream-state` | NOT_STARTED | `codex/chat-w01-s05-shared-stream-state` | — | — | `work/chat-performance/tasks/task-05.md` |
-| 06 | `chat-w01-s06-ios-state-isolation` | NOT_STARTED | `codex/chat-w01-s06-ios-state-isolation` | — | — | `work/chat-performance/tasks/task-06.md` |
-| 07 | `chat-w01-s07-android-state-isolation` | NOT_STARTED | `codex/chat-w01-s07-android-state-isolation` | — | — | `work/chat-performance/tasks/task-07.md` |
-| 08 | `chat-w01-s08-state-wave-validator` | NOT_STARTED | `codex/chat-w01-s08-state-wave-validator` | — | — | `work/chat-performance/tasks/task-08.md` |
-| 09 | `chat-w02-s09-ios-tail-follow` | NOT_STARTED | `codex/chat-w02-s09-ios-tail-follow` | — | — | `work/chat-performance/tasks/task-09.md` |
-| 10 | `chat-w02-s10-android-tail-follow` | NOT_STARTED | `codex/chat-w02-s10-android-tail-follow` | — | — | `work/chat-performance/tasks/task-10.md` |
-| 11 | `chat-w02-s11-profiled-rendering` | NOT_STARTED | `codex/chat-w02-s11-profiled-rendering` | — | — | `work/chat-performance/tasks/task-11.md` |
-| 12 | `chat-w03-s12-queue-and-transport` | NOT_STARTED | `codex/chat-w03-s12-queue-and-transport` | — | — | `work/chat-performance/tasks/task-12.md` |
-| 13 | `chat-w03-s13-reconnect-and-hydration` | NOT_STARTED | `codex/chat-w03-s13-reconnect-and-hydration` | — | — | `work/chat-performance/tasks/task-13.md` |
-| 14 | `chat-w04-s14-device-acceptance` | NOT_STARTED | `codex/chat-w04-s14-device-acceptance` | — | — | `work/chat-performance/tasks/task-14.md` |
-| 15 | `chat-w04-s15-final-integration` | NOT_STARTED | `codex/chat-w04-s15-final-integration` | — | — | `work/chat-performance/tasks/task-15.md` |
+| Task | Pi mission name | Mission status | Review | Branch | Pi UUID | Accepted commit | Brief |
+|---|---|---|---|---|---|---|---|
+| 00 | `pi-chat-w00-m00-reconcile` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m00-reconcile` | — | — | `work/chat-performance/tasks/task-00.md` |
+| 01 | `pi-chat-w00-m01-rust-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m01-rust-observability` | — | — | `work/chat-performance/tasks/task-01.md` |
+| 02 | `pi-chat-w00-m02-ios-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m02-ios-observability` | — | — | `work/chat-performance/tasks/task-02.md` |
+| 03 | `pi-chat-w00-m03-android-observability` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m03-android-observability` | — | — | `work/chat-performance/tasks/task-03.md` |
+| 04 | `pi-chat-w00-m04-baseline-gate` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w00-m04-baseline-gate` | — | — | `work/chat-performance/tasks/task-04.md` |
+| 05 | `pi-chat-w01-m05-shared-stream-state` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w01-m05-shared-stream-state` | — | — | `work/chat-performance/tasks/task-05.md` |
+| 06 | `pi-chat-w01-m06-ios-state-isolation` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w01-m06-ios-state-isolation` | — | — | `work/chat-performance/tasks/task-06.md` |
+| 07 | `pi-chat-w01-m07-android-state-isolation` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w01-m07-android-state-isolation` | — | — | `work/chat-performance/tasks/task-07.md` |
+| 08 | `pi-chat-w01-m08-state-wave-validator` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w01-m08-state-wave-validator` | — | — | `work/chat-performance/tasks/task-08.md` |
+| 09 | `pi-chat-w02-m09-ios-tail-follow` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w02-m09-ios-tail-follow` | — | — | `work/chat-performance/tasks/task-09.md` |
+| 10 | `pi-chat-w02-m10-android-tail-follow` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w02-m10-android-tail-follow` | — | — | `work/chat-performance/tasks/task-10.md` |
+| 11 | `pi-chat-w02-m11-profiled-rendering` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w02-m11-profiled-rendering` | — | — | `work/chat-performance/tasks/task-11.md` |
+| 12 | `pi-chat-w03-m12-queue-and-transport` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w03-m12-queue-and-transport` | — | — | `work/chat-performance/tasks/task-12.md` |
+| 13 | `pi-chat-w03-m13-reconnect-and-hydration` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w03-m13-reconnect-and-hydration` | — | — | `work/chat-performance/tasks/task-13.md` |
+| 14 | `pi-chat-w04-m14-device-acceptance` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w04-m14-device-acceptance` | — | — | `work/chat-performance/tasks/task-14.md` |
+| 15 | `pi-chat-w04-m15-final-integration` | NOT_STARTED | NOT_REVIEWED | `codex/pi-chat-w04-m15-final-integration` | — | — | `work/chat-performance/tasks/task-15.md` |
 
 ## Stop conditions
 
 Pause the affected wave and escalate to the coordinator when:
 
-- A session needs to edit a file owned by another live session.
+- A mission needs to edit a file owned by another live mission.
 - The measured bottleneck contradicts the wave hypothesis.
 - A candidate commit cannot be cleanly reconciled with `origin/main`.
 - A required acceptance surface is unavailable.
 - A change would alter the upstream Codex submodule, wire protocol, stored schema, authentication, release submission, or account ownership.
-- The same session fails three times for the same external reason; mark it blocked rather than spawning replacements.
+- The same mission fails three times for the same external reason; mark it blocked rather than spawning replacements.
 
 ## Non-goals
 

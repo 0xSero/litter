@@ -1,8 +1,8 @@
 # Task 12 — Make queueing and transport non-blocking
 
-## Session
+## Delegated Mission
 
-`chat-w03-s12-queue-and-transport` · Wave 3 · implementation.
+`pi-chat-w03-m12-queue-and-transport` · Wave 3 · implementation.
 
 ## Objective
 

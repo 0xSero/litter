@@ -1,8 +1,8 @@
 # Task 00 — Reconcile existing performance and queue repairs
 
-## Session
+## Delegated Mission
 
-`chat-w00-s00-reconcile` · Wave 0 · plan first, edits only after the disposition is evidence-backed.
+`pi-chat-w00-m00-reconcile` · Wave 0 · investigate first, then edit only when the disposition is evidence-backed.
 
 ## Objective
 

@@ -1,8 +1,8 @@
 # Task 15 — Integrate, gate, and prepare delivery
 
-## Session
+## Delegated Mission
 
-`chat-w04-s15-final-integration` · Wave 4 · validation, with edits limited to CI/docs or narrowly scoped defects assigned by the coordinator.
+`pi-chat-w04-m15-final-integration` · Wave 4 · validation, with edits limited to CI/docs or narrowly scoped defects assigned by Codex.
 
 ## Objective
 
@@ -17,7 +17,7 @@ Validate the complete clean-checkout result, make replay and stable regression c
 
 ## Changes
 
-- Rebase/merge from the frozen Wave 4 base and verify each session commit and changed-path boundary.
+- Rebase/merge from the frozen Wave 4 base and verify each accepted mission commit and changed-path boundary.
 - Run all validation from a clean checkout with generated artifacts rebuilt.
 - Gate deterministic correctness and non-flaky relative regressions in CI; keep unstable wall-clock device numbers in nightly/reporting lanes.
 - Document feature/commit rollback boundaries and known residual risks.
