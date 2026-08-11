@@ -23,10 +23,7 @@ fi
 # Makefile's STAMP_SYNC_GHOSTTY dep chain.
 "$REPO_DIR/apps/ios/scripts/sync-ghostty.sh" --preserve-current
 
-if ! command -v zig >/dev/null 2>&1; then
-    echo "error: zig is required to build Ghostty (brew install zig)" >&2
-    exit 1
-fi
+ZIG_BIN="$("$REPO_DIR/tools/scripts/resolve-ghostty-zig.sh")"
 
 if ! grep -q 'ghostty_surface_write' "$GHOSTTY_DIR/include/ghostty.h"; then
     echo "error: Ghostty header shape changed; expected external PTY ghostty_surface_write in include/ghostty.h" >&2
@@ -97,7 +94,7 @@ for abi in $ANDROID_ABIS; do
     echo "==> Building Ghostty Android renderer for $abi ($target)..."
     (
         cd "$GHOSTTY_DIR"
-        env "${env_args[@]}" zig build \
+        env "${env_args[@]}" "$ZIG_BIN" build \
             -Dapp-runtime=none \
             -Drenderer=opengl \
             -Dfont-backend=freetype \
