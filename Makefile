@@ -445,11 +445,11 @@ rust-ios-macabi-fast: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for fast Mac Catalyst iteration (raw macabi staticlib + headers, host arch only)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --fast-macabi $(CARGO_FEATURES)
 
-rust-check: alleycat-main
+rust-check: alleycat-main $(STAMP_SYNC)
 	@echo "==> cargo check (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo check --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client
 
-rust-test: alleycat-main rust-shellcheck
+rust-test: alleycat-main $(STAMP_SYNC) rust-shellcheck
 	@echo "==> cargo test (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
@@ -523,7 +523,7 @@ help:
 		'make proot-android     build Android proot executable artifacts' \
 		'make ghostty-ios        build pinned Ghostty iOS renderer artifacts' \
 		'make ghostty-android    build pinned Ghostty Android renderer artifacts (requires Android platform patch)' \
-		'make alleycat-main      refresh Alleycat git deps to latest dnakov/alleycat main' \
+		'make alleycat-main      refresh unpinned Alleycat git deps to latest dnakov/alleycat main' \
 		'make catalyst           full Mac Catalyst build (release+LTO macabi staticlib + xcodebuild)' \
 		'make catalyst-run       full Mac Catalyst build + launch' \
 		'make catalyst-fast      fast Mac Catalyst dev build (ios-dev profile, host arch)' \
@@ -586,7 +586,7 @@ $(STAMP_BINDINGS_K): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
 	@touch $@
 
 xcgen: $(STAMP_XCGEN)
-$(STAMP_XCGEN): $(IOS_DIR)/project.yml
+$(STAMP_XCGEN): $(IOS_DIR)/project.yml $(STAMP_BINDINGS_S) $(STAMP_ALPINE_FS)
 	@echo "==> Regenerating Xcode project..."
 	@$(IOS_SCRIPTS)/regenerate-project.sh
 	@touch $@
@@ -772,18 +772,18 @@ android-emulator-install: android-emulator-fast
 
 test: test-rust test-ios test-android
 
-test-rust: alleycat-main
+test-rust: alleycat-main $(STAMP_SYNC)
 	@echo "==> Running Rust tests..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
-test-ios: xcgen
+test-ios: rust-ios-sim-fast alpine-fs xcgen
 	@echo "==> Running iOS tests..."
 	@xcodebuild test -project $(IOS_DIR)/Litter.xcodeproj \
 		-scheme $(IOS_SCHEME) \
 		-configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIM_DEVICE)'
 
-test-android:
+test-android: $(STAMP_BINDINGS_K)
 	@echo "==> Running Android tests..."
 	@cd $(ANDROID_DIR) && ./gradlew :app:testDebugUnitTest
 
