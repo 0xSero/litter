@@ -60,7 +60,7 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
-    func testConversationDisplayHiddenModeRemovesDetailRows() throws {
+    func testConversationDisplayHiddenLegacyValueStillShowsToolActivity() throws {
         let app = conversationDisplayHarnessApp(reasoning: "hidden", commands: "hidden", tools: "hidden")
         app.launch()
 
@@ -68,11 +68,11 @@ final class LitterUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["UITEST_ASSISTANT_MESSAGE"].exists)
         XCTAssertFalse(app.staticTexts["Thinking"].exists)
         XCTAssertFalse(app.staticTexts["Internal reasoning"].exists)
-        XCTAssertFalse(app.staticTexts["printf UITEST_COMMAND_HEADER"].exists)
-        XCTAssertFalse(app.staticTexts["uiTest.fixtureTool"].exists)
+        XCTAssertTrue(app.staticTexts["printf UITEST_COMMAND_HEADER"].exists)
+        XCTAssertTrue(app.staticTexts["uiTest.fixtureTool"].exists)
         XCTAssertFalse(app.staticTexts["UITEST_REASONING_DETAIL"].exists)
         XCTAssertFalse(app.staticTexts["UITEST_COMMAND_OUTPUT"].exists)
-        XCTAssertFalse(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
+        XCTAssertTrue(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
     }
 
     @MainActor

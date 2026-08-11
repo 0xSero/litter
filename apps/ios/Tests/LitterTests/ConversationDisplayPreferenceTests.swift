@@ -8,6 +8,16 @@ final class ConversationDisplayPreferenceTests: XCTestCase {
         XCTAssertEqual(ConversationDetailDisplayMode.resolve("not-a-mode"), .collapsed)
     }
 
+    func testRequiredActivityMigratesHiddenToCollapsed() {
+        XCTAssertEqual(ConversationDetailDisplayMode.resolveRequiredActivity("expanded"), .expanded)
+        XCTAssertEqual(ConversationDetailDisplayMode.resolveRequiredActivity("collapsed"), .collapsed)
+        XCTAssertEqual(ConversationDetailDisplayMode.resolveRequiredActivity("hidden"), .collapsed)
+        XCTAssertEqual(
+            ConversationDetailDisplayMode.requiredActivityCases,
+            [.expanded, .collapsed]
+        )
+    }
+
     func testCollapsedModeOnlyExpandsFailuresByDefault() {
         XCTAssertTrue(ConversationDetailDisplayMode.expanded.defaultExpanded())
         XCTAssertFalse(ConversationDetailDisplayMode.collapsed.defaultExpanded())

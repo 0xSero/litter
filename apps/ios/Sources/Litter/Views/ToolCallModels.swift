@@ -29,6 +29,20 @@ enum ConversationDetailDisplayMode: String, CaseIterable, Identifiable, Equatabl
         ConversationDetailDisplayMode(rawValue: rawValue) ?? .collapsed
     }
 
+    /// Commands and tool results are part of the durable conversation record,
+    /// not optional decoration. Older builds allowed persisting `hidden` for
+    /// those rows; migrate that value to collapsed so reconnecting to a thread
+    /// can never make its work disappear from the transcript.
+    static func resolveRequiredActivity(_ rawValue: String) -> ConversationDetailDisplayMode {
+        let mode = resolve(rawValue)
+        return mode == .hidden ? .collapsed : mode
+    }
+
+    static let requiredActivityCases: [ConversationDetailDisplayMode] = [
+        .expanded,
+        .collapsed
+    ]
+
     func defaultExpanded(isFailed: Bool = false) -> Bool {
         switch self {
         case .expanded:

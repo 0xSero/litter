@@ -101,11 +101,11 @@ struct ConversationTurnTimeline: View {
     }
 
     private var commandDisplayMode: ConversationDetailDisplayMode {
-        ConversationDetailDisplayMode.resolve(commandDisplayModeRaw)
+        ConversationDetailDisplayMode.resolveRequiredActivity(commandDisplayModeRaw)
     }
 
     private var toolDisplayMode: ConversationDetailDisplayMode {
-        ConversationDetailDisplayMode.resolve(toolDisplayModeRaw)
+        ConversationDetailDisplayMode.resolveRequiredActivity(toolDisplayModeRaw)
     }
 
     // Returns AnyView rather than `some View` with @ViewBuilder so the result
