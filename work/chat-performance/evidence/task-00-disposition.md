@@ -4,11 +4,11 @@ Mission: `pi-chat-w00-m00-reconcile` (Wave 0).
 Worktree branch: `codex/pi-chat-w00-m00-reconcile`.
 Frozen base: `314271ac` (Merge remote-tracking branch 'origin/main' into
 codex/chat-performance-goal), which is `origin/main` at the task's freeze
-point plus the chat-performance GOAL/docs commit `0e2b9f76`. The latest
-coordinator fetch resolved `origin/main` to `e42ce32386d53e7be5e1e37d0a1bf2e76c137f9d`; that is a later non-overlapping
-mobile compatibility cleanup and is **not** part of the frozen Wave 0 base
-`314271ac`. Final branch reconciliation against `origin/main` is the
-coordinator's job, not this mission's.
+point plus the chat-performance GOAL/docs commit `0e2b9f76`. The local
+`origin/main` ref advances over time; moving-tip reconciliation against the
+latest `origin/main` is coordinator-owned and will be represented by branch
+history, not a durable prose SHA recorded here. This mission freezes and
+branches from `314271ac` only.
 
 GOAL.md's authoritative base `5f651a475a16c93c273501fd370627f826c5e06f` is the
 merge-base of `origin/main` and the candidate branch
@@ -19,14 +19,14 @@ are the only commits the candidate branch contributes over `origin/main`.
 
 | Commit | Subject | Disposition | Integrated as |
 |---|---|---|---|
-| `025f7f8b` | bridge: preserve Local Studio tool activity | **partial / superseded pending capture** | `cc8efcde` (iOS only); wire normalizer reverted by final lifecycle commit |
+| `025f7f8b` | bridge: preserve Local Studio tool activity | **partial / superseded pending capture** | `cc8efcde` (iOS only); wire normalizer reverted by `15e094ae` |
 | `f1946f45` | sessions: serialize rapid Local Studio follow-ups | **accept** (clean cherry-pick + race-repair) | `f07ce92c` + `09599a9d` |
 | `96e77deb` | performance: batch streaming updates at display cadence | **accept** (rewrite + state-machine repair) | `0c957164` + `085d993b` |
 | `a4cbf2df` | release: prepare 2.0.0 build 200000260 | **reject** (release-only metadata, out of performance scope) | not integrated |
 
 ### `025f7f8b` — partial / superseded pending capture
 
-What the candidate did,two parts):
+What the candidate did (two parts):
 
 1. **iOS required-activity preference migration** (`ConversationTimelineView.swift`,
    `SettingsView.swift`, `ToolCallModels.swift`, `ConversationDisplayPreferenceTests.swift`,
@@ -187,8 +187,9 @@ Bumps iOS `CURRENT_PROJECT_VERSION` 200000254 → 200000260, Android
 submission metadata, not chat performance behavior. Per task-00 ("Exclude
 release-only metadata unless it is independently required by the user") and
 GOAL.md non-goals. The user has not authorized a release bump in this mission.
-Current `origin/main` version fields remain `200000254` and are unchanged on
-this branch. Rejecting here does not lose any performance work.
+Current `origin/main` version fields were observed as `200000254` during
+Task 00 review and are unchanged on this branch (observed state, not a
+durable invariant). Rejecting here does not lose any performance work.
 
 ## Frozen Wave 0 base
 
@@ -205,8 +206,8 @@ Base: `314271ac`. Integrated candidate stack (this branch,
    lag recovery)
 6. `09599a9d` sessions: preserve local reservation against stale terminal
    events
-7. (final lifecycle/docs follow-up commit) bridge: revert unproven lifecycle
-   wire normalization; docs: update Task 00 disposition
+7. `15e094ae` bridge: revert unproven lifecycle wire normalization
+8. `400f130f` docs(chat-perf): update Task 00 disposition to final state
 
 Not integrated: `a4cbf2df` (release metadata, rejected).
 
@@ -252,11 +253,15 @@ Focused validation after repairs (shared cache, patched submodule):
   matrix above; accepts have focused test results; the partial/superseded
   lifecycle disposition has a concrete capture task; the reject has a reason.
 - "The frozen Wave 0 base is clean, pushed, reproducible, and contains no
-  accidental release metadata or submodule edits." → base `314271ac` plus the
-  reconciled/repair commits; no release metadata (version fields unchanged at
-  200000254); submodule gitlink unchanged at `13595c36e` and not
-  staged/committed. (Push is coordinator-controlled; this mission does not
-  push.)
+  accidental release metadata or submodule edits." → split honestly:
+  - Proven here: the branch is clean (working tree clean, `git diff --check`
+    passes), reproducible from `314271ac` by applying the listed commits,
+    contains no release metadata (version fields unchanged at `200000254`,
+    observed during Task 00 review), and the submodule gitlink is unchanged
+    at `13595c36e` and never staged/committed.
+  - Remaining coordinator gates: push to `origin` and reconciliation against
+    the latest `origin/main` are coordinator-owned and are not satisfied by
+    this mission.
 - "Accepted queue and pacing behavior has focused tests; rejected work has a
   concrete replacement task." → queue: controlled race test + failure-restore
   test under `mobile_client::store_listener::tests`; pacing: 16 tests under
