@@ -60,6 +60,7 @@ run_pi_turn() {
     (
         cd "$worktree"
         CARGO_TARGET_DIR="$cargo_target_dir" \
+        CARGO_INCREMENTAL=0 \
         PI_SKIP_VERSION_CHECK=1 pi \
             --mode json \
             --provider homelab \
@@ -97,7 +98,7 @@ Read, in order:
 
 Execute only that brief in the current dedicated worktree and branch. Investigate before changing code. Respect Rust-first ownership and mobile parity. Preserve unrelated work and submodules. Do not push, open or merge a PR, publish, release, alter authentication, or touch another worktree. Make small local commits only after their scoped validation passes.
 
-Build and test economy is mandatory. All missions share CARGO_TARGET_DIR=$cargo_target_dir. Run the narrowest relevant test filters while iterating. Do not run a full crate, platform, or workspace suite unless this task is the named wave validator or the brief explicitly designates one final gate run. Never repeat a timed-out full suite in the same turn; report it once with the last completed phase and let Codex decide whether the gate should resume. A compile-only baseline is not required before editing.
+Build and test economy is mandatory. All missions share CARGO_TARGET_DIR=$cargo_target_dir with CARGO_INCREMENTAL=0 so stable artifacts can be reused across worktrees without sharing fragile incremental state. Run the narrowest relevant test filters while iterating. Do not run a full crate, platform, or workspace suite unless this task is the named wave validator or the brief explicitly designates one final gate run. Never repeat a timed-out full suite in the same turn; report it once with the last completed phase and let Codex decide whether the gate should resume. A compile-only baseline is not required before editing.
 
 Finish with exactly these labeled sections:
 MISSION_STATUS=READY_FOR_REVIEW or MISSION_STATUS=BLOCKED
@@ -141,7 +142,7 @@ Codex reviewed delegated mission Task $task_number and returned CHANGES_REQUESTE
 Review findings:
 $review
 
-Fix every finding in this same mission and worktree. Re-read the task acceptance criteria, inspect the current diff and commits, and rerun only validation invalidated by the repair. Use the shared CARGO_TARGET_DIR=$cargo_target_dir and the narrowest relevant test filters. Do not repeat an unchanged full suite that already produced valid evidence, and never automatically retry a timed-out full suite. Do not push or open a PR. If a finding is factually wrong, respond with concrete source or command evidence instead of silently ignoring it.
+Fix every finding in this same mission and worktree. Re-read the task acceptance criteria, inspect the current diff and commits, and rerun only validation invalidated by the repair. Use the shared CARGO_TARGET_DIR=$cargo_target_dir with CARGO_INCREMENTAL=0 and the narrowest relevant test filters. Do not repeat an unchanged full suite that already produced valid evidence, and never automatically retry a timed-out full suite. Do not push or open a PR. If a finding is factually wrong, respond with concrete source or command evidence instead of silently ignoring it.
 
 Finish again with the exact mission handoff sections from GOAL.md and set MISSION_STATUS only to READY_FOR_REVIEW or BLOCKED.
 EOF
