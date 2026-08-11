@@ -1,0 +1,4 @@
+[bindings.kotlin]
+# Android 8-13 do not provide java.lang.ref.Cleaner. Generate UniFFI's
+# API-aware Android cleaner, which uses JNA below Android 14.
+android = true
