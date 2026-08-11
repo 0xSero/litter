@@ -41,7 +41,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Error
@@ -2529,7 +2529,7 @@ private fun RichDynamicToolResult(
                     SessionServerCard(
                         icon = {
                             Icon(
-                                Icons.Default.Chat,
+                                Icons.AutoMirrored.Filled.Chat,
                                 contentDescription = null,
                                 tint = LitterTheme.accent,
                                 modifier = Modifier.size(18.dp),

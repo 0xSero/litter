@@ -53,7 +53,9 @@ window.structuredResponse = function(){ return Promise.reject(new Error('disable
  * Pass [widgetHtml] as the HTML fragment to render. The shell wraps it via
  * [wrapWidgetHtml] exactly as [AppModeWebView] does.
  */
-@SuppressLint("SetJavaScriptEnabled")
+// Lint cannot resolve @JavascriptInterface through this remembered Kotlin bridge;
+// WidgetBridge's complete public JS surface is explicitly annotated.
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinigameWebView(
     widgetHtml: String,
