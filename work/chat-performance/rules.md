@@ -48,6 +48,7 @@
 - Full crate, platform, and workspace suites run once on the combined wave validator unless a task brief explicitly names one final pre-integration gate.
 - Never automatically retry a timed-out full suite. Preserve its output, report the last completed phase, and let Codex choose whether to resume the gate.
 - Codex reviews valid Pi test evidence without duplicating the same expensive suite; it reruns only invalidated, suspicious, or acceptance-critical coverage.
+- Every validation command writes its complete output to a mission-local log while preserving the command's exit status. Inspect that log after failure; never rerun an unchanged compile or test merely to recover output hidden by `grep`, `tail`, or terminal truncation.
 - Pure new modules and reducers require strict branch coverage.
 - Replay fixtures must be deterministic, scrubbed, bounded, and versioned.
 - Performance gates must report distributions; no single-run pass/fail thresholds.
