@@ -40,6 +40,15 @@ pub(crate) struct Reconnected {
     pub keepalive: Option<Arc<dyn SessionKeepalive>>,
 }
 
+pub(crate) fn replace_keepalive_if_present(
+    current: &mut Option<Arc<dyn SessionKeepalive>>,
+    next: Option<Arc<dyn SessionKeepalive>>,
+) {
+    if next.is_some() {
+        *current = next;
+    }
+}
+
 /// Reconnect strategy for a remote `AppServerClient`.
 ///
 /// Implementations are held by the session worker as `Arc<dyn RemoteTransport>`.
@@ -123,9 +132,7 @@ mod tests {
 
         // SSH-style reconnect: keepalive is None, slot must NOT be cleared.
         let next_ssh: Option<Arc<dyn SessionKeepalive>> = None;
-        if next_ssh.is_some() {
-            keepalive = next_ssh;
-        }
+        replace_keepalive_if_present(&mut keepalive, next_ssh);
         assert_eq!(
             drop_count.load(Ordering::SeqCst),
             0,
@@ -137,7 +144,7 @@ mod tests {
         let next_alleycat: Arc<dyn SessionKeepalive> = Arc::new(DropCounter {
             counter: Arc::clone(&next_alleycat_drop_count),
         });
-        keepalive = Some(next_alleycat);
+        replace_keepalive_if_present(&mut keepalive, Some(next_alleycat));
         assert_eq!(
             drop_count.load(Ordering::SeqCst),
             1,
