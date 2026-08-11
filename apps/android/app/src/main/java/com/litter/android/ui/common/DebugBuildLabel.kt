@@ -3,7 +3,6 @@ package com.litter.android.ui.common
 import android.os.Build
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -21,11 +20,10 @@ object BuildInfo {
     /// `com.android.vending` as the installer, so this hides the label for
     /// alpha/beta testers too — accept this trade-off until we add a
     /// `BuildConfig` flag flipped per-track.
-    val isPlayProductionInstall: Boolean
-        get() {
-            if (BuildConfig.DEBUG) return false
-            return playInstallerPackage() == "com.android.vending"
-        }
+    fun isPlayProductionInstall(context: android.content.Context): Boolean {
+        if (BuildConfig.DEBUG) return false
+        return playInstallerPackage(context.applicationContext) == "com.android.vending"
+    }
 
     val marketingVersion: String = BuildConfig.VERSION_NAME
 
@@ -40,26 +38,16 @@ object BuildInfo {
             return "$marketingVersion · $suffix"
         }
 
-    private fun playInstallerPackage(): String? {
-        val ctx = appContextOrNull() ?: return null
+    private fun playInstallerPackage(context: android.content.Context): String? {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                ctx.packageManager.getInstallSourceInfo(ctx.packageName).installingPackageName
+                context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
             } else {
                 @Suppress("DEPRECATION")
-                ctx.packageManager.getInstallerPackageName(ctx.packageName)
+                context.packageManager.getInstallerPackageName(context.packageName)
             }
         } catch (_: Throwable) {
             null
-        }
-    }
-
-    private fun appContextOrNull(): android.content.Context? = installContextRef
-    private var installContextRef: android.content.Context? = null
-
-    fun bindContext(context: android.content.Context) {
-        if (installContextRef == null) {
-            installContextRef = context.applicationContext
         }
     }
 }
@@ -67,8 +55,7 @@ object BuildInfo {
 @Composable
 fun DebugBuildLabel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    remember(context) { BuildInfo.bindContext(context); 0 }
-    if (BuildInfo.isPlayProductionInstall) return
+    if (BuildInfo.isPlayProductionInstall(context)) return
     Text(
         text = BuildInfo.shortLabel,
         style = MaterialTheme.typography.labelSmall,
