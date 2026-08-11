@@ -6,8 +6,8 @@ version = "0.3.6"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["The Alleycat Authors"]
-repository = "https://github.com/0xSero/litter"
-homepage = "https://kittylitter.app"
+repository = "https://github.com/dnakov/litter"
+homepage = "https://github.com/dnakov/litter"
 description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) for paired clients."
 readme = "README.md"
 
