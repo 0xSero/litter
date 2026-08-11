@@ -49,15 +49,14 @@
       <ul>
         <li><strong>Server credentials:</strong> SSH keys, authentication tokens, and server connection details are stored in your device's secure storage (iOS Keychain / Android EncryptedSharedPreferences).</li>
         <li><strong>App preferences:</strong> Theme, text size, and other settings are stored locally.</li>
-        <li><strong>Discovered servers:</strong> Network discovery results are kept in memory and not persisted beyond the app session.</li>
       </ul>
 
       <h2>Network Communication</h2>
       <p>Litter communicates directly with Codex servers that you configure. This communication happens:</p>
       <ul>
-        <li>Over your local network (LAN/Wi-Fi) for locally discovered servers.</li>
+        <li>Over a local or private network for server endpoints you add.</li>
         <li>Over SSH tunnels for remote server connections.</li>
-        <li>Over Tailscale for Tailscale-discovered servers.</li>
+        <li>Over Alleycat peer-to-peer or relay connections when you choose QR pairing.</li>
       </ul>
       <p>All conversation content, code, and session data flows directly between your device and your Codex server. We do not proxy, inspect, or store this traffic.</p>
 
@@ -68,7 +67,7 @@
       <p>When you use voice input, audio is processed for transcription. Audio data is streamed directly to your Codex server for real-time processing. We do not store or access your audio recordings.</p>
 
       <h2>Third-Party Services</h2>
-      <p>Litter does not integrate any third-party analytics, advertising, or tracking services. The only external service communication is with Codex servers you explicitly configure and our push notification relay.</p>
+      <p>Litter does not integrate any third-party analytics, advertising, or tracking services. External communication is limited to server connections you configure, Alleycat relay infrastructure you pair through, and our push notification relay.</p>
 
       <h2>Children's Privacy</h2>
       <p>Litter is not directed at children under the age of 13. We do not knowingly collect personal information from children.</p>
