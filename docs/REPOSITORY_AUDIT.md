@@ -97,11 +97,15 @@ The validated changes include:
   beta line with 0.26.1 and the release-candidate SHA-2 stack with stable
   releases; and
 - upgraded Litter's direct SSH stack to Russh 0.62.6, removing both unbounded
-  allocation advisories and the obsolete workspace-only `russh-keys` entry.
+  allocation advisories and the obsolete workspace-only `russh-keys` entry;
+  and
+- converted all four Android tip-cat images to lossless WebP after API 36
+  Compose-render acceptance, preserving every visible pixel and alpha value
+  while reducing both tracked assets and a clean debug APK by 2.35 MB.
 
-Against their starting `origin/main` revisions, Litter is 4,303 net lines
-smaller (1,170 additions and 5,473 deletions across 146 paths), while Alleycat
-is 520 net lines smaller (991 additions and 1,511 deletions across 85 paths).
+Against their starting `origin/main` revisions, Litter is 4,276 net lines
+smaller (1,627 additions and 5,903 deletions across 155 paths), while Alleycat
+is 530 net lines smaller (1,263 additions and 1,793 deletions across 85 paths).
 
 ## Priority findings
 
@@ -178,9 +182,9 @@ changed; blanket allows would erase useful architecture signals.
   automatic, distribution, TestFlight, and Play paths are distinct acceptance
   surfaces, but shared setup and artifact verification should be factored into
   reusable workflows.
-- Large cat animations remain the main tracked asset opportunity. Existing
-  compression changes must be judged in the real Android renderer before
-  merging.
+- The Android tip-cat conversion is complete and renderer-validated. Large
+  home cat animations remain the main tracked asset opportunity; their existing
+  compression changes still require Android renderer and hardware acceptance.
 - Historical Git objects still contain a roughly 82 MB shared-library object,
   leaving a roughly 130 MB pack. Removing it requires a coordinated history
   rewrite and is intentionally outside this cleanup.
@@ -215,8 +219,9 @@ changed; blanket allows would erase useful architecture signals.
 5. **Release reuse.** Extract shared workflow setup and artifact assertions,
    keeping store ownership, signing, installed runtime, and live endpoint gates
    distinct.
-6. **Asset/history maintenance.** Validate compressed animations on hardware;
-   schedule any Git history rewrite as a separate coordinated migration.
+6. **Asset/history maintenance.** The Android tip-cat reduction is complete.
+   Validate the remaining compressed home animations on hardware; schedule any
+   Git history rewrite as a separate coordinated migration.
 
 ## Validation evidence
 
