@@ -110,7 +110,6 @@
 		25D96A70E576C0590C1B7C7A /* ApprovalScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CDA77FA2F0C9DF92D098BDA /* ApprovalScreen.swift */; };
 		2691245C74CDCB1714EADEC7 /* notion-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 99BFC7A01A194E7508C5693C /* notion-light.json */; };
 		27B1C10E386286FA2A30A8DF /* MinigameOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22B0C284B20FB135A3A35BE /* MinigameOverlayView.swift */; };
-		281E122A0363013D87575E4B /* NetworkDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91C5EBF4621C3644F62BED3 /* NetworkDiscoveryTests.swift */; };
 		2825608DFF86022012E9CAAE /* SavedServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4C10A9AB37FCCDDA975381 /* SavedServer.swift */; };
 		283F9BCD213E9B461F404D0D /* Info-Catalyst.plist in Resources */ = {isa = PBXBuildFile; fileRef = 70F312C9FD1BA15F93DA8918 /* Info-Catalyst.plist */; };
 		289039FC01FA252CAF14AA5B /* TurnLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3ACFB8DE4FE6FD3D957F27 /* TurnLiveActivityController.swift */; };
@@ -160,7 +159,6 @@
 		3A19FC79C1D2C60955619558 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6104B911C0E0B00FC5375F /* HomeDashboardView.swift */; };
 		3A226D68F22E7EBB1766E31F /* cat_transmission_04.png in Resources */ = {isa = PBXBuildFile; fileRef = 9FAF8F37850DEA9BC6258D15 /* cat_transmission_04.png */; };
 		3AEBEBB2C0A6483A4E7D62F0 /* RustVoiceHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8872A0620A38EB5307BC098C /* RustVoiceHandoff.swift */; };
-		3B231AE724CB8BEE3E7DE445 /* NetworkDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */; };
 		3B4440BAE046EE8D0D2653E2 /* material-theme-palenight.json in Resources */ = {isa = PBXBuildFile; fileRef = B776A14B7CB1BD40651E0EE1 /* material-theme-palenight.json */; };
 		3BEE4213B5E4E91944903E8C /* CodexTurnLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D15D6BDA456B49C319AB4F8 /* CodexTurnLiveActivity.swift */; };
 		3C38788DE0DEFF9DDCE9FB95 /* TipJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A5A95314CD68B7C7276BFD /* TipJarStore.swift */; };
@@ -669,7 +667,6 @@
 		FE3764D045C51C2313EDD24B /* OnboardingCoachmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71F4E34844D8B42B4D170F9 /* OnboardingCoachmarks.swift */; };
 		FE7F588352FF00362744FAD4 /* github-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 87E1D2E7E6CB4DA678C6605E /* github-dark.json */; };
 		FF309C81AC29180713E1AF4F /* lobster-dark-dxSKfHK-.json in Resources */ = {isa = PBXBuildFile; fileRef = 64A9C3848F4142EF67DD23D3 /* lobster-dark-dxSKfHK-.json */; };
-		FF4D813592AD383AD342CFFB /* NetworkDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */; };
 		FFCA1D459F3A63EC8018FE25 /* SshSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B787E25986494D2FBEFD2FF /* SshSessionStore.swift */; };
 		FFF5521A41C9C25DB2CA2C99 /* matrix-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = C2E4F2B7A122218E7C4816EF /* matrix-dark.json */; };
 /* End PBXBuildFile section */
@@ -1097,7 +1094,6 @@
 		E16ACA3C8902C3687BC8518C /* SavedAppsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppsStoreTests.swift; sourceTree = "<group>"; };
 		E1FAA725B26C5805C94EF40E /* github-dark-high-contrast.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "github-dark-high-contrast.json"; sourceTree = "<group>"; };
 		E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupView.swift; sourceTree = "<group>"; };
-		E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscovery.swift; sourceTree = "<group>"; };
 		E2DE018994EE98618A1FB5C7 /* LitterCircularComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterCircularComplication.swift; sourceTree = "<group>"; };
 		E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginMentionEncodingTests.swift; sourceTree = "<group>"; };
 		E438924DD6F6627C3E81375C /* RealtimeVoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceScreen.swift; sourceTree = "<group>"; };
@@ -1110,7 +1106,6 @@
 		E7B2873F09522FAE2FFFFC9B /* ThreadSearchResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSearchResultsView.swift; sourceTree = "<group>"; };
 		E8733DBC110CC719F3AEAD45 /* gruvbox-dark-soft.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gruvbox-dark-soft.json"; sourceTree = "<group>"; };
 		E8ABCFE5B02E47BAA5599A8F /* rose-pine-moon.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "rose-pine-moon.json"; sourceTree = "<group>"; };
-		E91C5EBF4621C3644F62BED3 /* NetworkDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscoveryTests.swift; sourceTree = "<group>"; };
 		E97B8D236FEDF8F743D857C5 /* UltrasonicReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UltrasonicReader.swift; sourceTree = "<group>"; };
 		EA80B0D6834A63C797954611 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		EC1ADE6881ED6E3294413133 /* AlleycatAddServerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlleycatAddServerSheet.swift; sourceTree = "<group>"; };
@@ -1232,7 +1227,6 @@
 				018779F7529B6CAAC3A2B896 /* HomeDashboardSupportTests.swift */,
 				73F04FAE655DA80B0585F866 /* LitterAppearanceModeTests.swift */,
 				3299D7A71DE1AC05363FDE27 /* MessageContentBridgeTests.swift */,
-				E91C5EBF4621C3644F62BED3 /* NetworkDiscoveryTests.swift */,
 				119E33CEA4127BD72EADC968 /* PathDisplayTests.swift */,
 				BE04FF38C9E336A47C7E161B /* PerformanceHelpersTests.swift */,
 				22033C000C8317754EEB6984 /* PerServerComplicationTests.swift */,
@@ -1574,7 +1568,6 @@
 				2325BAE1FF0D41A4D5ADE3AD /* MessageRecorder.swift */,
 				A75C53171D642CD800C76553 /* MobilePreferencesDirectory.swift */,
 				A675C0A5E31FA802F4113CE0 /* NearbyMacPairing.swift */,
-				E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */,
 				952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */,
 				3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */,
 				1022F3BB191F207126130232 /* OrientationResponder.swift */,
@@ -2245,7 +2238,6 @@
 				6EF7AFD103A68CDEA1A94612 /* HomeDashboardSupportTests.swift in Sources */,
 				4BEFD1E7129A6B33D965029D /* LitterAppearanceModeTests.swift in Sources */,
 				68EE71DC41AA028AFE7118ED /* MessageContentBridgeTests.swift in Sources */,
-				281E122A0363013D87575E4B /* NetworkDiscoveryTests.swift in Sources */,
 				333B502373DE386E9BDCE871 /* PathDisplayTests.swift in Sources */,
 				8EC17845C1FE8B8550984B57 /* PerServerComplicationTests.swift in Sources */,
 				ECD39F196866971BFDF7E17D /* PerformanceHelpersTests.swift in Sources */,
@@ -2393,7 +2385,6 @@
 				714E942B02990424C166E85C /* MobilePreferencesDirectory.swift in Sources */,
 				B7952C904D305D8E0CA73E9A /* MountedFoldersView.swift in Sources */,
 				5CAC2A329BF000D744E4B9B0 /* NearbyMacPairing.swift in Sources */,
-				FF4D813592AD383AD342CFFB /* NetworkDiscovery.swift in Sources */,
 				36B2248451363077E0104FC0 /* NetworkReachabilityObserver.swift in Sources */,
 				5A262DF631E7FC201F8281FC /* NewThreadHeroView.swift in Sources */,
 				59B39287F39980DFD5D9E746 /* OnboardingCoachmarks.swift in Sources */,
@@ -2582,7 +2573,6 @@
 				023216994D8B1FF4D1E01A6C /* MobilePreferencesDirectory.swift in Sources */,
 				89106690CD537B726E304C02 /* MountedFoldersView.swift in Sources */,
 				F36A83E0E99555F6B48692C9 /* NearbyMacPairing.swift in Sources */,
-				3B231AE724CB8BEE3E7DE445 /* NetworkDiscovery.swift in Sources */,
 				52479A0932D4896CD0847B46 /* NetworkReachabilityObserver.swift in Sources */,
 				8520A62BEAC441DA2157FE87 /* NewThreadHeroView.swift in Sources */,
 				FE3764D045C51C2313EDD24B /* OnboardingCoachmarks.swift in Sources */,
