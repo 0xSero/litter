@@ -176,7 +176,7 @@ fn forbid_message(env: &RemoteControlEnvelope) -> Result<(), SlingshotTransportE
 
 fn invalid_payload(env: &RemoteControlEnvelope) -> SlingshotTransportError {
     SlingshotTransportError::InvalidServerPayload(
-        serde_json::to_value(env).unwrap_or_else(|_| serde_json::Value::Null),
+        serde_json::to_value(env).unwrap_or(serde_json::Value::Null),
     )
 }
 
