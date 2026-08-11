@@ -65,7 +65,6 @@ pub struct MobileClient {
     oauth_callback_tunnels: Arc<Mutex<HashMap<String, OAuthCallbackTunnel>>>,
     slingshot_apis: Arc<StdMutex<HashMap<String, codex_slingshot::SlingshotApi>>>,
     pub(crate) recorder: Arc<crate::recorder::MessageRecorder>,
-    pub(crate) ambient_cache: crate::ambient_suggestions::AmbientCache,
     /// One-shot hooks that fulfill when the next `show_widget` dynamic tool
     /// call finalizes on a specific thread. Keyed by `thread_id`.
     /// Used by `AppClient::update_saved_app`.
@@ -768,7 +767,6 @@ impl MobileClient {
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
             slingshot_apis: Arc::new(StdMutex::new(HashMap::new())),
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),
-            ambient_cache: crate::ambient_suggestions::new_ambient_cache(),
             widget_waiters: Arc::new(StdMutex::new(HashMap::new())),
             saved_apps_directory: Arc::new(StdMutex::new(None)),
             slingshot_credentials_directory: Arc::new(StdMutex::new(None)),
@@ -4065,12 +4063,6 @@ impl MobileClient {
         });
 
         rx
-    }
-
-    /// Invalidate the in-memory ambient suggestions cache for a server.
-    /// If `project_root` is `None`, all entries for the server are cleared.
-    pub fn invalidate_ambient_suggestions(&self, server_id: &str, project_root: Option<&str>) {
-        crate::ambient_suggestions::invalidate_cache(&self.ambient_cache, server_id, project_root);
     }
 }
 
