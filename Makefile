@@ -733,7 +733,7 @@ watch-sim-run: watch-sim
 	xcrun simctl install $$WATCH_UDID "$$APP_PATH" ; \
 	xcrun simctl launch $$WATCH_UDID com.sigkitten.litter.watch
 
-android-debug:
+android-debug: $(STAMP_BINDINGS_K)
 	@echo "==> Building Android debug..."
 	@cd $(ANDROID_DIR) && $(ANDROID_ENV) ./gradlew :app:assembleDebug
 
