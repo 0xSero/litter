@@ -1,98 +1,295 @@
 # Task 00 — Candidate commit disposition matrix
 
 Mission: `pi-chat-w00-m00-reconcile` (Wave 0).
-Worktree branch: `codex/pi-chat-w00-m00-reconcile` (frozen base `314271ac`, itself `origin/main` at `2843dcf3` plus the GOAL.md/docs commit `0e2b9f76`).
-Candidate branch: `codex/local-studio-fidelity-performance`.
-Authoritative base recorded in GOAL.md: `origin/main` at `5f651a475a16c93c273501fd370627f826c5e06f`. The candidate branch's merge-base with `origin/main` is exactly `5f651a4`, so the four candidate commits are the only commits the candidate branch contributes over `origin/main`.
+Worktree branch: `codex/pi-chat-w00-m00-reconcile`.
+Frozen base: `314271ac` (Merge remote-tracking branch 'origin/main' into
+codex/chat-performance-goal), which is `origin/main` at the task's freeze
+point plus the chat-performance GOAL/docs commit `0e2b9f76`. The latest
+coordinator fetch resolved `origin/main` to `e42ce32386d53e7be5e1e37d0a1bf2e76c137f9d`; that is a later non-overlapping
+mobile compatibility cleanup and is **not** part of the frozen Wave 0 base
+`314271ac`. Final branch reconciliation against `origin/main` is the
+coordinator's job, not this mission's.
+
+GOAL.md's authoritative base `5f651a475a16c93c273501fd370627f826c5e06f` is the
+merge-base of `origin/main` and the candidate branch
+`codex/local-studio-fidelity-performance`, so the four candidate commits below
+are the only commits the candidate branch contributes over `origin/main`.
 
 ## Commit-by-commit disposition
 
 | Commit | Subject | Disposition | Integrated as |
 |---|---|---|---|
-| `025f7f8b` | bridge: preserve Local Studio tool activity | **accept** (rewrite, conflict resolved) | `cc8efcde` |
-| `f1946f45` | sessions: serialize rapid Local Studio follow-ups | **accept** (clean cherry-pick) | `f07ce92c` |
-| `96e77deb` | performance: batch streaming updates at display cadence | **accept** (rewrite, one-line compile fix) | `0c957164` |
+| `025f7f8b` | bridge: preserve Local Studio tool activity | **partial / superseded pending capture** | `cc8efcde` (iOS only); wire normalizer reverted by final lifecycle commit |
+| `f1946f45` | sessions: serialize rapid Local Studio follow-ups | **accept** (clean cherry-pick + race-repair) | `f07ce92c` + `09599a9d` |
+| `96e77deb` | performance: batch streaming updates at display cadence | **accept** (rewrite + state-machine repair) | `0c957164` + `085d993b` |
 | `a4cbf2df` | release: prepare 2.0.0 build 200000260 | **reject** (release-only metadata, out of performance scope) | not integrated |
 
-### `025f7f8b` — accept (rewrite)
+### `025f7f8b` — partial / superseded pending capture
 
-What it does:
-- `shared/rust-bridge/codex-slingshot/src/json_line_wire.rs`: normalize legacy non-Codex (Pi/Local Studio) item lifecycle notifications at the raw JSONL boundary. v0.129 of the upstream app-server schema made `startedAtMs`/`completedAtMs` mandatory; older bridges emit otherwise-valid `item/started`/`item/completed` notifications without them, and `RemoteAppServerClient` strict-decodes and silently drops the entire notification (including tool calls/results). The normalizer inserts `0` for a missing timestamp and rewrites an empty `commandExecution.cwd` to `/` (AbsolutePathBuf rejects empty cwd). Normalization happens before `serde_json::from_value::<JSONRPCMessage>`, so strict upstream decode succeeds. Explicit timestamps are never overwritten. Three unit tests cover the legacy timestamp fill, explicit-timestamp preservation, and the empty-cwd command case.
-- iOS (`ConversationTimelineView.swift`, `SettingsView.swift`, `ToolCallModels.swift`, tests): commands and tool results are durable conversation record, not optional decoration. Migrate the legacy persisted `hidden` value to `collapsed` for those rows via `ConversationDetailDisplayMode.resolveRequiredActivity`, and restrict the Commands/Tools pickers to `requiredActivityCases` (`expanded`/`collapsed`). A UITest is retargeted to assert tool/command activity stays visible under the legacy `hidden` preference.
+What the candidate did,two parts):
 
-Conflict and rewrite: the candidate's `next_message` was written in the pre-`async fn` `impl Future` form. The current base uses `async fn next_message` (the trait was already migrated). Cherry-pick conflicted in `json_line_wire.rs`. Resolution: kept the current `async fn` signature and ported the normalization logic (parse to `serde_json::Value`, normalize, `from_value`) into it. The candidate's `impl Future` wrapper is no longer needed on this base and was dropped. No behavior change versus the candidate's intent.
+1. **iOS required-activity preference migration** (`ConversationTimelineView.swift`,
+   `SettingsView.swift`, `ToolCallModels.swift`, `ConversationDisplayPreferenceTests.swift`,
+   `LitterUITests.swift`): commands and tool results are durable conversation
+   record, not optional decoration. Migrate the legacy persisted `hidden` value
+   to `collapsed` for those rows via `ConversationDetailDisplayMode.resolveRequiredActivity`,
+   and restrict the Commands/Tools pickers to `requiredActivityCases`
+   (`expanded`/`collapsed`). This part is independently valid, has its own
+   iOS unit/UITest coverage, and is **accepted** (kept on the branch as
+   committed in `cc8efcde`).
 
-Rust-first placement: the lifecycle normalization is wire-boundary work and lives in `codex-slingshot`, not in Swift/Kotlin. Correct placement.
+2. **Legacy lifecycle wire normalization** (`codex-slingshot/src/json_line_wire.rs`):
+   normalize older Pi/Local Studio `item/started`/`item/completed` notifications
+   at the raw JSONL boundary (insert `0` for a missing `startedAtMs`/`completedAtMs`;
+   rewrite an empty-string `commandExecution.cwd` to `/`). The claim was that
+   upstream v0.129 made lifecycle timestamps mandatory and `AbsolutePathBuf`
+   rejects empty cwd, so strict decode silently drops the whole notification.
 
-Mobile parity: the iOS display-mode migration is iOS-only persisted-preference cleanup. Android has no equivalent `ConversationDetailDisplayMode` / command-tool `hidden` preference (verified: no `commandDisplayMode`/`toolDisplayMode`/`resolveRequiredActivity`/`requiredActivityCases` symbols exist under `apps/android/`). Android's conversation rendering has no `hidden` mode for command/tool rows, so there is no parity gap to close. This is truly platform-specific (iOS-only persisted preference migration), documented here per the drift guardrails.
+   **Disposition: superseded pending capture.** Wave rules require captured
+   evidence for compatibility normalization at a wire boundary. The only
+   committed tests for this behavior were synthetic inline JSON objects authored
+   alongside the normalizer — they prove the normalizer does what it says, not
+   that real Pi/Local Studio bridges emit the legacy shape. A synthetic unit-test
+   object, prose claim, or inferred old schema is not production evidence.
 
-Evidence:
-- `cargo test -p codex-slingshot --lib json_line_wire` → 3 passed, 0 failed (lifecycle timestamp fill, explicit-timestamp preservation, empty-cwd command survival).
+   **Search performed** (recorded per review 09): grepped the repository and
+   Task 00 mission artifacts for a real, already-scrubbed Pi/Local Studio
+   `item/started`/`item/completed` JSON-RPC frame demonstrating the legacy
+   shape (missing lifecycle timestamp and/or empty-string command cwd).
+   Locations/patterns searched:
+   - `grep -rliE "item/started|item/completed|startedAtMs|completedAtMs|commandExecution|cwd"` across `*.json`, `*.jsonl`, `*.txt`, `*.md`, `*.rs` excluding `target/`, `node_modules/`, `.git/`, `shared/third_party/`.
+   - Fixture directories: `shared/rust-bridge/codex-mobile-client/tests/fixtures/` (only `local-studio-litter-bridge-realtime-v1.json`, a realtime capabilities fixture with no lifecycle frames), `tools/scripts/fixtures/` (only `cargo-dist-0.31.0`).
+   - `.pi-missions/task-00/*.jsonl` (Pi session transcripts). These contain `item/started`/`item/completed`/`commandExecution` strings only because the agent ran `git show` on the candidate during reconciliation; they are agent tool-call records, not captured Pi/Local Studio server wire frames.
+   - `work/chat-performance/evidence/` (only this disposition doc).
 
-### `96e77deb` — accept (rewrite, one-line compile fix)
+   **Result: no real scrubbed production lifecycle frame exists in the
+   repository or Task 00 mission artifacts.**
 
-What it does: bounds native/FFI streaming publishes to the display cadence. Adds `STREAMING_COALESCE_WINDOW = 16 ms` and `coalesce_streaming_window`, which collects contiguous `ThreadStreamingDelta` updates for one frame window before handing the merged delta to the existing `coalesce_ready_updates` drain. Non-streaming updates and merge-boundary collisions short-circuit immediately (first-token / first-non-streaming immediacy preserved). One test asserts 48 deltas at 2 ms spacing batch into ≤ 12 native updates while preserving exact text.
+   **Action taken:** the unproven wire normalizer and its synthetic-only tests
+   were removed from `json_line_wire.rs`, restoring the current-base strict
+   decode path (`serde_json::from_str::<JSONRPCMessage>(&line)` with no
+   `Value` parse/normalize/from_value indirection). `git diff 314271ac --
+   shared/rust-bridge/codex-slingshot/src/json_line_wire.rs` is empty — the wire
+   file is exactly back to the frozen base. The iOS preference work from
+   `cc8efcde` is retained.
 
-Compile defect found during reconciliation: the candidate's `coalesce_streaming_window` called `state.buffered.push_front(next)` where `next` is `Box<AppStoreUpdateRecord>` (because `merge_app_update` returns `Err(Box<AppStoreUpdateRecord>)`). The sibling `coalesce_ready_updates` correctly unboxes with `*next`. On this base the candidate does not compile. Fix: `state.buffered.push_front(*next)`. This is a latent defect in the candidate that the candidate's own base apparently did not surface (different `merge_app_update` return shape at that time). The fix is the minimal one-line unbox; no behavior change versus the candidate's intent.
+   **Concrete follow-up capture task (required before reintroducing any
+   normalization):**
+   1. Capture actual `item/started` and `item/completed` JSON-RPC frames from
+      a real Pi bridge and a real Local Studio bridge over the JSON-line wire
+      (not a Codex WebSocket server). Record provider, bridge name, and bridge
+      version.
+   2. Scrub the frames: remove prompts, attachments, credentials, account
+      tokens, private paths, and identifying server/user text. Keep the
+      structural shape (method, params, item type, presence/absence of
+      `startedAtMs`/`completedAtMs`, `cwd` value and type).
+   3. Commit the smallest scrubbed fixture(s) with provenance
+      (provider/version, capture date, scrubbing steps) under
+      `shared/rust-bridge/codex-mobile-client/tests/fixtures/` or a
+      `codex-slingshot` fixture dir.
+   4. Replay each fixture through the strict `json_line_wire` decode path and
+      record which fields fail strict upstream decode.
+   5. Introduce only the normalization the captured fixture proves, bounded to
+      the evidenced legacy shape: `cwd` may be normalized only when missing or
+      an evidenced empty string; `null`, number, array, and object `cwd` values
+      must remain malformed and fail strict decode. Add focused fixture-driven
+      tests with the real shape, not synthetic inline JSON.
 
-Rust-first placement: FFI coalescing is shared Rust. Correct.
+   This follow-up is out of scope for Task 00's Wave 0 reconciliation and should
+   be tracked as a separate capture task by the coordinator.
 
-Evidence:
-- `cargo test -p codex-mobile-client --lib app_store::tests` → 10 passed, 0 failed (includes the new cadence test and the pre-existing coalesce/boundary/resync tests, confirming no regression in the shared coalesce path).
+### `96e77deb` — accept (rewrite + state-machine repair)
 
-### `f1946f45` — accept (clean cherry-pick)
+What it does: bounds native/FFI streaming publishes to the display cadence.
+Candidate `0c957164` added a 16 ms `STREAMING_COALESCE_WINDOW` and
+`coalesce_streaming_window`, plus a cadence test.
 
-What it does: serializes rapid Local Studio follow-ups so a second send during an active turn is queued rather than lost, duplicated, or misordered. Adds turn-start reservation in `mobile_client/mod.rs`, a queued follow-up drain in `store_listener.rs`, queue state in `store/reducer.rs` and `store/snapshot.rs`, a `thread_projection.rs` hook, and four tests under `mobile_client::tests`: `active_status_without_turn_id_queues_instead_of_losing_the_message`, `turn_start_response_reserves_thread_before_a_rapid_second_send`, `live_local_studio_resume_preserves_unique_command_results`, `live_local_studio_rapid_second_send_runs_once_after_tool_turn`.
+Compile defect found during reconciliation: the candidate's
+`coalesce_streaming_window` called `state.buffered.push_front(next)` where
+`next` is `Box<AppStoreUpdateRecord>` (because `merge_app_update` returns
+`Err(Box<…>)`). Fixed to `push_front(*next)` matching `coalesce_ready_updates`.
 
-Cherry-pick applied cleanly onto the reconciled base (`025f7f8b` + `96e77deb`); no conflict, no rewrite.
+State-machine repair (`085d993b`, reviews 03-05): the candidate unconditionally
+sent the first streaming delta through the 16 ms window, delaying an isolated
+first delta by up to 16 ms. Replaced with an explicit pacing state machine on
+`AppStoreSubscriptionState` (`Option<AppStorePacing>` with active
+`(key, item_id)` and absolute `next_flush_at`):
 
-Rust-first placement: queue/reservation/reducer logic is shared Rust. Correct. This directly satisfies GOAL.md success contract #4 (rapid double-send yields one active turn and one queued follow-up) at the unit level; device-level proof belongs to Wave 4.
+- Non-streaming update: clear pacing, deliver immediately.
+- Streaming, different identity / no pacing / past deadline: deliver
+  immediately and arm `next_flush_at = now + WINDOW` for that identity.
+- Streaming, same identity, `now < next_flush_at`: coalesce until the existing
+  absolute deadline, deliver the accumulated update, advance the deadline.
+- Passed-deadline flush rearms `next_flush_at = now + WINDOW` so an
+  immediately-following same-identity delta coalesces instead of flushing
+  again.
+- Lag while accumulating: surface the accumulated exact text, set
+  `pending_full_resync`; the next receive consumes the flag, clears pacing, and
+  returns `FullResync`. Close while accumulating: surface the accumulated text;
+  the following receive reports closed normally.
 
-Evidence:
-- `cargo test -p codex-mobile-client --lib mobile_client::tests` → 41 passed, 2 ignored, 0 failed (includes the 4 new queue tests).
-- `cargo test -p codex-mobile-client --lib store::` → 98 passed, 0 failed (reducer/snapshot/voice/app_store, no regression from the reducer/snapshot edits).
+Removed the scheduler-sensitive `elapsed < WINDOW` wall-clock assertion; the
+deterministic helper tests are the regression proof.
+
+Focused validation (`app_store::tests`, log
+`.pi-missions/task-00/app-store-review-05.log`): 16 passed, 0 failed. First
+repaired run compiled the mobile crate into the shared cache in 51.94 s.
+
+### `f1946f45` — accept (clean cherry-pick + race repair)
+
+What it does: serializes rapid Local Studio follow-ups so a second send during
+an active turn is queued rather than lost, duplicated, or misordered.
+`f07ce92c` added turn-start reservation, queued follow-up drain, reducer/
+snapshot queue state, and four queue tests. Applied cleanly onto the reconciled
+base.
+
+Race repair (`09599a9d`, reviews 06-08): an old or duplicate terminal event
+must be a no-op for a newer in-flight turn.
+- `ThreadStatusChanged(Idle|SystemError)`: `upsert_or_merge_thread`'s
+  pre-merge status guard preserves `Idle` for any `active_turn_id`
+  (pre-existing behavior) and preserves `SystemError` only for a
+  `local-queued-turn:` reservation. The event closure preserves
+  `active_turn_id`, plan progress, and agent status for a local reservation.
+  Normal authoritative active-turn `SystemError` semantics are unchanged.
+- `TurnCompleted`: terminal cleanup runs only when the completion is
+  authoritative (matches `active_turn_id`, or no active turn for tolerant
+  legacy completion). A nonmatching completion is a true no-op: closure
+  returns `false` and the caller checks `.unwrap_or(false)`, so no active
+  state mutates and no metadata-changed signal fires.
+
+Controlled race test
+(`stale_terminal_event_cannot_clear_newer_local_queued_reservation`,
+multi-thread tokio): queues two drafts, parks the first `turn/start` after the
+reservation installs, applies an old `TurnCompleted` plus duplicate `Idle` and
+`SystemError` while parked, attempts a second drain (sends nothing), asserts
+the reservation stays authoritative, status stays `Active`, one draft remains
+queued, then releases the first request and asserts it resolves to the returned
+turn id with no duplicate send. The existing
+`failed_queued_follow_up_dispatch_restores_message_without_a_ghost_turn` test
+still proves a failed claimed request restores its draft at the front and
+removes the optimistic overlay.
+
+Focused validation (`mobile_client::store_listener::tests`, log
+`.pi-missions/task-00/store-listener-review-07.log`): 6 passed, 0 failed.
+First re-patched run (after the coordinator restored/reapplied the submodule)
+rebuilt upstream Codex and the mobile crate in 2m 48s; the subsequent
+correctly cached mobile-only run compiled in 1m 03s. The final wave policy is
+patch-once/restore-once: restore/reapply invalidates upstream fingerprints and
+forces a full rebuild, so the submodule is kept patched through all Rust
+validation and restored once at the end of Task 00.
 
 ### `a4cbf2df` — reject (release-only metadata, out of scope)
 
-What it does: bumps iOS `CURRENT_PROJECT_VERSION` 200000254 → 200000260, Android `versionCode` 200000254 → 200000260, rewrites iOS release notes and `docs/releases/testflight-whats-new.md`, and edits the generated `apps/ios/Litter.xcodeproj/project.pbxproj` version fields. It is release submission metadata, not chat performance behavior.
-
-Disposition: reject for Wave 0. Per task-00 ("Exclude release-only metadata unless it is independently required by the user") and GOAL.md non-goals ("No store publication, release submission, authentication, signing, or payment without the user at the protected boundary"). The user has not authorized a release bump in this mission. Rejecting here does not lose any performance work: the three behavioral commits above are integrated without it.
-
-Replacement/follow-up: none required for performance. If a future release wants the candidate's release-notes wording, that is a separate user-authorized release task. The current `origin/main` version fields remain `200000254` and are unchanged on this branch.
+Bumps iOS `CURRENT_PROJECT_VERSION` 200000254 → 200000260, Android
+`versionCode` 200000254 → 200000260, rewrites iOS release notes and
+`docs/releases/testflight-whats-new.md`, and edits the generated
+`apps/ios/Litter.xcodeproj/project.pbxproj` version fields. It is release
+submission metadata, not chat performance behavior. Per task-00 ("Exclude
+release-only metadata unless it is independently required by the user") and
+GOAL.md non-goals. The user has not authorized a release bump in this mission.
+Current `origin/main` version fields remain `200000254` and are unchanged on
+this branch. Rejecting here does not lose any performance work.
 
 ## Frozen Wave 0 base
 
-Base: `314271ac` (Merge remote-tracking branch 'origin/main' into codex/chat-performance-goal), which is `origin/main` (`2843dcf3`) plus the chat-performance GOAL/scope/rules/docs commit `0e2b9f76`. `origin/main` resolves to `2843dcf3`; the goal base `5f651a4` is the merge-base of `origin/main` and the candidate branch.
+Base: `314271ac`. Integrated candidate stack (this branch,
+`codex/pi-chat-w00-m00-reconcile`, head after Task 00):
 
-Integrated candidate stack (this branch, `codex/pi-chat-w00-m00-reconcile`):
-1. `cc8efcde` bridge: preserve Local Studio tool activity (reconciled onto async-fn wire)
-2. `0c957164` performance: batch streaming updates at display cadence (reconciled)
+1. `cc8efcde` bridge: preserve Local Studio tool activity (iOS preference work
+   only; wire normalizer later reverted)
+2. `0c957164` performance: batch streaming updates at display cadence
+   (reconciled, with unbox fix)
 3. `f07ce92c` sessions: serialize rapid Local Studio follow-ups (reconciled)
+4. `c8f21307` docs(chat-perf): record Wave 0 candidate disposition matrix
+5. `085d993b` performance: repair cadence state machine (first-delta, rearm,
+   lag recovery)
+6. `09599a9d` sessions: preserve local reservation against stale terminal
+   events
+7. (final lifecycle/docs follow-up commit) bridge: revert unproven lifecycle
+   wire normalization; docs: update Task 00 disposition
 
 Not integrated: `a4cbf2df` (release metadata, rejected).
 
-Submodule: `shared/third_party/codex` is pinned at `13595c36e218fcbd13df118eeadf00d4eb0e6d31` (unchanged from `origin/main`). No submodule gitlink is staged or committed on this branch. Patches are applied to the submodule working tree only for the duration of Rust validation via `./apps/ios/scripts/sync-codex.sh --preserve-current` and are not committed.
+Submodule: `shared/third_party/codex` is pinned at
+`13595c36e218fcbd13df118eeadf00d4eb0e6d31` (unchanged from `origin/main`).
+No submodule gitlink is staged or committed on this branch. Patches are applied
+to the submodule working tree only for the duration of Rust validation via
+`./apps/ios/scripts/sync-codex.sh --preserve-current` and are restored to
+the pinned clean checkout at the end of Task 00.
 
 ## Build/test economy
 
-Cold full builds in this worktree are expensive (the initial `cargo test --no-run` for `-p codex-mobile-client -p codex-slingshot` took 16 m 27 s). To avoid repeated cold builds, validation uses the shared launcher-provided `CARGO_TARGET_DIR=/Users/sero/ai/projects/litter/.git/codex-cache/chat-performance/cargo-target` (a 25 GB shared cache moved in by the coordinator). All test commands below resolve against that cache.
+Cold full builds in this worktree are expensive (the initial baseline
+`cargo test --no-run` for `-p codex-mobile-client -p codex-slingshot` took
+16 m 27 s). To avoid repeated cold builds, validation uses the shared
+launcher-provided `CARGO_TARGET_DIR=/Users/sero/ai/projects/litter/.git/codex-cache/chat-performance/cargo-target`
+(a 25 GB shared cache moved in by the coordinator). All post-baseline test
+commands resolve against that cache.
 
-Commands actually completed (in order):
+Final full-crate suites (run once each, early in the mission, before the
+review-driven repairs): `cargo test -p codex-mobile-client` → lib 778
+passed/7 ignored, cloud_sync 6, pair 3, repro_priority 1, doc-tests 1 (compile
+1 m 28 s); `cargo test -p codex-slingshot` → lib 14 passed, doc-tests 0
+(compile 2.15 s). These suites are not re-run after the review-driven repairs;
+the repairs are covered by the focused filters below, and the coordinator
+instructed not to rerun unchanged full suites.
 
-1. `git fetch --all --prune` — refreshed refs; only one stale remote branch pruned.
-2. `git log --left-right --cherry-pick --oneline origin/main...codex/local-studio-fidelity-performance` — confirmed the four candidate commits are the only candidate-side commits over `origin/main` (merge-base `5f651a4`).
-3. `git show --stat` for each of the four commits — recorded changed paths.
-4. Cherry-pick dry runs in a throwaway `/tmp/cp-test` shared clone — identified the `025f7f8b` conflict in `json_line_wire.rs` and confirmed `96e77deb`/`f1946f45` apply cleanly.
-5. `./apps/ios/scripts/sync-codex.sh --preserve-current` — initialized the codex submodule and applied the pinned patch set so the Rust crates compile.
-6. Baseline (before any candidate edit): `cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client -p codex-slingshot` — full suite green: codex-mobile-client lib 772 passed/5 ignored, integration tests (cloud_sync 6, pair 3, repro_priority 1) green, codex-slingshot lib 11 passed, doc-tests green. (This baseline ran against the default local target dir before the shared cache was wired; it is valid evidence that the base is green and is not repeated.)
-7. After reconciling `025f7f8b`: `cargo test -p codex-slingshot --lib json_line_wire` (shared cache, 2.43 s incremental) → 3 passed.
-8. After reconciling `96e77deb` (+ unbox fix): `cargo test -p codex-mobile-client --lib app_store::tests::app_store_subscription_batches_interleaved_streaming_at_display_cadence` (52.34 s, first mobile-client compile into the shared cache) → 1 passed. Then `cargo test -p codex-mobile-client --lib app_store::tests` (2.01 s incremental) → 10 passed.
-9. After cherry-picking `f1946f45`: `cargo test -p codex-mobile-client --lib mobile_client::tests` (2 s incremental) → 41 passed/2 ignored. Then `cargo test -p codex-mobile-client --lib store::` (incremental) → 98 passed.
-
-Full-crate final suites: run at most once each, at the end, per the coordinator's instruction. Results recorded in the handoff VALIDATION section. If a full suite times out, the last completed phase is recorded and the suite is not automatically retried.
+Focused validation after repairs (shared cache, patched submodule):
+- `cargo test -p codex-mobile-client --lib app_store::tests` → 16 passed
+  (log `.pi-missions/task-00/app-store-review-05.log`; first repaired compile
+  51.94 s).
+- `cargo test -p codex-mobile-client --lib mobile_client::store_listener::tests`
+  → 6 passed (log `.pi-missions/task-00/store-listener-review-07.log`; final
+  cached mobile-only compile 1 m 03s).
+- Lifecycle wire: because the unproven Rust behavior was removed back to the
+  known base, no cargo command was run solely to prove its absence. `git diff
+  314271ac -- shared/rust-bridge/codex-slingshot/src/json_line_wire.rs` is
+  empty, confirming the exact reversal.
 
 ## Acceptance criteria mapping
 
-- "Every candidate commit has a documented disposition and evidence." → the matrix above; each accept has a focused test result, the reject has a concrete reason and follow-up.
-- "The frozen Wave 0 base is clean, pushed, reproducible, and contains no accidental release metadata or submodule edits." → base is `314271ac` + three reconciled commits; no release metadata; submodule gitlink unchanged at `13595c36e` and not staged/committed. (Push is coordinator-controlled; this mission does not push.)
-- "Accepted queue and pacing behavior has focused tests; rejected work has a concrete replacement task." → queue: 4 tests under `mobile_client::tests`; pacing: 1 cadence test under `app_store::tests` plus the pre-existing coalesce tests; rejected release metadata needs no replacement task for performance.
+- "Every candidate commit has a documented disposition and evidence." → the
+  matrix above; accepts have focused test results; the partial/superseded
+  lifecycle disposition has a concrete capture task; the reject has a reason.
+- "The frozen Wave 0 base is clean, pushed, reproducible, and contains no
+  accidental release metadata or submodule edits." → base `314271ac` plus the
+  reconciled/repair commits; no release metadata (version fields unchanged at
+  200000254); submodule gitlink unchanged at `13595c36e` and not
+  staged/committed. (Push is coordinator-controlled; this mission does not
+  push.)
+- "Accepted queue and pacing behavior has focused tests; rejected work has a
+  concrete replacement task." → queue: controlled race test + failure-restore
+  test under `mobile_client::store_listener::tests`; pacing: 16 tests under
+  `app_store::tests`; rejected release metadata needs no performance
+  replacement; superseded lifecycle normalization has the capture task above.
+
+## Surfaces not proven by this mission
+
+- Push/reproducibility on `origin` is coordinator-controlled.
+- iOS UITest/unit execution (`xcodebuild test`) is deferred to the Wave 0
+  combined validator (M04) and the normal iOS lane. The iOS preference
+  migration's own tests are the candidate's already-reviewed tests, retained
+  unchanged.
+- Android build/test: no Android source changed; Android has no equivalent
+  display-mode preference (verified by grep), so there is no Android parity
+  work to validate here.
+- Cadence/queue behavior is proven at the Rust unit level only, not yet under
+  installed-runtime measurement (Wave 0 baselines M01–M03, device acceptance
+  Wave 4 M14).
+- Lifecycle wire normalization is **not** proven against production frames;
+  it is reverted pending the capture task above.
+
+## Remaining risks
+
+- The tolerant legacy `TurnCompleted` path (`active_turn_id.is_none()` still
+  accepts any completion) is preserved to avoid breaking existing events/tests
+  that arrive after the store cleared the turn. If a future event sequence
+  relies on a stale completion clearing a none-active turn to Idle, that still
+  happens (no regression).
+- The 16 ms coalesce window is a fixed display-cadence constant; Wave 1 may
+  need to parameterize or gate the first-token fast path separately.
+- Removing the lifecycle normalizer restores the pre-candidate behavior: if a
+  real older Pi/Local Studio bridge emits a missing timestamp or empty cwd,
+  strict decode will drop that notification until the capture task reintroduces
+  evidenced normalization. This is the honest state: do not ship unproven
+  wire normalization.
