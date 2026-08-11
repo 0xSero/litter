@@ -333,34 +333,6 @@ object SavedServerStore {
         save(context, existing)
     }
 
-    /**
-     * Legacy Alleycat persistence path. Current remote-host pairings use
-     * [rememberAlleycat].
-     */
-    fun rememberAlleycat(
-        context: Context,
-        serverId: String,
-        displayName: String,
-        relayHost: String,
-    ) {
-        val server = SavedServer(
-            id = serverId,
-            name = displayName,
-            hostname = relayHost,
-            port = 0,
-            codexPorts = emptyList(),
-            sshPort = null,
-            source = "manual",
-            hasCodexServer = true,
-            rememberedByUser = true,
-            alleycatHost = relayHost,
-        )
-        val existing = load(context).toMutableList()
-        existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.add(server)
-        save(context, existing)
-    }
-
     fun rememberAlleycat(
         context: Context,
         serverId: String,
