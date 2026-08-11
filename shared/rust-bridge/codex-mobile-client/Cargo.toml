@@ -11,7 +11,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 uniffi = { version = "0.31.0", features = ["tokio"] }
-iroh = "0.98.1"
+iroh = "1.0.3"
 codex-app-server = { workspace = true }
 codex-app-server-client = { workspace = true }
 codex-app-server-protocol = { workspace = true }
