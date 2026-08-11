@@ -570,4 +570,192 @@ mod tests {
         assert_eq!(thread.queued_follow_up_drafts[0].preview.text, "keep me");
         assert!(thread.local_overlay_items.is_empty());
     }
+
+    // Controlled dispatch race: prove a stale/duplicate terminal event for
+    // the old turn cannot clear a newer local-queued-turn reservation, and a
+    // second drain cannot send concurrently while the first turn/start is in
+    // flight. Uses a multi-thread runtime so the first handler can park in
+    // `block_in_place` without deadlocking the dispatch future.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_terminal_event_cannot_clear_newer_local_queued_reservation() {
+        use tokio::sync::{oneshot, Notify};
+
+        let app_store = Arc::new(AppStoreReducer::new());
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let server_id = "srv";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let config = make_server_config(server_id);
+        app_store.upsert_server(&config, ServerHealthSnapshot::Connected);
+        let mut thread =
+            ThreadSnapshot::from_info(server_id, make_thread_info(&key.thread_id));
+        thread.agent_runtime_kind = "local-studio".to_string();
+        // Simulate a just-completed prior turn so the old TurnCompleted
+        // below is plausibly in-flight: start with no active turn, idle.
+        app_store.upsert_thread_snapshot(thread);
+
+        app_store.enqueue_thread_follow_up_draft(&key, queued_draft("first queued"));
+        app_store.enqueue_thread_follow_up_draft(&key, queued_draft("second queued"));
+
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let reservation_installed = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel::<()>();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+
+        let handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            let reservation_installed = Arc::clone(&reservation_installed);
+            let release_rx = Arc::clone(&release_rx);
+            Arc::new(move |request| {
+                requests.lock().expect("request log").push(request.clone());
+                // Signal that the atomic reservation has been installed and
+                // the turn/start request is now in flight.
+                reservation_installed.notify_one();
+                // Park the worker thread until the test releases the first
+                // request. block_in_place is safe on this multi-thread test
+                // runtime and does not deadlock the dispatch future, which
+                // is suspended at the response oneshot await.
+                let rx = release_rx
+                    .lock()
+                    .expect("release rx")
+                    .take()
+                    .expect("release rx consumed once");
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(rx)
+                        .expect("release channel");
+                });
+                Ok(turn_start_response("turn-new"))
+            })
+        };
+        sessions.write().expect("sessions lock").insert(
+            server_id.to_string(),
+            Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config,
+                vec![("local-studio".to_string(), handler)],
+            )),
+        );
+
+        // Start the first drain. It installs the local-queued-turn
+        // reservation, then parks inside the handler at the release gate.
+        let first_drain = tokio::spawn(maybe_send_next_local_queued_follow_up(
+            Arc::clone(&app_store),
+            Arc::clone(&sessions),
+            key.clone(),
+        ));
+        reservation_installed.notified().await;
+
+        // While the first turn/start is parked, the reservation must be
+        // authoritative and the thread must look active.
+        {
+            let snapshot = app_store.snapshot();
+            let thread = snapshot.threads.get(&key).expect("thread");
+            assert!(
+                thread
+                    .active_turn_id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with("local-queued-turn:")),
+                "local reservation must be installed, got {:?}",
+                thread.active_turn_id
+            );
+            assert_eq!(
+                thread.info.status,
+                ThreadSummaryStatus::Active,
+                "thread must be Active while reservation is in flight"
+            );
+            assert_eq!(
+                thread.queued_follow_up_drafts.len(),
+                1,
+                "exactly one later draft must remain queued"
+            );
+            assert_eq!(
+                thread.queued_follow_up_drafts[0].preview.text,
+                "second queued"
+            );
+        }
+
+        // Apply a duplicate/out-of-order TurnCompleted for the OLD turn, a
+        // duplicate Idle status, and a stale SystemError status. None of them
+        // must clear the newer reservation or downgrade its Active status.
+        app_store.apply_ui_event(&UiEvent::TurnCompleted {
+            key: key.clone(),
+            turn_id: "turn-old".to_string(),
+            error: None,
+        });
+        app_store.apply_ui_event(&UiEvent::ThreadStatusChanged {
+            key: key.clone(),
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: key.thread_id.clone(),
+                status: upstream::ThreadStatus::Idle,
+            },
+        });
+        app_store.apply_ui_event(&UiEvent::ThreadStatusChanged {
+            key: key.clone(),
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: key.thread_id.clone(),
+                status: upstream::ThreadStatus::SystemError,
+            },
+        });
+
+        {
+            let snapshot = app_store.snapshot();
+            let thread = snapshot.threads.get(&key).expect("thread");
+            assert!(
+                thread
+                    .active_turn_id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with("local-queued-turn:")),
+                "stale terminal must not clear the newer reservation, got {:?}",
+                thread.active_turn_id
+            );
+            assert_eq!(
+                thread.info.status,
+                ThreadSummaryStatus::Active,
+                "stale Idle/SystemError must not downgrade an active reservation"
+            );
+            assert_eq!(
+                thread.queued_follow_up_drafts.len(),
+                1,
+                "stale terminal must not release the queued draft"
+            );
+        }
+
+        // Attempt a second drain while the first is still parked. The
+        // reservation guards it: the second drain must observe Active and
+        // send no second request.
+        maybe_send_next_local_queued_follow_up(
+            Arc::clone(&app_store),
+            Arc::clone(&sessions),
+            key.clone(),
+        )
+        .await;
+        assert_eq!(
+            requests.lock().expect("request log").len(),
+            1,
+            "exactly one turn/start must be in flight"
+        );
+
+        // Release the first request. It resolves to the returned turn id
+        // without a duplicate send.
+        release_tx.send(()).expect("release first request");
+        first_drain.await.expect("first drain completes");
+
+        assert_eq!(
+            requests.lock().expect("request log").len(),
+            1,
+            "no duplicate send after release"
+        );
+        {
+            let snapshot = app_store.snapshot();
+            let thread = snapshot.threads.get(&key).expect("thread");
+            assert_eq!(
+                thread.active_turn_id.as_deref(),
+                Some("turn-new"),
+                "reservation must resolve to the returned turn id"
+            );
+            assert_eq!(thread.queued_follow_up_drafts.len(), 1);
+        }
+    }
 }

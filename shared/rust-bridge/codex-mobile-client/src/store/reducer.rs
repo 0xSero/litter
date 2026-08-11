@@ -1675,10 +1675,30 @@ impl AppStoreReducer {
                         status,
                         ThreadSummaryStatus::Idle | ThreadSummaryStatus::SystemError
                     ) {
-                        thread.active_turn_id = None;
-                        thread.active_plan_progress = None;
-                        thread.info.status = status.clone();
+                        // A ThreadStatusChanged notification carries no turn
+                        // id, so it cannot prove it describes the turn a
+                        // newer local-queued-turn reservation replaced.
+                        // Preserve the reservation and all active-turn state
+                        // (status, plan progress, agent status); only the
+                        // local dispatch path may release a local reservation.
+                        // Without this guard, a duplicate Idle could clear a
+                        // reservation a queue drain just installed and let a
+                        // second drain send concurrently.
+                        let is_local_reservation = thread
+                            .active_turn_id
+                            .as_deref()
+                            .is_some_and(|id| {
+                                id.starts_with(LOCAL_QUEUED_TURN_RESERVATION_PREFIX)
+                            });
+                        if !is_local_reservation {
+                            thread.active_turn_id = None;
+                            thread.active_plan_progress = None;
+                            thread.info.status = status.clone();
+                        }
                     }
+                    // Agent-status derivation only runs when the thread is a
+                    // collab child. For a preserved local reservation the
+                    // status stays Active, so this mirrors the Active branch.
                     if thread.info.parent_thread_id.is_some() {
                         thread.info.agent_status = match thread.info.status {
                             ThreadSummaryStatus::Active => Some("running".to_string()),
@@ -1739,6 +1759,35 @@ impl AppStoreReducer {
             UiEvent::TurnCompleted { key, turn_id, .. } => {
                 if self
                     .mutate_thread_with_result(key, |thread| {
+                        // An old or duplicate TurnCompleted must be a no-op for
+                        // a newer in-flight turn. The completion is
+                        // authoritative only when it matches the active turn id,
+                        // or when there is no active turn (tolerant legacy
+                        // completion behavior for events that arrive after the
+                        // store already cleared the turn). A local-queued-turn
+                        // reservation is newer than any server turn_id, so a
+                        // nonmatching completion cannot terminate it.
+                        let is_local_reservation = thread
+                            .active_turn_id
+                            .as_deref()
+                            .is_some_and(|id| {
+                                id.starts_with(LOCAL_QUEUED_TURN_RESERVATION_PREFIX)
+                            });
+                        let authoritative = if is_local_reservation {
+                            false
+                        } else {
+                            thread.active_turn_id.as_deref() == Some(turn_id)
+                                || thread.active_turn_id.is_none()
+                        };
+                        if !authoritative {
+                            // Stale/duplicate terminal event: preserve all
+                            // active-turn state. Returning false makes this
+                            // a true no-op — the caller checks
+                            // `.unwrap_or(false)` and skips the metadata
+                            // changed emit, so no active state is mutated
+                            // and no signal fires for a stale completion.
+                            return false;
+                        }
                         thread.active_turn_id = None;
                         thread.active_plan_progress = None;
                         thread.info.status = ThreadSummaryStatus::Idle;
@@ -1770,8 +1819,9 @@ impl AppStoreReducer {
                         {
                             thread.pending_plan_implementation_turn_id = Some(turn_id.to_string());
                         }
+                        true
                     })
-                    .is_some()
+                    .unwrap_or(false)
                 {
                     self.emit_thread_metadata_changed(key);
                 }
@@ -2414,12 +2464,24 @@ impl AppStoreReducer {
             if info.updated_at.is_some() {
                 thread.info.updated_at = info.updated_at;
             }
-            // ThreadStatusChanged is metadata-only; it cannot close an in-flight
-            // turn. Only TurnCompleted (or a rebuild with the turn list) is
-            // allowed to downgrade Active → Idle.
-            thread.info.status = if matches!(info.status, ThreadSummaryStatus::Idle)
-                && thread.active_turn_id.is_some()
-            {
+            // ThreadStatusChanged is metadata-only; it cannot close an
+            // in-flight turn. Only TurnCompleted (or a rebuild with the turn
+            // list) is allowed to downgrade Active → Idle. A
+            // local-queued-turn reservation is newer than any server turn, so a
+            // stale SystemError status change for the prior turn must not
+            // downgrade an active reservation's status either. Idle is
+            // preserved for any active turn (pre-existing behavior);
+            // SystemError is preserved only for a local reservation.
+            let is_local_reservation = thread
+                .active_turn_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with(LOCAL_QUEUED_TURN_RESERVATION_PREFIX));
+            let preserve_status = match info.status {
+                ThreadSummaryStatus::Idle => thread.active_turn_id.is_some(),
+                ThreadSummaryStatus::SystemError => is_local_reservation,
+                _ => false,
+            };
+            thread.info.status = if preserve_status {
                 thread.info.status.clone()
             } else {
                 info.status
