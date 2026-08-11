@@ -199,8 +199,7 @@ async fn spawn_detached_agent(
     );
     let result = ssh.exec_shell(&script, shell).await.map_err(io_from_ssh)?;
     if result.exit_code != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("detached launch failed: {}", result.stderr),
         ));
     }

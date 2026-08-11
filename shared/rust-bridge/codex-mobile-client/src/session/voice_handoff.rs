@@ -493,8 +493,8 @@ impl HandoffManager {
             entry.last_stream_signature = Some(stream_signature);
 
             // Check timeout.
-            if let Some(start) = entry.stream_start {
-                if start.elapsed() > Duration::from_secs(entry.stream_timeout_secs) {
+            if let Some(start) = entry.stream_start
+                && start.elapsed() > Duration::from_secs(entry.stream_timeout_secs) {
                     entry.phase = HandoffPhase::WaitingFinalize;
                     if entry.sent_texts.is_empty() {
                         new_actions.push(HandoffAction::ResolveHandoff {
@@ -510,7 +510,6 @@ impl HandoffManager {
                     inner.action_queue.extend(new_actions);
                     return;
                 }
-            }
 
             // V2 realtime treats progress updates as user conversation items.
             // Do not feed live background-agent progress back into realtime while

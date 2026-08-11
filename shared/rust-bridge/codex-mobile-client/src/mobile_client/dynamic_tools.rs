@@ -116,7 +116,7 @@ pub(super) fn snapshot_dynamic_tool_sessions(
             config: session.config().clone(),
         })
         .collect::<Vec<_>>();
-    targets.sort_by(|lhs, rhs| dynamic_tool_server_name(lhs).cmp(&dynamic_tool_server_name(rhs)));
+    targets.sort_by_key(dynamic_tool_server_name);
     targets
 }
 

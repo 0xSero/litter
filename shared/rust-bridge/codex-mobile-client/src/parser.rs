@@ -435,11 +435,11 @@ fn normalize_token(s: &str) -> String {
 }
 
 fn is_leading_key(normalized: &str) -> bool {
-    LEADING_KEY_SET.iter().any(|&k| k == normalized)
+    LEADING_KEY_SET.contains(&normalized)
 }
 
 fn is_named_section(normalized: &str) -> bool {
-    NAMED_SECTION_SET.iter().any(|&k| k == normalized)
+    NAMED_SECTION_SET.contains(&normalized)
 }
 
 fn deserialize_optional_stringified_value<'de, D>(
@@ -548,7 +548,7 @@ fn normalize_priority_and_title(title: &str, priority: Option<u8>) -> (String, O
         .captures(trimmed)
         .and_then(|captures| captures.get(1))
         .map(|value| value.as_str())
-        .map(|value| value.trim_start_matches(|character| character == 'P' || character == 'p'))
+        .map(|value| value.trim_start_matches(['P', 'p']))
         .and_then(|value| value.parse::<u8>().ok());
     let normalized_title = FINDING_PRIORITY_PREFIX_RE
         .replace(trimmed, "")
@@ -599,8 +599,8 @@ fn normalize_review_path(path: &str) -> String {
         return collapse_repeated_slashes(&format!("/mnt/{drive}/{rest}"));
     }
 
-    if normalized.starts_with("//") {
-        let remainder = collapse_repeated_slashes(&normalized[2..]);
+    if let Some(stripped) = normalized.strip_prefix("//") {
+        let remainder = collapse_repeated_slashes(stripped);
         return format!("//{remainder}");
     }
 
@@ -860,31 +860,27 @@ fn parse_duration(raw: &str) -> Option<std::time::Duration> {
     }
 
     // "500ms"
-    if let Some(ms) = s.strip_suffix("ms") {
-        if let Ok(v) = ms.trim().parse::<f64>() {
+    if let Some(ms) = s.strip_suffix("ms")
+        && let Ok(v) = ms.trim().parse::<f64>() {
             return Some(std::time::Duration::from_secs_f64(v / 1000.0));
         }
-    }
 
     // "2.3s"
     if let Some(sec) = s.strip_suffix('s') {
         // Guard against "minutes" already stripped, etc.
-        if !sec.ends_with("minute") {
-            if let Ok(v) = sec.trim().parse::<f64>() {
+        if !sec.ends_with("minute")
+            && let Ok(v) = sec.trim().parse::<f64>() {
                 return Some(std::time::Duration::from_secs_f64(v));
             }
-        }
     }
 
     // "1.5 minutes" / "1.5 minute"
     if let Some(mins) = s
         .strip_suffix("minutes")
         .or_else(|| s.strip_suffix("minute"))
-    {
-        if let Ok(v) = mins.trim().parse::<f64>() {
+        && let Ok(v) = mins.trim().parse::<f64>() {
             return Some(std::time::Duration::from_secs_f64(v * 60.0));
         }
-    }
 
     // "1m 30s" compound
     let mut total_secs: f64 = 0.0;
@@ -900,11 +896,10 @@ fn parse_duration(raw: &str) -> Option<std::time::Duration> {
             }
             // seconds after 'm'
             let after = s[m_idx + 1..].trim();
-            if let Some(sec) = after.strip_suffix('s') {
-                if let Ok(v) = sec.trim().parse::<f64>() {
+            if let Some(sec) = after.strip_suffix('s')
+                && let Ok(v) = sec.trim().parse::<f64>() {
                     total_secs += v;
                 }
-            }
         }
     }
     if found {
@@ -929,8 +924,8 @@ fn parse_target(raw: &str) -> Option<ToolCallTarget> {
         return None;
     }
     // "agent-name [role]"
-    if s.ends_with(']') {
-        if let Some(bracket) = s.rfind('[') {
+    if s.ends_with(']')
+        && let Some(bracket) = s.rfind('[') {
             let nickname = s[..bracket].trim();
             let role = &s[bracket + 1..s.len() - 1];
             if !nickname.is_empty() && !role.is_empty() {
@@ -941,7 +936,6 @@ fn parse_target(raw: &str) -> Option<ToolCallTarget> {
                 });
             }
         }
-    }
     Some(ToolCallTarget {
         agent_nickname: None,
         role: None,
@@ -979,7 +973,7 @@ fn opening_fence(line: &str) -> Option<FenceOpening> {
 }
 
 fn is_closing_fence(line: &str, marker: char, min_length: usize) -> bool {
-    if line.chars().next() != Some(marker) {
+    if !line.starts_with(marker) {
         return false;
     }
     let length = line.chars().take_while(|&c| c == marker).count();
@@ -1251,7 +1245,7 @@ fn make_output_like(label: &str, content: &str) -> ToolCallSection {
 // Split utilities
 // ---------------------------------------------------------------------------
 
-fn split_top_level<'a>(text: &'a str, separator: &str) -> Vec<String> {
+fn split_top_level(text: &str, separator: &str) -> Vec<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut chunks: Vec<String> = Vec::new();
     let mut current: Vec<&str> = Vec::new();
@@ -1307,8 +1301,8 @@ fn split_named_sections(text: &str) -> Vec<RawSection> {
 
     for &line in &lines {
         let trimmed = line.trim();
-        if fence_state.is_none() {
-            if let Some((label, inline_value)) = parse_section_header(trimmed) {
+        if fence_state.is_none()
+            && let Some((label, inline_value)) = parse_section_header(trimmed) {
                 saw_named_section = true;
                 flush(&mut current_label, &mut buffer, &mut sections);
                 current_label = Some(label);
@@ -1317,7 +1311,6 @@ fn split_named_sections(text: &str) -> Vec<RawSection> {
                 }
                 continue;
             }
-        }
 
         buffer.push(line.to_owned());
         update_fence_state(line, &mut fence_state);
@@ -1780,22 +1773,20 @@ fn summary_for(
             }
         }
         ToolCallKind::McpToolCall | ToolCallKind::McpToolProgress => {
-            if let Some(tool) = body.metadata_value("tool") {
-                if !tool.is_empty() {
+            if let Some(tool) = body.metadata_value("tool")
+                && !tool.is_empty() {
                     return Some(tool.to_owned());
                 }
-            }
         }
         ToolCallKind::WebSearch => {
-            if let Some(query) = body.metadata_value("query") {
-                if !query.is_empty() {
+            if let Some(query) = body.metadata_value("query")
+                && !query.is_empty() {
                     return Some(query.to_owned());
                 }
-            }
         }
         ToolCallKind::ImageView => {
-            if let Some(path) = body.metadata_value("path") {
-                if !path.is_empty() {
+            if let Some(path) = body.metadata_value("path")
+                && !path.is_empty() {
                     let base = basename(path);
                     return Some(if base.is_empty() {
                         path.to_owned()
@@ -1803,19 +1794,16 @@ fn summary_for(
                         base.to_owned()
                     });
                 }
-            }
         }
         ToolCallKind::Collaboration => {
-            if let Some(ts) = collaboration_target_summary(body) {
-                if !ts.is_empty() {
+            if let Some(ts) = collaboration_target_summary(body)
+                && !ts.is_empty() {
                     return Some(ts);
                 }
-            }
-            if let Some(tool) = body.metadata_value("tool") {
-                if !tool.is_empty() {
+            if let Some(tool) = body.metadata_value("tool")
+                && !tool.is_empty() {
                     return Some(tool.to_owned());
                 }
-            }
         }
         ToolCallKind::Widget => {}
         ToolCallKind::Unknown(_) => {}
@@ -1837,11 +1825,10 @@ pub fn parse_code_review_message(text: &str) -> Option<CodeReviewPayload> {
         return None;
     }
 
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
-        if let Some(parsed) = parse_code_review_from_json_str(trimmed) {
+    if trimmed.starts_with('{') && trimmed.ends_with('}')
+        && let Some(parsed) = parse_code_review_from_json_str(trimmed) {
             return Some(parsed);
         }
-    }
 
     for candidate in extract_fenced_json_candidates(trimmed) {
         if let Some(parsed) = parse_code_review_from_json_str(&candidate) {

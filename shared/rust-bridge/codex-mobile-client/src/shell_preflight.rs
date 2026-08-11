@@ -60,7 +60,7 @@ fn normalize_shell_invocation(argv: &mut Vec<String>) {
 /// Walk argv; rewrite any token that equals `/tmp` or starts with `/tmp/`
 /// to the platform's real tmp root (from `$TMPDIR`). No-op if `$TMPDIR`
 /// is unset.
-pub(crate) fn rewrite_tmp_paths(argv: &mut Vec<String>) {
+pub(crate) fn rewrite_tmp_paths(argv: &mut [String]) {
     let Some(real_tmp) = std::env::var_os("TMPDIR") else {
         return;
     };
@@ -80,10 +80,11 @@ pub(crate) fn rewrite_tmp_paths(argv: &mut Vec<String>) {
         }
     }
 
-    if argv.len() >= 3 && extract_shell_command(argv).is_some() {
-        if let Some(rewritten) = rewrite_tmp_boundaries(&argv[2], trimmed) {
-            argv[2] = rewritten;
-        }
+    if argv.len() >= 3
+        && extract_shell_command(argv).is_some()
+        && let Some(rewritten) = rewrite_tmp_boundaries(&argv[2], trimmed)
+    {
+        argv[2] = rewritten;
     }
 }
 

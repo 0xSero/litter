@@ -392,14 +392,13 @@ impl SshClient {
                 }
             }
 
-            if let Some(p) = pid {
-                if !self.is_process_alive_shell(p, shell).await {
+            if let Some(p) = pid
+                && !self.is_process_alive_shell(p, shell).await {
                     let tail = self
                         .fetch_process_log_tail_shell(stdout_log_path, None, shell)
                         .await;
                     return Err(if tail.is_empty() { last_error } else { tail });
                 }
-            }
 
             tokio::time::sleep(TUNNEL_HEALTH_INTERVAL).await;
         }
@@ -591,8 +590,8 @@ impl SshClient {
                     break;
                 }
 
-                if let Some(p) = pid {
-                    if !self.is_process_alive_shell(p, shell).await {
+                if let Some(p) = pid
+                    && !self.is_process_alive_shell(p, shell).await {
                         let tail = self
                             .fetch_process_log_tail_shell(
                                 &log_path,
@@ -683,7 +682,6 @@ impl SshClient {
                             stderr: tail,
                         });
                     }
-                }
 
                 tokio::time::sleep(LISTEN_POLL_INTERVAL).await;
             }
@@ -826,14 +824,13 @@ impl SshClient {
                 }
             }
 
-            if let Some(p) = pid {
-                if !self.is_process_alive_shell(p, shell).await {
+            if let Some(p) = pid
+                && !self.is_process_alive_shell(p, shell).await {
                     let tail = self
                         .fetch_process_log_tail_shell(stdout_log_path, stderr_log_path, shell)
                         .await;
                     return Err(if tail.is_empty() { last_error } else { tail });
                 }
-            }
 
             tokio::time::sleep(TUNNEL_HEALTH_INTERVAL).await;
         }

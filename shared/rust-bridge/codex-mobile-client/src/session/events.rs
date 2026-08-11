@@ -248,11 +248,7 @@ impl EventProcessor {
     #[cfg(test)]
     pub fn resolve_approval(&self, request_id: &str) -> Option<PendingApproval> {
         let mut approvals = self.pending_approvals.lock().unwrap();
-        if let Some(pos) = approvals.iter().position(|a| a.id == request_id) {
-            Some(approvals.remove(pos))
-        } else {
-            None
-        }
+        approvals.iter().position(|a| a.id == request_id).map(|pos| approvals.remove(pos))
     }
 
     pub fn emit_connection_state(&self, server_id: &str, health: &str) {
@@ -535,7 +531,7 @@ impl EventProcessor {
             // ── Everything else: forward as raw JSON ──────────────────
             other => {
                 let method = format!("{other}");
-                let params = serde_json::to_value(&other).unwrap_or_default();
+                let params = serde_json::to_value(other).unwrap_or_default();
                 self.emit(UiEvent::RawNotification {
                     server_id: server_id.to_string(),
                     method,
@@ -552,15 +548,14 @@ impl EventProcessor {
         method: &str,
         params: &serde_json::Value,
     ) {
-        if method == "item/tool/requestUserInput" {
-            if let Some(request) = pending_user_input_request_from_raw(server_id, params) {
+        if method == "item/tool/requestUserInput"
+            && let Some(request) = pending_user_input_request_from_raw(server_id, params) {
                 self.emit(UiEvent::UserInputRequested {
                     request,
                     seed: None,
                 });
                 return;
             }
-        }
         self.emit(UiEvent::RawNotification {
             server_id: server_id.to_string(),
             method: method.to_string(),
