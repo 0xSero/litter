@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use futures::future::join_all;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{Semaphore, broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast};
 use tokio::task::JoinSet;
 
 /// Default ports to probe for Codex and SSH servers.
@@ -123,58 +123,12 @@ impl Default for DiscoveryConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Platform mDNS browser trait
-// ---------------------------------------------------------------------------
-
-/// Event from the platform-specific mDNS browser.
-#[derive(Debug, Clone)]
-pub enum MdnsServiceEvent {
-    Found {
-        name: String,
-        host: String,
-        port: u16,
-        txt: HashMap<String, String>,
-    },
-    Lost {
-        name: String,
-    },
-}
-
-/// Platform-provided mDNS browser (iOS = NWBrowser, Android = NsdManager).
-///
-/// The Rust layer coordinates results; actual browsing is delegated to the
-/// platform because reliable mDNS requires OS-level APIs.
-#[async_trait::async_trait]
-pub trait PlatformMdnsBrowser: Send + Sync {
-    /// Start browsing for the given service type (e.g. `_codex._tcp.`).
-    /// Returns a channel that yields discovery events.
-    fn browse(&self, service_type: &str) -> mpsc::Receiver<MdnsServiceEvent>;
-
-    /// Stop the browser.
-    fn stop(&self);
-}
-
-/// A no-op mDNS browser used when no platform browser is provided.
-struct NoopMdnsBrowser;
-
-#[async_trait::async_trait]
-impl PlatformMdnsBrowser for NoopMdnsBrowser {
-    fn browse(&self, _service_type: &str) -> mpsc::Receiver<MdnsServiceEvent> {
-        let (_tx, rx) = mpsc::channel(1);
-        rx
-    }
-
-    fn stop(&self) {}
-}
-
-// ---------------------------------------------------------------------------
 // DiscoveryService
 // ---------------------------------------------------------------------------
 
 /// Multi-source server discovery service.
 pub struct DiscoveryService {
     config: DiscoveryConfig,
-    mdns_browser: Arc<dyn PlatformMdnsBrowser>,
     servers: Arc<Mutex<HashMap<String, DiscoveredServer>>>,
     manual_servers: Arc<Mutex<Vec<(String, u16)>>>,
     running: Arc<AtomicBool>,
@@ -204,25 +158,10 @@ pub fn reconcile_discovered_servers(candidates: Vec<DiscoveredServer>) -> Vec<Di
 }
 
 impl DiscoveryService {
-    /// Create a new discovery service with default (no-op) mDNS browser.
+    /// Create a new discovery service.
     pub fn new(config: DiscoveryConfig) -> Self {
         Self {
             config,
-            mdns_browser: Arc::new(NoopMdnsBrowser),
-            servers: Arc::new(Mutex::new(HashMap::new())),
-            manual_servers: Arc::new(Mutex::new(Vec::new())),
-            running: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Create with a platform-specific mDNS browser.
-    pub fn with_mdns_browser(
-        config: DiscoveryConfig,
-        browser: Arc<dyn PlatformMdnsBrowser>,
-    ) -> Self {
-        Self {
-            config,
-            mdns_browser: browser,
             servers: Arc::new(Mutex::new(HashMap::new())),
             manual_servers: Arc::new(Mutex::new(Vec::new())),
             running: Arc::new(AtomicBool::new(false)),
@@ -397,7 +336,6 @@ impl DiscoveryService {
     pub(crate) fn clone_for_one_shot(&self) -> Self {
         Self {
             config: self.config.clone(),
-            mdns_browser: Arc::clone(&self.mdns_browser),
             servers: Arc::clone(&self.servers),
             manual_servers: Arc::clone(&self.manual_servers),
             running: Arc::new(AtomicBool::new(false)),
@@ -419,7 +357,6 @@ impl DiscoveryService {
         self.running.store(true, Ordering::SeqCst);
 
         let config = self.config.clone();
-        let mdns_browser = self.mdns_browser.clone();
         let servers = self.servers.clone();
         let manual_servers = self.manual_servers.clone();
         let running = self.running.clone();
@@ -427,7 +364,6 @@ impl DiscoveryService {
         tokio::spawn(async move {
             let svc = DiscoveryService {
                 config,
-                mdns_browser,
                 servers: servers.clone(),
                 manual_servers,
                 running: running.clone(),
@@ -492,7 +428,6 @@ impl DiscoveryService {
     /// Stop continuous scanning.
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
-        self.mdns_browser.stop();
     }
 
     /// Add a manual server entry. It will be probed on the next scan.
@@ -662,53 +597,12 @@ impl DiscoveryService {
         results
     }
 
-    /// Bonjour/mDNS discovery via platform browser.
-    #[cfg_attr(not(test), allow(dead_code))]
-    async fn scan_bonjour(&self) -> Vec<DiscoveredServer> {
-        self.scan_bonjour_with_seeds(&[]).await
-    }
-
     async fn scan_bonjour_with_seeds(&self, seeds: &[MdnsSeed]) -> Vec<DiscoveredServer> {
         if !self.config.enable_bonjour {
             return Vec::new();
         }
 
-        let mut mdns_seeds = seeds.to_vec();
-        mdns_seeds.extend(self.collect_browser_mdns_seeds().await);
-        self.scan_bonjour_seeds(mdns_seeds).await
-    }
-
-    async fn collect_browser_mdns_seeds(&self) -> Vec<MdnsSeed> {
-        let mut seeds = Vec::new();
-
-        for service_type in &["_codex._tcp.", "_ssh._tcp."] {
-            let mut rx = self.mdns_browser.browse(service_type);
-            let deadline = tokio::time::sleep(Duration::from_secs(5));
-            tokio::pin!(deadline);
-
-            loop {
-                tokio::select! {
-                    event = rx.recv() => {
-                        match event {
-                            Some(MdnsServiceEvent::Found { name, host, port, txt }) => {
-                                seeds.push(MdnsSeed {
-                                    name,
-                                    host,
-                                    port: (port > 0).then_some(port),
-                                    service_type: (*service_type).to_string(),
-                                    txt,
-                                });
-                            }
-                            Some(MdnsServiceEvent::Lost { .. }) => {}
-                            None => break,
-                        }
-                    }
-                    _ = &mut deadline => break,
-                }
-            }
-        }
-
-        seeds
+        self.scan_bonjour_seeds(seeds.to_vec()).await
     }
 
     async fn scan_bonjour_seeds(&self, seeds: Vec<MdnsSeed>) -> Vec<DiscoveredServer> {
@@ -1490,6 +1384,39 @@ mod tests {
         let _ = result;
     }
 
+    #[tokio::test]
+    async fn test_bonjour_seed_is_shaped_without_browser_injection() {
+        let svc = DiscoveryService::new(DiscoveryConfig {
+            scan_ports: Vec::new(),
+            probe_timeout: Duration::from_millis(25),
+            enable_tailscale: false,
+            enable_lan_probe: false,
+            enable_arp_scan: false,
+            ..Default::default()
+        });
+        let seed = MdnsSeed {
+            name: "test-server.local.".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: Some(54_321),
+            service_type: "_codex._tcp.".to_string(),
+            txt: HashMap::from([("runtime".to_string(), "codex".to_string())]),
+        };
+
+        let results = svc.scan_bonjour_with_seeds(&[seed]).await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].display_name, "test-server");
+        assert_eq!(results[0].host, "127.0.0.1");
+        assert_eq!(results[0].port, 54_321);
+        assert_eq!(results[0].codex_port, Some(54_321));
+        assert_eq!(results[0].source, DiscoverySource::Bonjour);
+        assert_eq!(results[0].metadata.get("runtime").map(String::as_str), Some("codex"));
+        assert_eq!(
+            results[0].metadata.get("service_type").map(String::as_str),
+            Some("_codex._tcp.")
+        );
+    }
+
     #[test]
     fn test_discovered_server_clone() {
         let server = DiscoveredServer {
@@ -1546,51 +1473,5 @@ mod tests {
         assert_eq!(reconciled[0].display_name, "Studio");
         assert_eq!(reconciled[0].codex_port, Some(8390));
         assert_eq!(reconciled[0].port, 8390);
-    }
-
-    #[tokio::test]
-    #[ignore] // Probes a TEST-NET IP; can stall depending on network config.
-    async fn test_bonjour_with_mock_browser() {
-        struct MockBrowser;
-
-        #[async_trait::async_trait]
-        impl PlatformMdnsBrowser for MockBrowser {
-            fn browse(&self, _service_type: &str) -> mpsc::Receiver<MdnsServiceEvent> {
-                let (tx, rx) = mpsc::channel(8);
-                tokio::spawn(async move {
-                    let _ = tx
-                        .send(MdnsServiceEvent::Found {
-                            name: "test-server.local".to_string(),
-                            host: "192.0.2.42".to_string(),
-                            port: 8390,
-                            txt: HashMap::new(),
-                        })
-                        .await;
-                });
-                rx
-            }
-
-            fn stop(&self) {}
-        }
-
-        let config = DiscoveryConfig {
-            enable_bonjour: true,
-            enable_tailscale: false,
-            enable_lan_probe: false,
-            enable_arp_scan: false,
-            probe_timeout: Duration::from_millis(100),
-            ..Default::default()
-        };
-        let svc = DiscoveryService::with_mdns_browser(config, Arc::new(MockBrowser));
-
-        let results = svc.scan_bonjour().await;
-        // 192.0.2.42 is TEST-NET-1 (RFC 5737) — typically unreachable.
-        // If the probe fails the result list will be empty; if the
-        // environment happens to route it, verify the entry is well-formed.
-        for srv in &results {
-            assert_eq!(srv.source, DiscoverySource::Bonjour);
-            assert!(!srv.host.is_empty());
-            assert!(srv.port > 0);
-        }
     }
 }
