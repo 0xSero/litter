@@ -15,7 +15,12 @@ the cleanup evidence, remaining risks, and the order in which to address them.
 - Pi read-only sessions used
   `deepseek-v4-flash-0731 / ds4/deepseek-v4-flash-dspark` at high reasoning,
   divided by iOS, Android, shared Rust, voice, build/release, documentation,
-  and Alleycat bridge boundaries.
+  and Alleycat bridge boundaries. The retained session logs contain 268
+  explicit Pi `read` calls: 183 Litter paths, 58 Alleycat paths, and 27
+  configuration/support paths, in addition to manifest and shell reads.
+- The provider later began ending new streams without a `finish_reason`.
+  Findings from completed reads were retained; interrupted sessions were not
+  represented as completed reviews or final verdicts.
 - Compiler, test, Clippy, shellcheck, link, and RustSec results were used as
   evidence. A search hit or line count alone was not treated as proof of dead
   code.
@@ -25,6 +30,11 @@ Binary assets and generated products were inventoried but are not described as
 "lines of code." Applied Codex and Ghostty patches make their submodule
 worktrees dirty by design; those changes belong to the superproject patch set
 and must not be committed inside either submodule.
+
+At the final audit checkpoint Litter contains 1,008 tracked paths and Alleycat
+contains 281. The only intentionally dirty Litter paths are the two applied
+submodule worktrees; no top-level untracked source or loose audit artifact is
+left behind. The user's separate dirty Alleycat worktree remains untouched.
 
 ## Architecture conclusions
 
@@ -59,6 +69,13 @@ The validated changes include:
   path;
 - removed the unused legacy voice-handoff compatibility layer while retaining
   the active typed `HandoffManager` path;
+- removed both superseded full-screen voice-call implementations, four more
+  unreachable iOS/Android view files, two unused Android resources, one unused
+  Android logo, and 25 dead Android strings;
+- removed the redundant npm lock from the Bun-owned push proxy and unused Rust
+  dependency declarations until Cargo Machete was clean in both workspaces;
+- generated UniFFI's API-aware Android cleaner instead of an Android-13-only
+  JVM cleaner, and fixed every hard Android lint error without a baseline;
 - removed redundant directory READMEs, a completed monorepo migration plan,
   machine-specific screenshot notes with broken links, and the obsolete
   realtime-resume design document;
@@ -77,9 +94,9 @@ The validated changes include:
   while changing an unroutable terminal-termination false success into an
   explicit unsupported-method result.
 
-The Litter comparison against its starting `origin/main` was already more than
-900 net lines smaller before the final audit report. Alleycat was more than 470
-net lines smaller.
+Against their starting `origin/main` revisions, Litter is 4,303 net lines
+smaller (1,168 additions and 5,471 deletions across 145 paths), while Alleycat
+is 520 net lines smaller (991 additions and 1,511 deletions across 85 paths).
 
 ## Priority findings
 
@@ -161,8 +178,13 @@ changed; blanket allows would erase useful architecture signals.
   mainly in `AGENTS.md` and the Android QA matrix. Relative local links pass.
   Fix formatting when those documents are otherwise edited; do not generate a
   review-obscuring reflow-only commit.
-- The installed cargo-machete version cannot parse Cargo resolver version 3, so
-  it did not produce a valid dependency-liveness result.
+- Android lint now reports zero errors, 105 warnings, and 14 hints. Most are
+  KTX modernization suggestions and coordinated dependency upgrades. The
+  deliberate synchronous encrypted-preference commits, adaptive icon API
+  qualifier, ChromeOS ABI gap, and complex Droid vector remain visible. Do not
+  confuse this clean error gate with physical Android acceptance.
+- Cargo Machete 0.9.2 reports no unused dependencies in either Rust workspace
+  after the audited manifest cleanup.
 
 ## Recommended execution waves
 
@@ -192,13 +214,18 @@ The audit branch has passed the following relevant gates:
 - full `codex-mobile-client` host test suite;
 - `codex-slingshot` tests and shellcheck templates;
 - iOS fast simulator build after project generation;
-- Android unit tests and debug APK assembly;
+- Android unit tests, debug APK assembly, and lint with zero errors;
+- Android-safe UniFFI Kotlin binding regeneration;
 - Alleycat workspace tests across all targets;
 - Alleycat workspace Clippy with warnings denied;
 - ACP crate tests and Clippy with warnings denied;
 - Kittylitter locked dependency check;
 - local Markdown relative-link verification; and
 - RustSec scans of all three product lockfiles.
+
+The configured live documentation crawler could not run because its Kimi model
+was unavailable. Local Markdown, reference, and link checks remain the evidence
+for this audit; no live-site crawl is claimed.
 
 Live external-agent conformance remains opt-in and physical-device voice,
 network, local-runtime, and store-release acceptance remain separate gates.
