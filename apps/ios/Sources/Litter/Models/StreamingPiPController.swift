@@ -128,7 +128,10 @@ final class StreamingPiPController: NSObject {
         // Reset the display layer if it's lingering in a failed/idle state
         // from the previous session — without flushing, enqueue is a no-op
         // and `isPictureInPicturePossible` never flips true on reopen.
-        hostView?.displayLayer.flushAndRemoveImage()
+        hostView?.displayLayer.sampleBufferRenderer.flush(
+            removingDisplayedImage: true,
+            completionHandler: nil
+        )
         audioKeeper.activate()
         // Push at least one frame so the layer has content before start.
         // PiP refuses to start against an empty display layer.
@@ -264,19 +267,20 @@ final class StreamingPiPController: NSObject {
         // Recover from a failed layer state — happens after some PiP
         // transitions / app lifecycle events. Without this, enqueue is a
         // silent no-op and the window appears frozen.
-        if host.displayLayer.status == .failed {
+        let sampleBufferRenderer = host.displayLayer.sampleBufferRenderer
+        if sampleBufferRenderer.status == .failed {
             LLog.warn(
                 "pip",
                 "display layer failed; flushing",
                 fields: [
-                    "error": host.displayLayer.error?.localizedDescription ?? "unknown"
+                    "error": sampleBufferRenderer.error?.localizedDescription ?? "unknown"
                 ]
             )
-            host.displayLayer.flushAndRemoveImage()
+            sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         }
         // Skip when the layer's queue is full; rendering + buffer alloc
         // are the expensive part, so bail before paying that cost.
-        guard host.displayLayer.isReadyForMoreMediaData else { return }
+        guard sampleBufferRenderer.isReadyForMoreMediaData else { return }
         // Reassign content each tick so ImageRenderer doesn't reuse a cached
         // render — particularly important on a fresh session where the
         // observed state changed but the renderer instance is the same.
@@ -318,14 +322,14 @@ final class StreamingPiPController: NSObject {
             // the layer's queue may refuse to accept the new-format
             // buffer and `isReadyForMoreMediaData` stays false — which
             // is the "stops updating after I resize" symptom.
-            host.displayLayer.flush()
+            sampleBufferRenderer.flush()
             currentRenderSize = targetPixels
             pixelBufferPool = nil
         }
         ensurePixelBufferPool(size: targetPixels)
         guard let pixelBuffer = makePixelBuffer(from: finalImage) else { return }
         guard let sampleBuffer = makeSampleBuffer(from: pixelBuffer) else { return }
-        host.displayLayer.enqueue(sampleBuffer)
+        sampleBufferRenderer.enqueue(sampleBuffer)
         // Only clear dirty + advance heartbeat once the frame actually
         // made it into the layer's queue. Early-returns above leave the
         // dirty flag intact so the next tick retries.

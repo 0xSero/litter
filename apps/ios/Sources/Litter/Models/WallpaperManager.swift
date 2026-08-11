@@ -140,7 +140,7 @@ final class WallpaperManager {
 
     // Legacy compat — some views still check this
     var wallpaperImage: UIImage? { resolvedWallpaperImage }
-    var isWallpaperSet: Bool { resolvedConfig != nil && resolvedConfig?.type != .none }
+    var isWallpaperSet: Bool { resolvedConfig != nil && resolvedConfig?.type != WallpaperType.none }
 
     private init() {
         loadPrefs()
@@ -433,7 +433,7 @@ final class WallpaperManager {
         version += 1
         resolvedConfig = resolveConfig(for: activeThreadKey)
         // Image resolution is deferred to view layer which has themeManager access
-        if resolvedConfig == nil || resolvedConfig?.type == .none {
+        if resolvedConfig == nil || resolvedConfig?.type == WallpaperType.none {
             resolvedWallpaperImage = nil
         }
     }

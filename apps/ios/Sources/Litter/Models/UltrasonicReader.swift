@@ -28,7 +28,7 @@ final class UltrasonicReader {
     private static let detectionThreshold: Float = 1e-3
     /// FFT length in samples. 4096 at 48 kHz = ~85 ms window, ~11.7 Hz
     /// per-bin resolution, ~0.21 m/s velocity resolution at 19 kHz.
-    private static let fftLength: Int = 4096
+    private nonisolated static let fftLength: Int = 4096
 
     /// Latest detected carrier frequency (Hz). nil while no peak crosses
     /// the detection threshold (e.g., Mac out of acoustic range).

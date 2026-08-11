@@ -193,7 +193,7 @@ final class RealtimeWebRtcSession: NSObject {
             try session.setCategory(
                 .playAndRecord,
                 mode: .voiceChat,
-                options: [.allowBluetooth, .defaultToSpeaker]
+                options: [.allowBluetoothHFP, .defaultToSpeaker]
             )
             try session.setActive(true)
             didConfigureAudioSession = true
@@ -325,18 +325,19 @@ final class RealtimeWebRtcSession: NSObject {
             }
             group.addTask { [weak self] in
                 try? await Task.sleep(for: Self.iceGatheringTimeout)
-                await MainActor.run {
-                    if let continuation = self?.iceGatheringContinuation {
-                        self?.iceGatheringContinuation = nil
-                        continuation.resume()
-                    }
-                }
+                await self?.finishIceGatheringWaitAfterTimeout()
                 return true
             }
             let first = await group.next() ?? false
             group.cancelAll()
             return first
         }
+    }
+
+    private func finishIceGatheringWaitAfterTimeout() {
+        guard let continuation = iceGatheringContinuation else { return }
+        iceGatheringContinuation = nil
+        continuation.resume()
     }
 
     fileprivate func iceGatheringStateChanged(to state: RTCIceGatheringState) {

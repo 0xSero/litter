@@ -41,7 +41,7 @@ struct UWBDebugView: View {
 
     private var capabilitiesCard: some View {
         card(title: "Device") {
-            row("NISession.isSupported", value: capabilities.isSupported ? "yes" : "no")
+            row("Precise distance", value: capabilities.isSupported ? "yes" : "no")
             row("Precise distance", value: capabilities.preciseDistance.label)
             row("Direction", value: capabilities.direction.label)
             row("Camera assistance", value: capabilities.cameraAssistance.label)
@@ -278,8 +278,8 @@ private struct CapabilitiesSummary {
     let extendedDistance: Tri
 
     static func probe() -> CapabilitiesSummary {
-        let supported = NISession.isSupported
-        guard supported, #available(iOS 16.0, *) else {
+        let supported = NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
+        guard supported else {
             return CapabilitiesSummary(
                 isSupported: supported,
                 preciseDistance: .unknown,

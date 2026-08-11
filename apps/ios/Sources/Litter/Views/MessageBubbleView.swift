@@ -211,7 +211,7 @@ struct UserBubble: View {
         )
     }
 
-    private static func imageData(forSource source: String) -> Data? {
+    private nonisolated static func imageData(forSource source: String) -> Data? {
         if source.hasPrefix("file://") {
             let path = String(source.dropFirst("file://".count))
             return FileManager.default.contents(atPath: path)

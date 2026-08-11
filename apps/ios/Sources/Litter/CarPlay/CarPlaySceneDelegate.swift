@@ -38,33 +38,28 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         // Build the real templates asynchronously so any slow init in
         // AppModel.shared / VoiceRuntimeController.shared can't block the
-        // scene-connect watchdog. Any exception gets logged rather than
-        // tearing down the scene.
+        // scene-connect watchdog.
         Task { @MainActor [weak self] in
             guard let self, let ic = self.interfaceController else { return }
-            do {
-                let vm = CarPlayVoiceManager(
-                    voiceActions: VoiceRuntimeController.shared,
-                    appModel: AppModel.shared,
-                    interfaceController: ic
-                )
-                self.voiceManager = vm
-                let tabBar = CPTabBarTemplate(templates: [
-                    vm.buildVoiceTab(),
-                    vm.buildSessionsTab()
-                ])
-                ic.setRootTemplate(tabBar, animated: false) { success, error in
-                    if success {
-                        Self.log.info("CarPlay tab bar root installed")
-                    } else {
-                        let message = error?.localizedDescription ?? "unknown error"
-                        Self.log.error("CarPlay failed to set tab bar root: \(message, privacy: .public)")
-                    }
+            let vm = CarPlayVoiceManager(
+                voiceActions: VoiceRuntimeController.shared,
+                appModel: AppModel.shared,
+                interfaceController: ic
+            )
+            self.voiceManager = vm
+            let tabBar = CPTabBarTemplate(templates: [
+                vm.buildVoiceTab(),
+                vm.buildSessionsTab()
+            ])
+            ic.setRootTemplate(tabBar, animated: false) { success, error in
+                if success {
+                    Self.log.info("CarPlay tab bar root installed")
+                } else {
+                    let message = error?.localizedDescription ?? "unknown error"
+                    Self.log.error("CarPlay failed to set tab bar root: \(message, privacy: .public)")
                 }
-                vm.startObserving()
-            } catch {
-                Self.log.error("CarPlay setup threw: \(String(describing: error), privacy: .public)")
             }
+            vm.startObserving()
         }
     }
 

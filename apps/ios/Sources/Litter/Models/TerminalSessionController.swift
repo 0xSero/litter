@@ -30,7 +30,11 @@ final class TerminalSessionController {
     @ObservationIgnored private var eventGeneration = 0
     @ObservationIgnored private var terminalSize = TerminalSize(cols: 80, rows: 24)
 
-    init(appStore: AppStore = AppModel.shared.store) {
+    init() {
+        self.appStore = AppModel.shared.store
+    }
+
+    init(appStore: AppStore) {
         self.appStore = appStore
     }
 

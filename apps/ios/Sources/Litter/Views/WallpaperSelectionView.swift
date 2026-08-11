@@ -373,7 +373,7 @@ struct WallpaperSelectionView: View {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(selectedThemeSlug == nil && previewConfig?.type == .none ? LitterTheme.accent : LitterTheme.border, lineWidth: 2)
+                        .stroke(selectedThemeSlug == nil && previewConfig?.type == WallpaperType.none ? LitterTheme.accent : LitterTheme.border, lineWidth: 2)
                 )
 
                 Text("None")
@@ -768,4 +768,3 @@ private struct StreamingEffectPreview: View {
         }
     }
 }
-
