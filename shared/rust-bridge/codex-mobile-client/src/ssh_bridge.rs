@@ -201,8 +201,6 @@ pub enum SshBridgeError {
     UseExistingCodexPath,
     #[error("Windows SSH bridge remotes are not supported yet")]
     WindowsRemoteNotYetSupported,
-    #[error("detached SSH bridge transport is not implemented yet")]
-    DetachedNotYetImplemented,
 }
 
 impl From<SshError> for SshBridgeError {
