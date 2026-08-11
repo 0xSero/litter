@@ -63,19 +63,6 @@ enum SavedServerStore {
         save(saved)
     }
 
-    /// Legacy Alleycat persistence path. Kept so old app builds can still
-    /// decode records; current host pairings use `rememberAlleycat`.
-    static func rememberAlleycat(_ server: DiscoveredServer, relayHost: String) {
-        var saved = load()
-        saved.removeAll { entry in matches(server, entry) }
-        saved.append(
-            SavedServer
-                .from(server, rememberedByUser: true)
-                .withAlleycatHost(relayHost)
-        )
-        save(saved)
-    }
-
     static func rememberAlleycat(
         _ server: DiscoveredServer,
         nodeId: String,
