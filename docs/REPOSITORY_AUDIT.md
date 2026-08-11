@@ -95,7 +95,7 @@ The validated changes include:
   explicit unsupported-method result.
 
 Against their starting `origin/main` revisions, Litter is 4,303 net lines
-smaller (1,168 additions and 5,471 deletions across 145 paths), while Alleycat
+smaller (1,170 additions and 5,473 deletions across 146 paths), while Alleycat
 is 520 net lines smaller (991 additions and 1,511 deletions across 85 paths).
 
 ## Priority findings
