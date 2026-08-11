@@ -993,13 +993,13 @@ private fun formatTimestamp(epochSeconds: Long): String {
 }
 
 private fun formatTokenCount(tokens: Long): String = when {
-    tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
-    tokens >= 1_000 -> String.format("%.1fK", tokens / 1_000.0)
+    tokens >= 1_000_000 -> String.format(Locale.US, "%.1fM", tokens / 1_000_000.0)
+    tokens >= 1_000 -> String.format(Locale.US, "%.1fK", tokens / 1_000.0)
     else -> tokens.toString()
 }
 
 private fun formatDuration(ms: Long): String = when {
     ms < 1000 -> "${ms}ms"
-    ms < 60_000 -> String.format("%.1fs", ms / 1000.0)
-    else -> String.format("%.1fm", ms / 60_000.0)
+    ms < 60_000 -> String.format(Locale.US, "%.1fs", ms / 1000.0)
+    else -> String.format(Locale.US, "%.1fm", ms / 60_000.0)
 }

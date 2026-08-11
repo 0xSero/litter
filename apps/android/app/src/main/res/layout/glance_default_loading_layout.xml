@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#FF000000"
-    android:padding="12dp">
+    android:padding="12dp"
+    tools:ignore="Overdraw">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:text="Codex"
+        android:text="@string/widget_loading_label"
         android:textColor="#FF8E8E93"
         android:textSize="13sp" />
 </FrameLayout>

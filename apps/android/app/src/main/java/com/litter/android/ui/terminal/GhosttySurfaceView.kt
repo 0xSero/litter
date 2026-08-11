@@ -1,5 +1,6 @@
 package com.litter.android.ui.terminal
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -305,6 +306,8 @@ private class GhosttySurfaceHolder {
     var view: GhosttyAndroidSurfaceView? = null
 }
 
+// Constructed programmatically because its renderer callbacks are mandatory.
+@SuppressLint("ViewConstructor")
 private class GhosttyAndroidSurfaceView(
     context: Context,
     private val rendererStatus: GhosttyRendererStatus,
@@ -431,6 +434,7 @@ private class GhosttyAndroidSurfaceView(
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                performClick()
                 val renderer = terminalRenderer ?: return false
                 if (currentSelectionRange() != null) {
                     clearSelection()
@@ -460,6 +464,12 @@ private class GhosttyAndroidSurfaceView(
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        requestFocus()
+        return true
+    }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         outAttrs.inputType = (
@@ -507,6 +517,9 @@ private class GhosttyAndroidSurfaceView(
         return true
     }
 
+    // GestureDetector calls performClick from the confirmed single-tap path;
+    // lint cannot follow that callback edge into this override.
+    @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // Pinch wins outright while two fingers are down.
         val pinchHandled = scaleGestureDetector.onTouchEvent(event)
