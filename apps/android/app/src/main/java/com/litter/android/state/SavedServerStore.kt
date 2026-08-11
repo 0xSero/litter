@@ -269,14 +269,6 @@ object SavedServerStore {
         prefs(context).edit().putString(KEY, array.toString()).apply()
     }
 
-    fun upsert(context: Context, server: SavedServer) {
-        val existing = load(context).toMutableList()
-        val prior = existing.firstOrNull { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.add(server.copy(rememberedByUser = prior?.rememberedByUser ?: server.rememberedByUser))
-        save(context, existing)
-    }
-
     fun remember(context: Context, server: SavedServer) {
         val existing = load(context).toMutableList()
         existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
