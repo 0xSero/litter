@@ -127,10 +127,6 @@ final class WatchSessionBridge: NSObject, WCSessionDelegate {
         sendMessage(["kind": "voice.toggleMute"])
     }
 
-    func sendVoiceBargeIn() {
-        sendMessage(["kind": "voice.bargeIn"])
-    }
-
     private func sendMessage(_ payload: [String: Any]) {
         guard WCSession.default.activationState == .activated else { return }
         if WCSession.default.isReachable {

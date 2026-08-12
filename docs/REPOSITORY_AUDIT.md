@@ -233,6 +233,9 @@ merging or replaying the pinned lineage into Alleycat first is the safe order.
 - Android lacks the plugin/file `@` autocomplete behavior recorded in its QA
   matrix.
 - Windows SSH/direct fallback remains incomplete.
+- Realtime response cancellation is observable in the bundled Codex runtime,
+  but not exposed by its app-server protocol. Watch therefore offers only the
+  supported stop control; a true barge-in action awaits that upstream request.
 - ACP cannot truthfully implement direct `command/exec`, terminate, stdin, or
   resize without a session-bearing Codex request. Fork currently creates a new
   ACP session projection; it does not clone complete server-side history.
