@@ -65,14 +65,15 @@ unused dependency declarations, reconciled repository/runtime documentation,
 and fixed `bridge-call.py` so its advertised response/watch deadlines cannot
 hang forever on a silent or partial socket frame.
 
-Three validated Litter follow-ups remain separate pull requests while full
-mobile CI runs: #251 removes the unused version capability parser and
+Three validated Litter follow-ups were split into separate pull requests while
+full mobile CI ran: #251 removes the unused version capability parser and
 never-populated snapshot field (net -149), #252 removes the remaining shared
 discovery/UniFFI/build surface (net -1,891), and #253 removes an unused
 battery-exemption manifest permission. The narrower mDNS-only pull request was
-closed as superseded by the complete shared deletion. Together, the three
-follow-ups apply cleanly to the continuation mainline and project the audit
-baseline to 2,085 additions, 73,069 deletions, and 1,001 tracked paths.
+closed as superseded by the complete shared deletion. #253 merged on
+2026-08-12; #251 and #252 remain open at this audit refresh. Together, the
+three follow-ups apply cleanly to the continuation mainline and project the
+audit baseline to 2,085 additions, 73,069 deletions, and 1,001 tracked paths.
 The shared follow-up also
 removes public auto-discovery claims, points the site at the current repository,
 and corrects voice, selected-media, relay, and secure-storage disclosures that
