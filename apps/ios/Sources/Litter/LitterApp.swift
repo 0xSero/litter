@@ -513,11 +513,6 @@ struct ContentView: View {
         #endif
         .onAppear {
             themeManager.syncSystemColorScheme(colorScheme)
-            let forceDiscoveryForUITest =
-                ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] == "1"
-            if forceDiscoveryForUITest {
-                appState.showServerPicker = true
-            }
         }
         .onChange(of: colorScheme) { _, nextColorScheme in
             // iOS toggles `colorScheme` while capturing light+dark

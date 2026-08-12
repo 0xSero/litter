@@ -38,6 +38,7 @@ The current chat path already has useful incremental caches and some candidate r
 
 ## Testing Plan
 
+- Build economy: share one Cargo target cache across mission worktrees, serialize Cargo-capable missions, use focused filters during implementation, and reserve expensive full suites for the combined wave validator or one explicitly named final task gate.
 - Unit: reducer transitions, pacing, narrow projections, streaming buffers, follow-tail state, timeout/backoff, and lifecycle normalization.
 - Integration: deterministic store replay, rapid double-send, slow-RPC-with-live-events, reconnect, paginated hydration, and queue retry.
 - E2E: KittyLitter probe scenarios plus installed iOS and Android two-turn/tool flows.

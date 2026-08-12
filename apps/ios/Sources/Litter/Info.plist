@@ -31,10 +31,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>tailscale</string>
-	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -43,23 +39,13 @@
 		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>100.100.100.100</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-		</dict>
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_codex._tcp</string>
-		<string>_ssh._tcp</string>
 		<string>_litter-pair._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Codex discovers coding agents and SSH servers on your local network.</string>
+	<string>Litter uses your local network to find a nearby Mac and pair it with this iPhone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Litter uses the camera to capture photos for conversations.</string>
 	<key>NSMicrophoneUsageDescription</key>

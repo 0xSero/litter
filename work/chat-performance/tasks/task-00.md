@@ -21,7 +21,7 @@ Compare `025f7f8b`, `f1946f45`, `96e77deb`, and `a4cbf2df` with current `origin/
 
 1. Fetch all refs and record base/head commits and dirty-worktree boundaries.
 2. Review each candidate commit independently, including tests and current upstream compatibility.
-3. Run focused Rust tests at each accepted commit and on the combined candidate stack.
+3. Run focused test filters for each accepted behavior, then run each named full Rust crate suite once on the final combined candidate stack.
 4. Exclude release-only metadata unless it is independently required by the user.
 5. Create the frozen Wave 0 base and a disposition document under `work/chat-performance/evidence/`.
 
@@ -30,7 +30,7 @@ Compare `025f7f8b`, `f1946f45`, `96e77deb`, and `a4cbf2df` with current `origin/
 - Queue concurrency and restore-order tests from the candidate stack.
 - Subscription pacing/coalescing tests, including first-delta immediacy.
 - JSONL lifecycle fixture tests for missing timestamps and strict downstream decode.
-- Full `cargo test -p codex-mobile-client` and `cargo test -p codex-slingshot`.
+- One final combined `cargo test -p codex-mobile-client` and `cargo test -p codex-slingshot` gate after dispositions are frozen; do not repeat either suite after a timeout without Codex direction.
 
 ## Validation
 

@@ -46,7 +46,10 @@ resolve_context() {
 
     mission_dir="$worktree/.pi-missions/task-$task_number"
     session_file="$mission_dir/session-id"
+    common_git_dir="$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir)"
+    cargo_target_dir="${LITTER_CHAT_CARGO_TARGET_DIR:-$common_git_dir/codex-cache/chat-performance/cargo-target}"
     mkdir -p "$mission_dir"
+    mkdir -p "$cargo_target_dir"
 }
 
 run_pi_turn() {
@@ -56,6 +59,7 @@ run_pi_turn() {
 
     (
         cd "$worktree"
+        CARGO_TARGET_DIR="$cargo_target_dir" \
         PI_SKIP_VERSION_CHECK=1 pi \
             --mode json \
             --provider homelab \
@@ -93,6 +97,8 @@ Read, in order:
 
 Execute only that brief in the current dedicated worktree and branch. Investigate before changing code. Respect Rust-first ownership and mobile parity. Preserve unrelated work and submodules. Do not push, open or merge a PR, publish, release, alter authentication, or touch another worktree. Make small local commits only after their scoped validation passes.
 
+Build and test economy is mandatory. All missions share CARGO_TARGET_DIR=$cargo_target_dir, and the coordinator permits only one Cargo-capable mission at a time so incremental artifacts have a single writer. Before the first Cargo command, run ./apps/ios/scripts/sync-codex.sh --preserve-current once, keep that pinned patch set applied for every Rust validation in the turn, and restore shared/third_party/codex to the recorded gitlink only after the final Rust command. Never compile the unpatched submodule between patched validations. Run the narrowest relevant test filters while iterating. Capture complete output from every validation command in a mission-local log with tee while preserving the exit status; inspect that same log after failure, and never rerun an unchanged compile or test merely to recover output hidden by grep, tail, or terminal truncation. Do not run a full crate, platform, or workspace suite unless this task is the named wave validator or the brief explicitly designates one final gate run. Never repeat a timed-out full suite in the same turn; report it once with the last completed phase and let Codex decide whether the gate should resume. A compile-only baseline is not required before editing.
+
 Finish with exactly these labeled sections:
 MISSION_STATUS=READY_FOR_REVIEW or MISSION_STATUS=BLOCKED
 MODEL_PROOF=homelab/glm-5.2
@@ -113,7 +119,8 @@ EOF
     session_id="$(jq -r 'select(.type == "session") | .id' "$log_file" | head -n 1)"
     [[ -n "$session_id" && "$session_id" != "null" ]] || fail "Pi session UUID missing from event stream"
     printf '%s\n' "$session_id" >"$session_file"
-    printf 'mission=%s\nsession_id=%s\nlog=%s\n' "$mission_name" "$session_id" "$log_file"
+    printf 'mission=%s\nsession_id=%s\ncargo_target_dir=%s\nlog=%s\n' \
+        "$mission_name" "$session_id" "$cargo_target_dir" "$log_file"
 }
 
 repair_mission() {
@@ -134,18 +141,20 @@ Codex reviewed delegated mission Task $task_number and returned CHANGES_REQUESTE
 Review findings:
 $review
 
-Fix every finding in this same mission and worktree. Re-read the task acceptance criteria, inspect the current diff and commits, rerun the required validation, and do not push or open a PR. If a finding is factually wrong, respond with concrete source or command evidence instead of silently ignoring it.
+Fix every finding in this same mission and worktree. Re-read the task acceptance criteria, inspect the current diff and commits, and rerun only validation invalidated by the repair. Use the shared CARGO_TARGET_DIR=$cargo_target_dir and the narrowest relevant test filters; the coordinator permits only one Cargo-capable mission at a time so incremental artifacts have a single writer. Before any Cargo command, apply the pinned dependency patch set once with ./apps/ios/scripts/sync-codex.sh --preserve-current; keep it applied through all Rust validation and restore the submodule only after the last Cargo command. Never compile the unpatched submodule between patched validations. Capture complete output from every validation command in a mission-local log with tee while preserving its exit status, inspect that log after failure, and never rerun unchanged work merely to recover filtered or truncated diagnostics. Do not repeat an unchanged full suite that already produced valid evidence, and never automatically retry a timed-out full suite. Do not push or open a PR. If a finding is factually wrong, respond with concrete source or command evidence instead of silently ignoring it.
 
 Finish again with the exact mission handoff sections from GOAL.md and set MISSION_STATUS only to READY_FOR_REVIEW or BLOCKED.
 EOF
 )"
 
     run_pi_turn "$log_file" "$prompt" --session "$session_id"
-    printf 'mission=%s\nsession_id=%s\nlog=%s\n' "$mission_name" "$session_id" "$log_file"
+    printf 'mission=%s\nsession_id=%s\ncargo_target_dir=%s\nlog=%s\n' \
+        "$mission_name" "$session_id" "$cargo_target_dir" "$log_file"
 }
 
 show_status() {
-    printf 'task=%s\nmission=%s\nbranch=%s\n' "$task_number" "$mission_name" "$current_branch"
+    printf 'task=%s\nmission=%s\nbranch=%s\ncargo_target_dir=%s\n' \
+        "$task_number" "$mission_name" "$current_branch" "$cargo_target_dir"
     if [[ ! -f "$session_file" ]]; then
         printf '%s\n' 'session_id=NOT_STARTED'
         return

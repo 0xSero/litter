@@ -42,6 +42,13 @@
 ## Testing & Coverage
 
 - Every task adds or updates realistic unit and integration tests for its changed behavior.
+- All mission worktrees share one repository-local Cargo target cache under the Git common directory; the coordinator launches at most one Cargo-capable mission at a time so incremental artifacts have a single writer, while non-Rust missions may still run concurrently.
+- A mission that runs Cargo applies the pinned Codex patch set once with `./apps/ios/scripts/sync-codex.sh --preserve-current` before its first Rust command, keeps it applied across all focused validations, and restores the submodule only after the last Rust command. Never alternate patched and unpatched dependency graphs in the shared cache.
+- During implementation, run the narrowest relevant package and test filters. A compile-only baseline before editing is optional, not a gate.
+- Full crate, platform, and workspace suites run once on the combined wave validator unless a task brief explicitly names one final pre-integration gate.
+- Never automatically retry a timed-out full suite. Preserve its output, report the last completed phase, and let Codex choose whether to resume the gate.
+- Codex reviews valid Pi test evidence without duplicating the same expensive suite; it reruns only invalidated, suspicious, or acceptance-critical coverage.
+- Every validation command writes its complete output to a mission-local log while preserving the command's exit status. Inspect that log after failure; never rerun an unchanged compile or test merely to recover output hidden by `grep`, `tail`, or terminal truncation.
 - Pure new modules and reducers require strict branch coverage.
 - Replay fixtures must be deterministic, scrubbed, bounded, and versioned.
 - Performance gates must report distributions; no single-run pass/fail thresholds.
@@ -56,7 +63,7 @@
 ## Definition of Done
 
 - Owned changes are committed and pushed.
-- Scoped formatting, unit, integration, and relevant platform tests pass.
+- Scoped formatting and focused tests pass; the combined wave validator owns the expensive full suites.
 - Required performance/acceptance evidence is attached.
 - No unrelated files or submodules changed.
 - The mission handoff is complete, Codex has recorded `ACCEPTED`, and the registry is updated.

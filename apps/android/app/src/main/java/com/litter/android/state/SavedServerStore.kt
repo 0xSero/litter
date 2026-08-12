@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
-import uniffi.codex_mobile_client.AppDiscoveredServer
-import uniffi.codex_mobile_client.AppDiscoverySource
 import uniffi.codex_mobile_client.SavedServerRecord
 
 /**
@@ -152,34 +150,6 @@ data class SavedServer(
         codexPort = resolvedPreferredCodexPort ?: availableDirectCodexPorts.firstOrNull(),
     )
 
-    fun toDiscoveredServer(): AppDiscoveredServer {
-        val codexPort = if (hasCodexServer) (preferredCodexPort ?: port) else null
-        val resolvedSshPort = sshPort ?: if (hasCodexServer) null else port
-        return AppDiscoveredServer(
-            id = id,
-            displayName = name,
-            host = hostname,
-            port = codexPort?.toUShort() ?: 0u,
-            codexPort = codexPort?.toUShort(),
-            codexPorts = availableDirectCodexPorts.map { it.toUShort() },
-            sshPort = resolvedSshPort?.toUShort(),
-            source = toAppDiscoverySource(source),
-            reachable = true,
-            os = os,
-            sshBanner = sshBanner,
-        )
-    }
-
-    private fun toAppDiscoverySource(source: String): AppDiscoverySource = when (source.lowercase()) {
-        "bonjour" -> AppDiscoverySource.BONJOUR
-        "tailscale" -> AppDiscoverySource.TAILSCALE
-        "lanprobe", "lan_probe" -> AppDiscoverySource.LAN_PROBE
-        "arpscan", "arp_scan" -> AppDiscoverySource.ARP_SCAN
-        "manual" -> AppDiscoverySource.MANUAL
-        "local" -> AppDiscoverySource.LOCAL
-        else -> AppDiscoverySource.MANUAL
-    }
-
     companion object {
         fun normalizeWakeMac(raw: String?): String? {
             val compact = raw
@@ -238,25 +208,6 @@ data class SavedServer(
             alleycatAgentWire = obj.optString("alleycatAgentWire").ifBlank { null },
         )
 
-        fun from(server: AppDiscoveredServer): SavedServer = SavedServer(
-            id = server.id,
-            name = server.displayName,
-            hostname = server.host,
-            port = server.codexPort?.toInt() ?: server.port.toInt(),
-            codexPorts = server.codexPorts.map { it.toInt() },
-            sshPort = server.sshPort?.toInt(),
-            source = when (server.source) {
-                AppDiscoverySource.BONJOUR -> "bonjour"
-                AppDiscoverySource.TAILSCALE -> "tailscale"
-                AppDiscoverySource.LAN_PROBE -> "lanProbe"
-                AppDiscoverySource.ARP_SCAN -> "arpScan"
-                AppDiscoverySource.MANUAL -> "manual"
-                AppDiscoverySource.LOCAL -> "local"
-            },
-            hasCodexServer = server.codexPort != null || server.codexPorts.isNotEmpty(),
-            os = if (server.sshBanner != null) server.os else server.os,
-            sshBanner = server.sshBanner,
-        )
     }
 }
 
@@ -318,46 +269,10 @@ object SavedServerStore {
         prefs(context).edit().putString(KEY, array.toString()).apply()
     }
 
-    fun upsert(context: Context, server: SavedServer) {
-        val existing = load(context).toMutableList()
-        val prior = existing.firstOrNull { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.add(server.copy(rememberedByUser = prior?.rememberedByUser ?: server.rememberedByUser))
-        save(context, existing)
-    }
-
     fun remember(context: Context, server: SavedServer) {
         val existing = load(context).toMutableList()
         existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
         existing.add(server.copy(rememberedByUser = true))
-        save(context, existing)
-    }
-
-    /**
-     * Legacy Alleycat persistence path. Current remote-host pairings use
-     * [rememberAlleycat].
-     */
-    fun rememberAlleycat(
-        context: Context,
-        serverId: String,
-        displayName: String,
-        relayHost: String,
-    ) {
-        val server = SavedServer(
-            id = serverId,
-            name = displayName,
-            hostname = relayHost,
-            port = 0,
-            codexPorts = emptyList(),
-            sshPort = null,
-            source = "manual",
-            hasCodexServer = true,
-            rememberedByUser = true,
-            alleycatHost = relayHost,
-        )
-        val existing = load(context).toMutableList()
-        existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
-        existing.add(server)
         save(context, existing)
     }
 

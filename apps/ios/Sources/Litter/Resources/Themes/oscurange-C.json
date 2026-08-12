@@ -1,9 +1,1 @@
-{
-  "name": "Oscurange",
-  "type": "dark",
-  "colors": {
-    "editor.background": "#0B0B0F",
-    "editor.foreground": "#E6E6E6",
-    "editorCursor.foreground": "#F9B98C"
-  }
-}
+{"name":"Oscurange","type":"dark","colors":{"editor.background":"#0B0B0F","editor.foreground":"#E6E6E6","editorCursor.foreground":"#F9B98C"}}

@@ -1415,60 +1415,6 @@ impl AppClient {
         })
     }
 
-    /// Fetch ambient suggestions for a (server_id, project_root) pair.
-    ///
-    /// Returns `None` if the suggestions file does not exist on the remote.
-    /// Results are cached in memory for 60 seconds per (server_id, project_root).
-    pub async fn ambient_suggestions(
-        &self,
-        server_id: String,
-        project_root: String,
-    ) -> Result<Option<crate::ambient_suggestions::AmbientSuggestionsSnapshot>, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            use crate::ambient_suggestions::{
-                WireSnapshot, ambient_bucket, build_snapshot_from_wire, cache_insert, cache_lookup,
-            };
-
-            if let Some(cached) = cache_lookup(&c.ambient_cache, &server_id, &project_root) {
-                return Ok(Some(cached));
-            }
-
-            let bucket = ambient_bucket(&project_root);
-            // TODO windows: no Windows fallback in this pass
-            let cmd = format!(
-                "cat \"$HOME/.codex/ambient-suggestions/{bucket}/ambient-suggestions.json\" 2>/dev/null"
-            );
-            let resp = exec_command_simple(
-                c.as_ref(),
-                &server_id,
-                &["/usr/bin/env", "sh", "-lc", &cmd],
-                Some(&project_root),
-            )
-            .await?;
-
-            if resp.exit_code != 0 {
-                return Ok(None);
-            }
-            let stdout = resp.stdout.trim().to_string();
-            if stdout.is_empty() {
-                return Ok(None);
-            }
-
-            let wire: WireSnapshot = serde_json::from_str(&stdout).map_err(|e| {
-                ClientError::Serialization(format!("ambient-suggestions parse error: {e}"))
-            })?;
-            let snapshot = build_snapshot_from_wire(wire)?;
-
-            cache_insert(
-                &c.ambient_cache,
-                &server_id,
-                &project_root,
-                snapshot.clone(),
-            );
-            Ok(Some(snapshot))
-        })
-    }
-
     /// List subdirectories in a remote directory.
     ///
     /// Auto-detects Windows vs POSIX from the path format and runs the

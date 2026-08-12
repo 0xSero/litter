@@ -138,10 +138,6 @@ final class WallpaperManager {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
     }
 
-    // Legacy compat — some views still check this
-    var wallpaperImage: UIImage? { resolvedWallpaperImage }
-    var isWallpaperSet: Bool { resolvedConfig != nil && resolvedConfig?.type != WallpaperType.none }
-
     private init() {
         loadPrefs()
     }
