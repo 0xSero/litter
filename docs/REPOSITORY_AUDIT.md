@@ -31,10 +31,81 @@ Binary assets and generated products were inventoried but are not described as
 worktrees dirty by design; those changes belong to the superproject patch set
 and must not be committed inside either submodule.
 
-At the final audit checkpoint Litter contains 1,008 tracked paths and Alleycat
+At the first audit checkpoint Litter contains 1,008 tracked paths and Alleycat
 contains 281. The only intentionally dirty Litter paths are the two applied
 submodule worktrees; no top-level untracked source or loose audit artifact is
 left behind. The user's separate dirty Alleycat worktree remains untouched.
+
+## Same-day continuation
+
+Work continued from that checkpoint against freshly synchronized `origin/main`
+checkouts. No interrupted Pi stream is counted as a completed review: the
+evidence baseline remains the 268 explicit Pi reads above, supplemented by
+reference sweeps, compiler/test runs, generated-binding checks, Git history,
+and independent diff review.
+
+The continuation merged these additional Litter reductions:
+
+- compressed the three README screenshots and all three home animations with
+  pixel/alpha-preserving WebP conversions, removing 15,553,055 tracked bytes;
+- minified 79 bundled iOS theme JSON files, removing another 439,990 bytes and
+  61,807 formatting-only lines without changing the parsed JSON values;
+- moved 90 supported GitHub Action invocations onto Node 24 while recording the
+  one upstream-only `setup-zig` exception;
+- removed 45 lines of unused compatibility APIs;
+- removed the obsolete iOS discovery capture/list/browser graph at net -1,778
+  lines and the Android NSD/discovery/merge/UI graph at net -753 lines;
+- removed the orphaned ambient-suggestions parser, cache, FFI surface, tests,
+  and direct hashing dependencies at net -292 lines; and
+- kept manual endpoint probing, SSH bootstrap, Slingshot pairing, saved-server
+  reconnect, and Wake-on-LAN MAC storage as the explicit connection paths.
+
+Alleycat also replaced its 550,700-byte logo with a lossless WebP, removed nine
+unused dependency declarations, reconciled repository/runtime documentation,
+and fixed `bridge-call.py` so its advertised response/watch deadlines cannot
+hang forever on a silent or partial socket frame.
+
+Three validated Litter follow-ups remain separate pull requests while full
+mobile CI runs: #251 removes the unused version capability parser and
+never-populated snapshot field (net -149), #252 removes the remaining shared
+discovery/UniFFI/build surface (net -1,891), and #253 removes an unused
+battery-exemption manifest permission. The narrower mDNS-only pull request was
+closed as superseded by the complete shared deletion. Together, the three
+follow-ups apply cleanly to the continuation mainline and project the audit
+baseline to 2,085 additions, 73,069 deletions, and 1,001 tracked paths.
+The shared follow-up also
+removes public auto-discovery claims, points the site at the current repository,
+and corrects voice, selected-media, relay, and secure-storage disclosures that
+did not match the shipping data paths.
+
+This changes the architecture conclusion: automatic network discovery was not
+an active product path that needed another rewrite. It was a disconnected
+platform/shared stack shadowing the explicit server flows, and deleting it
+reduced three ownership layers without changing those flows. Similarly, turn
+pagination support is negotiated from actual legacy responses and
+method-not-found fallbacks; the removed version parser never controlled it.
+
+The continuation also separated confirmed debt from deletion candidates:
+
+- Android declares notification access but has no Android 13+ notification
+  permission request flow; that is an incomplete UX/device path, not a safe
+  manifest-only cleanup.
+- PowerShell SSH launch fallback remains explicitly unimplemented.
+- Alleycat's Pi/Claude config and MCP projections still contain synthesized or
+  empty success surfaces described under P1 below.
+- Removing a saved Alleycat server does not call either platform's existing
+  secure-token deletion helper. A deliberate forget/reset flow is still needed
+  for associated credentials and installation identity.
+- `scripts/pi-bridge-codex-shim.sh` and `scripts/bridge-call.py` have no internal
+  callers but are command-line operator tools. Lack of imports is not proof
+  they are removable; the latter was repaired and both are retained pending an
+  owner decision.
+- `local_studio_realtime.rs` is a large cross-repository protocol contract, not
+  dead code. Superseded SSH and realtime boundary wrappers require live mobile
+  acceptance before any later removal.
+- `services/kittylitter` still publishes v0.3.6 metadata and a Windows help link
+  for the former repository owner. The release guard correctly rejects changing
+  that package after its tag; update it only with a coordinated version bump.
 
 ## Architecture conclusions
 
@@ -182,9 +253,9 @@ changed; blanket allows would erase useful architecture signals.
   automatic, distribution, TestFlight, and Play paths are distinct acceptance
   surfaces, but shared setup and artifact verification should be factored into
   reusable workflows.
-- The Android tip-cat conversion is complete and renderer-validated. Large
-  home cat animations remain the main tracked asset opportunity; their existing
-  compression changes still require Android renderer and hardware acceptance.
+- The tip cats, home animations, README screenshots, and bundled theme JSON are
+  now reduced. Keep animation rendering in device acceptance, but no other
+  known tracked asset justifies a conversion-only cleanup wave.
 - Historical Git objects still contain a roughly 82 MB shared-library object,
   leaving a roughly 130 MB pack. Removing it requires a coordinated history
   rewrite and is intentionally outside this cleanup.
@@ -219,9 +290,10 @@ changed; blanket allows would erase useful architecture signals.
 5. **Release reuse.** Extract shared workflow setup and artifact assertions,
    keeping store ownership, signing, installed runtime, and live endpoint gates
    distinct.
-6. **Asset/history maintenance.** The Android tip-cat reduction is complete.
-   Validate the remaining compressed home animations on hardware; schedule any
-   Git history rewrite as a separate coordinated migration.
+6. **Asset/history maintenance.** The tracked cat, screenshot, and theme-data
+   reductions are complete. Retain home-animation hardware checks in mobile
+   acceptance; schedule any Git history rewrite as a separate coordinated
+   migration.
 
 ## Validation evidence
 
@@ -239,9 +311,11 @@ The audit branch has passed the following relevant gates:
 - local Markdown relative-link verification; and
 - RustSec scans of all three product lockfiles.
 
-The configured live documentation crawler could not run because its Kimi model
-was unavailable. Local Markdown, reference, and link checks remain the evidence
-for this audit; no live-site crawl is claimed.
+The live documentation checker crawled all six reachable pages on
+`kittylitter.app`, checked 79 links, and found zero broken links. The changed
+branch HTML also parses locally. Content acceptance still requires deploying
+the updated site; the live crawl proves the current deployment's link graph,
+not that unpublished wording is already visible.
 
 Live external-agent conformance remains opt-in and physical-device voice,
 network, local-runtime, and store-release acceptance remain separate gates.
