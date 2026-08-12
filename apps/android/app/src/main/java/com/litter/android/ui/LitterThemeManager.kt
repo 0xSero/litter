@@ -19,6 +19,8 @@ private const val APPEARANCE_MODE_KEY = "appearance_mode"
 private const val DARK_MODE_KEY = "dark_mode_enabled"
 private const val FONT_MONO_KEY = "font_family_mono"
 private const val FONT_FAMILY_KEY = "font_family"
+private const val DEFAULT_LIGHT_THEME_SLUG = "studio-light"
+private const val DEFAULT_DARK_THEME_SLUG = "studio-dark"
 
 enum class LitterAppearanceMode(
     val storageValue: String,
@@ -46,7 +48,7 @@ enum class LitterFontFamilyOption(
     val displayName: String,
 ) {
     BERKELEY_MONO("mono", "Berkeley Mono"),
-    CHATGPT("system", "ChatGPT (System)"),
+    CHATGPT("system", "System UI"),
     SYSTEM_MONO("system-mono", "System Mono"),
     SERIF("serif", "Reader Serif");
 
@@ -279,10 +281,10 @@ object LitterThemeManager {
         get() = themeIndex.filter { it.type == LitterColorThemeType.DARK }
 
     val selectedLightSlug: String
-        get() = preferences?.getString(SELECTED_LIGHT_THEME_KEY, null) ?: "codex-light"
+        get() = preferences?.getString(SELECTED_LIGHT_THEME_KEY, null) ?: DEFAULT_LIGHT_THEME_SLUG
 
     val selectedDarkSlug: String
-        get() = preferences?.getString(SELECTED_DARK_THEME_KEY, null) ?: "chatgpt-dark"
+        get() = preferences?.getString(SELECTED_DARK_THEME_KEY, null) ?: DEFAULT_DARK_THEME_SLUG
 
     private val preferences
         get() = appContext?.getSharedPreferences(UI_PREFERENCES_NAME, Context.MODE_PRIVATE)
