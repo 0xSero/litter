@@ -311,6 +311,13 @@ enum LitterFont {
         max(UIFont.preferredFont(forTextStyle: .body).pointSize - 1, 15)
     }
 
+    static var conversationCodePointSize: CGFloat {
+        // Code is supporting material in a conversation. A one-step smaller
+        // monospaced face keeps prose as the primary reading surface without
+        // making commands or snippets hard to inspect.
+        max(UIFont.preferredFont(forTextStyle: .callout).pointSize - 1, 14)
+    }
+
     static var conversationDiffPointSize: CGFloat {
         UIFont.preferredFont(forTextStyle: .caption1).pointSize
     }

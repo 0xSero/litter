@@ -46,7 +46,7 @@ struct LitterMarkdownView: View {
     let markdown: String
     var style: LitterMarkdownStyleVariant = .content
     var bodySize: CGFloat = LitterFont.conversationBodyPointSize
-    var codeSize: CGFloat = LitterFont.conversationBodyPointSize
+    var codeSize: CGFloat = LitterFont.conversationCodePointSize
     var selectionEnabled = true
 
     @State private var debugSettings = DebugSettings.shared
@@ -99,7 +99,7 @@ struct InlineSelectableMarkdownMessage<Content: View>: View {
     let markdown: String
     var style: LitterMarkdownStyleVariant = .content
     var bodySize: CGFloat = LitterFont.conversationBodyPointSize
-    var codeSize: CGFloat = LitterFont.conversationBodyPointSize
+    var codeSize: CGFloat = LitterFont.conversationCodePointSize
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -292,7 +292,7 @@ struct AssistantBubble: View, Equatable {
                     markdown: markdownString,
                     style: .content,
                     bodySize: contentFontSize,
-                    codeSize: contentFontSize
+                    codeSize: LitterFont.conversationCodePointSize
                 ) {
                     bubbleContent
                 }
@@ -316,7 +316,7 @@ struct AssistantBubble: View, Equatable {
                 markdown: markdownString,
                 style: .content,
                 bodySize: contentFontSize,
-                codeSize: contentFontSize
+                codeSize: LitterFont.conversationCodePointSize
             )
             .fixedSize(horizontal: false, vertical: true)
             .transaction { $0.animation = nil }
@@ -361,7 +361,7 @@ struct AssistantBlocksBubble: View {
                 markdown: content,
                 style: .content,
                 bodySize: contentFontSize,
-                codeSize: contentFontSize
+                codeSize: LitterFont.conversationCodePointSize
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .id(identity)
@@ -374,7 +374,7 @@ struct AssistantBlocksBubble: View {
                 CodeBlockView(
                     language: language ?? "",
                     code: code,
-                    fontSize: contentFontSize
+                    fontSize: LitterFont.conversationCodePointSize
                 )
                 .id(identity)
             }
@@ -406,7 +406,7 @@ private struct LitterMathBlockView: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: true) {
             LatexBlockView(content: latex)
-                .fixedSize(horizontal: true, vertical: false)
+                    .fixedSize(horizontal: true, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -497,7 +497,7 @@ struct StreamingAssistantBubble: View {
                         .revealGranularity(typingConfig.effectiveGranularity)
                         .litterContentMarkdown(
                             bodySize: contentFontSize,
-                            codeSize: contentFontSize,
+                            codeSize: LitterFont.conversationCodePointSize,
                             selectionEnabled: !isStreaming
                         )
                         .transaction { $0.animation = nil }
@@ -506,7 +506,7 @@ struct StreamingAssistantBubble: View {
                         markdown: text,
                         style: .content,
                         bodySize: contentFontSize,
-                        codeSize: contentFontSize
+                        codeSize: LitterFont.conversationCodePointSize
                     )
                     .fixedSize(horizontal: false, vertical: true)
                     .tokenReveal(.disabled)
@@ -529,8 +529,12 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
     // primary foreground rather than the muted metadata color so long replies
     // retain contrast on dark themes.
     theme.foregroundColor = LitterTheme.textPrimary
-    theme.paragraphSpacing = 8
-    theme.blockSpacing = 8
+    // Hairball's default 1.6 multiplier reads overly airy in a long mobile
+    // transcript. Keep enough leading for scanning while making consecutive
+    // paragraphs feel like one answer rather than isolated cards.
+    theme.lineSpacing = 1.36
+    theme.paragraphSpacing = 10
+    theme.blockSpacing = 10
 
     theme.headingStyleSet = HeadingStyleSet(
         h1: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.43, weight: .bold), fontSize: bodySize * 1.43, weight: .bold,
@@ -603,8 +607,9 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
     theme.bodyFont = LitterFont.markdownBodyFont(size: bodySize)
     theme.bodyFontSize = bodySize
     theme.foregroundColor = LitterTheme.textSystem
-    theme.paragraphSpacing = 6
-    theme.blockSpacing = 6
+    theme.lineSpacing = 1.32
+    theme.paragraphSpacing = 8
+    theme.blockSpacing = 8
 
     theme.headingStyleSet = HeadingStyleSet(
         h1: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.31, weight: .bold), fontSize: bodySize * 1.31, weight: .bold,
@@ -704,7 +709,29 @@ struct LitterCodeBlockRenderer: CodeBlockRenderer {
             .modifier(GlassRectModifier(cornerRadius: 8))
             .modifier(CodeBlockTerminalContextMenu(code: configuration.code))
         } else {
-            DefaultCodeBlockRenderer().makeBody(configuration: configuration)
+            VStack(alignment: .leading, spacing: 0) {
+                if configuration.hasLanguage {
+                    HStack {
+                        Text(configuration.languageDisplayName)
+                            .litterMonoFont(size: 11, weight: .semibold)
+                            .foregroundColor(LitterTheme.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(configuration.highlightedCode)
+                        .font(configuration.theme.codeBlock.font)
+                        .foregroundColor(configuration.theme.codeBlock.textColor)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(configuration.theme.codeBlock.padding)
+                }
+            }
+            .background(configuration.theme.codeBlock.backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: configuration.theme.codeBlock.cornerRadius))
                 .modifier(GlassRectModifier(cornerRadius: 8))
                 .modifier(CodeBlockTerminalContextMenu(code: configuration.code))
         }
@@ -895,7 +922,7 @@ private struct ScaledSystemMarkdownModifier: ViewModifier {
 extension View {
     func litterContentMarkdown(
         bodySize: CGFloat = LitterFont.conversationBodyPointSize,
-        codeSize: CGFloat = LitterFont.conversationBodyPointSize,
+        codeSize: CGFloat = LitterFont.conversationCodePointSize,
         selectionEnabled: Bool = true
     ) -> some View {
         modifier(
@@ -909,7 +936,7 @@ extension View {
 
     func litterSystemMarkdown(
         bodySize: CGFloat = LitterFont.conversationBodyPointSize,
-        codeSize: CGFloat = LitterFont.conversationBodyPointSize,
+        codeSize: CGFloat = LitterFont.conversationCodePointSize,
         selectionEnabled: Bool = true
     ) -> some View {
         modifier(
