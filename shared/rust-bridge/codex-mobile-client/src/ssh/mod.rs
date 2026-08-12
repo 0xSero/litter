@@ -103,7 +103,7 @@ pub(super) struct ForwardTask {
 }
 
 // Logging helpers — every event goes through `log_rust` so the bridge log
-// file mirror sees it (see CLAUDE.md / `crate::logging`).
+// file mirror sees it (see AGENTS.md / `crate::logging`).
 fn append_bridge_log(level: LogLevelName, line: &str) {
     log_rust(level, "ssh", "bridge", line.to_string(), None);
 }
