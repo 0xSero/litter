@@ -51,7 +51,7 @@ struct ConversationView: View {
     var onMinigameDismiss: (() -> Void)? = nil
     var onMinigameRetry: (() -> Void)? = nil
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
-    @AppStorage("conversationTextSizeStep") private var conversationTextSizeStep = ConversationTextSize.large.rawValue
+    @AppStorage("conversationTextSizeStep") private var conversationTextSizeStep = ConversationTextSize.medium.rawValue
     @AppStorage("fastMode") private var fastMode = false
     @State private var messageActionError: String?
     @State private var hasLoggedFirstRender = false
@@ -737,7 +737,11 @@ private struct ConversationMessageList: View {
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 16)
-                        .padding(.top, topInset + 56)
+                        // Navigation owns the safe-area header. This keeps
+                        // the first message below it without wasting the
+                        // extra blank line that made an open chat feel
+                        // disconnected from its content.
+                        .padding(.top, topInset + 40)
                         .animation(.spring(response: 0.22, dampingFraction: 0.9), value: textSizeStep)
 
                         if isWaitingForData {
@@ -895,10 +899,13 @@ private struct ConversationMessageList: View {
         let threadScopeID = activeThreadScopeID
         guard initialBottomScrollThreadScopeID != threadScopeID else { return }
         initialBottomScrollThreadScopeID = threadScopeID
-        DispatchQueue.main.async {
+        // Wait for the hydrated markdown's first layout before anchoring the
+        // restored session at its newest reply. A second pass catches rich
+        // blocks whose measured height arrives on the following frame.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             guard activeThreadScopeID == threadScopeID else { return }
             scrollToBottom(proxy)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 guard activeThreadScopeID == threadScopeID else { return }
                 scrollToBottom(proxy)
             }

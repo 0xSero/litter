@@ -86,7 +86,6 @@ struct ConversationDisplayUITestHarnessView: View {
                     showSettings = true
                 }
             }
-            (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
         }
     }
 

@@ -3,7 +3,7 @@ import SwiftUI
 struct AppearanceSettingsView: View {
     @Environment(ThemeManager.self) private var themeManager
     @State private var activeThemePicker: ThemePickerKind?
-    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
+    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
 
     var body: some View {
         ZStack {

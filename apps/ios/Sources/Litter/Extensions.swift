@@ -149,7 +149,7 @@ private struct FontPreferenceObserverKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    fileprivate var fontPreferenceObserver: FontPreferenceObserver {
+    var fontPreferenceObserver: FontPreferenceObserver {
         get { self[FontPreferenceObserverKey.self] }
         set { self[FontPreferenceObserverKey.self] = newValue }
     }
@@ -164,10 +164,6 @@ enum LitterFont {
         return FontFamilyOption(rawValue: raw) ?? .mono
     }
 
-    static var bodyFontName: String {
-        uiFont(family: storedFamily, size: conversationBodyPointSize).fontName
-    }
-
     static var codeFontName: String {
         let name = storedFamily == .mono
             ? preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
@@ -176,8 +172,17 @@ enum LitterFont {
             ?? UIFont.monospacedSystemFont(ofSize: conversationBodyPointSize, weight: .regular).fontName
     }
 
-    /// Kept for call sites that render prose; code should use `codeFontName`.
-    static var markdownFontName: String { bodyFontName }
+    /// Hairball receives a SwiftUI `Font`, not an internal UIKit font name.
+    /// Passing the latter through `Font.custom` turns the system selection
+    /// into a serif fallback on iOS 26. Keeping this as a real system/design
+    /// font makes conversation prose match the rest of the app.
+    static func markdownBodyFont(size: CGFloat) -> Font {
+        font(family: storedFamily, size: size, weight: .regular, relativeTo: nil)
+    }
+
+    static func markdownHeadingFont(size: CGFloat, weight: Font.Weight) -> Font {
+        font(family: storedFamily, size: size, weight: weight, relativeTo: nil)
+    }
 
     static func styled(
         _ style: Font.TextStyle,
@@ -299,7 +304,11 @@ enum LitterFont {
     }
 
     static var conversationBodyPointSize: CGFloat {
-        UIFont.preferredFont(forTextStyle: .body).pointSize
+        // The system body metric follows Dynamic Type. Keep chat deliberately
+        // one point tighter than a settings/form screen so long assistant
+        // replies stay comfortable rather than reading like accessibility
+        // display text on a phone.
+        max(UIFont.preferredFont(forTextStyle: .body).pointSize - 1, 15)
     }
 
     static var conversationDiffPointSize: CGFloat {
@@ -344,7 +353,7 @@ enum ConversationTextSize: Int, CaseIterable {
 
     static func clamped(rawValue: Int) -> ConversationTextSize {
         let bounded = min(max(rawValue, tiny.rawValue), huge.rawValue)
-        return ConversationTextSize(rawValue: bounded) ?? .large
+        return ConversationTextSize(rawValue: bounded) ?? .medium
     }
 }
 

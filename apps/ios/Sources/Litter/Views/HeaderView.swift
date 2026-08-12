@@ -59,10 +59,45 @@ struct HeaderView: View {
     }
 
     private var expandedHeaderLabel: some View {
-        VStack(spacing: 2) {
-            primaryHeaderRow
-            secondaryHeaderRow
+        Group {
+            if isRegularSurface {
+                VStack(spacing: 2) {
+                    primaryHeaderRow
+                    secondaryHeaderRow
+                }
+            } else {
+                compactHeaderRow
+            }
         }
+    }
+
+    /// An iPhone toolbar cannot comfortably hold a back button, two action
+    /// buttons, model picker, reasoning effort, and working directory. Keep
+    /// the tappable picker to one calm, readable row; its popover still has
+    /// the full set of choices.
+    private var compactHeaderRow: some View {
+        HStack(spacing: 5) {
+            statusDot
+            Text(sessionModelLabel)
+                .foregroundColor(LitterTheme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if sessionReasoningLabel != "default" {
+                Text(sessionReasoningLabel)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Image(systemName: "chevron.down")
+                .font(LitterFont.styled(size: 9, weight: .semibold))
+                .foregroundColor(LitterTheme.textSecondary)
+                .rotationEffect(.degrees(appState.showModelSelector ? 180 : 0))
+        }
+        .font(LitterFont.styled(size: 13, weight: .semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.78)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var primaryHeaderRow: some View {

@@ -51,3 +51,14 @@ final class FontFamilyOptionTests: XCTestCase {
         XCTAssertEqual(observer.revision, 2)
     }
 }
+
+final class ConversationTextSizeTests: XCTestCase {
+    func testStoredValueIsBoundedToSupportedSteps() {
+        XCTAssertEqual(ConversationTextSize.clamped(rawValue: -42), .tiny)
+        XCTAssertEqual(ConversationTextSize.clamped(rawValue: 42), .huge)
+    }
+
+    func testMediumIsTheUnscaledReadingDefault() {
+        XCTAssertEqual(ConversationTextSize.medium.scale, 1.0)
+    }
+}
