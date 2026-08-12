@@ -27,7 +27,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
@@ -165,13 +164,6 @@ where
 
 fn parse_wire(text: &str) -> Result<PairWireMessage, PairError> {
     serde_json::from_str(text).map_err(|err| PairError::Protocol(format!("parse: {err}")))
-}
-
-/// Helper used in tests; not exported. Encodes raw bytes (e.g. an NI
-/// discovery token) into the base64 form used on the wire.
-#[allow(dead_code)]
-pub(crate) fn encode_token(bytes: &[u8]) -> String {
-    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 // ── Host side (Mac) ──────────────────────────────────────────────────────
