@@ -201,10 +201,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
 
         private func composerFont() -> UIFont {
             let pointSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-            if LitterFont.storedFamily.isMono {
-                return LitterFont.uiMonoFont(size: pointSize)
-            }
-            return UIFont.systemFont(ofSize: pointSize)
+            return LitterFont.uiFont(size: pointSize)
         }
 
         private func updateFocusBinding(_ isFocused: Bool) {

@@ -1,0 +1,17 @@
+{
+  "name": "ChatGPT Dark",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#191919",
+    "editor.foreground": "#d9d9d8",
+    "sideBar.background": "#202020",
+    "sideBar.foreground": "#a0a09f",
+    "activityBar.background": "#212121",
+    "editorLineNumber.foreground": "#626262",
+    "editorGroup.border": "#2a2a2a",
+    "sideBar.border": "#2a2a2a",
+    "panel.border": "#202020",
+    "textLink.foreground": "#d9d9d8",
+    "button.background": "#d9d9d8"
+  }
+}

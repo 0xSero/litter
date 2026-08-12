@@ -259,12 +259,11 @@ final class HomeSessionsScrollUIView: UIView {
     private func updateScrollEnabled() {
         let enabled = !(isPinching || activeSwipeRowCount > 0)
         scrollView.isScrollEnabled = enabled
-        // Also toggle the pan recognizer directly — `isScrollEnabled`
-        // is the public knob but the pan can occasionally still fire
-        // in-flight events. Disabling the recognizer cancels any
-        // pending pan gesture immediately so `contentOffset` stays
-        // under our pinch-anchor control.
-        scrollView.panGestureRecognizer.isEnabled = enabled
+        // Do not toggle `panGestureRecognizer.isEnabled` here. UIKit can
+        // cancel a row's long-press recognizer when the pan recognizer is
+        // disabled, skipping the row's normal cleanup and leaving the list
+        // permanently locked. `isScrollEnabled` is sufficient to freeze the
+        // offset while a committed horizontal swipe or pinch is active.
     }
 
     private func invalidateMeasurements() {
@@ -330,6 +329,7 @@ final class HomeSessionsScrollUIView: UIView {
         let newSet = Set(newIds)
         for key in Array(containers.keys) where !newSet.contains(key) {
             if let c = containers.removeValue(forKey: key) {
+                c.cancelSwipeIfNeeded()
                 c.removeFromSuperview()
             }
         }
@@ -1288,6 +1288,7 @@ final class HomeRowContainer: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        cancelSwipeIfNeeded()
         // UIKit raises NSInternalInconsistencyException if a
         // UIViewPropertyAnimator is released while still in `.active`
         // (running or paused). We hold it paused-active for
@@ -1310,6 +1311,10 @@ final class HomeRowContainer: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil {
+            cancelSwipeIfNeeded()
+            return
+        }
         // `pinchBlur`'s intensity is driven by a paused
         // `UIViewPropertyAnimator` whose `fractionComplete` is scrubbed
         // between `effect = nil` and `systemThinMaterialDark`. When the
@@ -1319,8 +1324,7 @@ final class HomeRowContainer: UIView {
         // milky band sits over the affected rows. When we re-attach to
         // a window with no pinch in progress, reset the animator from
         // scratch so it scrubs cleanly back to nil.
-        guard window != nil,
-              !LitterPlatform.rendersAsMacApp,
+        guard !LitterPlatform.rendersAsMacApp,
               !UIAccessibility.isReduceTransparencyEnabled,
               scrollHost?.pinchActive != true
         else { return }
@@ -1456,6 +1460,9 @@ final class HomeRowContainer: UIView {
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
         let sessionChanged = self.session != session
+        if sessionChanged {
+            cancelSwipeIfNeeded()
+        }
         let stateChanged = self.isOpening != isOpening ||
             self.isHydrating != isHydrating ||
             self.isCancelling != isCancelling ||
@@ -1702,8 +1709,7 @@ final class HomeRowContainer: UIView {
         // bail immediately — reset offset and stop tracking.
         if g.numberOfTouches > 1 || scrollHost?.pinchActive == true {
             if swipeTracking {
-                swipeTracking = false
-                reset(animated: true)
+                cancelSwipeIfNeeded(animated: true)
             }
             return
         }
@@ -1741,14 +1747,9 @@ final class HomeRowContainer: UIView {
             layoutIfNeeded()
         case .ended, .cancelled, .failed:
             guard swipeTracking else { return }
-            swipeTracking = false
             let w = point.x - swipeStartPoint.x
             let shouldFire = activated && scrollHost?.pinchActive != true
-            if activated {
-                scrollHost?.noteRowSwipeChanged(activated: false)
-            }
-            activated = false
-            pastThreshold = false
+            cancelSwipeIfNeeded(animated: true)
             if shouldFire && w > Self.fullSwipeThreshold {
                 callbacks.onReply(session)
                 let gen = UIImpactFeedbackGenerator(style: .heavy)
@@ -1758,10 +1759,24 @@ final class HomeRowContainer: UIView {
                 let gen = UIImpactFeedbackGenerator(style: .heavy)
                 gen.impactOccurred(intensity: 0.9)
             }
-            reset(animated: true)
         default:
             break
         }
+    }
+
+    /// A row can leave the hierarchy or have its session replaced while a
+    /// horizontal swipe is committed. Make that cleanup idempotent so the
+    /// scroll host's swipe count cannot outlive the row that incremented it.
+    func cancelSwipeIfNeeded(animated: Bool = false) {
+        let wasActivated = activated
+        swipeTracking = false
+        activated = false
+        pastThreshold = false
+        if wasActivated {
+            scrollHost?.noteRowSwipeChanged(activated: false)
+        }
+        guard offsetX != 0 else { return }
+        reset(animated: animated)
     }
 
     private func reset(animated: Bool) {
@@ -1915,10 +1930,10 @@ private struct SessionContextMenuPreview: View {
             if !session.serverDisplayName.isEmpty {
                 HStack(spacing: 5) {
                     Text(session.agentRuntimeKind.displayLabel)
-                        .litterMonoFont(size: 9, weight: .semibold)
+                        .litterFont(size: 9, weight: .semibold)
                         .foregroundStyle(LitterTheme.accent.opacity(0.8))
                     Text(session.serverDisplayName)
-                        .litterMonoFont(size: 10)
+                        .litterFont(size: 10)
                         .foregroundStyle(LitterTheme.textSecondary.opacity(0.75))
                         .lineLimit(1)
                 }

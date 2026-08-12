@@ -101,6 +101,7 @@ import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.ConversationPrefs
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterFeature
+import com.litter.android.ui.LitterFontFamilyOption
 import com.litter.android.ui.WallpaperBackdrop
 import com.litter.android.ui.WallpaperManager
 import com.litter.android.ui.LitterTheme
@@ -261,9 +262,17 @@ private fun SettingsTopLevel(
             Column(
                 Modifier.fillMaxWidth().background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
             ) {
-                FontRow("Berkeley Mono", BerkeleyMono, LitterThemeManager.monoFontEnabled) { LitterThemeManager.applyFont(true) }
-                HorizontalDivider(color = LitterTheme.divider)
-                FontRow("System Default", FontFamily.Default, !LitterThemeManager.monoFontEnabled) { LitterThemeManager.applyFont(false) }
+                LitterFontFamilyOption.entries.forEachIndexed { index, option ->
+                    FontRow(
+                        name = option.displayName,
+                        fontFamily = LitterTheme.fontFamily(option),
+                        isSelected = LitterThemeManager.selectedFontFamily == option,
+                        onClick = { LitterThemeManager.applyFont(option) },
+                    )
+                    if (index != LitterFontFamilyOption.entries.lastIndex) {
+                        HorizontalDivider(color = LitterTheme.divider)
+                    }
+                }
             }
         }
 

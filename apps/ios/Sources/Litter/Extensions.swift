@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Observation
 
 extension Color {
     init(hex: String) {
@@ -113,17 +114,45 @@ enum LitterTheme {
 enum FontFamilyOption: String, CaseIterable, Identifiable {
     case mono = "mono"
     case system = "system"
+    case systemMono = "system-mono"
+    case serif = "serif"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .mono: return "Monospaced"
-        case .system: return "System (SF Pro)"
+        case .mono: return "Berkeley Mono"
+        case .system: return "ChatGPT (System)"
+        case .systemMono: return "System Mono"
+        case .serif: return "Reader Serif"
         }
     }
 
-    var isMono: Bool { self == .mono }
+    var isMono: Bool { self == .mono || self == .systemMono }
+}
+
+/// Makes app-wide SwiftUI font modifiers observe a preference change without
+/// recreating the navigation hierarchy or disrupting an active conversation.
+@Observable
+final class FontPreferenceObserver {
+    static let shared = FontPreferenceObserver()
+
+    private(set) var revision = 0
+
+    func didChange() {
+        revision &+= 1
+    }
+}
+
+private struct FontPreferenceObserverKey: EnvironmentKey {
+    static let defaultValue = FontPreferenceObserver.shared
+}
+
+extension EnvironmentValues {
+    fileprivate var fontPreferenceObserver: FontPreferenceObserver {
+        get { self[FontPreferenceObserverKey.self] }
+        set { self[FontPreferenceObserverKey.self] = newValue }
+    }
 }
 
 enum LitterFont {
@@ -135,14 +164,20 @@ enum LitterFont {
         return FontFamilyOption(rawValue: raw) ?? .mono
     }
 
-    static var markdownFontName: String {
-        switch storedFamily {
-        case .mono:
-            return preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
-        case .system:
-            return ".AppleSystemUIFont"
-        }
+    static var bodyFontName: String {
+        uiFont(family: storedFamily, size: conversationBodyPointSize).fontName
     }
+
+    static var codeFontName: String {
+        let name = storedFamily == .mono
+            ? preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
+            : "SFMono-Regular"
+        return UIFont(name: name, size: conversationBodyPointSize)?.fontName
+            ?? UIFont.monospacedSystemFont(ofSize: conversationBodyPointSize, weight: .regular).fontName
+    }
+
+    /// Kept for call sites that render prose; code should use `codeFontName`.
+    static var markdownFontName: String { bodyFontName }
 
     static func styled(
         _ style: Font.TextStyle,
@@ -171,20 +206,37 @@ enum LitterFont {
     }
 
     private static func styled(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
-        if storedFamily.isMono {
-            return monoFont(size: size, weight: weight, relativeTo: style)
-        }
-        return .system(size: size, weight: weight)
+        font(family: storedFamily, size: size, weight: weight, relativeTo: style)
     }
 
     private static func monoFont(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
-        if let fontName = preferredMonoFontName(weight: weight) {
+        let family: FontFamilyOption = storedFamily == .mono ? .mono : .systemMono
+        return font(family: family, size: size, weight: weight, relativeTo: style)
+    }
+
+    private static func font(
+        family: FontFamilyOption,
+        size: CGFloat,
+        weight: Font.Weight,
+        relativeTo style: Font.TextStyle?
+    ) -> Font {
+        if family == .mono, let fontName = preferredMonoFontName(weight: weight) {
             if let style {
                 return .custom(fontName, size: size, relativeTo: style)
             }
             return .custom(fontName, size: size)
         }
-        return .system(size: size, weight: weight, design: .monospaced)
+
+        let design: Font.Design
+        switch family {
+        case .mono, .systemMono:
+            design = .monospaced
+        case .system:
+            design = .default
+        case .serif:
+            design = .serif
+        }
+        return .system(size: size, weight: weight, design: design)
     }
 
     private static func preferredMonoFontName(weight: Font.Weight) -> String? {
@@ -208,17 +260,42 @@ enum LitterFont {
     }
 
     static func uiMonoFont(size: CGFloat, bold: Bool = false) -> UIFont {
-        let name = bold
-            ? preferredMonoFontName(weight: .bold) ?? "SFMono-Bold"
-            : preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
-        return UIFont(name: name, size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+        if storedFamily == .mono {
+            let name = bold
+                ? preferredMonoFontName(weight: .bold) ?? "SFMono-Bold"
+                : preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
+            if let font = UIFont(name: name, size: size) {
+                return font
+            }
+        }
+        return UIFont.monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+    }
+
+    static func uiFont(size: CGFloat, bold: Bool = false) -> UIFont {
+        uiFont(family: storedFamily, size: size, bold: bold)
+    }
+
+    private static func uiFont(family: FontFamilyOption, size: CGFloat, bold: Bool = false) -> UIFont {
+        let weight: UIFont.Weight = bold ? .bold : .regular
+        switch family {
+        case .mono:
+            let name = bold
+                ? preferredMonoFontName(weight: .bold) ?? "SFMono-Bold"
+                : preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
+            return UIFont(name: name, size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+        case .system:
+            return UIFont.systemFont(ofSize: size, weight: weight)
+        case .systemMono:
+            return UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+        case .serif:
+            let base = UIFont.systemFont(ofSize: size, weight: weight)
+            guard let descriptor = base.fontDescriptor.withDesign(.serif) else { return base }
+            return UIFont(descriptor: descriptor, size: size)
+        }
     }
 
     static func sampleFont(family: FontFamilyOption, size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        if family.isMono {
-            return monoFont(size: size, weight: weight, relativeTo: nil)
-        }
-        return .system(size: size, weight: weight)
+        font(family: family, size: size, weight: weight, relativeTo: nil)
     }
 
     static var conversationBodyPointSize: CGFloat {
@@ -300,31 +377,40 @@ extension View {
 
 private struct ScaledSizeFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let size: CGFloat
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 
 private struct ScaledStyleFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let style: Font.TextStyle
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(style, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.styled(style, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 
 private struct ScaledMonoFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let size: CGFloat
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 

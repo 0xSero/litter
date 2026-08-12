@@ -18,6 +18,7 @@ private const val SELECTED_DARK_THEME_KEY = "selected_dark_theme"
 private const val APPEARANCE_MODE_KEY = "appearance_mode"
 private const val DARK_MODE_KEY = "dark_mode_enabled"
 private const val FONT_MONO_KEY = "font_family_mono"
+private const val FONT_FAMILY_KEY = "font_family"
 
 enum class LitterAppearanceMode(
     val storageValue: String,
@@ -38,6 +39,21 @@ enum class LitterAppearanceMode(
             LIGHT -> false
             DARK -> true
         }
+}
+
+enum class LitterFontFamilyOption(
+    val storageValue: String,
+    val displayName: String,
+) {
+    BERKELEY_MONO("mono", "Berkeley Mono"),
+    CHATGPT("system", "ChatGPT (System)"),
+    SYSTEM_MONO("system-mono", "System Mono"),
+    SERIF("serif", "Reader Serif");
+
+    companion object {
+        fun fromStorageValue(value: String?): LitterFontFamilyOption? =
+            entries.firstOrNull { it.storageValue.equals(value, ignoreCase = true) }
+    }
 }
 
 enum class LitterColorThemeType {
@@ -238,7 +254,7 @@ object LitterThemeManager {
     var appearanceMode by mutableStateOf(LitterAppearanceMode.SYSTEM)
         private set
 
-    var monoFontEnabled by mutableStateOf(true)
+    var selectedFontFamily by mutableStateOf(LitterFontFamilyOption.BERKELEY_MONO)
         private set
 
     var lightTheme by mutableStateOf(LitterResolvedTheme.defaultLight)
@@ -285,7 +301,7 @@ object LitterThemeManager {
             systemIsDark = systemIsDarkMode
             appearanceMode = loadAppearanceMode()
             activeTheme = themeForMode(appearanceMode)
-            monoFontEnabled = preferences?.getBoolean(FONT_MONO_KEY, true) ?: true
+            selectedFontFamily = loadFontFamily()
             initialized = true
         }
     }
@@ -308,9 +324,12 @@ object LitterThemeManager {
         applyActiveTheme()
     }
 
-    fun applyFont(isMono: Boolean) {
-        preferences?.edit()?.putBoolean(FONT_MONO_KEY, isMono)?.apply()
-        monoFontEnabled = isMono
+    fun applyFont(fontFamily: LitterFontFamilyOption) {
+        preferences?.edit()
+            ?.putString(FONT_FAMILY_KEY, fontFamily.storageValue)
+            ?.remove(FONT_MONO_KEY)
+            ?.apply()
+        selectedFontFamily = fontFamily
     }
 
     fun selectLightTheme(slug: String) {
@@ -344,6 +363,18 @@ object LitterThemeManager {
             }
         } else {
             LitterAppearanceMode.SYSTEM
+        }
+    }
+
+    private fun loadFontFamily(): LitterFontFamilyOption {
+        val prefs = preferences ?: return LitterFontFamilyOption.BERKELEY_MONO
+        LitterFontFamilyOption.fromStorageValue(prefs.getString(FONT_FAMILY_KEY, null))?.let {
+            return it
+        }
+        return if (prefs.contains(FONT_MONO_KEY) && !prefs.getBoolean(FONT_MONO_KEY, true)) {
+            LitterFontFamilyOption.CHATGPT
+        } else {
+            LitterFontFamilyOption.BERKELEY_MONO
         }
     }
 
