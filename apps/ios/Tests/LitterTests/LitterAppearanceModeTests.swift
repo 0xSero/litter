@@ -62,3 +62,13 @@ final class ConversationTextSizeTests: XCTestCase {
         XCTAssertEqual(ConversationTextSize.medium.scale, 1.0)
     }
 }
+
+final class LitterPlatformLayoutTests: XCTestCase {
+    func testPhoneDoesNotCreateSplitNavigationFromRegularSizeClass() {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return
+        }
+
+        XCTAssertFalse(LitterPlatform.isRegularSurface(horizontalSizeClass: .regular))
+    }
+}
