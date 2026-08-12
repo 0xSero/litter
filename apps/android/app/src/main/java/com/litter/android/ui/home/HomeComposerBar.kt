@@ -344,13 +344,17 @@ fun HomeComposerBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(LitterTheme.codeBackground, RoundedCornerShape(26.dp))
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!isRecording && !isTranscribing && !isSubmitting) {
                 IconButton(
                     onClick = { showAttachMenu = true },
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(LitterTheme.surface.copy(alpha = 0.78f), CircleShape),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
@@ -363,9 +367,8 @@ fun HomeComposerBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 36.dp, max = 120.dp)
-                    .background(LitterTheme.codeBackground, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .heightIn(min = 44.dp, max = 120.dp)
+                    .padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(modifier = Modifier.weight(1f)) {
@@ -458,7 +461,7 @@ fun HomeComposerBar(
                         )
                     }
 
-                    else -> {
+                    !hasSendContent -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
                             onClick = {
@@ -475,31 +478,30 @@ fun HomeComposerBar(
                         }
                     }
                 }
-            }
-
-            if (hasSendContent) {
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = sendCurrent,
-                    enabled = canSend && !isRecording && !isTranscribing,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (canSend && !isRecording && !isTranscribing) {
-                                LitterTheme.accent
-                            } else {
-                                LitterTheme.accent.copy(alpha = 0.45f)
-                            },
-                            CircleShape,
-                        ),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
-                        tint = Color.Black,
-                        modifier = Modifier.size(17.dp),
-                    )
+                if (hasSendContent) {
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(
+                        onClick = sendCurrent,
+                        enabled = canSend && !isRecording && !isTranscribing,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (canSend && !isRecording && !isTranscribing) {
+                                    LitterTheme.accent
+                                } else {
+                                    LitterTheme.accent.copy(alpha = 0.45f)
+                                },
+                                CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = Color.Black,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
                 }
             }
         }
