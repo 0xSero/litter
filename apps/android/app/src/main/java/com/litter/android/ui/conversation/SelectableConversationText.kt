@@ -69,12 +69,24 @@ internal fun SelectableMarkdownText(
             LitterFontFamilyOption.SERIF -> android.graphics.Typeface.SERIF
         }
     }
+    val codeTypeface = remember(context, selectedFontFamily) {
+        if (selectedFontFamily == LitterFontFamilyOption.BERKELEY_MONO) {
+            runCatching {
+                androidx.core.content.res.ResourcesCompat.getFont(
+                    context,
+                    com.sigkitten.litter.android.R.font.berkeley_mono_regular,
+                )
+            }.getOrNull() ?: android.graphics.Typeface.MONOSPACE
+        } else {
+            android.graphics.Typeface.MONOSPACE
+        }
+    }
     val markdownTextSizePx = remember(context, resolvedTextSize, usePhysicalDpTextSize) {
         resolvedTextSize.toTextSizePx(context, usePhysicalDpTextSize)
     }
     val markwon = rememberConversationMarkwon(
         context = context,
-        typeface = typeface,
+        codeTypeface = codeTypeface,
         markdownTextSizePx = markdownTextSizePx,
         textColor = textColor,
     )
@@ -110,6 +122,7 @@ internal fun SelectableMarkdownText(
                 textColor = textColor,
                 textSizePx = markdownTextSizePx,
                 typeface = typeface,
+                codeTypeface = codeTypeface,
             )
             if (tv.tag != renderTag) {
                 tv.tag = renderTag
@@ -125,6 +138,7 @@ private data class MarkdownRenderTag(
     val textColor: Int,
     val textSizePx: Float,
     val typeface: android.graphics.Typeface?,
+    val codeTypeface: android.graphics.Typeface?,
 )
 
 internal fun configureSelectableMarkdownTextView(
@@ -148,6 +162,7 @@ internal fun configureSelectableMarkdownTextView(
     textView.movementMethod = LinkMovementMethod.getInstance()
     textView.setLinkTextColor(linkColor)
     textView.setTextIsSelectable(selectable)
+    textView.setLineSpacing(0f, 1.32f)
     textView.customSelectionActionModeCallback = if (selectable) {
         RunInTerminalSelectionMenu(textView)
     } else {
@@ -216,16 +231,20 @@ private class RunInTerminalSelectionMenu(
 @Composable
 private fun rememberConversationMarkwon(
     context: android.content.Context,
-    typeface: android.graphics.Typeface?,
+    codeTypeface: android.graphics.Typeface?,
     markdownTextSizePx: Float,
     textColor: Int,
-): Markwon = remember(context, typeface, markdownTextSizePx, textColor) {
+): Markwon = remember(context, codeTypeface, markdownTextSizePx, textColor) {
     try {
         val prism4j = Prism4j(com.litter.android.ui.Prism4jGrammarLocator())
         Markwon.builder(context)
             .usePlugin(object : AbstractMarkwonPlugin() {
                 override fun configureTheme(builder: MarkwonTheme.Builder) {
-                    typeface?.let { builder.codeTypeface(it) }
+                    codeTypeface?.let { builder.codeTypeface(it) }
+                    codeTypeface?.let { builder.codeBlockTypeface(it) }
+                    val codeTextSize = markdownTextSizePx.times(0.94f).toInt()
+                    builder.codeTextSize(codeTextSize)
+                    builder.codeBlockTextSize(codeTextSize)
                 }
             })
             .usePlugin(

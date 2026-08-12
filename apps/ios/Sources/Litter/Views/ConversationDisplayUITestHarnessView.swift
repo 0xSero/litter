@@ -115,7 +115,16 @@ struct ConversationDisplayUITestHarnessView: View {
         ConversationItem(
             id: "ui-test-assistant",
             content: .assistant(ConversationAssistantMessageData(
-                text: "UITEST_ASSISTANT_MESSAGE",
+                text: """
+                ## UITEST_ASSISTANT_MESSAGE
+
+                Here is a short answer with `inline code`, readable prose, and a second paragraph so typography and spacing are visible in screenshots.
+
+                ```swift
+                let greeting = "UITEST_CODE_BLOCK"
+                print(greeting)
+                ```
+                """,
                 agentNickname: nil,
                 agentRole: nil,
                 phase: nil

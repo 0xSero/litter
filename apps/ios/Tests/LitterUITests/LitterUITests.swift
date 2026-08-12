@@ -25,6 +25,7 @@ final class LitterUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["UITEST_USER_MESSAGE"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["UITEST_ASSISTANT_MESSAGE"].exists)
+        XCTAssertTrue(app.staticTexts["UITEST_CODE_BLOCK"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_REASONING_DETAIL"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_COMMAND_OUTPUT"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
