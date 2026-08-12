@@ -8,10 +8,10 @@ set -euo pipefail
 
 MODE="${1:-sim}"
 case "$MODE" in
-  sim)        RUST_TARGET=rust-ios-sim-fast    ; BUILD_TARGET=ios-build-sim-fast    ; RUN_TARGET="" ;;
-  sim-run)    RUST_TARGET=rust-ios-sim-fast    ; BUILD_TARGET=ios-build-sim-fast    ; RUN_TARGET=ios-sim-run ;;
-  device)     RUST_TARGET=rust-ios-device-fast ; BUILD_TARGET=ios-build-device-fast ; RUN_TARGET="" ;;
-  device-run) RUST_TARGET=rust-ios-device-fast ; BUILD_TARGET=ios-build-device-fast ; RUN_TARGET=ios-device-run ;;
+  sim)        BUILD_TARGET=ios-build-sim-fast    ; SWIFT_TARGET=ios-xcode-sim-fast    ; RUN_TARGET="" ;;
+  sim-run)    BUILD_TARGET=ios-build-sim-fast    ; SWIFT_TARGET=ios-xcode-sim-fast    ; RUN_TARGET=ios-sim-launch ;;
+  device)     BUILD_TARGET=ios-build-device-fast ; SWIFT_TARGET=ios-xcode-device-fast ; RUN_TARGET="" ;;
+  device-run) BUILD_TARGET=ios-build-device-fast ; SWIFT_TARGET=ios-xcode-device-fast ; RUN_TARGET=ios-device-launch ;;
   *)
     echo "usage: $0 [sim|sim-run|device|device-run]" >&2
     exit 1
@@ -50,8 +50,8 @@ run_target() {
 }
 
 echo "==> [loop] watching for changes (MODE=$MODE)"
-echo "    rust changes → make $RUST_TARGET + $BUILD_TARGET"
-echo "    swift changes → make $BUILD_TARGET"
+echo "    rust changes → make $BUILD_TARGET"
+echo "    swift changes → make $SWIFT_TARGET (Rust skipped)"
 [ -n "$RUN_TARGET" ] && echo "    after each build → make $RUN_TARGET"
 echo "    Ctrl+C to stop"
 
@@ -72,12 +72,20 @@ fswatch -0 -r --latency 1 \
     case "$path" in
       *.rs|*/Cargo.toml|*/Cargo.lock)
         run_target "$BUILD_TARGET" "rust+swift ($(basename "$path"))"
-        # BUILD_TARGET depends on RUST_TARGET via the Makefile, so this picks
-        # up the Rust rebuild automatically. We don't run RUST_TARGET first
-        # because BUILD_TARGET's dep chain handles it.
+        ;;
+      */project.yml)
+        (
+          flock -n 9 || { echo "[loop] build in progress — skipping (project.yml)"; exit 0; }
+          echo
+          echo "==> [loop] $(date +%H:%M:%S) project.yml → make xcgen + $SWIFT_TARGET"
+          cd "$ROOT" && make xcgen && make "$SWIFT_TARGET"
+          if [ -n "$RUN_TARGET" ]; then
+            cd "$ROOT" && make "$RUN_TARGET"
+          fi
+        ) 9>"$LOCK"
         ;;
       *.swift|*.yml|*.plist|*.xcassets/*|*.storyboard|*.xib)
-        run_target "$BUILD_TARGET" "swift ($(basename "$path"))"
+        run_target "$SWIFT_TARGET" "swift ($(basename "$path"))"
         ;;
       *)
         # Ignore other change types (editor swap files, etc.)
