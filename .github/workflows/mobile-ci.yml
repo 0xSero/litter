@@ -110,6 +110,11 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client
 
+      - name: Release script tests
+        run: |
+          bash apps/ios/scripts/tests/testflight-finalize.test.sh
+          python3 tools/scripts/tests/test_fetch_mobile_store_artifacts.py
+
       - name: Package shared mobile sources
         run: |
           mkdir -p apps/ios/GeneratedRust/Headers .ci-prep/shared
