@@ -81,11 +81,10 @@
 
 ## Dependencies
 ### iOS (SPM via `apps/ios/project.yml`)
-- **Textual** — Renders Markdown in assistant/system messages with custom theming (successor to MarkdownUI).
+- **Hairball** / **HairballUI** — Render Markdown in assistant/system messages with custom theming and streaming support.
 ### Android (Gradle)
 - **Compose Material3** — primary Android UI toolkit.
 - **Markwon** — Markdown rendering for assistant/system text.
-- **JSch** — SSH transport for remote bootstrap flow.
 - **androidx.security:security-crypto** — encrypted credential storage.
 ### Rust Shared Layer (Cargo)
 - **codex-app-server-protocol**, **codex-app-server-client**, **codex-protocol**, **codex-core** — upstream Codex crates.
@@ -183,7 +182,9 @@ Incremental policy:
 ## Coding Style & Naming Conventions
 - Swift style follows standard Xcode defaults: 4-space indentation, `UpperCamelCase` for types, `lowerCamelCase` for properties/functions.
 - Kotlin style follows standard Android/Kotlin conventions: 4-space indentation, `UpperCamelCase` types, `lowerCamelCase` members.
-- Dark theme: pure `Color.black` backgrounds, `#00FF9C` accent, `SFMono-Regular` font throughout.
+- Theme and font choices are user-selectable. Keep new UI colors and text on
+  `LitterTheme` / `LitterFont` tokens; reserve terminal-specific monospaced
+  styling for terminal surfaces.
 - Keep concurrency boundaries explicit (`actor`, `@MainActor`) and avoid cross-actor mutable state.
 - Group iOS files by layer (`Views`, `Models`, `Bridge`) and Android files by module (`app/ui`, `app/state`, `core/*`).
 - No repository-local SwiftLint/SwiftFormat config is currently committed; keep formatting consistent with existing files.
