@@ -47,4 +47,21 @@ final class ThemeDefinitionTests: XCTestCase {
         XCTAssertEqual(theme.colors["button.background"], "#7e57c2")
         XCTAssertEqual(theme.colors["editor.background"], "#011627")
     }
+
+    func testChatGPTDarkPaletteMatchesLocalStudioReferenceTokens() throws {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: "chatgpt-dark", withExtension: "json")
+        )
+        let definition = try JSONDecoder().decode(ThemeDefinition.self, from: Data(contentsOf: url))
+        let theme = ResolvedTheme(slug: "chatgpt-dark", definition: definition)
+
+        XCTAssertEqual(theme.background, "#191919")
+        XCTAssertEqual(theme.surface, "#202020")
+        XCTAssertEqual(theme.surfaceLight, "#212121")
+        XCTAssertEqual(theme.textPrimary, "#d9d9d8")
+        XCTAssertEqual(theme.textSecondary, "#a0a09f")
+        XCTAssertEqual(theme.textMuted, "#626262")
+        XCTAssertEqual(theme.border, "#2a2a2a")
+        XCTAssertEqual(theme.separator, "#202020")
+    }
 }

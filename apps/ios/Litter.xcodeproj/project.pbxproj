@@ -21,6 +21,7 @@
 		040DA1C4B152364555F79660 /* LocalCodexBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D330E51EBB1EC86C197A9296 /* LocalCodexBootstrap.swift */; };
 		04743D5A1900185832682235 /* SSHLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9876F2929290D47ED57D77 /* SSHLoginSheet.swift */; };
 		04A9DBF10C6021392CB30528 /* ComputerUseToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32A00D8BD24DF9E3C4F5EA2C /* ComputerUseToolCallView.swift */; };
+		04F73698EF31FE7A30ACF87B /* chatgpt-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 01AC6347A1E502A4DDE879A1 /* chatgpt-dark.json */; };
 		05052123B10F8DF294F93954 /* ProximityHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1145D1C6621EAFEACB35671A /* ProximityHaptics.swift */; };
 		055E4E6F482808FF3A6FE4AD /* LitterPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05E1F150502D4C5682EBBFD /* LitterPalette.swift */; };
 		05A1BF5FB8220D9D48C611D0 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615E709D4D5722523052907E /* SnapshotHelper.swift */; };
@@ -222,6 +223,7 @@
 		52588C7F80941205018E7804 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 2FB04F90D08EE57F92DD7F58 /* AppIcon.icon */; };
 		52830FCFF8417E724A15555F /* HomeAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CAE8D1301B5643D9510273 /* HomeAnchor.swift */; };
 		52C9C8C4692470EC7B2CC9E5 /* DynamicTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4874A6712A57F780064DB0E /* DynamicTools.swift */; };
+		5309977958D7541D3D9EAF55 /* chatgpt-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 01AC6347A1E502A4DDE879A1 /* chatgpt-dark.json */; };
 		5342E9DEE1FB318F01E27F7E /* ChatTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 125E05AE5CC346C8D2ED2FED /* ChatTypes.swift */; };
 		535331FCBDF1337FABF60189 /* SessionsTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F1AA9A960B33D4BF4DEA49 /* SessionsTypes.swift */; };
 		536D80B942E8F4E7A5C4D0C8 /* ConversationDisplayUITestHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */; };
@@ -760,6 +762,7 @@
 /* Begin PBXFileReference section */
 		009A217AC2D736865C5F06F5 /* RunningTurnSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningTurnSnapshotTests.swift; sourceTree = "<group>"; };
 		018779F7529B6CAAC3A2B896 /* HomeDashboardSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardSupportTests.swift; sourceTree = "<group>"; };
+		01AC6347A1E502A4DDE879A1 /* chatgpt-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "chatgpt-dark.json"; sourceTree = "<group>"; };
 		02ED53258B9C053AB7035CD1 /* AgentLabelFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLabelFormatter.swift; sourceTree = "<group>"; };
 		03425A33EF523B27A338F941 /* ToolCallMessageParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallMessageParserTests.swift; sourceTree = "<group>"; };
 		034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryView.swift; sourceTree = "<group>"; };
@@ -1452,6 +1455,7 @@
 				50F540072B0F416010BC2DFF /* catppuccin-latte-Bd1wq-gC.json */,
 				73F81DFBE27A2FE1EB02C1DA /* catppuccin-macchiato.json */,
 				D4BBEE5D22A050571A528EF0 /* catppuccin-mocha-Ry8aD-5u.json */,
+				01AC6347A1E502A4DDE879A1 /* chatgpt-dark.json */,
 				251EBDF798A64303E84D4139 /* codex-dark.json */,
 				FA7B1E3B542D557D080E913D /* codex-light.json */,
 				9A59EFF7219CFC315A13C34D /* dark-plus-B1yOZ-Hy.json */,
@@ -1993,6 +1997,7 @@
 				309A289CE8893DC32800707B /* catppuccin-latte-Bd1wq-gC.json in Resources */,
 				68496CC30C5F60226C70A1A4 /* catppuccin-macchiato.json in Resources */,
 				1C6E7D681E15F41538C7D0DF /* catppuccin-mocha-Ry8aD-5u.json in Resources */,
+				04F73698EF31FE7A30ACF87B /* chatgpt-dark.json in Resources */,
 				4B95E45FAE01E50004FCABE3 /* codex-dark.json in Resources */,
 				B4DC839B476223C26E034025 /* codex-light.json in Resources */,
 				1FE369FFE3EBD593E13DF33F /* dark-plus-B1yOZ-Hy.json in Resources */,
@@ -2105,6 +2110,7 @@
 				CEA485200D8151C85EE9BC16 /* catppuccin-latte-Bd1wq-gC.json in Resources */,
 				71BDE48B071FBFA7B591DE4B /* catppuccin-macchiato.json in Resources */,
 				DE96D1BCB62F83DC4DAEB37C /* catppuccin-mocha-Ry8aD-5u.json in Resources */,
+				5309977958D7541D3D9EAF55 /* chatgpt-dark.json in Resources */,
 				CA65DD4BFD664A3CCFFEBBAA /* codex-dark.json in Resources */,
 				B2AFC54D3C1CE47C58453313 /* codex-light.json in Resources */,
 				3F40B95032B31B87D8DD870F /* dark-plus-B1yOZ-Hy.json in Resources */,
