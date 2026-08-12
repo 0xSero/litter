@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.litter.android.state.AppModel
+import com.litter.android.ui.LitterFontFamilyOption
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterThemeManager
@@ -53,17 +54,19 @@ internal fun SelectableMarkdownText(
     val textScale = LocalTextScale.current
     val resolvedTextSize = bodySize * textScale
     val textColor = LitterTheme.textBody.toArgb()
-    val useMono = LitterThemeManager.monoFontEnabled
-    val typeface = remember(context, useMono) {
-        if (useMono) {
-            runCatching {
-                androidx.core.content.res.ResourcesCompat.getFont(
-                    context,
-                    com.sigkitten.litter.android.R.font.berkeley_mono_regular,
-                )
-            }.getOrNull() ?: android.graphics.Typeface.MONOSPACE
-        } else {
-            android.graphics.Typeface.DEFAULT
+    val selectedFontFamily = LitterThemeManager.selectedFontFamily
+    val typeface = remember(context, selectedFontFamily) {
+        when (selectedFontFamily) {
+            LitterFontFamilyOption.BERKELEY_MONO ->
+                runCatching {
+                    androidx.core.content.res.ResourcesCompat.getFont(
+                        context,
+                        com.sigkitten.litter.android.R.font.berkeley_mono_regular,
+                    )
+                }.getOrNull() ?: android.graphics.Typeface.MONOSPACE
+            LitterFontFamilyOption.CHATGPT -> android.graphics.Typeface.DEFAULT
+            LitterFontFamilyOption.SYSTEM_MONO -> android.graphics.Typeface.MONOSPACE
+            LitterFontFamilyOption.SERIF -> android.graphics.Typeface.SERIF
         }
     }
     val markdownTextSizePx = remember(context, resolvedTextSize, usePhysicalDpTextSize) {

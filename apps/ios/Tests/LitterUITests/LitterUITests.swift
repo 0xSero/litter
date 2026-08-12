@@ -13,7 +13,7 @@ final class LitterUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Conversation"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Internal Thinking"].exists)
+        XCTAssertTrue(findStaticText("Internal Thinking", in: app))
         XCTAssertTrue(findStaticText("Commands", in: app))
         XCTAssertTrue(findStaticText("Tools", in: app))
     }

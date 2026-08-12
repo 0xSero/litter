@@ -23,3 +23,22 @@ final class LitterAppearanceModeTests: XCTestCase {
         XCTAssertEqual(LitterAppearanceMode.dark.userInterfaceStyle, .dark)
     }
 }
+
+final class FontFamilyOptionTests: XCTestCase {
+    func testFontChoicesKeepStableStorageValues() {
+        XCTAssertEqual(FontFamilyOption.allCases.map(\.rawValue), [
+            "mono",
+            "system",
+            "system-mono",
+            "serif",
+        ])
+    }
+
+    func testChatGPTAndReaderChoicesUseProportionalFamilies() {
+        XCTAssertFalse(FontFamilyOption.system.isMono)
+        XCTAssertFalse(FontFamilyOption.serif.isMono)
+        XCTAssertTrue(FontFamilyOption.mono.isMono)
+        XCTAssertTrue(FontFamilyOption.systemMono.isMono)
+        XCTAssertEqual(FontFamilyOption.system.displayName, "ChatGPT (System)")
+    }
+}
