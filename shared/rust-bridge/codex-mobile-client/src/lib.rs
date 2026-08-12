@@ -141,8 +141,6 @@ pub mod alleycat;
 pub mod cloud_sync;
 pub mod conversation;
 pub mod conversation_uniffi;
-pub mod discovery;
-pub mod discovery_uniffi;
 pub mod ffi;
 pub mod hydration;
 mod local_runtime_instructions;

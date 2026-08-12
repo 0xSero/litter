@@ -17,7 +17,7 @@ data class SavedServer(
     val port: Int,
     val codexPorts: List<Int> = emptyList(),
     val sshPort: Int? = null,
-    val source: String = "manual", // local, bonjour, tailscale, lanProbe, arpScan, ssh, manual
+    val source: String = "manual", // local, ssh, or manual
     val hasCodexServer: Boolean = false,
     val wakeMAC: String? = null,
     val preferredConnectionMode: String? = null, // directCodex or ssh
@@ -33,7 +33,7 @@ data class SavedServer(
     val alleycatAgentName: String? = null,
     val alleycatAgentWire: String? = null,
 ) {
-    /** Stable key for deduplication across discovery cycles. */
+    /** Stable key for deduplicating saved connection entries. */
     val deduplicationKey: String
         get() = websocketURL ?: normalizedHostKey(hostname)
 

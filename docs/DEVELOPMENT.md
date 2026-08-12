@@ -70,8 +70,9 @@ app.
 3. Connect from the Litter app.
 
    - Keep phone and Mac on the same LAN (or same Tailnet).
-   - In Discovery: tap a host showing `codex running` to connect directly, or
-     tap an `SSH` host and enter credentials.
+   - Open **Add Server** → **SSH or Codex URL**.
+   - Paste the explicit `ws://`/`wss://` app-server URL, or choose SSH and
+     enter the Mac host and credentials.
 
 4. Fallback: run app-server manually bound to loopback and forward the port
    over SSH.
@@ -82,7 +83,7 @@ app.
    codex app-server --listen ws://127.0.0.1:8390
    ```
 
-   Then connect the phone via the `SSH` flow in Discovery. Litter opens the SSH
+   Then connect the phone via the SSH flow in **Add Server**. Litter opens the SSH
    connection, port-forwards `127.0.0.1:8390`, and connects through the tunnel.
    Do not bind `0.0.0.0` unless you fully understand the exposure; the SSH flow
    is the supported path.

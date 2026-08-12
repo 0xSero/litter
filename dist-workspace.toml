@@ -20,7 +20,7 @@ install-path = "CARGO_HOME"
 hosting = "github"
 install-updater = false
 # Code-sign macOS binaries with the Developer ID Application cert in
-# `dnakov/litter`'s repo secrets. Even though npm doesn't trigger Gatekeeper,
+# `0xSero/litter`'s repo secrets. Even though npm doesn't trigger Gatekeeper,
 # signing gives the binary a stable identity for TCC (Local Network) and
 # launchd. Required secrets (cargo-dist 0.31 names):
 #   CODESIGN_CERTIFICATE          base64 of MAC_DEVELOPER_ID_CERT_P12_B64

@@ -319,7 +319,6 @@ jobs:
             printf '%s\n' \
               shared/rust-bridge/codex-mobile-client/src/lib.rs \
               shared/rust-bridge/codex-mobile-client/src/conversation_uniffi.rs \
-              shared/rust-bridge/codex-mobile-client/src/discovery_uniffi.rs \
               shared/rust-bridge/codex-mobile-client/Cargo.toml \
               shared/rust-bridge/../third_party/codex/codex-rs/app-server-protocol/src/protocol/common.rs \
               shared/rust-bridge/../third_party/codex/codex-rs/app-server-protocol/src/protocol/v1.rs \

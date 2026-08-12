@@ -162,8 +162,7 @@ PATCH_FILES := $(sort $(wildcard $(PATCHES_DIR)/*.patch))
 BOUNDARY_SOURCES := \
 	$(RUST_DIR)/codex-mobile-client/Cargo.toml \
 	$(RUST_DIR)/codex-mobile-client/src/lib.rs \
-	$(RUST_DIR)/codex-mobile-client/src/conversation_uniffi.rs \
-	$(RUST_DIR)/codex-mobile-client/src/discovery_uniffi.rs
+	$(RUST_DIR)/codex-mobile-client/src/conversation_uniffi.rs
 
 BOUNDARY_SOURCES += $(shell find $(RUST_DIR)/codex-mobile-client/src -type f -name '*.rs' 2>/dev/null)
 

@@ -23,7 +23,7 @@ Current automated checks:
   - validate typed composer inputs, snapshot projection, markdown sizing, slash commands, math, and response errors
 - `RealtimeWebRtcTransportTest` and `RealtimeWebRtcSessionTest`
   - validate the typed SDP transport and native WebRTC session lifecycle
-- OAuth, discovery pairing, appearance, and home-dashboard tests
+- OAuth, server pairing, appearance, and home-dashboard tests
   - validate their platform adapters without duplicating the Rust reducer
 
 ## Manual Matrix
@@ -33,7 +33,7 @@ Current automated checks:
 | App launch | App launches and can start a local bridge-backed session |
 | Connect local/on-device | Success (`ServerConfig.local`) |
 | Connect remote server | Success |
-| SSH-discovered remote server | Prompts for SSH credentials, connects through SSH port forwarding, and never attempts `ws://host:22` directly |
+| Manual or saved SSH server | Prompts for SSH credentials, connects through SSH port forwarding, and never attempts `ws://host:22` directly |
 | Local transport drop | Reconnect and one-time reinitialize before the next non-initialize RPC |
 | Remote transport drop | Reconnect behavior via Rust `AppStore` updates and resumed RPC notifications |
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when Linux sandboxing is unavailable |
@@ -58,8 +58,8 @@ tracks parity between iOS (UIKit + Metal) and Android (Compose + SurfaceView).
 | Cell-grid math | Driven by Ghostty `surfaceMetrics`; falls back to font-size-aware estimate on first frame | Same path via `nativeSurfaceSize` |
 | Resize on rotation / keyboard show-hide | `layoutSubviews` plus `UIResponder.keyboardWillChangeFrame` triggers | `onSizeChanged` re-fires through Compose's `imePadding` insets |
 | Mouse-tracking apps (vim / htop) | Single-finger drag forwards to Ghostty when `mouseCaptured` | Same |
-| Alleycat remote host | Discovery toolbar QR button opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses the Alleycat payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; after token-authenticated pairing the sheet calls `serverBridge.listAlleycatAgents`, lets the user choose Codex/Pi/OpenCode, connects with `serverBridge.connectRemoteOverAlleycat`, and persists the token through `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes `{node_id, relay?, agent}` records, reconnect attaches the encrypted-store token directly, and legacy Alleycat records require a new QR scan. | Same |
-| Local Studio host (pairing) | Discovery → **Local Studio** card opens the pairing sheet in Local Studio mode. Scanning the QR from Local Studio's Profile → Phone connection, or pasting its Copy connection JSON, saves a server with id `alleycat:local-studio:<nodeId>` and forces a re-scan if the keychain/prefs entry is missing. | **Verified 2026-07-30 on an API 36 ARM64 emulator.** Copy-connection pairing reached the live Local Studio relay; the shared parser now normalizes the trailing dot emitted by the relay hostname, and the freshly signed release APK reconnected the saved pairing after reinstall. |
+| Alleycat remote host | Add Server's Kittylitter QR card opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses the Alleycat payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; after token-authenticated pairing the sheet calls `serverBridge.listAlleycatAgents`, lets the user choose Codex/Pi/OpenCode, connects with `serverBridge.connectRemoteOverAlleycat`, and persists the token through `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes `{node_id, relay?, agent}` records, reconnect attaches the encrypted-store token directly, and legacy Alleycat records require a new QR scan. | Same |
+| Local Studio host (pairing) | Add Server → **Local Studio** opens the pairing sheet in Local Studio mode. Scanning the QR from Local Studio's Profile → Phone connection, or pasting its Copy connection JSON, saves a server with id `alleycat:local-studio:<nodeId>` and forces a new QR scan if the keychain/prefs entry is missing. | **Verified 2026-07-30 on an API 36 ARM64 emulator.** Copy-connection pairing reached the live Local Studio relay; the shared parser now normalizes the trailing dot emitted by the relay hostname, and the freshly signed release APK reconnected the saved pairing after reinstall. |
 | Local Studio host (runtime) | Selecting Local Studio launches the shared Pi bridge against Local Studio's own `pi-agent` home, so the standard model selector, chat/tool timeline, and remote filesystem UI are reused. Permission controls are hidden because the runtime is fixed full-access. | **Verified 2026-07-30 on an API 36 ARM64 emulator.** The signed `1.6.0` release APK connected, resumed and hydrated Local Studio threads, and displayed the completed `ANDROID_LOCAL_STUDIO_OK` turn. The transport proof suite also passed all 11 scenarios, including command output, filesystem access, mid-turn status, reconnect, and final hydration. |
 
 ## Plugin `@`-mention parity (follow-up)

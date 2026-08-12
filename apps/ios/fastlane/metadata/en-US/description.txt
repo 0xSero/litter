@@ -3,10 +3,10 @@ Litter is a native mobile client for Codex.
 Connect to local or remote Codex servers, manage coding sessions from anywhere, and keep conversations moving without opening your laptop.
 
 Features:
-- Discover Codex servers on your local network automatically
+- Add a direct server endpoint, connect over SSH, or pair with Alleycat by QR code
 - Connect to remote machines over SSH and start Codex remotely
 - Talk to Codex with voice input for fast, hands-free prompts
 - Review conversation history, reasoning, code blocks, and images in a mobile-native UI
-- Stay connected to the servers you control instead of sending your work through a hosted relay
+- Keep coding sessions on servers you control, with optional Alleycat relay pairing and OpenAI voice processing
 
 Litter is open source and built for people who want their coding agent with them wherever they are.

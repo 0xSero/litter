@@ -6,19 +6,6 @@ enum ServerSource: String, Codable, Hashable {
     case ssh
     case tailscale
     case manual
-
-    init(_ source: AppDiscoverySource) {
-        switch source {
-        case .bonjour, .lanProbe, .arpScan:
-            self = .bonjour
-        case .tailscale:
-            self = .tailscale
-        case .manual:
-            self = .manual
-        case .local:
-            self = .local
-        }
-    }
 }
 
 enum PreferredConnectionMode: String, Codable, Hashable {
