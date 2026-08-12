@@ -3,7 +3,7 @@ import SwiftUI
 struct CodeBlockView: View {
     let language: String
     let code: String
-    var fontSize: CGFloat = LitterFont.conversationBodyPointSize
+    var fontSize: CGFloat = LitterFont.conversationCodePointSize
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -20,8 +20,12 @@ struct CodeBlockView: View {
                     .litterMonoFont(size: fontSize)
                     .foregroundColor(LitterTheme.textBody)
                     .textSelection(.enabled)
+                    // Let the text keep its natural width inside the horizontal
+                    // scroller. A max-width frame here asks SwiftUI to squeeze
+                    // long source lines, which produces ellipses instead of a
+                    // scrollable code block.
+                    .fixedSize(horizontal: true, vertical: true)
                     .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(LitterTheme.codeBackground.opacity(0.8))
