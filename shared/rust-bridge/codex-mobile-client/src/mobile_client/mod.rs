@@ -1302,47 +1302,6 @@ impl MobileClient {
         .map_err(RpcClientError::Rpc)
     }
 
-    #[allow(dead_code)]
-    pub(crate) async fn server_thread_list(
-        &self,
-        server_id: &str,
-        params: upstream::ThreadListParams,
-    ) -> Result<upstream::ThreadListResponse, crate::RpcClientError> {
-        use crate::{RpcClientError, next_request_id};
-        let runtime_kinds = self
-            .get_session(server_id)
-            .map_err(|error| RpcClientError::Rpc(error.to_string()))?
-            .runtime_kinds();
-        let mut merged = upstream::ThreadListResponse {
-            data: Vec::new(),
-            next_cursor: None,
-            backwards_cursor: None,
-        };
-
-        for runtime_kind in runtime_kinds {
-            let response: upstream::ThreadListResponse = self
-                .request_typed_for_server_runtime(
-                    server_id,
-                    runtime_kind,
-                    upstream::ClientRequest::ThreadList {
-                        request_id: upstream::RequestId::Integer(next_request_id()),
-                        params: params.clone(),
-                    },
-                )
-                .await
-                .map_err(RpcClientError::Rpc)?;
-            merged.data.extend(response.data);
-            if merged.next_cursor.is_none() {
-                merged.next_cursor = response.next_cursor;
-            }
-            if merged.backwards_cursor.is_none() {
-                merged.backwards_cursor = response.backwards_cursor;
-            }
-        }
-
-        Ok(merged)
-    }
-
     pub(crate) async fn server_collaboration_mode_list(
         &self,
         server_id: &str,
@@ -2563,50 +2522,6 @@ impl MobileClient {
         info!("MobileClient: restarting app server {server_id}");
         session.restart_app_server_and_disconnect().await;
         Ok(())
-    }
-
-    /// Return the configs of all currently connected servers.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn connected_servers(&self) -> Vec<ServerConfig> {
-        self.sessions_read()
-            .values()
-            .map(|s| s.config().clone())
-            .collect()
-    }
-
-    // ── Threads ───────────────────────────────────────────────────────
-
-    /// List threads from a specific server.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) async fn list_threads(&self, server_id: &str) -> Result<Vec<ThreadInfo>, RpcError> {
-        self.get_session(server_id)?;
-        let response = self
-            .server_thread_list(
-                server_id,
-                upstream::ThreadListParams {
-                    limit: None,
-                    cursor: None,
-                    sort_key: None,
-                    sort_direction: None,
-                    model_providers: None,
-                    source_kinds: None,
-                    archived: None,
-                    cwd: None,
-                    search_term: None,
-                    use_state_db_only: false,
-                },
-            )
-            .await
-            .map_err(map_rpc_client_error)?;
-        let threads = response
-            .data
-            .into_iter()
-            .filter_map(thread_info_from_upstream_thread)
-            .collect::<Vec<_>>();
-        self.app_store.sync_thread_list(server_id, &threads);
-        Ok(threads)
     }
 
     pub async fn sync_server_account(&self, server_id: &str) -> Result<(), RpcError> {
