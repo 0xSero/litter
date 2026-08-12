@@ -2,25 +2,6 @@ import SwiftUI
 import HairballUI
 import UIKit
 
-enum ConversationLiveDetailRetentionPolicy {
-    static func retainedRichDetailItemIDs(for items: [ConversationItem]) -> Set<String> {
-        var retained = Set<String>()
-
-        if let active = items.last(where: { $0.liveDetailStatus == .inProgress }) {
-            retained.insert(active.id)
-        }
-
-        if let latestCompleted = items.reversed().first(where: { item in
-            guard let status = item.liveDetailStatus else { return false }
-            return status != .inProgress
-        }) {
-            retained.insert(latestCompleted.id)
-        }
-
-        return retained
-    }
-}
-
 struct ConversationTurnTimeline: View {
     @AppStorage(ConversationDisplayPreferenceKey.reasoning) private var reasoningDisplayModeRaw = ConversationDetailDisplayMode.collapsed.rawValue
     @AppStorage(ConversationDisplayPreferenceKey.commands) private var commandDisplayModeRaw = ConversationDetailDisplayMode.collapsed.rawValue
@@ -46,25 +27,12 @@ struct ConversationTurnTimeline: View {
 
     private var timelineContent: some View {
         let rows = rowDescriptors
-        let retainedRichDetailItemIDs = ConversationLiveDetailRetentionPolicy.retainedRichDetailItemIDs(for: items)
-        let commandDisplayMode = ConversationDetailDisplayMode.resolve(commandDisplayModeRaw)
-        let latestCommandExecutionItemId = rows.reversed().compactMap { row -> String? in
-            guard case .item(let item) = row,
-                  case .commandExecution(let data) = item.content,
-                  !data.isPureExploration else { return nil }
-            return item.id
-        }.first
 
         return VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,
-                    isLastRow: index == rows.indices.last,
-                    isPreferredExpandedCommandRow: row.preferredExpandedCommandRow(
-                        latestCommandExecutionItemId: latestCommandExecutionItemId,
-                        commandDisplayMode: commandDisplayMode
-                    ),
-                    retainedRichDetailItemIDs: retainedRichDetailItemIDs
+                    isLastRow: index == rows.indices.last
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
@@ -115,9 +83,7 @@ struct ConversationTurnTimeline: View {
     // the union every SwiftUI pass.
     private func rowView(
         _ row: ConversationTimelineRowDescriptor,
-        isLastRow: Bool,
-        isPreferredExpandedCommandRow: Bool,
-        retainedRichDetailItemIDs: Set<String>
+        isLastRow: Bool
     ) -> AnyView {
         switch row {
         case .item(let item):
@@ -127,10 +93,8 @@ struct ConversationTurnTimeline: View {
                     serverId: serverId,
                     originThreadId: originThreadId,
                     agentDirectoryVersion: agentDirectoryVersion,
-                    isPreferredExpandedCommandRow: isPreferredExpandedCommandRow,
                     isLiveTurn: isLive,
                     isStreamingMessage: item.id == streamingAssistantItemId,
-                    shouldPreserveRichDetail: retainedRichDetailItemIDs.contains(item.id),
                     reasoningDisplayMode: reasoningDisplayMode,
                     commandDisplayMode: commandDisplayMode,
                     toolDisplayMode: toolDisplayMode,
@@ -184,21 +148,6 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
     var isAssistantRow: Bool {
         guard case .item(let item) = self else { return false }
         return item.isAssistantItem
-    }
-
-    func preferredExpandedCommandRow(
-        latestCommandExecutionItemId: String?,
-        commandDisplayMode: ConversationDetailDisplayMode
-    ) -> Bool {
-        guard commandDisplayMode == .collapsed else {
-            return commandDisplayMode == .expanded
-        }
-        guard case .item(let item) = self,
-              case .commandExecution(let data) = item.content,
-              !data.isPureExploration else {
-            return false
-        }
-        return item.id == latestCommandExecutionItemId
     }
 
     func isVisible(
@@ -427,10 +376,8 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let serverId: String
     let originThreadId: String?
     let agentDirectoryVersion: UInt64
-    let isPreferredExpandedCommandRow: Bool
     let isLiveTurn: Bool
     let isStreamingMessage: Bool
-    let shouldPreserveRichDetail: Bool
     let reasoningDisplayMode: ConversationDetailDisplayMode
     let commandDisplayMode: ConversationDetailDisplayMode
     let toolDisplayMode: ConversationDetailDisplayMode
@@ -453,12 +400,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
         // StreamingMarkdownContentView and replay the token reveal.
         let result = lhs.item.id == rhs.item.id &&
             (isAssistant || lhs.item.renderDigest == rhs.item.renderDigest) &&
-            (isAssistant || lhs.shouldPreserveRichDetail == rhs.shouldPreserveRichDetail) &&
             (isAssistant || lhs.isStreamingMessage == rhs.isStreamingMessage) &&
             lhs.serverId == rhs.serverId &&
             lhs.originThreadId == rhs.originThreadId &&
             lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
-            lhs.isPreferredExpandedCommandRow == rhs.isPreferredExpandedCommandRow &&
             lhs.isLiveTurn == rhs.isLiveTurn &&
             lhs.reasoningDisplayMode == rhs.reasoningDisplayMode &&
             lhs.commandDisplayMode == rhs.commandDisplayMode &&
@@ -574,7 +519,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
     private func commandExecutionRow(_ data: ConversationCommandExecutionData) -> some View {
         ConversationCommandExecutionRow(
             data: data,
-            isPreferredExpanded: commandDefaultExpanded(data),
+            isInitiallyExpanded: commandDefaultExpanded(data),
             displayMode: commandDisplayMode
         )
     }
@@ -589,12 +534,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
     }
 
     private func toolDefaultExpanded(isFailed: Bool) -> Bool {
-        if toolDisplayMode == .collapsed,
-           !isLiveTurn,
-           shouldPreserveRichDetail {
-            return true
-        }
-        return toolDisplayMode.defaultExpanded(isFailed: isFailed)
+        toolDisplayMode.defaultExpanded(isFailed: isFailed)
     }
 
     private func commandDefaultExpanded(_ data: ConversationCommandExecutionData) -> Bool {
@@ -1404,20 +1344,20 @@ private struct ConversationTurnDiffRow: View {
 
 private struct ConversationCommandExecutionRow: View {
     let data: ConversationCommandExecutionData
-    let isPreferredExpanded: Bool
+    let isInitiallyExpanded: Bool
     let displayMode: ConversationDetailDisplayMode
 
     @State private var expanded: Bool
 
     init(
         data: ConversationCommandExecutionData,
-        isPreferredExpanded: Bool,
+        isInitiallyExpanded: Bool,
         displayMode: ConversationDetailDisplayMode
     ) {
         self.data = data
-        self.isPreferredExpanded = isPreferredExpanded
+        self.isInitiallyExpanded = isInitiallyExpanded
         self.displayMode = displayMode
-        _expanded = State(initialValue: isPreferredExpanded)
+        _expanded = State(initialValue: isInitiallyExpanded)
     }
 
     var body: some View {
@@ -1440,7 +1380,7 @@ private struct ConversationCommandExecutionRow: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .animation(.spring(duration: 0.35, bounce: 0.15), value: expanded)
-        .onChange(of: isPreferredExpanded) { _, newValue in
+        .onChange(of: isInitiallyExpanded) { _, newValue in
             expanded = newValue
         }
         .onChange(of: displayMode) { _, newValue in
