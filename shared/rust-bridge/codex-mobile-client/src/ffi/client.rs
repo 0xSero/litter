@@ -1280,7 +1280,22 @@ impl AppClient {
         path: String,
     ) -> Result<types::ResolvedImageViewResult, ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            resolve_image_view_bytes(c.as_ref(), &server_id, &path).await
+            resolve_image_view_bytes(c.as_ref(), &server_id, &path, None).await
+        })
+    }
+
+    /// Resolve an image path relative to a thread working directory when the
+    /// message referenced `./foo.png`, `art/foo.svg`, or another relative
+    /// path. The original `resolve_image_view` remains available for
+    /// absolute/tool-provided paths.
+    pub async fn resolve_image_view_at(
+        &self,
+        server_id: String,
+        path: String,
+        cwd: Option<String>,
+    ) -> Result<types::ResolvedImageViewResult, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            resolve_image_view_bytes(c.as_ref(), &server_id, &path, cwd.as_deref()).await
         })
     }
 
@@ -1846,6 +1861,7 @@ async fn resolve_image_view_bytes(
     client: &MobileClient,
     server_id: &str,
     raw_path: &str,
+    cwd: Option<&str>,
 ) -> Result<types::ResolvedImageViewResult, ClientError> {
     let source = ImageViewSource::parse(raw_path)
         .ok_or_else(|| ClientError::InvalidParams("image_view path is empty".to_string()))?;
@@ -1856,8 +1872,17 @@ async fn resolve_image_view_bytes(
             bytes,
         }),
         ImageViewSource::FilePath(path) => {
-            if let Ok(bytes) = std::fs::read(&path) {
-                return Ok(types::ResolvedImageViewResult { path, bytes });
+            let local_path = if std::path::Path::new(&path).is_relative() {
+                cwd.map(|base| std::path::Path::new(base).join(&path))
+                    .unwrap_or_else(|| std::path::PathBuf::from(&path))
+            } else {
+                std::path::PathBuf::from(&path)
+            };
+            if let Ok(bytes) = std::fs::read(&local_path) {
+                return Ok(types::ResolvedImageViewResult {
+                    path: local_path.to_string_lossy().into_owned(),
+                    bytes,
+                });
             }
 
             if server_id.trim().is_empty() {
@@ -1866,9 +1891,13 @@ async fn resolve_image_view_bytes(
                 ));
             }
 
-            let response =
-                exec_command_simple_owned(client, server_id, image_read_command(&path), None)
-                    .await?;
+            let response = exec_command_simple_owned(
+                client,
+                server_id,
+                image_read_command(&path),
+                cwd.map(str::to_owned),
+            )
+            .await?;
 
             if response.exit_code != 0 {
                 let stderr = response.stderr.trim();
@@ -2152,6 +2181,10 @@ fn normalized_image_path(raw: &str) -> Option<String> {
         || raw.starts_with("\\\\")
         || is_windows_path(raw)
     {
+        return Some(raw.to_string());
+    }
+
+    if !raw.contains("://") && !raw.starts_with("data:") {
         return Some(raw.to_string());
     }
 

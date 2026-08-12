@@ -558,6 +558,7 @@ fun ConversationScreen(
                                                     item = entry.item,
                                                     serverId = threadKey.serverId,
                                                     threadId = threadKey.threadId,
+                                                    threadCwd = thread?.info?.cwd,
                                                     agentDirectoryVersion = agentDirectoryVersion,
                                                     latestCommandExecutionItemId = latestCommandExecutionItemId,
                                                     isLiveTurn = turn.isActiveTurn,
