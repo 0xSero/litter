@@ -112,9 +112,26 @@ object LitterTheme {
     val toolCallCollaboration = olive
     val toolCallImage = sand
 
-    /** The current monospace font — Berkeley Mono when mono enabled, system mono otherwise. */
+    /** The selected app font for prose and interface chrome. */
+    val bodyFont: FontFamily
+        get() = fontFamily(LitterThemeManager.selectedFontFamily)
+
+    /** Code stays monospaced; Berkeley follows the Berkeley app choice. */
     val monoFont: FontFamily
-        get() = if (LitterThemeManager.monoFontEnabled) BerkeleyMono else FontFamily.Monospace
+        get() =
+            if (LitterThemeManager.selectedFontFamily == LitterFontFamilyOption.BERKELEY_MONO) {
+                BerkeleyMono
+            } else {
+                FontFamily.Monospace
+            }
+
+    fun fontFamily(option: LitterFontFamilyOption): FontFamily =
+        when (option) {
+            LitterFontFamilyOption.BERKELEY_MONO -> BerkeleyMono
+            LitterFontFamilyOption.CHATGPT -> FontFamily.Default
+            LitterFontFamilyOption.SYSTEM_MONO -> FontFamily.Monospace
+            LitterFontFamilyOption.SERIF -> FontFamily.Serif
+        }
 
     val backgroundBrush: Brush
         get() =
@@ -141,8 +158,6 @@ val BerkeleyMono =
         Font(R.font.berkeley_mono_bold, weight = FontWeight.Bold, style = FontStyle.Normal),
         Font(R.font.berkeley_mono_bold_oblique, weight = FontWeight.Bold, style = FontStyle.Italic),
     )
-
-private val Mono = BerkeleyMono
 
 @Suppress("DEPRECATION")
 private val LitterPlatformTextStyle = PlatformTextStyle(includeFontPadding = false)
@@ -274,8 +289,8 @@ fun LitterAppTheme(content: @Composable () -> Unit) {
             }
         }
 
-    val monoFontEnabled = LitterThemeManager.monoFontEnabled
-    val typography = if (monoFontEnabled) buildTypography(Mono) else buildTypography(FontFamily.Default)
+    val selectedFontFamily = LitterThemeManager.selectedFontFamily
+    val typography = remember(selectedFontFamily) { buildTypography(LitterTheme.fontFamily(selectedFontFamily)) }
 
     MaterialTheme(
         colorScheme = colorScheme,

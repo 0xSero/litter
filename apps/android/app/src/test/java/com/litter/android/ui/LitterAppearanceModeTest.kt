@@ -25,4 +25,13 @@ class LitterAppearanceModeTest {
         assertEquals(false, LitterAppearanceMode.LIGHT.resolvesDarkTheme(systemIsDark = true))
         assertEquals(true, LitterAppearanceMode.DARK.resolvesDarkTheme(systemIsDark = false))
     }
+
+    @Test
+    fun parsesStoredFontFamilies() {
+        assertEquals(LitterFontFamilyOption.BERKELEY_MONO, LitterFontFamilyOption.fromStorageValue("mono"))
+        assertEquals(LitterFontFamilyOption.CHATGPT, LitterFontFamilyOption.fromStorageValue("SYSTEM"))
+        assertEquals(LitterFontFamilyOption.SYSTEM_MONO, LitterFontFamilyOption.fromStorageValue("system-mono"))
+        assertEquals(LitterFontFamilyOption.SERIF, LitterFontFamilyOption.fromStorageValue("serif"))
+        assertNull(LitterFontFamilyOption.fromStorageValue("comic-sans"))
+    }
 }

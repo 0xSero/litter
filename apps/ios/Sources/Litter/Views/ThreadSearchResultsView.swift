@@ -178,8 +178,7 @@ private struct ThreadSearchRow: View {
                 ThreadSearchRuntimeIcon(kind: session.agentRuntimeKind)
                 VStack(alignment: .leading, spacing: 2) {
                     FormattedText(text: session.sessionTitle, lineLimit: 1)
-                        .font(.custom(LitterFont.markdownFontName, size: 13))
-                        .fontWeight(.semibold)
+                        .litterFont(size: 13, weight: .semibold)
                         .foregroundStyle(LitterTheme.textPrimary)
                     HStack(spacing: 4) {
                         Text(session.serverDisplayName)
@@ -274,8 +273,7 @@ private struct ThreadSearchClusterRow: View {
             ThreadSearchRuntimeIcon(kind: session.agentRuntimeKind)
             VStack(alignment: .leading, spacing: 2) {
                 FormattedText(text: session.sessionTitle, lineLimit: 1)
-                    .font(.custom(LitterFont.markdownFontName, size: 13))
-                    .fontWeight(.semibold)
+                    .litterFont(size: 13, weight: .semibold)
                     .foregroundStyle(LitterTheme.textPrimary)
                 HStack(spacing: 4) {
                     Text(session.serverDisplayName)

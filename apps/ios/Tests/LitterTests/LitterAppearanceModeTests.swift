@@ -23,3 +23,52 @@ final class LitterAppearanceModeTests: XCTestCase {
         XCTAssertEqual(LitterAppearanceMode.dark.userInterfaceStyle, .dark)
     }
 }
+
+final class FontFamilyOptionTests: XCTestCase {
+    func testFontChoicesKeepStableStorageValues() {
+        XCTAssertEqual(FontFamilyOption.allCases.map(\.rawValue), [
+            "mono",
+            "system",
+            "system-mono",
+            "serif",
+        ])
+    }
+
+    func testChatGPTAndReaderChoicesUseProportionalFamilies() {
+        XCTAssertFalse(FontFamilyOption.system.isMono)
+        XCTAssertFalse(FontFamilyOption.serif.isMono)
+        XCTAssertTrue(FontFamilyOption.mono.isMono)
+        XCTAssertTrue(FontFamilyOption.systemMono.isMono)
+        XCTAssertEqual(FontFamilyOption.system.displayName, "ChatGPT (System)")
+    }
+
+    func testFontPreferenceObserverAdvancesRevision() {
+        let observer = FontPreferenceObserver()
+
+        observer.didChange()
+        observer.didChange()
+
+        XCTAssertEqual(observer.revision, 2)
+    }
+}
+
+final class ConversationTextSizeTests: XCTestCase {
+    func testStoredValueIsBoundedToSupportedSteps() {
+        XCTAssertEqual(ConversationTextSize.clamped(rawValue: -42), .tiny)
+        XCTAssertEqual(ConversationTextSize.clamped(rawValue: 42), .huge)
+    }
+
+    func testMediumIsTheUnscaledReadingDefault() {
+        XCTAssertEqual(ConversationTextSize.medium.scale, 1.0)
+    }
+}
+
+final class LitterPlatformLayoutTests: XCTestCase {
+    func testPhoneDoesNotCreateSplitNavigationFromRegularSizeClass() {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return
+        }
+
+        XCTAssertFalse(LitterPlatform.isRegularSurface(horizontalSizeClass: .regular))
+    }
+}

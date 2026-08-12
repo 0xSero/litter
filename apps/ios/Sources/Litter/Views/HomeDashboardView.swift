@@ -768,7 +768,7 @@ struct SessionCanvasLine: View {
                     Spacer(minLength: 6)
                     if zoomLevel == 1 {
                         Text(timeAgo)
-                            .litterMonoFont(size: 10, weight: .regular)
+                            .litterFont(size: 10, weight: .regular)
                             .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
                             .fixedSize()
                     }
@@ -896,7 +896,7 @@ struct SessionCanvasLine: View {
                 statChips
             }
         }
-        .litterMonoFont(size: 10, weight: .regular)
+        .litterFont(size: 10, weight: .regular)
         .lineLimit(1)
         .padding(.top, 2)
     }
@@ -991,7 +991,7 @@ struct SessionCanvasLine: View {
             }
             Spacer(minLength: 0)
         }
-        .litterMonoFont(size: 10, weight: .regular)
+        .litterFont(size: 10, weight: .regular)
         .lineLimit(1)
         .truncationMode(.tail)
         .padding(.top, 1)
@@ -1062,7 +1062,7 @@ struct SessionCanvasLine: View {
                 }
                 Spacer(minLength: 0)
             }
-            .litterMonoFont(size: 10, weight: .regular)
+            .litterFont(size: 10, weight: .regular)
             .padding(.top, 4)
         }
     }
@@ -1151,7 +1151,7 @@ struct SessionCanvasLine: View {
                     }
                 }
             }
-            .litterMonoFont(size: 12, weight: .regular)
+            .litterFont(size: 12, weight: .regular)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 10)
             .overlay(alignment: .top) {
@@ -1174,11 +1174,11 @@ struct SessionCanvasLine: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text("GOAL")
-                    .litterMonoFont(size: 9, weight: .semibold)
+                    .litterFont(size: 9, weight: .semibold)
                     .tracking(1.2)
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
                 Text(goalStatusLabel(goal.status))
-                    .litterMonoFont(size: 9, weight: .semibold)
+                    .litterFont(size: 9, weight: .semibold)
                     .tracking(0.6)
                     .foregroundStyle(goalStatusTint(goal.status).opacity(0.85))
             }
@@ -1188,7 +1188,7 @@ struct SessionCanvasLine: View {
                     .frame(width: 6, height: 6)
                     .padding(.top, 5)
                 Text(goal.objective)
-                    .litterMonoFont(size: 12, weight: .regular)
+                    .litterFont(size: 12, weight: .regular)
                     .foregroundStyle(LitterTheme.textSecondary.opacity(0.95))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -1235,7 +1235,7 @@ struct SessionCanvasLine: View {
                     .foregroundStyle(valueColor)
                 Text(label)
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
-                    .litterMonoFont(size: 11, weight: .regular)
+                    .litterFont(size: 11, weight: .regular)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1305,7 +1305,7 @@ struct SessionCanvasLine: View {
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
                 }
             }
-            .litterMonoFont(size: 10, weight: .regular)
+            .litterFont(size: 10, weight: .regular)
             .padding(.top, 1)
         }
     }
@@ -1380,7 +1380,7 @@ struct SessionCanvasLine: View {
     @ViewBuilder
     private var activityHeader: some View {
         Text("RECENT ACTIVITY")
-            .litterMonoFont(size: 9, weight: .semibold)
+            .litterFont(size: 9, weight: .semibold)
             .tracking(1.2)
             .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
             .padding(.top, 10)
@@ -1396,7 +1396,7 @@ struct SessionCanvasLine: View {
     private var cwdFooter: some View {
         HStack(spacing: 8) {
             Text(PathDisplay.display(session.cwd, isLocal: session.isLocal))
-                .litterMonoFont(size: 10, weight: .regular)
+                .litterFont(size: 10, weight: .regular)
                 .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1406,7 +1406,7 @@ struct SessionCanvasLine: View {
                         .fill(LitterTheme.accent)
                         .frame(width: 4, height: 4)
                     Text("Working")
-                        .litterMonoFont(size: 9, weight: .semibold)
+                        .litterFont(size: 9, weight: .semibold)
                         .foregroundStyle(LitterTheme.accent.opacity(0.85))
                 }
                 .padding(.horizontal, 7)
@@ -1607,7 +1607,7 @@ struct SessionCanvasLine: View {
                 .litterFont(size: 8, weight: .semibold)
                 .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
             Text("\(lineage.branchIndex)/\(lineage.branchTotal)")
-                .litterMonoFont(size: 9, weight: .semibold)
+                .litterFont(size: 9, weight: .semibold)
                 .foregroundStyle(LitterTheme.accent)
         }
         .padding(.horizontal, 5)
@@ -1654,7 +1654,7 @@ struct SessionCanvasLine: View {
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
                 Spacer(minLength: 0)
             }
-            .litterMonoFont(size: 9, weight: .regular)
+            .litterFont(size: 9, weight: .regular)
             .padding(.bottom, 2)
         }
     }
@@ -1786,11 +1786,10 @@ private struct MarkdownMatchedTitleFont: ViewModifier {
     @Environment(\.textScale) private var textScale
     func body(content: Content) -> some View {
         content
-            .font(.custom(
-                LitterFont.markdownFontName,
-                size: LitterFont.conversationBodyPointSize * textScale
-            ))
-            .fontWeight(.medium)
+            .litterFont(
+                size: LitterFont.conversationBodyPointSize,
+                weight: .medium
+            )
     }
 }
 

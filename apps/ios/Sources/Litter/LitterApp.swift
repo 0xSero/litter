@@ -7,10 +7,6 @@ import os
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var pendingPushToken: Data?
     private var pendingNotificationThreadKey: ThreadKey?
-    private var splashWindow: UIWindow?
-    private var minTimeElapsed = false
-    private var contentReady = false
-    private var splashDismissed = false
 
     weak var appRuntime: AppRuntimeController? {
         didSet {
@@ -103,7 +99,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
         }
-        showSplashWindow()
         scheduleKeyboardWarmup()
         // Start pushing state to the paired Apple Watch, gated behind the
         // experimental feature flag. Flip the `appleWatch` feature in
@@ -116,72 +111,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         return true
     }
 
-    // MARK: - Splash window (sits above keyboard)
-
-    private func showSplashWindow() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
-                self.showSplashWindow()
-                return
-            }
-            let window = UIWindow(windowScene: scene)
-            // Keyboard window is typically at level ~10000. Go above it.
-            window.windowLevel = UIWindow.Level(rawValue: 10000002)
-            let hosting = UIHostingController(rootView:
-                AnimatedSplashView(appReady: true) {}
-            )
-            hosting.view.backgroundColor = .clear
-            window.rootViewController = hosting
-            window.makeKeyAndVisible()
-            self.splashWindow = window
-
-            // Minimum display time
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                self.minTimeElapsed = true
-                self.tryDismissSplash()
-            }
-            // Hard max
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                self.forceDismissSplash()
-            }
-        }
-    }
-
-    /// Called by ContentView when the main UI has appeared.
-    func signalContentReady() {
-        contentReady = true
-        tryDismissSplash()
-    }
-
-    private func tryDismissSplash() {
-        guard !splashDismissed, minTimeElapsed, contentReady else { return }
-        dismissSplash()
-    }
-
-    private func forceDismissSplash() {
-        guard !splashDismissed else { return }
-        dismissSplash()
-    }
-
-    private func dismissSplash() {
-        splashDismissed = true
-        guard let window = splashWindow else { return }
-        UIView.animate(withDuration: 0.35, animations: {
-            window.alpha = 0
-        }, completion: { _ in
-            window.isHidden = true
-            window.rootViewController = nil
-            self.splashWindow = nil
-        })
-    }
-
     // MARK: - Keyboard warmup
 
     private func scheduleKeyboardWarmup() {
-        // Load the real system keyboard while the splash window covers it.
+        // Warm the real system keyboard after the main app window is visible.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = scene.windows.first(where: { $0 !== self.splashWindow }) else {
+                  let window = scene.windows.first else {
                 self.scheduleKeyboardWarmup()
                 return
             }
@@ -442,10 +378,9 @@ struct ContentView: View {
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
-    @State private var splashDismissed = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
+    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
 
     private var textScale: CGFloat {
         ConversationTextSize.clamped(rawValue: textSizeStep).scale
@@ -581,10 +516,6 @@ struct ContentView: View {
         .id(themeManager.themeVersion)
         .onAppear {
             Task { await conversationWarmup.prewarmIfNeeded() }
-            if !splashDismissed {
-                splashDismissed = true
-                (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
-            }
         }
     }
 
@@ -2050,6 +1981,8 @@ private struct ConversationDestinationScreen: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(LitterTheme.surface, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             if let conversationThread {
                 ToolbarItem(placement: .principal) {

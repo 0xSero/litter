@@ -50,15 +50,17 @@ struct LitterMarkdownView: View {
     var selectionEnabled = true
 
     @State private var debugSettings = DebugSettings.shared
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
 
     var body: some View {
         if debugSettings.enabled && debugSettings.disableMarkdown {
             Text(markdown)
-                .font(.system(size: bodySize, design: .monospaced))
+                .font(LitterFont.markdownBodyFont(size: bodySize))
                 .foregroundColor(style == .system ? LitterTheme.textSecondary : LitterTheme.textPrimary)
                 .textSelection(.enabled)
         } else {
             renderedMarkdown(selectionEnabled: selectionEnabled)
+                .id(fontPreferenceObserver.revision)
         }
     }
 
@@ -521,35 +523,38 @@ struct StreamingAssistantBubble: View {
 
 private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> MarkdownTheme {
     var theme = MarkdownTheme.default
-    theme.bodyFont = .custom(LitterFont.markdownFontName, size: bodySize)
+    theme.bodyFont = LitterFont.markdownBodyFont(size: bodySize)
     theme.bodyFontSize = bodySize
-    theme.foregroundColor = LitterTheme.textBody
+    // Conversation prose is the reading surface. Keep it at the theme's
+    // primary foreground rather than the muted metadata color so long replies
+    // retain contrast on dark themes.
+    theme.foregroundColor = LitterTheme.textPrimary
     theme.paragraphSpacing = 8
     theme.blockSpacing = 8
 
     theme.headingStyleSet = HeadingStyleSet(
-        h1: HeadingStyle(fontSize: bodySize * 1.43, weight: .bold,
+        h1: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.43, weight: .bold), fontSize: bodySize * 1.43, weight: .bold,
                          topSpacing: 16, bottomSpacing: 8, color: LitterTheme.textPrimary),
-        h2: HeadingStyle(fontSize: bodySize * 1.21, weight: .semibold,
+        h2: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.21, weight: .semibold), fontSize: bodySize * 1.21, weight: .semibold,
                          topSpacing: 12, bottomSpacing: 6, color: LitterTheme.textPrimary),
-        h3: HeadingStyle(fontSize: bodySize * 1.07, weight: .semibold,
+        h3: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.07, weight: .semibold), fontSize: bodySize * 1.07, weight: .semibold,
                          topSpacing: 10, bottomSpacing: 4, color: LitterTheme.textPrimary),
-        h4: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
-        h5: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
-        h6: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary)
+        h4: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
+        h5: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
+        h6: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary)
     )
 
     theme.inlineCode = InlineCodeStyle(
         backgroundColor: LitterTheme.surfaceLight,
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize
     )
 
     theme.codeBlock = CodeBlockStyle(
         backgroundColor: LitterTheme.codeBackground.opacity(0.8),
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize,
         cornerRadius: 8,
         showLanguageLabel: false,
@@ -571,6 +576,9 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
             even: LitterTheme.surface.opacity(0.5),
             odd: .clear
         ),
+        cellConfiguration: TableCellConfiguration(horizontalPadding: 10, verticalPadding: 6),
+        fontSize: bodySize,
+        verticalMargin: 10,
         cornerRadius: 8
     )
 
@@ -592,35 +600,35 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
 
 private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> MarkdownTheme {
     var theme = MarkdownTheme.default
-    theme.bodyFont = .custom(LitterFont.markdownFontName, size: bodySize)
+    theme.bodyFont = LitterFont.markdownBodyFont(size: bodySize)
     theme.bodyFontSize = bodySize
     theme.foregroundColor = LitterTheme.textSystem
     theme.paragraphSpacing = 6
     theme.blockSpacing = 6
 
     theme.headingStyleSet = HeadingStyleSet(
-        h1: HeadingStyle(fontSize: bodySize * 1.31, weight: .bold,
+        h1: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.31, weight: .bold), fontSize: bodySize * 1.31, weight: .bold,
                          topSpacing: 12, bottomSpacing: 6, color: LitterTheme.textPrimary),
-        h2: HeadingStyle(fontSize: bodySize * 1.15, weight: .semibold,
+        h2: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.15, weight: .semibold), fontSize: bodySize * 1.15, weight: .semibold,
                          topSpacing: 10, bottomSpacing: 4, color: LitterTheme.textPrimary),
-        h3: HeadingStyle(fontSize: bodySize * 1.08, weight: .semibold,
+        h3: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.08, weight: .semibold), fontSize: bodySize * 1.08, weight: .semibold,
                          topSpacing: 8, bottomSpacing: 4, color: LitterTheme.textPrimary),
-        h4: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
-        h5: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
-        h6: HeadingStyle(fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary)
+        h4: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
+        h5: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary),
+        h6: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize, weight: .semibold), fontSize: bodySize, weight: .semibold, color: LitterTheme.textPrimary)
     )
 
     theme.inlineCode = InlineCodeStyle(
         backgroundColor: LitterTheme.surfaceLight,
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize
     )
 
     theme.codeBlock = CodeBlockStyle(
         backgroundColor: LitterTheme.codeBackground.opacity(0.8),
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize,
         cornerRadius: 8,
         showLanguageLabel: false,
@@ -642,6 +650,9 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
             even: LitterTheme.surface.opacity(0.5),
             odd: .clear
         ),
+        cellConfiguration: TableCellConfiguration(horizontalPadding: 10, verticalPadding: 6),
+        fontSize: bodySize,
+        verticalMargin: 8,
         cornerRadius: 8
     )
 
@@ -834,6 +845,7 @@ private func syncHighlighterTheme(for colorScheme: ColorScheme) {
 private struct ScaledContentMarkdownModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let baseBodySize: CGFloat
     let baseCodeSize: CGFloat
     let selectionEnabled: Bool
@@ -846,6 +858,7 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
             .markdownTheme(litterContentTheme(bodySize: scaledBody, codeSize: scaledCode))
             .codeSyntaxHighlighter(sharedHighlighter)
             .codeBlockRenderer(LitterCodeBlockRenderer())
+            .id(fontPreferenceObserver.revision)
         if selectionEnabled {
             themed.textSelection(.enabled)
         } else {
@@ -857,6 +870,7 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
 private struct ScaledSystemMarkdownModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let baseBodySize: CGFloat
     let baseCodeSize: CGFloat
     let selectionEnabled: Bool
@@ -869,6 +883,7 @@ private struct ScaledSystemMarkdownModifier: ViewModifier {
             .markdownTheme(litterSystemTheme(bodySize: scaledBody, codeSize: scaledCode))
             .codeSyntaxHighlighter(sharedHighlighter)
             .codeBlockRenderer(LitterCodeBlockRenderer())
+            .id(fontPreferenceObserver.revision)
         if selectionEnabled {
             themed.textSelection(.enabled)
         } else {

@@ -40,15 +40,16 @@ enum LitterPalette {
 
     // MARK: - Font
 
-    /// Whether the user prefers monospaced font. Reads from the shared App Group.
-    static var isMono: Bool {
-        let raw = shared?.string(forKey: "fontFamily") ?? "mono"
-        return raw == "mono"
-    }
-
     /// Font design matching the user's font preference.
     static var fontDesign: Font.Design {
-        isMono ? .monospaced : .default
+        switch shared?.string(forKey: "fontFamily") ?? "system" {
+        case "mono", "system-mono":
+            return .monospaced
+        case "serif":
+            return .serif
+        default:
+            return .default
+        }
     }
 }
 
@@ -71,4 +72,3 @@ extension LitterPalette.Pair {
         return Color(red: r, green: g, blue: b)
     }
 }
-

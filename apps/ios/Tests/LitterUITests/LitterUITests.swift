@@ -13,7 +13,7 @@ final class LitterUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Conversation"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Internal Thinking"].exists)
+        XCTAssertTrue(findStaticText("Internal Thinking", in: app))
         XCTAssertTrue(findStaticText("Commands", in: app))
         XCTAssertTrue(findStaticText("Tools", in: app))
     }
@@ -43,7 +43,7 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
-    func testConversationDisplayCollapsedModeKeepsRowsAndRetainsRecentDetails() throws {
+    func testConversationDisplayCollapsedModeKeepsCompletedDetailsCollapsed() throws {
         let app = conversationDisplayHarnessApp(reasoning: "collapsed", commands: "collapsed", tools: "collapsed")
         app.launch()
 
@@ -55,7 +55,7 @@ final class LitterUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["uiTest.fixtureTool"].exists)
         XCTAssertFalse(app.staticTexts["UITEST_REASONING_DETAIL"].exists)
         XCTAssertFalse(app.staticTexts["UITEST_COMMAND_OUTPUT"].exists)
-        XCTAssertTrue(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
+        XCTAssertFalse(app.staticTexts["UITEST_TOOL_DETAIL"].exists)
         XCTAssertTrue(app.staticTexts["UITEST_LIVE_COMMAND_OUTPUT"].exists)
     }
 

@@ -214,14 +214,14 @@ final class ThemeManager {
     /// so the Live Activity widget can read it.
     func syncFontPreference() {
         guard let shared = UserDefaults(suiteName: Self.appGroupSuite) else { return }
-        let family = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
+        let family = UserDefaults.standard.string(forKey: "fontFamily") ?? "system"
         shared.set(family, forKey: "fontFamily")
     }
 
     private func writeToSharedDefaults() {
         guard let shared = UserDefaults(suiteName: Self.appGroupSuite) else { return }
         // Sync font preference alongside theme colors
-        let family = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
+        let family = UserDefaults.standard.string(forKey: "fontFamily") ?? "system"
         shared.set(family, forKey: "fontFamily")
         shared.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
         let pairs: [(String, String, String)] = [

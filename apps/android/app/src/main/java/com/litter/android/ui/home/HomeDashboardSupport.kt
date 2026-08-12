@@ -3,11 +3,9 @@ package com.litter.android.ui.home
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
-import com.litter.android.ui.LitterThemeManager
 import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.Account
@@ -43,8 +41,7 @@ data class ThreadLineage(
 
 /**
  * TextStyle matching the conversation body size at the current text scale,
- * using the user's selected markdown font (mono when mono is enabled,
- * platform default otherwise) at [FontWeight.Medium].
+ * using the user's selected app font at [FontWeight.Medium].
  *
  * Mirrors iOS `MarkdownMatchedTitleFont` so home dashboard titles render at
  * the same size as conversation message bodies — making row headings visually
@@ -55,7 +52,7 @@ data class ThreadLineage(
 @Composable
 @Suppress("DEPRECATION")
 fun markdownMatchedTitleStyle(): TextStyle {
-    val family = if (LitterThemeManager.monoFontEnabled) LitterTheme.monoFont else FontFamily.Default
+    val family = LitterTheme.bodyFont
     return TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
