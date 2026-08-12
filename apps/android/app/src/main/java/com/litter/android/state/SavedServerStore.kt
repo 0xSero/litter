@@ -310,9 +310,34 @@ object SavedServerStore {
         load(context).filter { it.rememberedByUser }
 
     fun remove(context: Context, serverId: String) {
-        val existing = load(context).toMutableList()
-        existing.removeAll { it.id == serverId }
-        save(context, existing)
+        val existing = load(context)
+        val nodeIdsToForget = orphanedAlleycatNodeIds(removing = serverId, from = existing)
+        val remaining = existing.filter { it.id != serverId }
+        save(context, remaining)
+
+        val credentials = AlleycatCredentialStore(context.applicationContext)
+        nodeIdsToForget.forEach(credentials::deleteToken)
+    }
+
+    /**
+     * Alleycat tokens are keyed by node ID, so retain them while another saved
+     * server still points at the same node. The device-wide identity key stays
+     * outside this server-scoped forget operation.
+     */
+    fun orphanedAlleycatNodeIds(removing: String, from: List<SavedServer>): List<String> {
+        val removedNodeIds =
+            from
+                .filter { it.id == removing }
+                .mapNotNull { it.alleycatNodeId.normalizedAlleycatNodeId() }
+                .toSet()
+        if (removedNodeIds.isEmpty()) return emptyList()
+
+        val retainedNodeIds =
+            from
+                .filter { it.id != removing }
+                .mapNotNull { it.alleycatNodeId.normalizedAlleycatNodeId() }
+                .toSet()
+        return (removedNodeIds - retainedNodeIds).sorted()
     }
 
     fun rename(context: Context, serverId: String, newName: String) {
@@ -352,6 +377,9 @@ object SavedServerStore {
         }
         return withoutScope.lowercase()
     }
+
+    private fun String?.normalizedAlleycatNodeId(): String? =
+        this?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 
     private fun migrateDisplayName(server: SavedServer): SavedServer {
         val nodeId = server.alleycatNodeId?.trim()?.takeIf { it.isNotEmpty() } ?: return server

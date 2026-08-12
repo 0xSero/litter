@@ -93,9 +93,10 @@ The continuation also separated confirmed debt from deletion candidates:
 - PowerShell SSH launch fallback remains explicitly unimplemented.
 - Alleycat's Pi/Claude config and MCP projections still contain synthesized or
   empty success surfaces described under P1 below.
-- Removing a saved Alleycat server does not call either platform's existing
-  secure-token deletion helper. A deliberate forget/reset flow is still needed
-  for associated credentials and installation identity.
+- Removing a saved Alleycat server now deletes its unreferenced secure token on
+  both platforms. The cleanup deliberately retains a token while another saved
+  entry references the same node, and it does not delete the installation-wide
+  identity key.
 - `scripts/pi-bridge-codex-shim.sh` and `scripts/bridge-call.py` have no internal
   callers but are command-line operator tools. Lack of imports is not proof
   they are removable; the latter was repaired and both are retained pending an
