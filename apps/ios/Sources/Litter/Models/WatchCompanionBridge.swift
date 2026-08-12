@@ -633,9 +633,6 @@ final class WatchCompanionBridge: NSObject {
         case "voice.toggleMute":
             return await handleVoiceToggleMute()
 
-        case "voice.bargeIn":
-            return await handleVoiceBargeIn()
-
         case "home.hide":
             return handleHomeHide(message)
 
@@ -827,15 +824,6 @@ final class WatchCompanionBridge: NSObject {
         return ["ok": true, "isMuted": controller.isMicrophoneMuted]
     }
 
-    private func handleVoiceBargeIn() async -> [String: Any] {
-        // Same situation as mute: there's no client-side cancel-response
-        // entry point yet. Reply with an error so the watch UI can hide the
-        // affordance.
-        return [
-            "ok": false,
-            "error": "barge-in not yet wired into iOS realtime session",
-        ]
-    }
 }
 
 /// WCSessionDelegate proxy. Declared as a separate class so the bridge can

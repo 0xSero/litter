@@ -87,34 +87,20 @@ private struct ActiveBody: View {
 
     private var controls: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Button {
-                    WKInterfaceDevice.current().play(.failure)
-                    WatchSessionBridge.shared.sendVoiceStop()
-                } label: {
-                    Text("stop")
-                        .font(WatchTheme.mono(11, weight: .bold))
-                        .foregroundStyle(theme.danger)
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                        .background(
-                            Capsule().fill(theme.surfaceLight)
-                                .overlay(Capsule().stroke(theme.danger.opacity(0.4), lineWidth: 1))
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    WKInterfaceDevice.current().play(.click)
-                    WatchSessionBridge.shared.sendVoiceBargeIn()
-                } label: {
-                    Text("barge in")
-                        .font(WatchTheme.mono(11, weight: .bold))
-                        .foregroundStyle(theme.textOnAccent)
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                        .background(Capsule().fill(theme.accent))
-                }
-                .buttonStyle(.plain)
+            Button {
+                WKInterfaceDevice.current().play(.failure)
+                WatchSessionBridge.shared.sendVoiceStop()
+            } label: {
+                Text("stop")
+                    .font(WatchTheme.mono(11, weight: .bold))
+                    .foregroundStyle(theme.danger)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .background(
+                        Capsule().fill(theme.surfaceLight)
+                            .overlay(Capsule().stroke(theme.danger.opacity(0.4), lineWidth: 1))
+                    )
             }
+            .buttonStyle(.plain)
 
             NavigationLink {
                 VoiceScreen()
