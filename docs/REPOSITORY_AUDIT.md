@@ -103,9 +103,9 @@ The continuation also separated confirmed debt from deletion candidates:
 - `local_studio_realtime.rs` is a large cross-repository protocol contract, not
   dead code. Superseded SSH and realtime boundary wrappers require live mobile
   acceptance before any later removal.
-- `services/kittylitter` still publishes v0.3.6 metadata and a Windows help link
-  for the former repository owner. The release guard correctly rejects changing
-  that package after its tag; update it only with a coordinated version bump.
+- `services/kittylitter` had stale v0.3.6 metadata and a Windows help link for
+  the former repository owner. The release guard correctly required a
+  coordinated version bump; the follow-up updates that package to v0.3.7.
 
 ## Architecture conclusions
 
