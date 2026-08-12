@@ -149,7 +149,8 @@ Incremental policy:
 - `make clean-rust` / `make clean-ios` / `make clean-android` — remove platform-specific artifacts.
 
 ### Configuration overrides (env vars)
-- `IOS_SIM_DEVICE` — simulator name (default: `iPhone 17 Pro`)
+- `IOS_SIM_DEVICE` — fallback simulator name when none is booted (default: `iPhone 17 Pro`)
+- `IOS_SIM_DESTINATION` — explicit xcodebuild destination override; local simulator builds otherwise prefer an already-booted iOS simulator
 - `XCODE_CONFIG` — Xcode build configuration (default: `Debug`)
 - `IOS_SCHEME` — Xcode scheme (default: `Litter`)
 - `IOS_DEPLOYMENT_TARGET` — minimum iOS version (default: `18.0`)

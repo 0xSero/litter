@@ -63,5 +63,6 @@ generation, and Xcode builds. Stamp files make repeated runs incremental.
 
 Override via environment variables:
 
-- `IOS_SIM_DEVICE="iPhone 17 Pro"` — change simulator target
+- `IOS_SIM_DEVICE="iPhone 17 Pro"` — fallback simulator name when none is booted
+- `IOS_SIM_DESTINATION="platform=iOS Simulator,id=<UDID>"` — override the destination; local builds prefer an already-booted iOS simulator automatically
 - `XCODE_CONFIG=Release` — release build
