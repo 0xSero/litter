@@ -7,6 +7,7 @@ final class MessageRenderCache {
             case markdown(String, Int)
             case codeBlock(language: String?, code: String, Int)
             case image(data: Data, cacheKey: String)
+            case localImage(path: String, cacheKey: String)
         }
 
         let id: String
@@ -204,6 +205,15 @@ final class MessageRenderCache {
                     AssistantSegment(
                         id: "image-\(index)-\(data.count)-\(contentHash)",
                         kind: .image(data: data, cacheKey: cacheKey)
+                    )
+                )
+            case .localImage(let path):
+                let contentHash = path.hashValue
+                let cacheKey = "assistant-\(messageId)-path-\(index)-\(contentHash)"
+                segments.append(
+                    AssistantSegment(
+                        id: cacheKey,
+                        kind: .localImage(path: path, cacheKey: cacheKey)
                     )
                 )
             }

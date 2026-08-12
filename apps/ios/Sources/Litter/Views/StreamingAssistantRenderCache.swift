@@ -220,6 +220,16 @@ final class StreamingAssistantRenderCache {
                     )
                 )
                 blockIndex += 1
+            case .localImage(let path):
+                let contentHash = path.hashValue
+                let cacheKey = "\(itemId)-\(namespace)-path-\(blockIndex)-\(contentHash)"
+                segments.append(
+                    MessageRenderCache.AssistantSegment(
+                        id: cacheKey,
+                        kind: .localImage(path: path, cacheKey: cacheKey)
+                    )
+                )
+                blockIndex += 1
             }
         }
 

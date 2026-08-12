@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Drop-in replacement for `Text` that applies inline formatting such as
 /// plugin-reference pills (`[@Name](plugin://plugin-name@marketplace)`).
@@ -14,9 +15,15 @@ struct FormattedText: View {
     var lineLimit: Int? = nil
 
     var body: some View {
+        content
+            .environment(\.openURL, externalBrowserAction)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         let segments = parsePluginRefs(input: text)
         if segments.count == 1, case .text(let t) = segments.first {
-            Text(t)
+            Text(linkifiedText(t))
                 .lineLimit(lineLimit)
         } else if lineLimit == 1 {
             singleLine(segments)
@@ -32,7 +39,7 @@ struct FormattedText: View {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                 switch segment {
                 case .text(let text):
-                    Text(text)
+                    Text(linkifiedText(text))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 case .pluginRef(let displayName, let pluginName, _):
@@ -52,7 +59,7 @@ struct FormattedText: View {
                 case .text(let text):
                     let pieces = splitPreservingWhitespace(text)
                     ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
-                        Text(piece)
+                        Text(linkifiedText(piece))
                             .fixedSize()
                     }
                 case .pluginRef(let displayName, let pluginName, _):
@@ -83,6 +90,41 @@ struct FormattedText: View {
         if !current.isEmpty { pieces.append(current) }
         return pieces
     }
+
+    private func linkifiedText(_ value: String) -> AttributedString {
+        var attributed = AttributedString(value)
+        guard let linkDetector = Self.linkDetector else { return attributed }
+        let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        for match in linkDetector.matches(in: value, options: [], range: fullRange) {
+            guard let url = match.url,
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  let stringRange = Range(match.range, in: value),
+                  let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributed),
+                  let upperBound = AttributedString.Index(stringRange.upperBound, within: attributed) else {
+                continue
+            }
+            attributed[lowerBound..<upperBound].link = url
+        }
+        return attributed
+    }
+
+    private var externalBrowserAction: OpenURLAction {
+        OpenURLAction { url in
+            guard let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return .systemAction
+            }
+            UIApplication.shared.open(url)
+            return .handled
+        }
+    }
+
+    private static let linkDetector: NSDataDetector? = {
+        // The detector is immutable after construction and reused across
+        // message rows so long transcripts don't repeatedly compile URL rules.
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
 }
 
 struct PluginPill: View {

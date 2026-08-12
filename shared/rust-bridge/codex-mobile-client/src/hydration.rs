@@ -4,6 +4,7 @@
 //! with revision-keyed entries, and inline base64 image extraction.
 
 use base64::Engine;
+use linkify::{LinkFinder, LinkKind};
 use lru::LruCache;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -93,6 +94,9 @@ pub enum MessageSegment {
         data: Vec<u8>,
         mime_type: String,
     },
+    LocalImage {
+        path: String,
+    },
     InlineMath {
         latex: String,
     },
@@ -114,6 +118,9 @@ pub enum AppMessageSegment {
         data: Vec<u8>,
         mime_type: String,
     },
+    LocalImage {
+        path: String,
+    },
     InlineMath {
         latex: String,
     },
@@ -133,6 +140,7 @@ impl From<MessageSegment> for AppMessageSegment {
             MessageSegment::InlineImage { data, mime_type } => {
                 Self::InlineImage { data, mime_type }
             }
+            MessageSegment::LocalImage { path } => Self::LocalImage { path },
             MessageSegment::InlineMath { latex } => Self::InlineMath { latex },
             MessageSegment::DisplayMath { latex } => Self::DisplayMath { latex },
             MessageSegment::CodeBlock { language, code } => Self::CodeBlock { language, code },
@@ -154,6 +162,9 @@ pub enum MessageRenderBlock {
         data: Vec<u8>,
         mime_type: String,
     },
+    LocalImage {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -169,6 +180,9 @@ pub enum AppMessageRenderBlock {
         data: Vec<u8>,
         mime_type: String,
     },
+    LocalImage {
+        path: String,
+    },
 }
 
 impl From<MessageRenderBlock> for AppMessageRenderBlock {
@@ -179,6 +193,7 @@ impl From<MessageRenderBlock> for AppMessageRenderBlock {
             MessageRenderBlock::InlineImage { data, mime_type } => {
                 Self::InlineImage { data, mime_type }
             }
+            MessageRenderBlock::LocalImage { path } => Self::LocalImage { path },
         }
     }
 }
@@ -300,6 +315,26 @@ static BARE_DATA_URI_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"data:image/([^;]+);base64,([A-Za-z0-9+/=]+)").expect("invalid bare data URI regex")
 });
 
+/// Matches Markdown image or ordinary link destinations. Local PNG/SVG
+/// destinations are promoted into typed image blocks so the platform can
+/// resolve them against the connected Codex host instead of treating them as
+/// web links.
+static MARKDOWN_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[\"'][^\"']*[\"'])?\s*\)"#)
+        .expect("invalid markdown link regex")
+});
+
+/// Conservative bare-path matcher. The candidate is validated again by
+/// `local_image_path`, which rejects network/data URLs and anything other than
+/// PNG/SVG. Spaces are supported by Markdown's `<...>` destination form or by
+/// wrapping the path in inline code.
+static BARE_LOCAL_IMAGE_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(?:file://)?(?:[A-Za-z]:[\\/]|(?:~|\.{1,2})?/)?[^\s`<>()\[\]{}\"']+\.(?:png|svg)"#,
+    )
+    .expect("invalid local image path regex")
+});
+
 // ---------------------------------------------------------------------------
 // Segment extraction
 // ---------------------------------------------------------------------------
@@ -312,6 +347,92 @@ fn decode_image_capture(cap: &regex::Captures<'_>) -> Option<(String, Vec<u8>)> 
     let engine = base64::engine::general_purpose::STANDARD;
     let bytes = engine.decode(&cleaned).ok()?;
     Some((format!("image/{}", mime_suffix), bytes))
+}
+
+fn local_image_path(raw: &str) -> Option<String> {
+    let candidate = raw
+        .trim()
+        .trim_matches(|character| character == '<' || character == '>');
+    if candidate.is_empty() || candidate.contains('\n') || candidate.contains('\r') {
+        return None;
+    }
+
+    let lowercase = candidate.to_ascii_lowercase();
+    if lowercase.starts_with("http://")
+        || lowercase.starts_with("https://")
+        || lowercase.starts_with("data:")
+        || lowercase.contains("://") && !lowercase.starts_with("file://")
+    {
+        return None;
+    }
+
+    let extension_source = lowercase
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(lowercase.as_str());
+    if !extension_source.ends_with(".png") && !extension_source.ends_with(".svg") {
+        return None;
+    }
+
+    Some(candidate.to_owned())
+}
+
+fn inline_code_value<'a>(text: &'a str, start: usize, end: usize) -> Option<&'a str> {
+    let span = text.get(start..end)?;
+    let opener_len = span
+        .as_bytes()
+        .iter()
+        .take_while(|&&byte| byte == b'`')
+        .count();
+    if opener_len == 0 || span.len() < opener_len * 2 {
+        return None;
+    }
+    span.get(opener_len..span.len() - opener_len).map(str::trim)
+}
+
+fn linkify_bare_web_urls(markdown: &str) -> String {
+    let mut finder = LinkFinder::new();
+    finder.kinds(&[LinkKind::Url]);
+
+    let inline_code_ranges = find_inline_code_spans(markdown, &[]);
+    let markdown_link_ranges: Vec<(usize, usize)> = MARKDOWN_LINK_RE
+        .find_iter(markdown)
+        .map(|matched| (matched.start(), matched.end()))
+        .collect();
+
+    let links: Vec<_> = finder
+        .links(markdown)
+        .filter(|link| {
+            let value = link.as_str().to_ascii_lowercase();
+            if !value.starts_with("http://") && !value.starts_with("https://") {
+                return false;
+            }
+            if overlaps_range(link.start(), link.end(), &inline_code_ranges)
+                || overlaps_range(link.start(), link.end(), &markdown_link_ranges)
+            {
+                return false;
+            }
+            let already_autolinked =
+                markdown[..link.start()].ends_with('<') && markdown[link.end()..].starts_with('>');
+            !already_autolinked
+        })
+        .collect();
+
+    if links.is_empty() {
+        return markdown.to_owned();
+    }
+
+    let mut output = String::with_capacity(markdown.len() + links.len() * 2);
+    let mut cursor = 0usize;
+    for link in links {
+        output.push_str(&markdown[cursor..link.start()]);
+        output.push('<');
+        output.push_str(link.as_str());
+        output.push('>');
+        cursor = link.end();
+    }
+    output.push_str(&markdown[cursor..]);
+    output
 }
 
 /// Find all code fence spans in `text` using a line-based scan.
@@ -615,7 +736,7 @@ fn find_math_spans(
     spans
 }
 
-/// Extract inline base64 images and code blocks from message text,
+/// Extract inline images, local PNG/SVG paths, and code blocks from message text,
 /// splitting into typed segments.
 ///
 /// Processing order:
@@ -675,6 +796,62 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
                     data: bytes,
                     mime_type,
                 },
+            ));
+        }
+    }
+
+    // Markdown image/link destinations that reference a local PNG or SVG.
+    for cap in MARKDOWN_LINK_RE.captures_iter(text) {
+        let matched = cap.get(0).expect("markdown link has whole match");
+        if overlaps_range(matched.start(), matched.end(), &opaque_ranges)
+            || spans
+                .iter()
+                .any(|(start, end, _)| matched.start() < *end && matched.end() > *start)
+        {
+            continue;
+        }
+        let raw_path = cap
+            .get(1)
+            .or_else(|| cap.get(2))
+            .map(|value| value.as_str());
+        if let Some(path) = raw_path.and_then(local_image_path) {
+            spans.push((
+                matched.start(),
+                matched.end(),
+                MessageSegment::LocalImage { path },
+            ));
+        }
+    }
+
+    // Inline-code image paths are common in Codex answers. Promote the whole
+    // code token only when its entire content is a PNG/SVG path.
+    for (start, end) in &inline_code_ranges {
+        if spans
+            .iter()
+            .any(|(span_start, span_end, _)| *start < *span_end && *end > *span_start)
+        {
+            continue;
+        }
+        if let Some(path) = inline_code_value(text, *start, *end).and_then(local_image_path) {
+            spans.push((*start, *end, MessageSegment::LocalImage { path }));
+        }
+    }
+
+    // Finally collect bare path references outside fenced/inline code and
+    // outside the richer Markdown matches above.
+    for matched in BARE_LOCAL_IMAGE_PATH_RE.find_iter(text) {
+        let overlaps = overlaps_range(matched.start(), matched.end(), &opaque_ranges)
+            || spans
+                .iter()
+                .any(|(start, end, _)| matched.start() < *end && matched.end() > *start);
+        if overlaps {
+            continue;
+        }
+        if let Some(path) = local_image_path(matched.as_str()) {
+            spans.push((
+                matched.start(),
+                matched.end(),
+                MessageSegment::LocalImage { path },
             ));
         }
     }
@@ -765,6 +942,10 @@ pub fn extract_message_render_blocks(text: &str) -> Vec<MessageRenderBlock> {
                 flush_markdown_buffer(&mut blocks, &mut markdown_buffer);
                 blocks.push(MessageRenderBlock::InlineImage { data, mime_type });
             }
+            MessageSegment::LocalImage { path } => {
+                flush_markdown_buffer(&mut blocks, &mut markdown_buffer);
+                blocks.push(MessageRenderBlock::LocalImage { path });
+            }
         }
     }
 
@@ -784,7 +965,8 @@ fn flush_markdown_buffer(blocks: &mut Vec<MessageRenderBlock>, markdown_buffer: 
         return;
     }
 
-    for markdown in crate::markdown_blocks::render_markdown_blocks(markdown_buffer) {
+    let linked_markdown = linkify_bare_web_urls(markdown_buffer);
+    for markdown in crate::markdown_blocks::render_markdown_blocks(&linked_markdown) {
         match markdown {
             crate::markdown_blocks::MarkdownBlock::Markdown(markdown) => {
                 if !markdown.is_empty() {
@@ -1463,6 +1645,88 @@ mod tests {
                 MessageRenderBlock::Markdown { .. }
             ] if mime_type == "image/png"
         ));
+    }
+
+    #[test]
+    fn test_render_blocks_promote_markdown_local_png_and_svg_links() {
+        let blocks = extract_message_render_blocks(
+            "Before ![chart](/tmp/chart.png) and [diagram](<docs/system map.svg>) after",
+        );
+
+        assert_eq!(
+            blocks,
+            vec![
+                MessageRenderBlock::Markdown {
+                    markdown: "Before".to_owned(),
+                },
+                MessageRenderBlock::LocalImage {
+                    path: "/tmp/chart.png".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "and".to_owned(),
+                },
+                MessageRenderBlock::LocalImage {
+                    path: "docs/system map.svg".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "after".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_render_blocks_promote_bare_and_inline_code_image_paths() {
+        let blocks = extract_message_render_blocks(
+            "Bare ./art/chart.svg and spaced `/Users/example/My Chart.png`.",
+        );
+
+        assert!(matches!(
+            blocks.as_slice(),
+            [
+                MessageRenderBlock::Markdown { .. },
+                MessageRenderBlock::LocalImage { path: first },
+                MessageRenderBlock::Markdown { .. },
+                MessageRenderBlock::LocalImage { path: second },
+                MessageRenderBlock::Markdown { .. },
+            ] if first == "./art/chart.svg" && second == "/Users/example/My Chart.png"
+        ));
+    }
+
+    #[test]
+    fn test_render_blocks_leave_remote_image_urls_as_clickable_links() {
+        let blocks = extract_message_render_blocks(
+            "See https://example.com/chart.png and [the SVG](https://example.com/map.svg).",
+        );
+
+        assert_eq!(blocks.len(), 1);
+        let MessageRenderBlock::Markdown { markdown } = &blocks[0] else {
+            panic!("expected markdown");
+        };
+        assert!(markdown.contains("<https://example.com/chart.png>"));
+        assert!(markdown.contains("[the SVG](https://example.com/map.svg)"));
+    }
+
+    #[test]
+    fn test_linkify_bare_urls_skips_inline_code_and_existing_links() {
+        assert_eq!(
+            linkify_bare_web_urls(
+                "Open https://openai.com, keep `https://example.com`, and [docs](https://example.org).",
+            ),
+            "Open <https://openai.com>, keep `https://example.com`, and [docs](https://example.org)."
+        );
+    }
+
+    #[test]
+    fn test_local_image_paths_inside_fenced_code_remain_code() {
+        let blocks = extract_message_render_blocks("```text\n/tmp/chart.png\n```");
+        assert_eq!(
+            blocks,
+            vec![MessageRenderBlock::CodeBlock {
+                language: Some("text".to_owned()),
+                code: "/tmp/chart.png".to_owned(),
+            }]
+        );
     }
 
     // -- FollowScrollTracker --

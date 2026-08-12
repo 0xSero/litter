@@ -71,11 +71,24 @@ struct LitterMarkdownView: View {
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
+            .environment(\.openURL, externalBrowserAction)
         case .system:
             view.litterSystemMarkdown(
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
+            .environment(\.openURL, externalBrowserAction)
+        }
+    }
+
+    private var externalBrowserAction: OpenURLAction {
+        OpenURLAction { url in
+            guard let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return .systemAction
+            }
+            UIApplication.shared.open(url)
+            return .handled
         }
     }
 }
@@ -364,41 +377,17 @@ struct AssistantBlocksBubble: View {
                 .id(identity)
             }
         case .image(let data, let cacheKey):
-            LazyImage(
-                request: ImageRequest(
-                    id: cacheKey,
-                    data: { data },
-                    processors: [
-                        ImageProcessors.Resize(
-                            size: CGSize(width: 1200, height: 300),
-                            unit: .points,
-                            contentMode: .aspectFit
-                        )
-                    ]
-                )
-            ) { state in
-                if let image = state.image {
-                    if let ui = state.imageContainer?.image {
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .draggable(Image(uiImage: ui)) {
-                                Image(uiImage: ui)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 120)
-                            }
-                    } else {
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-            }
+            ResolvedChatImageView(
+                source: .data(data),
+                maxHeight: 300
+            )
+            .id(cacheKey)
+        case .localImage(let path, let cacheKey):
+            ResolvedChatImageView(
+                source: .path(path),
+                maxHeight: 320
+            )
+            .id(cacheKey)
         }
     }
 

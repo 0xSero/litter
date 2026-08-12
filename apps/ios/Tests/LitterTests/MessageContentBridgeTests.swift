@@ -81,6 +81,31 @@ final class MessageContentBridgeTests: XCTestCase {
         XCTAssertEqual(code, "c+d")
     }
 
+    func testAssistantRenderBlocksPromoteLocalPNGAndSVGPaths() {
+        let blocks = MessageContentBridge.assistantRenderBlocks(
+            "Preview ![chart](/tmp/chart.png) and `docs/system map.svg`."
+        )
+
+        XCTAssertEqual(blocks.count, 5)
+        guard case .localImage(path: let pngPath) = blocks[1] else {
+            return XCTFail("Expected PNG path image block")
+        }
+        XCTAssertEqual(pngPath, "/tmp/chart.png")
+
+        guard case .localImage(path: let svgPath) = blocks[3] else {
+            return XCTFail("Expected SVG path image block")
+        }
+        XCTAssertEqual(svgPath, "docs/system map.svg")
+    }
+
+    func testAssistantRenderBlocksLinkifyBareWebURL() {
+        let blocks = MessageContentBridge.assistantRenderBlocks("Open https://openai.com now.")
+        guard case .markdown(let markdown) = blocks.first else {
+            return XCTFail("Expected markdown block")
+        }
+        XCTAssertEqual(markdown, "Open <https://openai.com> now.")
+    }
+
     func testNormalizedAssistantMarkdownConvertsBackslashMathDelimiters() {
         let text = """
         Hello, LaTeX.

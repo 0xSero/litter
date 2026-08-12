@@ -1,6 +1,7 @@
 package com.litter.android.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,6 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,12 +58,11 @@ fun FormattedText(
 
     // Fast path: no pills.
     if (segments.size == 1 && segments[0] is TitleSegment.Text) {
-        Text(
+        LinkifiedText(
             text = (segments[0] as TitleSegment.Text).`text`,
             color = color,
             fontSize = fontSize,
             maxLines = maxLines,
-            overflow = TextOverflow.Ellipsis,
             modifier = modifier,
         )
         return
@@ -69,12 +76,11 @@ fun FormattedText(
         ) {
             segments.forEach { segment ->
                 when (segment) {
-                    is TitleSegment.Text -> Text(
+                    is TitleSegment.Text -> LinkifiedText(
                         text = segment.`text`,
                         color = color,
                         fontSize = fontSize,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     is TitleSegment.PluginRef -> PluginPill(
                         displayName = segment.`displayName`,
@@ -92,7 +98,7 @@ fun FormattedText(
         ) {
             segments.forEach { segment ->
                 when (segment) {
-                    is TitleSegment.Text -> Text(
+                    is TitleSegment.Text -> LinkifiedText(
                         text = segment.`text`,
                         color = color,
                         fontSize = fontSize,
@@ -105,6 +111,69 @@ fun FormattedText(
                 }
             }
         }
+    }
+}
+
+private const val WebLinkAnnotation = "litter-web-link"
+private val WebLinkRegex = Regex("""https?://[^\s<>]+""", RegexOption.IGNORE_CASE)
+private val WebLinkTrailingPunctuation = setOf('.', ',', ';', ':', '!', '?', ']', '}')
+
+@Composable
+private fun LinkifiedText(
+    text: String,
+    color: Color,
+    fontSize: TextUnit,
+    modifier: Modifier = Modifier,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    val uriHandler = LocalUriHandler.current
+    val linkColor = LitterTheme.accent
+    val annotated = remember(text, linkColor) {
+        linkifiedAnnotatedString(text, linkColor)
+    }
+    ClickableText(
+        text = annotated,
+        style = TextStyle(color = color, fontSize = fontSize),
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+        onClick = { offset ->
+            annotated.getStringAnnotations(WebLinkAnnotation, offset, offset)
+                .firstOrNull()
+                ?.item
+                ?.let { url -> runCatching { uriHandler.openUri(url) } }
+        },
+    )
+}
+
+private fun linkifiedAnnotatedString(text: String, linkColor: Color): AnnotatedString {
+    val matches = WebLinkRegex.findAll(text).mapNotNull { match ->
+        var endExclusive = match.range.last + 1
+        while (endExclusive > match.range.first && text[endExclusive - 1] in WebLinkTrailingPunctuation) {
+            endExclusive -= 1
+        }
+        if (endExclusive == match.range.first) null else match.range.first until endExclusive
+    }.toList()
+    if (matches.isEmpty()) return AnnotatedString(text)
+
+    return buildAnnotatedString {
+        var cursor = 0
+        matches.forEach { range ->
+            append(text.substring(cursor, range.first))
+            val url = text.substring(range)
+            pushStringAnnotation(WebLinkAnnotation, url)
+            withStyle(
+                SpanStyle(
+                    color = linkColor,
+                    textDecoration = TextDecoration.None,
+                ),
+            ) {
+                append(url)
+            }
+            pop()
+            cursor = range.last + 1
+        }
+        append(text.substring(cursor))
     }
 }
 

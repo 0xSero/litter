@@ -5,6 +5,7 @@ enum MessageContentBridge {
         case markdown(String)
         case codeBlock(language: String?, code: String)
         case inlineImage(Data)
+        case localImage(path: String)
     }
 
     enum AssistantContentSegment {
@@ -63,6 +64,8 @@ enum MessageContentBridge {
                 return .codeBlock(language: language, code: code)
             case .inlineImage(data: let data, mimeType: _):
                 return .inlineImage(data)
+            case .localImage(path: let path):
+                return .localImage(path: path)
             }
         }
     }
@@ -79,6 +82,8 @@ enum MessageContentBridge {
                 segments.append(.markdown(fencedMarkdown(code: code, language: language)))
             case .inlineImage(let data):
                 segments.append(.inlineImage(data))
+            case .localImage:
+                break
             }
         }
 
