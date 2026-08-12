@@ -6,7 +6,7 @@ The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylit
 
 ## Cutting a release
 
-1. Push the alleycat changes to `dnakov/alleycat`.
-2. Keep the `alleycat` dependency on `branch = "main"` and refresh it with `./tools/scripts/update-alleycat-main.sh --kittylitter`.
-3. Bump `version` in this crate's `Cargo.toml` and the version of the kittylitter binary tracking it.
-4. Tag `vX.Y.Z` on the litter repo. The `release.yml` workflow at the repo root builds and publishes.
+1. Land the Alleycat change in `dnakov/alleycat`, then choose the immutable commit to ship.
+2. Update the matching `rev` pins and lockfiles in `services/kittylitter` and `shared/rust-bridge`; the daemon and mobile bridge must ship the same Alleycat revision.
+3. Run the relevant mobile acceptance lanes, then bump `version` in this crate's `Cargo.toml` and the version of the kittylitter binary tracking it.
+4. Tag `vX.Y.Z` on the Litter repo. The root `release.yml` workflow builds and publishes from the pinned dependency graph.

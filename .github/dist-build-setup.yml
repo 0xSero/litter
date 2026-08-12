@@ -29,7 +29,3 @@
 
 - name: Install sccache
   uses: mozilla-actions/sccache-action@v0.0.11
-
-- name: Resolve Alleycat to latest main
-  shell: bash
-  run: ./tools/scripts/update-alleycat-main.sh --kittylitter

@@ -143,8 +143,6 @@ if [ -z "${RUSTC_WRAPPER:-}" ] && [ "${CARGO_INCREMENTAL:-}" != "1" ] && command
   export RUSTC_WRAPPER="$sccache_path"
 fi
 
-"$REPO_DIR/tools/scripts/update-alleycat-main.sh" --shared
-
 # libghostty static libs + headers must exist before the Rust crate is
 # compiled (codex-mobile-client links against them). Build them on demand
 # when missing so this script is self-sufficient for CI workflows that

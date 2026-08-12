@@ -49,8 +49,6 @@ fi
 echo "==> Preparing codex submodule..."
 "$SYNC_SCRIPT" --preserve-current
 
-"$REPO_DIR/tools/scripts/update-alleycat-main.sh" --shared
-
 ABI_INPUT="${ANDROID_ABIS:-$DEFAULT_ANDROID_ABIS}"
 ABI_INPUT="${ABI_INPUT//,/ }"
 read -r -a REQUESTED_ABIS <<<"$ABI_INPUT"

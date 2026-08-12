@@ -155,7 +155,6 @@ ifeq ($(firstword $(MAKECMDGOALS)),kittylitter)
 	@:
 endif
 KITTYLITTER_ARGS := $(strip $(KITTYLITTER_GOAL_ARGS) $(ARGS))
-UPDATE_ALLEYCAT_MAIN := $(ROOT)/tools/scripts/update-alleycat-main.sh
 
 PATCH_FILES := $(sort $(wildcard $(PATCHES_DIR)/*.patch))
 
@@ -220,7 +219,6 @@ $(shell mkdir -p $(STAMPS))
 	ios-xcode-sim ios-xcode-sim-fast ios-xcode-device ios-xcode-device-fast \
 	android-alpine-fs proot-android \
 	ghostty-ios ghostty-android \
-	alleycat-main \
 	bindings bindings-swift bindings-kotlin \
 	sync patch unpatch sync-ghostty unpatch-ghostty xcgen alpine-fs \
 	ios-build ios-build-sim ios-build-sim-fast ios-build-device ios-build-device-fast \
@@ -434,44 +432,41 @@ android-release: android-alpine-fs proot-android
 
 rust-ios: rust-ios-package
 
-alleycat-main:
-	@$(UPDATE_ALLEYCAT_MAIN) --all
-
-rust-ios-package: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-ios-package: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Packaging Rust for iOS (device + simulator + xcframework)..."
 	@cd $(ROOT) && $(PACKAGE_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-ios-device-release: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-ios-device-release: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for iOS release archive prep (device staticlib + headers)..."
 	@cd $(ROOT) && $(PACKAGE_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --device-only $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-mac-release: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-mac-release: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for Mac Catalyst release archive prep (macabi staticlib + headers)..."
 	@cd $(ROOT) && $(PACKAGE_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --macabi-only $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-ios-device-fast: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-ios-device-fast: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for fast iOS device iteration (raw staticlib + headers)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --fast-device $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-ios-sim-fast: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-ios-sim-fast: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for fast iOS simulator iteration (raw staticlib + headers)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --fast-sim $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-ios-macabi-fast: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
+rust-ios-macabi-fast: $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
 	@echo "==> Building Rust for fast Mac Catalyst iteration (raw macabi staticlib + headers, host arch only)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --fast-macabi $(CARGO_FEATURES)
 	@$(mark_swift_bindings_current)
 
-rust-check: alleycat-main $(STAMP_SYNC)
+rust-check: $(STAMP_SYNC)
 	@echo "==> cargo check (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo check --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client
 
-rust-test: alleycat-main $(STAMP_SYNC) rust-shellcheck
+rust-test: $(STAMP_SYNC) rust-shellcheck
 	@echo "==> cargo test (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
@@ -493,7 +488,7 @@ rust-shellcheck:
 rust-host-dev: rust-check rust-test
 
 rust-android: $(STAMP_RUST_ANDROID)
-$(STAMP_RUST_ANDROID): $(STAMP_SYNC) $(STAMP_BINDINGS_K) $(STAMP_GHOSTTY_ANDROID) $(ANDROID_RUST_SOURCES) tools/scripts/build-android-rust.sh Makefile | alleycat-main
+$(STAMP_RUST_ANDROID): $(STAMP_SYNC) $(STAMP_BINDINGS_K) $(STAMP_GHOSTTY_ANDROID) $(ANDROID_RUST_SOURCES) tools/scripts/build-android-rust.sh Makefile
 	@echo "==> Building Rust for Android..."
 	@cd $(ROOT) && $(ANDROID_ENV) ANDROID_ABIS="$(ANDROID_ABIS)" ANDROID_RUST_PROFILE="$(ANDROID_RUST_PROFILE)" $(DEV_CARGO_ENV) ./tools/scripts/build-android-rust.sh
 	@touch $@
@@ -545,7 +540,6 @@ help:
 		'make proot-android     build Android proot executable artifacts' \
 		'make ghostty-ios        build pinned Ghostty iOS renderer artifacts' \
 		'make ghostty-android    build pinned Ghostty Android renderer artifacts (requires Android platform patch)' \
-		'make alleycat-main      refresh unpinned Alleycat git deps to latest dnakov/alleycat main' \
 		'make catalyst           full Mac Catalyst build (release+LTO macabi staticlib + xcodebuild)' \
 		'make catalyst-run       full Mac Catalyst build + launch' \
 		'make catalyst-fast      fast Mac Catalyst dev build (ios-dev profile, host arch)' \
@@ -591,7 +585,7 @@ unpatch-ghostty:
 bindings: bindings-swift bindings-kotlin
 
 bindings-swift: $(STAMP_BINDINGS_S)
-$(STAMP_BINDINGS_S): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
+$(STAMP_BINDINGS_S): $(STAMP_SYNC) $(BOUNDARY_SOURCES)
 	@echo "==> Generating Swift bindings..."
 	@cd $(RUST_DIR) && $(DEV_CARGO_ENV) ./generate-bindings.sh --swift-only
 	@mkdir -p $(IOS_GENERATED)/Headers
@@ -602,7 +596,7 @@ $(STAMP_BINDINGS_S): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
 	@current_hash="$$($(UNIFFI_BINDINGS_HASH_SCRIPT))"; printf '%s\n' "$$current_hash" >"$@"
 
 bindings-kotlin: $(STAMP_BINDINGS_K)
-$(STAMP_BINDINGS_K): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
+$(STAMP_BINDINGS_K): $(STAMP_SYNC) $(BOUNDARY_SOURCES)
 	@echo "==> Generating Kotlin bindings..."
 	@cd $(RUST_DIR) && $(DEV_CARGO_ENV) ./generate-bindings.sh --kotlin-only
 	@touch $@
@@ -811,7 +805,7 @@ android-emulator-install: android-emulator-fast
 
 test: test-rust test-ios test-android
 
-test-rust: alleycat-main $(STAMP_SYNC)
+test-rust: $(STAMP_SYNC)
 	@echo "==> Running Rust tests..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
 
