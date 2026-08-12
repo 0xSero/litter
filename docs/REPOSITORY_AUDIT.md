@@ -65,14 +65,19 @@ unused dependency declarations, reconciled repository/runtime documentation,
 and fixed `bridge-call.py` so its advertised response/watch deadlines cannot
 hang forever on a silent or partial socket frame.
 
-Three validated Litter follow-ups remain separate pull requests while full
-mobile CI runs: #251 removes the unused version capability parser and
-never-populated snapshot field (net -149), #252 removes the remaining shared
-discovery/UniFFI/build surface (net -1,891), and #253 removes an unused
-battery-exemption manifest permission. The narrower mDNS-only pull request was
-closed as superseded by the complete shared deletion. Together, the three
-follow-ups apply cleanly to the continuation mainline and project the audit
-baseline to 2,085 additions, 73,069 deletions, and 1,001 tracked paths.
+At this continuation snapshot, three validated Litter follow-ups remained
+separate pull requests while full mobile CI ran:
+
+- #251 removed the unused version capability parser and never-populated
+  snapshot field (net -149);
+- #252 removed the remaining shared discovery/UniFFI/build surface (net
+  -1,891); and
+- #253 removed an unused battery-exemption manifest permission.
+
+The narrower mDNS-only pull request was closed as superseded by the complete
+shared deletion. Together, the three follow-ups applied cleanly to the
+continuation mainline and projected the audit baseline to 2,085 additions,
+73,069 deletions, and 1,001 tracked paths.
 The shared follow-up also
 removes public auto-discovery claims, points the site at the current repository,
 and corrects voice, selected-media, relay, and secure-storage disclosures that
@@ -84,6 +89,12 @@ platform/shared stack shadowing the explicit server flows, and deleting it
 reduced three ownership layers without changing those flows. Similarly, turn
 pagination support is negotiated from actual legacy responses and
 method-not-found fallbacks; the removed version parser never controlled it.
+
+Status update (2026-08-12): all three follow-ups subsequently merged (#253,
+#251, and #252). `origin/main` now has 1,013 tracked paths; relative to this
+audit's baseline it contains 4,335 additions and 73,881 deletions. Those live
+counts include other validated work merged after the continuation snapshot, so
+they are not a revision of the historical projection above.
 
 The continuation also separated confirmed debt from deletion candidates:
 
