@@ -15,6 +15,33 @@ final class ConversationDisplayPreferenceTests: XCTestCase {
         XCTAssertFalse(ConversationDetailDisplayMode.hidden.defaultExpanded(isFailed: true))
     }
 
+    /// Regression guard for 7066c5ab, which removed
+    /// `ConversationLiveDetailRetentionPolicy` and left running tool calls
+    /// collapsed until `ItemCompleted` landed — every tool call looked like the
+    /// turn had frozen. A running tool call must be expanded in the default
+    /// `.collapsed` mode so its output streams in, matching what
+    /// `commandDefaultExpanded` already does for command executions.
+    func testCollapsedModeExpandsInProgressToolCalls() {
+        XCTAssertTrue(ConversationDetailDisplayMode.collapsed.defaultExpanded(isInProgress: true))
+        XCTAssertTrue(
+            ConversationDetailDisplayMode.collapsed.defaultExpanded(
+                isFailed: true,
+                isInProgress: true
+            )
+        )
+        // Completed and not failed stays collapsed — the point of 7066c5ab.
+        XCTAssertFalse(
+            ConversationDetailDisplayMode.collapsed.defaultExpanded(
+                isFailed: false,
+                isInProgress: false
+            )
+        )
+        // `.hidden` still wins over an in-flight call.
+        XCTAssertFalse(ConversationDetailDisplayMode.hidden.defaultExpanded(isInProgress: true))
+        // `.expanded` is unconditional.
+        XCTAssertTrue(ConversationDetailDisplayMode.expanded.defaultExpanded(isInProgress: false))
+    }
+
     func testConversationItemsHonorHiddenDetailModes() {
         let reasoning = ConversationItem(
             id: "reasoning",
