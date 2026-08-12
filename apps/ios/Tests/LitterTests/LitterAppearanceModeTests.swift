@@ -41,4 +41,13 @@ final class FontFamilyOptionTests: XCTestCase {
         XCTAssertTrue(FontFamilyOption.systemMono.isMono)
         XCTAssertEqual(FontFamilyOption.system.displayName, "ChatGPT (System)")
     }
+
+    func testFontPreferenceObserverAdvancesRevision() {
+        let observer = FontPreferenceObserver()
+
+        observer.didChange()
+        observer.didChange()
+
+        XCTAssertEqual(observer.revision, 2)
+    }
 }

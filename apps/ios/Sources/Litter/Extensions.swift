@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Observation
 
 extension Color {
     init(hex: String) {
@@ -128,6 +129,30 @@ enum FontFamilyOption: String, CaseIterable, Identifiable {
     }
 
     var isMono: Bool { self == .mono || self == .systemMono }
+}
+
+/// Makes app-wide SwiftUI font modifiers observe a preference change without
+/// recreating the navigation hierarchy or disrupting an active conversation.
+@Observable
+final class FontPreferenceObserver {
+    static let shared = FontPreferenceObserver()
+
+    private(set) var revision = 0
+
+    func didChange() {
+        revision &+= 1
+    }
+}
+
+private struct FontPreferenceObserverKey: EnvironmentKey {
+    static let defaultValue = FontPreferenceObserver.shared
+}
+
+extension EnvironmentValues {
+    fileprivate var fontPreferenceObserver: FontPreferenceObserver {
+        get { self[FontPreferenceObserverKey.self] }
+        set { self[FontPreferenceObserverKey.self] = newValue }
+    }
 }
 
 enum LitterFont {
@@ -352,31 +377,40 @@ extension View {
 
 private struct ScaledSizeFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let size: CGFloat
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 
 private struct ScaledStyleFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let style: Font.TextStyle
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.styled(style, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.styled(style, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 
 private struct ScaledMonoFontModifier: ViewModifier {
     @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
     let size: CGFloat
     let weight: Font.Weight
 
     func body(content: Content) -> some View {
-        content.font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
+        content
+            .font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
     }
 }
 

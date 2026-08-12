@@ -206,6 +206,7 @@ struct SettingsView: View {
                 Button {
                     fontFamily = option.rawValue
                     ThemeManager.shared.syncFontPreference()
+                    FontPreferenceObserver.shared.didChange()
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
