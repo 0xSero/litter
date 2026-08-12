@@ -1,6 +1,7 @@
 package com.litter.android
 
 import com.litter.android.state.SavedServer
+import com.litter.android.state.SavedServerStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +9,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SavedServerTransportTest {
+    @Test
+    fun forgettingAlleycatServerReturnsOnlyUnreferencedNodeToken() {
+        val primary = alleycatServer(id = "primary", nodeId = " NODE-A ")
+        val duplicate = alleycatServer(id = "duplicate", nodeId = "node-a")
+        val independent = alleycatServer(id = "independent", nodeId = "node-b")
+
+        assertEquals(
+            emptyList<String>(),
+            SavedServerStore.orphanedAlleycatNodeIds(
+                removing = primary.id,
+                from = listOf(primary, duplicate, independent),
+            ),
+        )
+        assertEquals(
+            listOf("node-b"),
+            SavedServerStore.orphanedAlleycatNodeIds(
+                removing = independent.id,
+                from = listOf(primary, duplicate, independent),
+            ),
+        )
+    }
+
     @Test
     fun codexAndSshDiscoveryRequiresChoiceUntilPreferenceIsSet() {
         val server =
@@ -79,4 +102,13 @@ class SavedServerTransportTest {
         assertFalse(server.prefersSshConnection)
         assertEquals(9234, server.directCodexPort)
     }
+
+    private fun alleycatServer(id: String, nodeId: String) =
+        SavedServer(
+            id = id,
+            name = id,
+            hostname = nodeId,
+            port = 0,
+            alleycatNodeId = nodeId,
+        )
 }
