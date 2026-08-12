@@ -29,12 +29,12 @@ enum ConversationDetailDisplayMode: String, CaseIterable, Identifiable, Equatabl
         ConversationDetailDisplayMode(rawValue: rawValue) ?? .collapsed
     }
 
-    func defaultExpanded(isFailed: Bool = false) -> Bool {
+    func defaultExpanded(isFailed: Bool = false, isInProgress: Bool = false) -> Bool {
         switch self {
         case .expanded:
             return true
         case .collapsed:
-            return isFailed
+            return isFailed || isInProgress
         case .hidden:
             return false
         }
