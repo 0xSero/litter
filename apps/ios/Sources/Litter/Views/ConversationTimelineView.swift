@@ -447,7 +447,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
                     ComputerUseToolCallView(
                         data: data,
                         view: view,
-                        externalExpanded: toolDefaultExpanded(isFailed: data.status == .failed)
+                        externalExpanded: toolDefaultExpanded(
+                            isFailed: data.status == .failed,
+                            isInProgress: data.status == .inProgress
+                        )
                     )
                 )
             } else {
@@ -479,7 +482,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
             return AnyView(
                 ImageGenerationToolCallView(
                     data: data,
-                    externalExpanded: toolDefaultExpanded(isFailed: data.status == .failed)
+                    externalExpanded: toolDefaultExpanded(
+                        isFailed: data.status == .failed,
+                        isInProgress: data.status == .inProgress
+                    )
                 )
             )
         case .widget(let data):
@@ -529,12 +535,15 @@ private struct ConversationTimelineItemRow: View, Equatable {
         ToolCallCardView(
             model: model,
             serverId: serverId,
-            externalExpanded: toolDefaultExpanded(isFailed: model.status == .failed)
+            externalExpanded: toolDefaultExpanded(
+                isFailed: model.status == .failed,
+                isInProgress: model.status == .inProgress
+            )
         )
     }
 
-    private func toolDefaultExpanded(isFailed: Bool) -> Bool {
-        toolDisplayMode.defaultExpanded(isFailed: isFailed)
+    private func toolDefaultExpanded(isFailed: Bool, isInProgress: Bool) -> Bool {
+        toolDisplayMode.defaultExpanded(isFailed: isFailed, isInProgress: isInProgress)
     }
 
     private func commandDefaultExpanded(_ data: ConversationCommandExecutionData) -> Bool {

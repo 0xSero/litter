@@ -15,6 +15,17 @@ final class ConversationDisplayPreferenceTests: XCTestCase {
         XCTAssertFalse(ConversationDetailDisplayMode.hidden.defaultExpanded(isFailed: true))
     }
 
+    func testCollapsedModeExpandsInProgressToolCalls() {
+        XCTAssertTrue(ConversationDetailDisplayMode.collapsed.defaultExpanded(isInProgress: true))
+        XCTAssertFalse(
+            ConversationDetailDisplayMode.collapsed.defaultExpanded(
+                isFailed: false,
+                isInProgress: false
+            )
+        )
+        XCTAssertFalse(ConversationDetailDisplayMode.hidden.defaultExpanded(isInProgress: true))
+    }
+
     func testConversationItemsHonorHiddenDetailModes() {
         let reasoning = ConversationItem(
             id: "reasoning",
