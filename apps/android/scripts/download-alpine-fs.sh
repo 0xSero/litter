@@ -30,7 +30,26 @@ SUMS="SHA256SUMS"
 fetch() {
     local name="$1"
     echo "==> Downloading $name"
-    curl -fsSL --retry 3 -o "$TMP_DIR/$name" "$BASE_URL/$name"
+    if command -v gh >/dev/null 2>&1; then
+        gh release download "$VERSION" \
+            --repo "$REPO" \
+            --pattern "$name" \
+            --dir "$TMP_DIR"
+        return
+    fi
+
+    # GitHub release assets redirect to Azure Blob Storage, which can
+    # intermittently close HTTP/2 streams on longer build runs. Retry every
+    # transient transport failure over HTTP/1.1 when the GitHub CLI is not
+    # available, so an otherwise-complete Android build is not discarded by a
+    # flaky asset fetch.
+    curl -fsSL \
+        --http1.1 \
+        --retry 5 \
+        --retry-all-errors \
+        --retry-delay 1 \
+        -o "$TMP_DIR/$name" \
+        "$BASE_URL/$name"
 }
 
 fetch "$FAKEFS_TGZ"
