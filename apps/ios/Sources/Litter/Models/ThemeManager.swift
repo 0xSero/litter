@@ -68,6 +68,8 @@ final class ThemeManager {
 
     private static let appGroupSuite = LitterPalette.appGroupSuite
     private static let appearanceModeKey = "appearanceMode"
+    private static let defaultLightThemeSlug = "studio-light"
+    private static let defaultDarkThemeSlug = "studio-dark"
 
     private(set) var lightTheme: ResolvedTheme = .defaultLight
     private(set) var darkTheme: ResolvedTheme = .defaultDark
@@ -77,12 +79,12 @@ final class ThemeManager {
     private var systemColorScheme: ColorScheme = .dark
 
     var selectedLightSlug: String {
-        get { UserDefaults.standard.string(forKey: "selectedLightTheme") ?? "kitty-litter-light" }
+        get { UserDefaults.standard.string(forKey: "selectedLightTheme") ?? Self.defaultLightThemeSlug }
         set { UserDefaults.standard.set(newValue, forKey: "selectedLightTheme") }
     }
 
     var selectedDarkSlug: String {
-        get { UserDefaults.standard.string(forKey: "selectedDarkTheme") ?? "kitty-litter-dark" }
+        get { UserDefaults.standard.string(forKey: "selectedDarkTheme") ?? Self.defaultDarkThemeSlug }
         set { UserDefaults.standard.set(newValue, forKey: "selectedDarkTheme") }
     }
 
