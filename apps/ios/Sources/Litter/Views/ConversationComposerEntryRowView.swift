@@ -17,9 +17,9 @@ struct ConversationComposerEntryRowView: View {
     let onInterrupt: () -> Void
 
     private enum Metrics {
-        static let controlSize: CGFloat = 44
-        static let inputCornerRadius: CGFloat = controlSize / 2
-        static let trailingControlSize: CGFloat = 44
+        static let controlSize: CGFloat = 40
+        static let inputCornerRadius: CGFloat = 26
+        static let trailingControlSize: CGFloat = 40
         static let horizontalPadding: CGFloat = 10
         static let verticalPadding: CGFloat = 6
     }
@@ -73,7 +73,7 @@ struct ConversationComposerEntryRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 4) {
             if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
                 Button {
                     showAttachMenu = true
@@ -82,74 +82,40 @@ struct ConversationComposerEntryRowView: View {
                         .font(LitterFont.styled(size: 20, weight: .semibold))
                         .foregroundColor(LitterTheme.textPrimary)
                         .frame(width: Metrics.controlSize, height: Metrics.controlSize)
-                        .modifier(GlassCircleModifier())
+                        .background(
+                            Circle()
+                                .fill(LitterTheme.surfaceLight.opacity(0.72))
+                        )
                 }
-                .padding(4)
-                .contentShape(Rectangle())
-                .padding(-4)
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("Attach")
-                .zIndex(1)
             }
 
-            HStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    ConversationComposerTextView(
-                        text: $inputText,
-                        isFocused: $isComposerFocused,
-                        selectedRange: $composerSelectionRange,
-                        onPasteImage: onPasteImage,
-                        onHardwareSubmit: {
-                            if canSend { onSendText() }
-                        }
-                    )
+            ZStack(alignment: .topLeading) {
+                ConversationComposerTextView(
+                    text: $inputText,
+                    isFocused: $isComposerFocused,
+                    selectedRange: $composerSelectionRange,
+                    onPasteImage: onPasteImage,
+                    onHardwareSubmit: {
+                        if canSend { onSendText() }
+                    },
+                    horizontalInset: 5,
+                    verticalInset: 12
+                )
 
-                    if inputText.isEmpty {
-                        Text("Message litter...")
-                            .font(LitterFont.styled(size: 17))
-                            .foregroundColor(LitterTheme.textMuted)
-                            .padding(.leading, 16)
-                            .padding(.top, 11)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if voiceManager.isRecording {
-                    AudioWaveformView(level: voiceManager.audioLevel)
-                        .frame(width: 48, height: 20)
-
-                    Button(action: onStopRecording) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(LitterFont.styled(size: 28))
-                            .foregroundColor(LitterTheme.accentStrong)
-                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .hoverEffect(.highlight)
-                    .accessibilityLabel("Stop recording")
-                } else if voiceManager.isTranscribing {
-                    ProgressView()
-                        .tint(LitterTheme.accent)
-                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                } else if allowsVoiceInput {
-                    Button(action: onStartRecording) {
-                        Image(systemName: "mic.fill")
-                            .font(LitterFont.styled(size: 18))
-                            .foregroundColor(LitterTheme.textSecondary)
-                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .hoverEffect(.highlight)
-                    .accessibilityLabel("Dictate")
+                if inputText.isEmpty {
+                    Text("Message litter...")
+                        .font(LitterFont.styled(size: 17))
+                        .foregroundColor(LitterTheme.textMuted)
+                        .padding(.leading, 5)
+                        .padding(.top, 12)
+                        .allowsHitTesting(false)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: Metrics.controlSize)
-            .modifier(GlassRoundedRectModifier(cornerRadius: Metrics.inputCornerRadius))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .topTrailing) {
                 if shouldShowExpand {
                     Button {
@@ -170,12 +136,32 @@ struct ConversationComposerEntryRowView: View {
             }
             .animation(.easeInOut(duration: 0.15), value: shouldShowExpand)
 
-            if canSend {
-                Button(action: onSendText) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(LitterFont.styled(size: 30))
-                        .foregroundColor(LitterTheme.accent)
+            if voiceManager.isRecording {
+                AudioWaveformView(level: voiceManager.audioLevel)
+                    .frame(width: 42, height: 20)
+
+                Button(action: onStopRecording) {
+                    Image(systemName: "stop.fill")
+                        .font(LitterFont.styled(size: 13, weight: .bold))
+                        .foregroundColor(.black)
                         .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                        .background(Circle().fill(LitterTheme.accentStrong))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Stop recording")
+            } else if voiceManager.isTranscribing {
+                ProgressView()
+                    .tint(LitterTheme.accent)
+                    .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+            } else if canSend {
+                Button(action: onSendText) {
+                    Image(systemName: "arrow.up")
+                        .font(LitterFont.styled(size: 17, weight: .bold))
+                        .foregroundColor(.black)
+                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                        .background(Circle().fill(LitterTheme.accent))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -184,21 +170,35 @@ struct ConversationComposerEntryRowView: View {
                 .opacity(voiceManager.isRecording || voiceManager.isTranscribing ? 0.45 : 1)
                 .accessibilityLabel("Send")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-
-            if isTurnActive && !canSend {
+            } else if isTurnActive {
                 Button(action: onInterrupt) {
-                    Text("Cancel")
-                        .font(LitterFont.styled(size: 15, weight: .medium))
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .padding(.horizontal, 14)
-                        .frame(height: Metrics.controlSize)
-                        .modifier(GlassCapsuleModifier())
+                    Image(systemName: "stop.fill")
+                        .font(LitterFont.styled(size: 12, weight: .bold))
+                        .foregroundColor(LitterTheme.surface)
+                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                        .background(Circle().fill(LitterTheme.textPrimary))
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Cancel response")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if allowsVoiceInput {
+                Button(action: onStartRecording) {
+                    Image(systemName: "mic.fill")
+                        .font(LitterFont.styled(size: 18))
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Dictate")
             }
         }
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .modifier(GlassRoundedRectModifier(cornerRadius: Metrics.inputCornerRadius))
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: canSend)

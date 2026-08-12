@@ -827,13 +827,17 @@ fun ComposerBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(LitterTheme.codeBackground, RoundedCornerShape(26.dp))
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!isRecording && !isTranscribing && !isThinking) {
                 IconButton(
                     onClick = { showAttachMenu = true },
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(LitterTheme.surface.copy(alpha = 0.78f), CircleShape),
                 ) {
                     Icon(
                         Icons.Default.Add,
@@ -847,9 +851,8 @@ fun ComposerBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 36.dp, max = 120.dp)
-                    .background(LitterTheme.codeBackground, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .heightIn(min = 44.dp, max = 120.dp)
+                    .padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(modifier = Modifier.weight(1f)) {
@@ -990,7 +993,7 @@ fun ComposerBar(
                         )
                     }
 
-                    else -> {
+                    !canSend && !isThinking -> {
                         val realtimeAvailable = remember {
                             com.litter.android.ui.ExperimentalFeatures.isEnabled(
                                 com.litter.android.ui.LitterFeature.REALTIME_VOICE,
@@ -1041,58 +1044,59 @@ fun ComposerBar(
                         }
                     }
                 }
-            }
-
-            Spacer(Modifier.width(4.dp))
-
-            if (canSend) {
-                IconButton(
-                    onClick = sendCurrent,
-                    enabled = !isRecording && !isTranscribing,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (!isRecording && !isTranscribing) {
-                                LitterTheme.accent
-                            } else {
-                                LitterTheme.accent.copy(alpha = 0.45f)
-                            },
-                            CircleShape,
-                        ),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
-                        tint = Color.Black,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-                Spacer(Modifier.width(4.dp))
-            }
-
-            if (isThinking && !canSend) {
-                Text(
-                    text = "Cancel",
-                    color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.caption.scaled,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(LitterTheme.surface)
-                        .clickable {
-                            val turnId = activeTurnId ?: return@clickable
+                if (canSend) {
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(
+                        onClick = sendCurrent,
+                        enabled = !isRecording && !isTranscribing,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (!isRecording && !isTranscribing) {
+                                    LitterTheme.accent
+                                } else {
+                                    LitterTheme.accent.copy(alpha = 0.45f)
+                                },
+                                CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = Color.Black,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                } else if (isThinking) {
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(
+                        onClick = {
+                            val turnId = activeTurnId ?: return@IconButton
                             scope.launch {
-                                try {
+                                runCatching {
                                     appModel.client.interruptTurn(
                                         threadKey.serverId,
-                                        AppInterruptTurnRequest(threadId = threadKey.threadId, turnId = turnId),
+                                        AppInterruptTurnRequest(
+                                            threadId = threadKey.threadId,
+                                            turnId = turnId,
+                                        ),
                                     )
-                                } catch (_: Exception) {}
+                                }
                             }
-                        }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(LitterTheme.textPrimary, CircleShape),
+                    ) {
+                        Icon(
+                            Icons.Default.Stop,
+                            contentDescription = "Cancel response",
+                            tint = LitterTheme.surface,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
             }
         }
 

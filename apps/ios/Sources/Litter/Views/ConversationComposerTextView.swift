@@ -9,6 +9,11 @@ struct ConversationComposerTextView: UIViewRepresentable {
     /// Invoked when the user presses hardware Return with no modifiers. Shift+Return
     /// still inserts a newline via the standard text-view behavior.
     var onHardwareSubmit: (() -> Void)? = nil
+    /// Insets are presentation-only. Keeping them on the existing UIKit text
+    /// view lets the composer chrome change without replacing its text state,
+    /// selection, marked-text, or autocorrection path.
+    var horizontalInset: CGFloat = 16
+    var verticalInset: CGFloat = 11
     /// When true, the view returns no preferred size from `sizeThatFits`, letting
     /// SwiftUI fill the parent frame. Scrolling kicks in against the actual
     /// bounds instead of the 5-line clamp.
@@ -20,6 +25,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
         selectedRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0)),
         onPasteImage: @escaping (UIImage) -> Void,
         onHardwareSubmit: (() -> Void)? = nil,
+        horizontalInset: CGFloat = 16,
+        verticalInset: CGFloat = 11,
         unboundedHeight: Bool = false
     ) {
         _text = text
@@ -27,6 +34,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
         _selectedRange = selectedRange
         self.onPasteImage = onPasteImage
         self.onHardwareSubmit = onHardwareSubmit
+        self.horizontalInset = horizontalInset
+        self.verticalInset = verticalInset
         self.unboundedHeight = unboundedHeight
     }
 
@@ -39,7 +48,12 @@ struct ConversationComposerTextView: UIViewRepresentable {
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
         textView.tintColor = UIColor(LitterTheme.accent)
-        textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 12)
+        textView.textContainerInset = UIEdgeInsets(
+            top: verticalInset,
+            left: horizontalInset,
+            bottom: verticalInset,
+            right: horizontalInset
+        )
         textView.textContainer.lineFragmentPadding = 0
         textView.autocorrectionType = .default
         textView.autocapitalizationType = .sentences
@@ -64,6 +78,12 @@ struct ConversationComposerTextView: UIViewRepresentable {
         context.coordinator.parent = self
         uiView.onPasteImage = onPasteImage
         uiView.onHardwareSubmit = onHardwareSubmit
+        uiView.textContainerInset = UIEdgeInsets(
+            top: verticalInset,
+            left: horizontalInset,
+            bottom: verticalInset,
+            right: horizontalInset
+        )
         context.coordinator.applyStyling(to: uiView)
 
         if uiView.text != text, uiView.markedTextRange == nil {
