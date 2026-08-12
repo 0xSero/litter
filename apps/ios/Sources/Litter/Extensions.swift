@@ -122,7 +122,7 @@ enum FontFamilyOption: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .mono: return "Berkeley Mono"
-        case .system: return "ChatGPT (System)"
+        case .system: return "System UI"
         case .systemMono: return "System Mono"
         case .serif: return "Reader Serif"
         }

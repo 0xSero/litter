@@ -34,12 +34,12 @@ final class FontFamilyOptionTests: XCTestCase {
         ])
     }
 
-    func testChatGPTAndReaderChoicesUseProportionalFamilies() {
+    func testSystemAndReaderChoicesUseProportionalFamilies() {
         XCTAssertFalse(FontFamilyOption.system.isMono)
         XCTAssertFalse(FontFamilyOption.serif.isMono)
         XCTAssertTrue(FontFamilyOption.mono.isMono)
         XCTAssertTrue(FontFamilyOption.systemMono.isMono)
-        XCTAssertEqual(FontFamilyOption.system.displayName, "ChatGPT (System)")
+        XCTAssertEqual(FontFamilyOption.system.displayName, "System UI")
     }
 
     func testFontPreferenceObserverAdvancesRevision() {
