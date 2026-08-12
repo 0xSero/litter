@@ -186,7 +186,7 @@ Incremental policy:
 ## Coding Style & Naming Conventions
 - Swift style follows standard Xcode defaults: 4-space indentation, `UpperCamelCase` for types, `lowerCamelCase` for properties/functions.
 - Kotlin style follows standard Android/Kotlin conventions: 4-space indentation, `UpperCamelCase` types, `lowerCamelCase` members.
-- Dark theme: pure `Color.black` backgrounds, `#00FF9C` accent, `SFMono-Regular` font throughout.
+- Appearance: use `ThemeManager`/`LitterTheme` tokens rather than hardcoding black, neon green, or a single font. Conversation prose follows the selected reader font; code, terminals, and command output remain monospaced. Preserve the selected theme and font across app surfaces.
 - Keep concurrency boundaries explicit (`actor`, `@MainActor`) and avoid cross-actor mutable state.
 - Group iOS files by layer (`Views`, `Models`, `Bridge`) and Android files by module (`app/ui`, `app/state`, `core/*`).
 - No repository-local SwiftLint/SwiftFormat config is currently committed; keep formatting consistent with existing files.
