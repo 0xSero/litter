@@ -48,7 +48,6 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 shlex = { workspace = true }
-semver = { version = "1", default-features = false }
 linkify = "0.10"
 unicode-segmentation = "1"
 

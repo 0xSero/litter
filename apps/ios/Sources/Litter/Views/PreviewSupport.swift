@@ -374,8 +374,7 @@ enum LitterPreviewData {
             availableModels: sampleModels,
             agentRuntimes: [AgentRuntimeInfo(kind: "codex", name: "codex", displayName: "Codex", available: true)],
             connectionProgress: nil,
-            usageStats: nil,
-            codexVersion: "0.125.0"
+            usageStats: nil
         )
 
         let sessionSummaries = threads.map { thread in

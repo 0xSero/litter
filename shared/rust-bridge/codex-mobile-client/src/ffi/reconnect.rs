@@ -629,7 +629,6 @@ mod tests {
             agent_runtimes: Vec::new(),
             connection_progress: None,
             transport: ServerTransportDiagnostics::default(),
-            codex_version: None,
             supports_turn_pagination: true,
         }
     }
@@ -692,7 +691,6 @@ mod tests {
                 agent_runtimes: Vec::new(),
                 connection_progress: None,
                 transport: ServerTransportDiagnostics::default(),
-                codex_version: None,
                 supports_turn_pagination: true,
             },
         );
@@ -756,7 +754,6 @@ mod tests {
                 agent_runtimes: Vec::new(),
                 connection_progress: None,
                 transport: ServerTransportDiagnostics::default(),
-                codex_version: None,
                 supports_turn_pagination: true,
             },
         );

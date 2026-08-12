@@ -185,12 +185,9 @@ pub struct ServerSnapshot {
     pub agent_runtimes: Vec<AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub transport: ServerTransportDiagnostics,
-    /// Semver string parsed from the server's `initialize.user_agent`
-    /// response. `None` when the user-agent is absent or unparseable.
-    pub codex_version: Option<String>,
     /// Whether the remote supports `thread/turns/list` + `exclude_turns`.
-    /// Derived from `codex_version` at handshake time; can be flipped to
-    /// `false` at runtime if a paginated RPC comes back as method-not-found.
+    /// Defaults to `true` and flips to `false` at runtime if a paginated RPC
+    /// comes back as method-not-found or with the legacy embedded-turn shape.
     pub supports_turn_pagination: bool,
 }
 

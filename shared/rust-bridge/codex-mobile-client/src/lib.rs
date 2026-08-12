@@ -138,7 +138,6 @@ pub mod proot_runtime;
 pub mod shell_preflight;
 
 pub mod alleycat;
-pub mod capability;
 pub mod cloud_sync;
 pub mod conversation;
 pub mod conversation_uniffi;

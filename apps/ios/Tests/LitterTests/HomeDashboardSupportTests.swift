@@ -537,8 +537,7 @@ final class HomeDashboardSupportTests: XCTestCase {
                 )
             ],
             connectionProgress: nil,
-            usageStats: nil,
-            codexVersion: nil
+            usageStats: nil
         )
     }
 
