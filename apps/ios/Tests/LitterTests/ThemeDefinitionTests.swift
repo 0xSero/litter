@@ -49,9 +49,12 @@ final class ThemeDefinitionTests: XCTestCase {
     }
 
     func testChatGPTDarkPaletteMatchesLocalStudioReferenceTokens() throws {
-        let url = try XCTUnwrap(
-            Bundle(for: Self.self).url(forResource: "chatgpt-dark", withExtension: "json")
-        )
+        let sourceDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = sourceDirectory
+            .appendingPathComponent("Sources/Litter/Resources/Themes/chatgpt-dark.json")
         let definition = try JSONDecoder().decode(ThemeDefinition.self, from: Data(contentsOf: url))
         let theme = ResolvedTheme(slug: "chatgpt-dark", definition: definition)
 
