@@ -69,7 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           ./apps/ios/scripts/build-rust.sh --preserve-current --macabi-only
-          make alpine-fs xcgen
+          make alpine-fs
+          ./apps/ios/scripts/regenerate-project.sh
 
       - name: Package Mac release prep artifact
         run: |

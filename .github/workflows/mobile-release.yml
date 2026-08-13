@@ -683,7 +683,8 @@ jobs:
           trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
           sccache --zero-stats || true
           ./apps/ios/scripts/build-rust.sh --preserve-current --device-only --skip-bindings
-          make alpine-fs xcgen
+          make alpine-fs
+          ./apps/ios/scripts/regenerate-project.sh
           echo "==> sccache stats after iOS release prep"
           sccache --show-stats || true
 
@@ -981,7 +982,8 @@ jobs:
           trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
           sccache --zero-stats || true
           ./apps/ios/scripts/build-rust.sh --preserve-current --macabi-only --skip-bindings
-          make alpine-fs xcgen
+          make alpine-fs
+          ./apps/ios/scripts/regenerate-project.sh
           echo "==> sccache stats after Mac release prep"
           sccache --show-stats || true
 
