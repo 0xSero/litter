@@ -652,6 +652,7 @@ impl AppStoreReducer {
                 thread.is_resumed = thread.is_resumed || existing.is_resumed;
                 preserve_local_overlay_items(existing, &mut thread);
                 preserve_queued_follow_ups(existing, &mut thread);
+                preserve_live_tool_items(existing, &mut thread);
                 // Preserve existing items when the incoming snapshot has none
                 // (e.g. thread/read with include_turns=false).
                 if thread.items.is_empty() && !existing.items.is_empty() {
@@ -3403,6 +3404,74 @@ fn preserve_local_overlay_items(source: &ThreadSnapshot, target: &mut ThreadSnap
     }
 }
 
+fn preserve_live_tool_items(source: &ThreadSnapshot, target: &mut ThreadSnapshot) {
+    let incoming_ids: HashSet<&str> = target.items.iter().map(|item| item.id.as_str()).collect();
+    let missing = source
+        .items
+        .iter()
+        .enumerate()
+        .filter(|item| {
+            item.1.source_turn_id.is_none()
+                && is_tool_item(&item.1.content)
+                && !incoming_ids.contains(item.1.id.as_str())
+        })
+        .map(|(index, item)| (index, item.clone()))
+        .collect::<Vec<_>>();
+    for (source_index, item) in missing {
+        let next_anchor = source.items[source_index + 1..]
+            .iter()
+            .find_map(replay_anchor_key);
+        let insertion_index = next_anchor
+            .as_ref()
+            .and_then(|anchor| {
+                target
+                    .items
+                    .iter()
+                    .position(|candidate| replay_anchor_key(candidate).as_ref() == Some(anchor))
+            })
+            .or_else(|| {
+                target.items.iter().rposition(|candidate| {
+                    matches!(
+                        candidate.content,
+                        HydratedConversationItemContent::Assistant(ref data)
+                            if data.phase == Some(crate::types::AppMessagePhase::FinalAnswer)
+                    )
+                })
+            })
+            .unwrap_or(target.items.len());
+        target.items.insert(insertion_index, item);
+    }
+}
+
+fn replay_anchor_key(item: &HydratedConversationItem) -> Option<String> {
+    match &item.content {
+        HydratedConversationItemContent::User(data) => Some(format!(
+            "user:{}:{}",
+            data.text,
+            serde_json::to_string(&data.image_data_uris).unwrap_or_default()
+        )),
+        HydratedConversationItemContent::Assistant(data) => {
+            Some(format!("assistant:{}:{:?}", data.text, data.phase))
+        }
+        _ => None,
+    }
+}
+
+fn is_tool_item(content: &HydratedConversationItemContent) -> bool {
+    matches!(
+        content,
+        HydratedConversationItemContent::CommandExecution(_)
+            | HydratedConversationItemContent::FileChange(_)
+            | HydratedConversationItemContent::McpToolCall(_)
+            | HydratedConversationItemContent::DynamicToolCall(_)
+            | HydratedConversationItemContent::MultiAgentAction(_)
+            | HydratedConversationItemContent::WebSearch(_)
+            | HydratedConversationItemContent::ImageView(_)
+            | HydratedConversationItemContent::Widget(_)
+            | HydratedConversationItemContent::ImageGeneration(_)
+    )
+}
+
 fn duplicate_local_overlay_item_ids(thread: &ThreadSnapshot) -> Vec<String> {
     let active_turn_id = thread.active_turn_id.as_deref();
     thread
@@ -5188,6 +5257,67 @@ mod tests {
             thread.info.preview.as_deref(),
             Some("First user message"),
             "existing preview should be preserved when incoming is None"
+        );
+    }
+
+    #[test]
+    fn upsert_thread_snapshot_preserves_live_tool_omitted_from_replay() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let item = |id: &str, content: HydratedConversationItemContent| {
+            HydratedConversationItem {
+                id: id.to_string(),
+                content,
+                source_turn_id: None,
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: false,
+            }
+        };
+        let mut live = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        live.items.push(item(
+            "tool",
+            HydratedConversationItemContent::CommandExecution(HydratedCommandExecutionData {
+                command: "create image".to_string(),
+                cwd: "/tmp".to_string(),
+                status: AppOperationStatus::Completed,
+                output: Some("done".to_string()),
+                exit_code: Some(0),
+                duration_ms: Some(1),
+                process_id: None,
+                actions: Vec::new(),
+            }),
+        ));
+        reducer.upsert_thread_snapshot(live);
+
+        let mut replay = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        replay.items.push(item(
+            "final",
+            HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                text: "![image](/tmp/image.png)".to_string(),
+                agent_nickname: None,
+                agent_role: None,
+                phase: Some(crate::types::AppMessagePhase::FinalAnswer),
+            }),
+        ));
+        reducer.upsert_thread_snapshot(replay);
+
+        let thread = reducer
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("thread exists");
+        assert_eq!(
+            thread
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tool", "final"]
         );
     }
 
