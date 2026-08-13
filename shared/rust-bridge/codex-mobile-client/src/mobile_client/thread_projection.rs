@@ -555,6 +555,24 @@ pub(super) async fn read_thread_response_from_app_server(
     })
 }
 
+pub(super) async fn read_thread_response_from_app_server_runtime(
+    session: Arc<ServerSession>,
+    runtime_kind: AgentRuntimeKind,
+    thread_id: &str,
+    include_turns: bool,
+) -> Result<upstream::ThreadReadResponse, RpcError> {
+    let response = session
+        .request_for_runtime(
+            runtime_kind,
+            "thread/read",
+            serde_json::json!({ "threadId": thread_id, "includeTurns": include_turns }),
+        )
+        .await?;
+    serde_json::from_value::<upstream::ThreadReadResponse>(response).map_err(|error| {
+        RpcError::Deserialization(format!("deserialize thread/read response: {error}"))
+    })
+}
+
 pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     app_store: &AppStoreReducer,
     server_id: &str,

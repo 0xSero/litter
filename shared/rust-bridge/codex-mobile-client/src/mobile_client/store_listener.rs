@@ -1,6 +1,7 @@
 use super::*;
 
 const SUBAGENT_METADATA_HYDRATE_DELAYS_MS: [u64; 3] = [150, 800, 2500];
+const IDLE_THREAD_RECONCILE_DELAYS_MS: [u64; 3] = [100, 500, 1_500];
 
 pub(super) fn spawn_store_listener(
     app_store: Arc<AppStoreReducer>,
@@ -12,6 +13,11 @@ pub(super) fn spawn_store_listener(
             match rx.recv().await {
                 Ok(event) => {
                     app_store.apply_ui_event(&event);
+                    maybe_reconcile_idle_thread(
+                        Arc::clone(&app_store),
+                        Arc::clone(&sessions),
+                        &event,
+                    );
                     maybe_hydrate_collab_agent_metadata(
                         Arc::clone(&app_store),
                         Arc::clone(&sessions),
@@ -33,6 +39,96 @@ pub(super) fn spawn_store_listener(
             }
         }
     });
+}
+
+fn maybe_reconcile_idle_thread(
+    app_store: Arc<AppStoreReducer>,
+    sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
+    event: &UiEvent,
+) {
+    let Some(key) = idle_thread_key(event).cloned() else {
+        return;
+    };
+
+    MobileClient::spawn_detached(async move {
+        for delay_ms in IDLE_THREAD_RECONCILE_DELAYS_MS {
+            // Some app-server transports publish idle just before their
+            // durable turn record becomes readable. Keep this repair off the
+            // event loop and retry only while that record is empty/active.
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            let session = match sessions.read() {
+                Ok(guard) => guard.get(&key.server_id).cloned(),
+                Err(error) => {
+                    warn!("MobileClient: recovering poisoned sessions read lock");
+                    error.into_inner().get(&key.server_id).cloned()
+                }
+            };
+            let Some(session) = session else {
+                return;
+            };
+            if !session_is_current(&sessions, &key.server_id, &session) {
+                return;
+            }
+
+            let runtime_kind = app_store
+                .snapshot()
+                .threads
+                .get(&key)
+                .map(|thread| thread.agent_runtime_kind.clone())
+                .unwrap_or_else(|| "codex".to_string());
+            match read_thread_response_from_app_server_runtime(
+                Arc::clone(&session),
+                runtime_kind,
+                &key.thread_id,
+                true,
+            )
+            .await
+            {
+                Ok(response) => {
+                    if !session_is_current(&sessions, &key.server_id, &session) {
+                        return;
+                    }
+                    let durable_turn_is_complete =
+                        !response.thread.turns.is_empty()
+                            && response.thread.turns.iter().all(|turn| {
+                                !matches!(turn.status, upstream::TurnStatus::InProgress)
+                            });
+                    if let Err(error) = upsert_thread_snapshot_from_app_server_read_response(
+                        &app_store,
+                        &key.server_id,
+                        response,
+                    ) {
+                        warn!(
+                            "MobileClient: failed to reconcile idle thread for server={} thread={}: {}",
+                            key.server_id, key.thread_id, error
+                        );
+                        continue;
+                    }
+                    if durable_turn_is_complete {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        "MobileClient: failed to refresh idle thread for server={} thread={}: {}",
+                        key.server_id, key.thread_id, error
+                    );
+                }
+            }
+        }
+    });
+}
+
+fn idle_thread_key(event: &UiEvent) -> Option<&ThreadKey> {
+    match event {
+        UiEvent::ThreadStatusChanged { key, notification }
+            if matches!(notification.status, upstream::ThreadStatus::Idle) =>
+        {
+            Some(key)
+        }
+        _ => None,
+    }
 }
 
 fn maybe_hydrate_collab_agent_metadata(
@@ -233,6 +329,39 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_idle_status_changes_request_authoritative_reconciliation() {
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let idle = UiEvent::ThreadStatusChanged {
+            key: key.clone(),
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: key.thread_id.clone(),
+                status: upstream::ThreadStatus::Idle,
+            },
+        };
+        let active = UiEvent::ThreadStatusChanged {
+            key,
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: "thread".to_string(),
+                status: upstream::ThreadStatus::Active {
+                    active_flags: Vec::new(),
+                },
+            },
+        };
+
+        assert_eq!(
+            idle_thread_key(&idle),
+            Some(&ThreadKey {
+                server_id: "srv".to_string(),
+                thread_id: "thread".to_string(),
+            })
+        );
+        assert_eq!(idle_thread_key(&active), None);
+    }
 
     #[test]
     fn collab_receiver_thread_ids_extracts_spawn_agent_targets() {
