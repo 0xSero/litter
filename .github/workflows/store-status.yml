@@ -1,0 +1,208 @@
+name: Store Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      ios_version:
+        description: "iOS marketing version to inspect (blank = all versions)."
+        required: false
+        default: ""
+        type: string
+      ios_build_number:
+        description: "Specific iOS build number to inspect (blank = highest uploaded build only)."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  # actions: read is required only for the preflight guard that refuses the
+  # dispatch while any android-play-release run is queued/in-progress.
+  actions: read
+
+concurrency:
+  group: store-status-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Refuse if android-play-release is queued or running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          workflow_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows" \
+            --jq '.workflows[] | select(.path == ".github/workflows/android-play-release.yml") | .id' \
+            | head -n 1)"
+          if [ -z "${workflow_id:-}" ]; then
+            echo "::error::Could not resolve android-play-release.yml workflow id."
+            exit 1
+          fi
+          active_count="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?per_page=100" \
+            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested" or .status == "pending")] | length')"
+          if [ "${active_count:-0}" -gt 0 ]; then
+            echo "::error::android-play-release has ${active_count} queued/in-progress run(s); refusing store-status dispatch."
+            exit 1
+          fi
+          echo "Preflight OK: no android-play-release run is queued or in progress."
+
+  asc-status:
+    needs: preflight
+    runs-on: macos-26
+    timeout-minutes: 10
+    environment: release
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - name: Validate required secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
+          IOS_APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
+        run: |
+          set -euo pipefail
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_P8_B64 IOS_APP_STORE_APP_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Install App Store Connect CLI
+        run: |
+          brew install jq
+          HOMEBREW_NO_AUTO_UPDATE=0 brew install asc
+
+      - name: Decode App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
+        run: |
+          set -euo pipefail
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_PRIVATE_KEY_P8_B64" | base64 --decode > "$ASC_KEY_PATH"
+          chmod 600 "$ASC_KEY_PATH"
+          echo "ASC_PRIVATE_KEY_PATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Read App Store state (read-only)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
+          IOS_APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
+          IOS_VERSION: ${{ inputs.ios_version }}
+          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
+        run: |
+          set -euo pipefail
+          APP_ID="$IOS_APP_STORE_APP_ID"
+          mkdir -p store-state
+
+          # App record.
+          asc apps list --bundle-id com.sigkitten.litter --output json > store-state/apps.json
+
+          # Highest uploaded build across all versions (authoritative).
+          asc builds list --app "$APP_ID" --limit 1 --sort -uploadedDate --output json > store-state/builds-highest.json
+
+          # Specific build, when requested.
+          if [ -n "${IOS_BUILD_NUMBER:-}" ]; then
+            asc builds list --app "$APP_ID" --version "$IOS_VERSION" --build-number "$IOS_BUILD_NUMBER" \
+              --sort -uploadedDate --output json > store-state/builds-specific.json
+          fi
+
+          # App Store versions + appStoreState.
+          if [ -n "${IOS_VERSION:-}" ]; then
+            asc versions list --app "$APP_ID" --version "$IOS_VERSION" --platform IOS --output json > store-state/versions.json
+          else
+            asc versions list --app "$APP_ID" --platform IOS --output json > store-state/versions.json
+          fi
+
+          # App Review status (read-only; best-effort so an empty review queue
+          # does not fail the read).
+          asc review status --app "$APP_ID" --output json > store-state/review-status.json 2>/dev/null \
+            || echo '{"data":[]}' > store-state/review-status.json
+          asc review submissions-list --app "$APP_ID" --output json > store-state/review-submissions.json 2>/dev/null \
+            || echo '{"data":[]}' > store-state/review-submissions.json
+
+          highest_build="$(jq -r '.data[0].attributes.version // empty' store-state/builds-highest.json)"
+          requested_state="$(jq -r '[.data[]?.attributes.appStoreState // .data[]?.attributes.appStoreVersionState // .data[]?.attributes.state // empty][0] // empty' store-state/versions.json 2>/dev/null || true)"
+
+          jq -n \
+            --arg bundleId "com.sigkitten.litter" \
+            --arg appId "$APP_ID" \
+            --arg highestBuild "$highest_build" \
+            --arg requestedVersion "${IOS_VERSION:-}" \
+            --arg requestedBuild "${IOS_BUILD_NUMBER:-}" \
+            --arg requestedState "$requested_state" \
+            '{bundleId: $bundleId, appId: $appId, highestUploadedBuild: $highestBuild, requestedVersion: $requestedVersion, requestedBuildNumber: $requestedBuild, requestedAppStoreState: $requestedState}' \
+            > store-state/summary.json
+
+          echo "App Store state captured: highest build = ${highest_build:-<none>}"
+
+      - name: Upload store-state artifact (JSON only)
+        uses: actions/upload-artifact@v6
+        with:
+          name: asc-store-state
+          path: store-state
+          if-no-files-found: error
+          retention-days: 7
+
+  play-status:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Validate required secrets
+        env:
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
+            echo "::error::Missing required secret: LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64"
+            exit 1
+          fi
+
+      - name: Decode Google Play service account (RUNNER_TEMP only)
+        env:
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          service_account_json="$RUNNER_TEMP/play-service-account.json"
+          if printf '%s' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64" | base64 --decode 2>/dev/null > "$service_account_json" \
+            && jq -e . "$service_account_json" >/dev/null 2>&1; then
+            :
+          else
+            printf '%s' "$LITTER_PLAY_SERVICE_ACCOUNT_JSON_B64" > "$service_account_json"
+            jq -e . "$service_account_json" >/dev/null
+          fi
+          chmod 600 "$service_account_json"
+          echo "LITTER_PLAY_SERVICE_ACCOUNT_JSON=$service_account_json" >> "$GITHUB_ENV"
+
+      - name: Read Google Play tracks (read-only)
+        env:
+          LITTER_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.LITTER_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          mkdir -p store-state
+          python3 tools/scripts/list-play-tracks.py \
+            --package com.sigkitten.litter.android \
+            --service-account-json "$LITTER_PLAY_SERVICE_ACCOUNT_JSON" \
+            --pretty \
+            --output store-state/play-tracks.json
+
+      - name: Upload store-state artifact (JSON only)
+        uses: actions/upload-artifact@v6
+        with:
+          name: play-store-state
+          path: store-state
+          if-no-files-found: error
+          retention-days: 7
