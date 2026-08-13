@@ -88,6 +88,7 @@ struct ConversationView: View {
         let supported = selectedModel.supportedReasoningEfforts.map {
             $0.reasoningEffort.wireValue
         }
+        guard !supported.isEmpty else { return nil }
         return supported.contains(trimmed)
             ? trimmed
             : selectedModel.defaultReasoningEffort.wireValue

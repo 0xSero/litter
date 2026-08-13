@@ -451,6 +451,7 @@ fun ComposerBar(
                 when {
                     pending.isEmpty() -> null
                     selectedModel == null -> requested
+                    supported.isEmpty() -> null
                     requested != null && supported.contains(requested) -> requested
                     else -> selectedModel.defaultReasoningEffort
                 }
