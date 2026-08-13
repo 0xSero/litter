@@ -77,12 +77,12 @@ final class ThemeManager {
     private var systemColorScheme: ColorScheme = .dark
 
     var selectedLightSlug: String {
-        get { UserDefaults.standard.string(forKey: "selectedLightTheme") ?? "kitty-litter-light" }
+        get { UserDefaults.standard.string(forKey: "selectedLightTheme") ?? "codex-light" }
         set { UserDefaults.standard.set(newValue, forKey: "selectedLightTheme") }
     }
 
     var selectedDarkSlug: String {
-        get { UserDefaults.standard.string(forKey: "selectedDarkTheme") ?? "kitty-litter-dark" }
+        get { UserDefaults.standard.string(forKey: "selectedDarkTheme") ?? "chatgpt-dark" }
         set { UserDefaults.standard.set(newValue, forKey: "selectedDarkTheme") }
     }
 

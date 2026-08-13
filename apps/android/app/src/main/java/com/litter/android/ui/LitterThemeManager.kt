@@ -254,7 +254,7 @@ object LitterThemeManager {
     var appearanceMode by mutableStateOf(LitterAppearanceMode.SYSTEM)
         private set
 
-    var selectedFontFamily by mutableStateOf(LitterFontFamilyOption.BERKELEY_MONO)
+    var selectedFontFamily by mutableStateOf(LitterFontFamilyOption.CHATGPT)
         private set
 
     var lightTheme by mutableStateOf(LitterResolvedTheme.defaultLight)
@@ -279,10 +279,10 @@ object LitterThemeManager {
         get() = themeIndex.filter { it.type == LitterColorThemeType.DARK }
 
     val selectedLightSlug: String
-        get() = preferences?.getString(SELECTED_LIGHT_THEME_KEY, null) ?: "kitty-litter-light"
+        get() = preferences?.getString(SELECTED_LIGHT_THEME_KEY, null) ?: "codex-light"
 
     val selectedDarkSlug: String
-        get() = preferences?.getString(SELECTED_DARK_THEME_KEY, null) ?: "kitty-litter-dark"
+        get() = preferences?.getString(SELECTED_DARK_THEME_KEY, null) ?: "chatgpt-dark"
 
     private val preferences
         get() = appContext?.getSharedPreferences(UI_PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -367,15 +367,11 @@ object LitterThemeManager {
     }
 
     private fun loadFontFamily(): LitterFontFamilyOption {
-        val prefs = preferences ?: return LitterFontFamilyOption.BERKELEY_MONO
+        val prefs = preferences ?: return LitterFontFamilyOption.CHATGPT
         LitterFontFamilyOption.fromStorageValue(prefs.getString(FONT_FAMILY_KEY, null))?.let {
             return it
         }
-        return if (prefs.contains(FONT_MONO_KEY) && !prefs.getBoolean(FONT_MONO_KEY, true)) {
-            LitterFontFamilyOption.CHATGPT
-        } else {
-            LitterFontFamilyOption.BERKELEY_MONO
-        }
+        return LitterFontFamilyOption.CHATGPT
     }
 
     private fun usesDarkTheme(mode: LitterAppearanceMode = appearanceMode): Boolean =

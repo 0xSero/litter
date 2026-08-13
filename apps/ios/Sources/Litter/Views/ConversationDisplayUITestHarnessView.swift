@@ -12,6 +12,8 @@ struct ConversationDisplayUITestHarnessView: View {
     @State private var composerText = ""
     @State private var composerFocused = false
     @State private var composerSelection = NSRange(location: 0, length: 0)
+    @State private var showAttachMenu = false
+    @State private var voiceManager = VoiceTranscriptionManager()
 
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--ui-test-conversation-display")
@@ -30,15 +32,24 @@ struct ConversationDisplayUITestHarnessView: View {
                         .foregroundColor(LitterTheme.textPrimary)
                         .accessibilityIdentifier("conversationDisplayHarness.title")
 
-                    ConversationComposerTextView(
-                        text: $composerText,
-                        isFocused: $composerFocused,
-                        selectedRange: $composerSelection,
-                        onPasteImage: { _ in }
+                    ConversationComposerEntryRowView(
+                        showAttachMenu: $showAttachMenu,
+                        inputText: $composerText,
+                        isComposerFocused: $composerFocused,
+                        composerSelectionRange: $composerSelection,
+                        voiceManager: voiceManager,
+                        isTurnActive: false,
+                        hasAttachment: false,
+                        modelLabel: "GPT-5",
+                        reasoningLabel: "high",
+                        collaborationMode: .default,
+                        showModeChip: true,
+                        onPasteImage: { _ in },
+                        onSendText: {},
+                        onStopRecording: {},
+                        onStartRecording: {},
+                        onInterrupt: {}
                     )
-                    .frame(height: 52)
-                    .background(LitterTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
 
                     ConversationTurnTimeline(
                         items: Self.seedItems,

@@ -17,6 +17,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -398,33 +399,12 @@ fun ConversationScreen(
     val hasWallpaper = remember(threadKey, wallpaperVersion) {
         WallpaperManager.resolvedConfig(threadKey)?.type?.let { it != WallpaperType.NONE } == true
     }
-    val headerScrimColor = if (hasWallpaper) LitterTheme.surface.copy(alpha = 0.75f) else LitterTheme.surface
-
+    val composerScrimColor = if (hasWallpaper) LitterTheme.surface.copy(alpha = 0.75f) else LitterTheme.surface
     Box(modifier = Modifier.fillMaxSize()) {
         // Wallpaper fills the entire screen edge-to-edge (behind status + nav bars)
         ChatWallpaperBackground(threadKey = threadKey)
 
-        Column(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            // Header with status bar inset built-in — extends behind status bar with scrim
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(headerScrimColor),
-            ) {
-                Spacer(Modifier.statusBarsPadding())
-                HeaderBar(
-                    thread = thread,
-                    onBack = onBack,
-                    onInfo = onInfo,
-                    showModelSelector = showModelSelector,
-                    onToggleModelSelector = { showModelSelector = !showModelSelector },
-                    onReloadError = { reloadErrorMessage = it },
-                    transparentBackground = hasWallpaper,
-                )
-            }
-
+        Column(modifier = Modifier.fillMaxSize()) {
             // Message list with gradient fade and scroll FAB
             Box(modifier = Modifier.weight(1f)) {
                 if (thread == null) {
@@ -437,6 +417,7 @@ fun ConversationScreen(
 
                     LazyColumn(
                         state = listState,
+                        contentPadding = PaddingValues(top = 68.dp),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp)
@@ -455,8 +436,6 @@ fun ConversationScreen(
                                 } else Modifier.drawWithContent { drawContent() }
                             ),
                     ) {
-                        item { Spacer(Modifier.height(12.dp)) }
-
                         if (isWaitingForData || isInitialTurnsLoading) {
                             item {
                                 Box(
@@ -741,7 +720,7 @@ fun ConversationScreen(
                             .height(24.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, headerScrimColor),
+                                    colors = listOf(Color.Transparent, composerScrimColor),
                                 ),
                             ),
                     )
@@ -751,7 +730,7 @@ fun ConversationScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(headerScrimColor),
+                        .background(composerScrimColor),
                 ) {
                     // Pinned context strip
                     if (pinnedContext != null) {
@@ -854,6 +833,19 @@ fun ConversationScreen(
             }
         }
 
+        // Only the navigation controls float over the transcript; the full-width
+        // title/model bar is gone so messages can scroll through the freed space.
+        Column(modifier = Modifier.align(Alignment.TopCenter)) {
+            Spacer(Modifier.statusBarsPadding())
+            HeaderBar(
+                thread = thread,
+                onBack = onBack,
+                onInfo = onInfo,
+                onReloadError = { reloadErrorMessage = it },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+
         // Thinking-indicator minigame overlay: bottom 40% of the screen.
         // Slides up from the bottom when appearing and slides back out on
         // dismiss, mirroring iOS ConversationView.swift:148
@@ -895,6 +887,34 @@ fun ConversationScreen(
                 ComposerPermissionsSheet(
                     threadKey = threadKey,
                     onDismiss = { showPermissionsSheet = false },
+                )
+            }
+        }
+
+        if (showModelSelector) {
+            ModalBottomSheet(
+                onDismissRequest = { showModelSelector = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                containerColor = LitterTheme.background,
+            ) {
+                com.litter.android.ui.common.ModelSelectorPanel(
+                    thread = thread,
+                    availableModels = server?.availableModels ?: emptyList(),
+                    catalogLoaded = server?.availableModels != null,
+                    catalogError = server?.serverId?.let(appModel::modelCatalogError),
+                    onRetryModels = {
+                        scope.launch {
+                            appModel.loadAvailableModelsIfNeeded(threadKey.serverId, force = true)
+                        }
+                    },
+                    onToggleMode = { mode ->
+                        scope.launch {
+                            runCatching { appModel.store.setThreadCollaborationMode(threadKey, mode) }
+                        }
+                    },
+                    fastMode = HeaderOverrides.pendingFastMode,
+                    onFastModeChange = { HeaderOverrides.pendingFastMode = it },
+                    showBackground = false,
                 )
             }
         }
