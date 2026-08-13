@@ -60,10 +60,15 @@ ANDROID_EMULATOR_ABIS ?= $(if $(filter arm64 aarch64,$(HOST_ARCH)),arm64-v8a,x86
 # This must precede cache setup and path auto-detection.
 -include .env
 
-LITTER_SHARED_CACHE_ROOT ?= $(HOME)/Library/Caches/litter-build
-LITTER_SHARED_RUST_TARGET ?= 0
+# All linked worktrees share the primary checkout's Cargo target. Cargo still
+# fingerprints each source revision, but registry/git dependencies are built
+# once instead of silently growing a multi-gigabyte target per worktree.
+GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+LITTER_PRIMARY_WORKTREE_ROOT := $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..),$(ROOT))
+LITTER_SHARED_CACHE_ROOT ?= $(LITTER_PRIMARY_WORKTREE_ROOT)/shared/rust-bridge
+LITTER_SHARED_RUST_TARGET ?= 1
 ifeq ($(LITTER_SHARED_RUST_TARGET),1)
-  export CARGO_TARGET_DIR ?= $(LITTER_SHARED_CACHE_ROOT)/cargo-target
+  export CARGO_TARGET_DIR ?= $(LITTER_SHARED_CACHE_ROOT)/target
 endif
 RUST_TARGET := $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),$(RUST_DIR)/target)
 
