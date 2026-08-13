@@ -355,6 +355,7 @@ jobs:
           trap 'status=$?; kill "$HEARTBEAT_PID" >/dev/null 2>&1 || true; wait "$HEARTBEAT_PID" 2>/dev/null || true; exit $status' EXIT
           ./apps/android/gradlew -p apps/android --no-daemon --stacktrace "--max-workers=$GRADLE_MAX_WORKERS" \
             :app:assembleRelease \
+            :app:bundleRelease \
             -PLITTER_UPLOAD_STORE_FILE="$LITTER_UPLOAD_STORE_FILE" \
             -PLITTER_UPLOAD_STORE_PASSWORD="$LITTER_UPLOAD_STORE_PASSWORD" \
             -PLITTER_UPLOAD_KEY_ALIAS="$LITTER_UPLOAD_KEY_ALIAS" \
