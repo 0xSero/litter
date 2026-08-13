@@ -40,7 +40,7 @@ struct ConversationDisplayUITestHarnessView: View {
                         voiceManager: voiceManager,
                         isTurnActive: false,
                         hasAttachment: false,
-                        modelLabel: "GPT-5",
+                        modelLabel: ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_MODEL_LABEL"] ?? "GPT-5",
                         reasoningLabel: "high",
                         collaborationMode: .default,
                         showModeChip: true,

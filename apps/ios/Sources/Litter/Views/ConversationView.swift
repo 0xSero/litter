@@ -1990,7 +1990,8 @@ private struct ConversationInputBar: View {
             nextText.contains("$")
 
         guard needsPopupEvaluation else {
-            hideComposerPopups()
+            // The common typing path has no active popup state. Avoid walking
+            // and cancelling every suggestion subsystem on each keystroke.
             return
         }
 

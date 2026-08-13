@@ -2,6 +2,43 @@ import XCTest
 @testable import Litter
 
 final class ConversationDisplayPreferenceTests: XCTestCase {
+    func testComposerIgnoresStaleRenderWhileUIKitEditIsInFlight() {
+        var reconciler = ComposerTextReconciler(initialText: "hello")
+        reconciler.recordUIKitEdit("hello!")
+
+        XCTAssertFalse(reconciler.shouldApply(
+            presentedText: "hello",
+            currentUIKitText: "hello!",
+            isEditing: true
+        ))
+        XCTAssertFalse(reconciler.shouldApply(
+            presentedText: "hello!",
+            currentUIKitText: "hello!",
+            isEditing: true
+        ))
+    }
+
+    func testComposerAppliesIntentionalExternalEdit() {
+        var reconciler = ComposerTextReconciler(initialText: "hello")
+
+        XCTAssertTrue(reconciler.shouldApply(
+            presentedText: "prefilled prompt",
+            currentUIKitText: "hello",
+            isEditing: true
+        ))
+    }
+
+    func testComposerAppliesBindingWhenNotEditing() {
+        var reconciler = ComposerTextReconciler(initialText: "hello")
+        reconciler.recordUIKitEdit("hello!")
+
+        XCTAssertTrue(reconciler.shouldApply(
+            presentedText: "hello",
+            currentUIKitText: "hello!",
+            isEditing: false
+        ))
+    }
+
     func testDisplayModeResolvesUnknownValuesToCollapsed() {
         XCTAssertEqual(ConversationDetailDisplayMode.resolve("expanded"), .expanded)
         XCTAssertEqual(ConversationDetailDisplayMode.resolve("hidden"), .hidden)

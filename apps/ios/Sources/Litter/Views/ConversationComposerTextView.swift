@@ -69,6 +69,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
         textView.onHardwareSubmit = onHardwareSubmit
         textView.accessibilityIdentifier = "conversation.composerTextView"
         textView.text = text
+        context.coordinator.textReconciler = ComposerTextReconciler(initialText: text)
         context.coordinator.applyStyling(to: textView)
         context.coordinator.updateScrollState(for: textView)
         return textView
@@ -78,15 +79,23 @@ struct ConversationComposerTextView: UIViewRepresentable {
         context.coordinator.parent = self
         uiView.onPasteImage = onPasteImage
         uiView.onHardwareSubmit = onHardwareSubmit
-        uiView.textContainerInset = UIEdgeInsets(
+        let nextInsets = UIEdgeInsets(
             top: verticalInset,
             left: horizontalInset,
             bottom: verticalInset,
             right: horizontalInset
         )
+        if uiView.textContainerInset != nextInsets {
+            uiView.textContainerInset = nextInsets
+        }
         context.coordinator.applyStyling(to: uiView)
 
-        if uiView.text != text, uiView.markedTextRange == nil {
+        if uiView.markedTextRange == nil,
+           context.coordinator.textReconciler.shouldApply(
+               presentedText: text,
+               currentUIKitText: uiView.text,
+               isEditing: uiView.isFirstResponder
+           ) {
             context.coordinator.isSynchronizingText = true
             uiView.text = text
             context.coordinator.applySelectedRange(to: uiView)
@@ -117,11 +126,13 @@ struct ConversationComposerTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ConversationComposerTextView
         var isSynchronizingText = false
+        var textReconciler: ComposerTextReconciler
         private var requestedFocusState: Bool?
         private var focusSyncWorkItem: DispatchWorkItem?
 
         init(_ parent: ConversationComposerTextView) {
             self.parent = parent
+            textReconciler = ComposerTextReconciler(initialText: parent.text)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -135,11 +146,16 @@ struct ConversationComposerTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             guard !isSynchronizingText else { return }
             let updatedText = textView.text ?? ""
+            textReconciler.recordUIKitEdit(updatedText)
             if parent.text != updatedText {
                 parent.text = updatedText
             }
             updateSelectedRange(from: textView)
-            updateScrollState(for: textView)
+            // While focused the view is already scroll-enabled. Avoid forcing
+            // TextKit to measure the entire draft again for every keystroke.
+            if !textView.isFirstResponder {
+                updateScrollState(for: textView)
+            }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -175,11 +191,22 @@ struct ConversationComposerTextView: UIViewRepresentable {
         }
 
         func applyStyling(to textView: UITextView) {
-            textView.font = composerFont()
-            textView.textColor = UIColor(LitterTheme.textPrimary)
+            let font = composerFont()
+            if textView.font != font {
+                textView.font = font
+            }
+            let color = UIColor(LitterTheme.textPrimary)
+            if textView.textColor != color {
+                textView.textColor = color
+            }
         }
 
         func updateScrollState(for textView: UITextView) {
+            if parent.isFocused || textView.isFirstResponder {
+                if !textView.isScrollEnabled { textView.isScrollEnabled = true }
+                if !textView.alwaysBounceVertical { textView.alwaysBounceVertical = true }
+                return
+            }
             let availableWidth = max(textView.bounds.width, 1)
             let fittingHeight = textView.sizeThatFits(
                 CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
@@ -238,11 +265,50 @@ struct ConversationComposerTextView: UIViewRepresentable {
                     || parent.selectedRange.length != range.length else {
                 return
             }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.parent.selectedRange = range
-            }
+            // UITextView delegate callbacks are already on the main thread.
+            // Writing selection asynchronously lets older cursor positions
+            // arrive after newer keystrokes and can visibly reorder edits.
+            parent.selectedRange = range
         }
+    }
+}
+
+/// Keeps UIKit authoritative while the user is actively editing. SwiftUI may
+/// re-render the representable with the previously presented binding value
+/// before the latest delegate write has propagated. Re-applying that stale
+/// value resets autocorrection state and the cursor, causing lag and scrambled
+/// characters during rapid typing.
+struct ComposerTextReconciler {
+    private(set) var lastPresentedText: String
+    private(set) var lastUIKitEdit: String?
+
+    init(initialText: String) {
+        lastPresentedText = initialText
+    }
+
+    mutating func recordUIKitEdit(_ text: String) {
+        lastUIKitEdit = text
+    }
+
+    mutating func shouldApply(
+        presentedText: String,
+        currentUIKitText: String,
+        isEditing: Bool
+    ) -> Bool {
+        defer { lastPresentedText = presentedText }
+        guard presentedText != currentUIKitText else {
+            if lastUIKitEdit == presentedText { lastUIKitEdit = nil }
+            return false
+        }
+
+        if isEditing,
+           presentedText == lastPresentedText,
+           currentUIKitText == lastUIKitEdit {
+            return false
+        }
+
+        lastUIKitEdit = nil
+        return true
     }
 }
 
