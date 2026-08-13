@@ -53,7 +53,7 @@ jobs:
   prepare-release-assets:
     needs: release-preflight
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       SCCACHE_BUCKET: rust-cache
@@ -117,6 +117,32 @@ jobs:
           sccache --start-server
           sccache --show-stats || true
 
+      - name: Sync codex submodule
+        run: ./apps/ios/scripts/sync-codex.sh --preserve-current
+
+      - name: Restore generated mobile bindings cache
+        id: mobile-bindings-cache
+        uses: actions/cache@v5
+        with:
+          path: shared/rust-bridge/generated
+          key: mobile-bindings-${{ runner.os }}-${{ hashFiles('apps/ios/scripts/sync-codex.sh', 'shared/rust-bridge/generate-bindings.sh', 'shared/rust-bridge/Cargo.toml', 'shared/rust-bridge/Cargo.lock', 'shared/rust-bridge/codex-mobile-client/src/**', 'shared/rust-bridge/uniffi-bindgen/**', 'patches/codex/**', 'shared/third_party/codex/codex-rs/app-server-protocol/src/protocol/**', 'shared/third_party/codex/codex-rs/protocol/src/**') }}
+
+      - name: Materialize cached Swift bindings
+        if: steps.mobile-bindings-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p apps/ios/GeneratedRust/Headers
+          cp shared/rust-bridge/generated/swift/codex_mobile_client.swift \
+            apps/ios/Sources/Litter/Bridge/UniFFICodexClient.generated.swift
+          cp shared/rust-bridge/generated/swift/codex_mobile_clientFFI.h \
+            apps/ios/GeneratedRust/Headers/codex_mobile_clientFFI.h
+          cp shared/rust-bridge/generated/swift/codex_mobile_clientFFI.modulemap \
+            apps/ios/GeneratedRust/Headers/codex_mobile_clientFFI.modulemap
+          cp shared/rust-bridge/generated/swift/module.modulemap \
+            apps/ios/GeneratedRust/Headers/module.modulemap
+          ./tools/scripts/uniffi-bindings-input-hash.sh \
+            > apps/ios/GeneratedRust/.swift-bindings.hash
+
       - name: Prepare iOS release assets
         env:
           CARGO_INCREMENTAL: "0"
@@ -125,12 +151,15 @@ jobs:
         run: |
           set -euo pipefail
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
-          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
-          sccache --zero-stats || true
+          trap 'status=$?; if command -v sccache >/dev/null 2>&1; then echo "==> sccache stats"; sccache --show-stats || true; fi; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          if command -v sccache >/dev/null 2>&1; then sccache --zero-stats || true; fi
           ./apps/ios/scripts/build-rust.sh --preserve-current --device-only
-          make alpine-fs xcgen
-          echo "==> sccache stats after iOS release prep"
-          sccache --show-stats || true
+          make alpine-fs
+          ./apps/ios/scripts/regenerate-project.sh
+          if command -v sccache >/dev/null 2>&1; then
+            echo "==> sccache stats after iOS release prep"
+            sccache --show-stats || true
+          fi
 
       - name: Package iOS release prep artifact
         run: |
