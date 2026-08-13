@@ -83,7 +83,21 @@ struct ConversationView: View {
             return nil
         }
         let trimmed = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+        guard let selectedModel = pendingSelectedModel else { return trimmed }
+        let supported = selectedModel.supportedReasoningEfforts.map {
+            $0.reasoningEffort.wireValue
+        }
+        return supported.contains(trimmed)
+            ? trimmed
+            : selectedModel.defaultReasoningEffort.wireValue
+    }
+
+    private var pendingSelectedModel: ModelInfo? {
+        guard let model = pendingModelOverride else { return nil }
+        return snapshot.availableModels.first {
+            modelMatchesSelection($0, model, runtime: pendingAgentRuntimeKindOverride)
+        }
     }
 
     private var supportsTurnPagination: Bool {

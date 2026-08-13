@@ -435,11 +435,25 @@ fun ComposerBar(
             val launchState = appModel.launchState.snapshot.value
             val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
             val thread = appModel.snapshot.value?.threads?.find { it.key == threadKey }
+            val selectedModel = appModel.snapshot.value?.servers
+                ?.firstOrNull { it.serverId == threadKey.serverId }
+                ?.availableModels
+                ?.firstOrNull {
+                    it.matchesModelSelection(pendingModel.orEmpty(), launchState.selectedAgentRuntimeKind)
+                }
             val effort = if (thread?.ampReasoningEffortLocked == true) {
                 null
             } else {
-                launchState.reasoningEffort.trim().ifEmpty { null }
-                    ?.let(::reasoningEffortFromServerValue)
+                val pending = launchState.reasoningEffort.trim()
+                val requested = reasoningEffortFromServerValue(pending)
+                val supported = selectedModel?.supportedReasoningEfforts.orEmpty()
+                    .map { it.reasoningEffort }
+                when {
+                    pending.isEmpty() -> null
+                    selectedModel == null -> requested
+                    requested != null && supported.contains(requested) -> requested
+                    else -> selectedModel.defaultReasoningEffort
+                }
             }
             val tier = if (HeaderOverrides.pendingFastMode) ServiceTier.FAST else null
             val attachmentToSend = attachedImage
