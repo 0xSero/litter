@@ -407,9 +407,10 @@ struct ConversationToolbarControls: View {
                 infoButton
             }
         }
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
+        .frame(width: 40, height: 40)
+        .contentShape(Circle())
         .buttonStyle(.plain)
+        .modifier(GlassCircleModifier())
         .hoverEffect(.highlight)
         .sheet(item: $remoteAuthSession) { session in
             InAppSafariView(url: session.url)

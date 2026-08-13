@@ -10,7 +10,13 @@ struct ConversationComposerEntryRowView: View {
     let isTurnActive: Bool
     let hasAttachment: Bool
     let allowsVoiceInput: Bool
+    let modelLabel: String?
+    let reasoningLabel: String?
+    let collaborationMode: AppModeKind
+    let showModeChip: Bool
     let onPasteImage: (UIImage) -> Void
+    let onOpenModelPicker: () -> Void
+    let onOpenModePicker: () -> Void
     let onSendText: () -> Void
     let onStopRecording: () -> Void
     let onStartRecording: () -> Void
@@ -33,7 +39,13 @@ struct ConversationComposerEntryRowView: View {
         isTurnActive: Bool,
         hasAttachment: Bool,
         allowsVoiceInput: Bool = true,
+        modelLabel: String? = nil,
+        reasoningLabel: String? = nil,
+        collaborationMode: AppModeKind = .`default`,
+        showModeChip: Bool = false,
         onPasteImage: @escaping (UIImage) -> Void,
+        onOpenModelPicker: @escaping () -> Void = {},
+        onOpenModePicker: @escaping () -> Void = {},
         onSendText: @escaping () -> Void,
         onStopRecording: @escaping () -> Void,
         onStartRecording: @escaping () -> Void,
@@ -47,7 +59,13 @@ struct ConversationComposerEntryRowView: View {
         self.isTurnActive = isTurnActive
         self.hasAttachment = hasAttachment
         self.allowsVoiceInput = allowsVoiceInput
+        self.modelLabel = modelLabel
+        self.reasoningLabel = reasoningLabel
+        self.collaborationMode = collaborationMode
+        self.showModeChip = showModeChip
         self.onPasteImage = onPasteImage
+        self.onOpenModelPicker = onOpenModelPicker
+        self.onOpenModePicker = onOpenModePicker
         self.onSendText = onSendText
         self.onStopRecording = onStopRecording
         self.onStartRecording = onStartRecording
@@ -73,131 +91,10 @@ struct ConversationComposerEntryRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 4) {
-            if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
-                Button {
-                    showAttachMenu = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(LitterFont.styled(size: 20, weight: .semibold))
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .frame(width: Metrics.controlSize, height: Metrics.controlSize)
-                        .background(
-                            Circle()
-                                .fill(LitterTheme.surfaceLight.opacity(0.72))
-                        )
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .transition(.scale.combined(with: .opacity))
-                .accessibilityLabel("Attach")
-            }
-
-            ZStack(alignment: .topLeading) {
-                ConversationComposerTextView(
-                    text: $inputText,
-                    isFocused: $isComposerFocused,
-                    selectedRange: $composerSelectionRange,
-                    onPasteImage: onPasteImage,
-                    onHardwareSubmit: {
-                        if canSend { onSendText() }
-                    },
-                    horizontalInset: 5,
-                    verticalInset: 12
-                )
-
-                if inputText.isEmpty {
-                    Text("Message litter...")
-                        .font(LitterFont.styled(size: 17))
-                        .foregroundColor(LitterTheme.textMuted)
-                        .padding(.leading, 5)
-                        .padding(.top, 12)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .topTrailing) {
-                if shouldShowExpand {
-                    Button {
-                        showExpanded = true
-                    } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(LitterFont.styled(size: 12, weight: .semibold))
-                            .foregroundColor(LitterTheme.textSecondary)
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .hoverEffect(.highlight)
-                    .padding(.top, 2)
-                    .padding(.trailing, 6)
-                    .accessibilityLabel("Expand composer")
-                    .transition(.opacity.combined(with: .scale))
-                }
-            }
-            .animation(.easeInOut(duration: 0.15), value: shouldShowExpand)
-
-            if voiceManager.isRecording {
-                AudioWaveformView(level: voiceManager.audioLevel)
-                    .frame(width: 42, height: 20)
-
-                Button(action: onStopRecording) {
-                    Image(systemName: "stop.fill")
-                        .font(LitterFont.styled(size: 13, weight: .bold))
-                        .foregroundColor(.black)
-                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                        .background(Circle().fill(LitterTheme.accentStrong))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityLabel("Stop recording")
-            } else if voiceManager.isTranscribing {
-                ProgressView()
-                    .tint(LitterTheme.accent)
-                    .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-            } else if canSend {
-                Button(action: onSendText) {
-                    Image(systemName: "arrow.up")
-                        .font(LitterFont.styled(size: 17, weight: .bold))
-                        .foregroundColor(.black)
-                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                        .background(Circle().fill(LitterTheme.accent))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .disabled(voiceManager.isRecording || voiceManager.isTranscribing)
-                .opacity(voiceManager.isRecording || voiceManager.isTranscribing ? 0.45 : 1)
-                .accessibilityLabel("Send")
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else if isTurnActive {
-                Button(action: onInterrupt) {
-                    Image(systemName: "stop.fill")
-                        .font(LitterFont.styled(size: 12, weight: .bold))
-                        .foregroundColor(LitterTheme.surface)
-                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                        .background(Circle().fill(LitterTheme.textPrimary))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityLabel("Cancel response")
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else if allowsVoiceInput {
-                Button(action: onStartRecording) {
-                    Image(systemName: "mic.fill")
-                        .font(LitterFont.styled(size: 18))
-                        .foregroundColor(LitterTheme.textSecondary)
-                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityLabel("Dictate")
-            }
+        VStack(spacing: 0) {
+            textEditor
+            actionRow
         }
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, minHeight: 52)
         .modifier(GlassRoundedRectModifier(cornerRadius: Metrics.inputCornerRadius))
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
@@ -214,5 +111,144 @@ struct ConversationComposerEntryRowView: View {
                 hasAttachment: hasAttachment
             )
         }
+    }
+
+    private var textEditor: some View {
+        ZStack(alignment: .topLeading) {
+            ConversationComposerTextView(
+                text: $inputText,
+                isFocused: $isComposerFocused,
+                selectedRange: $composerSelectionRange,
+                onPasteImage: onPasteImage,
+                onHardwareSubmit: {
+                    if canSend { onSendText() }
+                },
+                horizontalInset: 10,
+                verticalInset: 10
+            )
+
+            if inputText.isEmpty {
+                Text("Message litter...")
+                    .font(LitterFont.styled(size: 17))
+                    .foregroundColor(LitterTheme.textMuted)
+                    .padding(.leading, 10)
+                    .padding(.top, 10)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .overlay(alignment: .topTrailing) {
+            if shouldShowExpand {
+                Button {
+                    showExpanded = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(LitterFont.styled(size: 12, weight: .semibold))
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Expand composer")
+                .transition(.opacity.combined(with: .scale))
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: shouldShowExpand)
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 6) {
+            if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
+                composerCircleButton(systemName: "plus", label: "Attach") {
+                    showAttachMenu = true
+                }
+            }
+
+            if let modelLabel {
+                Button(action: onOpenModelPicker) {
+                    HStack(spacing: 4) {
+                        Text(modelLabel)
+                            .lineLimit(1)
+                        if let reasoningLabel, reasoningLabel != "default" {
+                            Text(reasoningLabel)
+                                .foregroundColor(LitterTheme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(LitterFont.styled(size: 9, weight: .bold))
+                    }
+                    .font(LitterFont.styled(size: 12, weight: .semibold))
+                    .foregroundColor(LitterTheme.textPrimary)
+                    .padding(.horizontal, 9)
+                    .frame(height: 34)
+                    .background(Capsule().fill(LitterTheme.surfaceLight.opacity(0.72)))
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityIdentifier("conversation.modelPickerButton")
+                .accessibilityLabel("Choose model")
+                .layoutPriority(1)
+            }
+
+            if showModeChip {
+                ConversationComposerModeChip(mode: collaborationMode, onTap: onOpenModePicker)
+            }
+
+            Spacer(minLength: 0)
+
+            if voiceManager.isRecording {
+                AudioWaveformView(level: voiceManager.audioLevel)
+                    .frame(width: 42, height: 20)
+            }
+            trailingControl
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity, minHeight: 42)
+    }
+
+    @ViewBuilder
+    private var trailingControl: some View {
+        if voiceManager.isRecording {
+            composerCircleButton(systemName: "stop.fill", label: "Stop recording", tint: .black, fill: LitterTheme.accentStrong) {
+                onStopRecording()
+            }
+        } else if voiceManager.isTranscribing {
+            ProgressView()
+                .tint(LitterTheme.accent)
+                .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+        } else if canSend {
+            composerCircleButton(systemName: "arrow.up", label: "Send", tint: .black, fill: LitterTheme.accent) {
+                onSendText()
+            }
+        } else if isTurnActive {
+            composerCircleButton(systemName: "stop.fill", label: "Cancel response", tint: LitterTheme.surface, fill: LitterTheme.textPrimary) {
+                onInterrupt()
+            }
+        } else if allowsVoiceInput {
+            composerCircleButton(systemName: "mic.fill", label: "Dictate") {
+                onStartRecording()
+            }
+        }
+    }
+
+    private func composerCircleButton(
+        systemName: String,
+        label: String,
+        tint: Color = LitterTheme.textPrimary,
+        fill: Color = LitterTheme.surfaceLight.opacity(0.72),
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(LitterFont.styled(size: systemName == "plus" ? 20 : 16, weight: .semibold))
+                .foregroundColor(tint)
+                .frame(width: Metrics.controlSize, height: Metrics.controlSize)
+                .background(Circle().fill(fill))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(label)
     }
 }

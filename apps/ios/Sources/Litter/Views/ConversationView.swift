@@ -1584,6 +1584,8 @@ private struct ConversationInputBar: View {
                 contextPercent: contextPercent(),
                 isTurnActive: isTurnActive,
                 showModeChip: showModeChip,
+                modelLabel: composerModelLabel,
+                reasoningLabel: composerReasoningLabel,
                 voiceManager: voiceManager,
                 showAttachMenu: $showAttachMenu,
                 onClearAttachment: clearAttachment,
@@ -1597,6 +1599,7 @@ private struct ConversationInputBar: View {
                 onRemovePluginMention: removePluginMention,
                 onPasteImage: { image in attachedImage = image },
                 onOpenModePicker: onOpenModePicker,
+                onOpenModelPicker: { showModelSelector = true },
                 onSendText: handleSend,
                 onStopRecording: stopVoiceRecording,
                 onStartRecording: startVoiceRecording,
@@ -1641,6 +1644,28 @@ private struct ConversationInputBar: View {
         let remainingTokens = max(0, effectiveWindow - usedTokens)
         let percent = Int64((Double(remainingTokens) / Double(effectiveWindow) * 100).rounded())
         return min(max(percent, 0), 100)
+    }
+
+    private var composerModelLabel: String {
+        let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selection = pending.isEmpty ? snapshot.threadModel : pending
+        let runtime = pending.isEmpty
+            ? appModel.threadSnapshot(for: snapshot.threadKey)?.agentRuntimeKind
+            : appState.selectedAgentRuntimeKind
+        if let model = snapshot.availableModels.first(where: {
+            modelMatchesSelection($0, selection, runtime: runtime)
+        }) {
+            return modelPickerDisplayName(model)
+        }
+        let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "litter" : trimmed
+    }
+
+    private var composerReasoningLabel: String? {
+        let pending = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pending.isEmpty { return pending }
+        let threadValue = snapshot.threadReasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return threadValue.isEmpty ? nil : threadValue
     }
 
     private func clearAttachment() {

@@ -35,11 +35,15 @@ final class LitterUITests: XCTestCase {
         let app = conversationDisplayHarnessApp()
         app.launch()
 
+        XCTAssertTrue(app.buttons["conversation.modelPickerButton"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Attach"].exists)
+        XCTAssertTrue(app.buttons["Default"].exists)
         let composer = app.textViews["conversation.composerTextView"]
-        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        XCTAssertTrue(composer.exists)
         composer.tap()
         composer.typeText("SIMULATOR_INPUT_OK")
         XCTAssertEqual(composer.value as? String, "SIMULATOR_INPUT_OK")
+        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 2))
     }
 
     @MainActor

@@ -385,7 +385,7 @@ fun HomeComposerBar(
                         textStyle = TextStyle(
                             color = LitterTheme.textPrimary,
                             fontSize = LitterTextStyle.body.scaled,
-                            fontFamily = LitterTheme.monoFont,
+                            fontFamily = LitterTheme.bodyFont,
                         ),
                         cursorBrush = SolidColor(LitterTheme.accent),
                         modifier = Modifier

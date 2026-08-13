@@ -1881,6 +1881,7 @@ private struct HomeNavigationView: View {
 }
 
 private struct ConversationDestinationScreen: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
@@ -1936,7 +1937,7 @@ private struct ConversationDestinationScreen: View {
                     composer: screenModel.composer,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImage: $bindableScreenModel.composerAttachedImage,
-                    topInset: 0,
+                    topInset: 12,
                     bottomInset: bottomInset,
                     onOpenConversation: onOpenConversation,
                     onResumeSessions: onResumeSessions,
@@ -1980,30 +1981,37 @@ private struct ConversationDestinationScreen: View {
                 .background(LitterTheme.backgroundGradient.ignoresSafeArea())
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(LitterTheme.surface, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            if let conversationThread {
-                ToolbarItem(placement: .principal) {
-                    HeaderView(thread: conversationThread)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    ConversationToolbarControls(
-                        thread: conversationThread,
-                        control: .reload
-                    )
-                }
-                if onInfo != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ConversationToolbarControls(
-                            thread: conversationThread,
-                            control: .info,
-                            onInfo: onInfo
-                        )
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .top) {
+            GlassMorphContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(LitterFont.styled(size: 17, weight: .semibold))
+                            .foregroundColor(LitterTheme.textPrimary)
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.plain)
+                    .modifier(GlassCircleModifier())
+                    .accessibilityLabel("Back")
+
+                    Spacer(minLength: 0)
+
+                    if let conversationThread {
+                        ConversationToolbarControls(thread: conversationThread, control: .reload)
+                        if onInfo != nil {
+                            ConversationToolbarControls(
+                                thread: conversationThread,
+                                control: .info,
+                                onInfo: onInfo
+                            )
+                        }
                     }
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .bottom)

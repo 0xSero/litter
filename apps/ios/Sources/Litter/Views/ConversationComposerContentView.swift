@@ -18,6 +18,8 @@ struct ConversationComposerContentView: View {
     let contextPercent: Int64?
     let isTurnActive: Bool
     let showModeChip: Bool
+    let modelLabel: String?
+    let reasoningLabel: String?
     let voiceManager: VoiceTranscriptionManager
     let allowsVoiceInput: Bool
     @Binding var showAttachMenu: Bool
@@ -32,6 +34,7 @@ struct ConversationComposerContentView: View {
     let onRemovePluginMention: (PluginMentionSelection) -> Void
     let onPasteImage: (UIImage) -> Void
     let onOpenModePicker: () -> Void
+    let onOpenModelPicker: () -> Void
     let onSendText: () -> Void
     let onStopRecording: () -> Void
     let onStartRecording: () -> Void
@@ -56,6 +59,8 @@ struct ConversationComposerContentView: View {
         contextPercent: Int64?,
         isTurnActive: Bool,
         showModeChip: Bool = true,
+        modelLabel: String? = nil,
+        reasoningLabel: String? = nil,
         voiceManager: VoiceTranscriptionManager,
         allowsVoiceInput: Bool = true,
         showAttachMenu: Binding<Bool>,
@@ -70,6 +75,7 @@ struct ConversationComposerContentView: View {
         onRemovePluginMention: @escaping (PluginMentionSelection) -> Void = { _ in },
         onPasteImage: @escaping (UIImage) -> Void,
         onOpenModePicker: @escaping () -> Void,
+        onOpenModelPicker: @escaping () -> Void = {},
         onSendText: @escaping () -> Void,
         onStopRecording: @escaping () -> Void,
         onStartRecording: @escaping () -> Void,
@@ -93,6 +99,8 @@ struct ConversationComposerContentView: View {
         self.contextPercent = contextPercent
         self.isTurnActive = isTurnActive
         self.showModeChip = showModeChip
+        self.modelLabel = modelLabel
+        self.reasoningLabel = reasoningLabel
         self.voiceManager = voiceManager
         self.allowsVoiceInput = allowsVoiceInput
         _showAttachMenu = showAttachMenu
@@ -107,6 +115,7 @@ struct ConversationComposerContentView: View {
         self.onRemovePluginMention = onRemovePluginMention
         self.onPasteImage = onPasteImage
         self.onOpenModePicker = onOpenModePicker
+        self.onOpenModelPicker = onOpenModelPicker
         self.onSendText = onSendText
         self.onStopRecording = onStopRecording
         self.onStartRecording = onStartRecording
@@ -218,7 +227,13 @@ struct ConversationComposerContentView: View {
                     isTurnActive: isTurnActive,
                     hasAttachment: attachedImage != nil || !attachedFiles.isEmpty,
                     allowsVoiceInput: allowsVoiceInput,
+                    modelLabel: modelLabel,
+                    reasoningLabel: reasoningLabel,
+                    collaborationMode: collaborationMode,
+                    showModeChip: showModeChip,
                     onPasteImage: onPasteImage,
+                    onOpenModelPicker: onOpenModelPicker,
+                    onOpenModePicker: onOpenModePicker,
                     onSendText: onSendText,
                     onStopRecording: onStopRecording,
                     onStartRecording: onStartRecording,
