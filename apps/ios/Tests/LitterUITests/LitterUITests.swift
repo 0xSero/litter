@@ -47,6 +47,19 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
+    func testConversationLaunchPerformance() throws {
+        let app = conversationDisplayHarnessApp()
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            app.launch()
+            XCTAssertTrue(
+                app.staticTexts["Conversation Display Test"].waitForExistence(timeout: 5),
+                "Conversation surface did not become interactive after launch"
+            )
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testConversationDisplayCollapsedModeKeepsCompletedDetailsCollapsed() throws {
         let app = conversationDisplayHarnessApp(reasoning: "collapsed", commands: "collapsed", tools: "collapsed")
         app.launch()
