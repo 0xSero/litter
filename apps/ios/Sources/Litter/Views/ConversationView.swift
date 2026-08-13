@@ -95,7 +95,7 @@ struct ConversationView: View {
 
     private var pendingSelectedModel: ModelInfo? {
         guard let model = pendingModelOverride else { return nil }
-        return snapshot.availableModels.first {
+        return composer.availableModels.first {
             modelMatchesSelection($0, model, runtime: pendingAgentRuntimeKindOverride)
         }
     }
