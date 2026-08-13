@@ -695,6 +695,38 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn turn_interrupt_routes_to_owning_runtime_not_codex() {
+        let client = MobileClient::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-opencode".to_string(),
+        };
+        client
+            .app_store
+            .upsert_thread_snapshot(ThreadSnapshot::from_info(
+                &key.server_id,
+                make_thread_info(&key.thread_id),
+            ));
+        client.note_thread_runtime(key.clone(), "opencode".to_string());
+
+        let request = upstream::ClientRequest::TurnInterrupt {
+            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+            params: upstream::TurnInterruptParams {
+                thread_id: key.thread_id.clone(),
+                turn_id: "turn-1".to_string(),
+            },
+        };
+        // Regression for 0xSero/litter#283: turn/interrupt must be routed to
+        // the runtime that owns the thread, not the default "codex" channel
+        // (which yields `server error -32600: thread not found` on
+        // multi-runtime hosts).
+        assert_eq!(
+            client.runtime_for_request(&key.server_id, &request),
+            "opencode".to_string()
+        );
+    }
+
+    #[test]
     fn thread_runtime_infers_claude_from_existing_thread_model_provider() {
         let client = MobileClient::new();
         let key = ThreadKey {

@@ -310,6 +310,24 @@ impl AppStoreReducer {
         self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: None });
     }
 
+    /// Whether a thread that is absent from an incoming `thread/list` page
+    /// should survive the reconcile anyway. Besides the active thread and
+    /// local-studio, never evict a thread we are actively using: one with an
+    /// in-flight turn, queued follow-ups, a staged local overlay, or one
+    /// created within the last minute. The brand-new-thread window matters
+    /// because a just-started OpenCode session may not appear in
+    /// `GET /session` until its first message lands; evicting it then causes
+    /// the first `turn/start` overlay and its streamed events to be dropped
+    /// (0xSero/litter#283).
+    fn keep_thread_absent_from_incoming_page(thread: &ThreadSnapshot) -> bool {
+        thread.active_turn_id.is_some()
+            || !thread.queued_follow_ups.is_empty()
+            || !thread.local_overlay_items.is_empty()
+            || thread.info.created_at.is_some_and(|created_at| {
+                created_at > 0 && (now_ms() as i64 / 1000).saturating_sub(created_at) < 60
+            })
+    }
+
     pub fn sync_thread_list(&self, server_id: &str, threads: &[ThreadInfo]) {
         self.sync_thread_list_for_runtime(server_id, "codex".to_string(), threads);
     }
@@ -338,7 +356,8 @@ impl AppStoreReducer {
                 let keep = key.server_id != server_id
                     || incoming_ids.contains(&key.thread_id)
                     || active_thread_key.as_ref() == Some(key)
-                    || thread.agent_runtime_kind == "local-studio";
+                    || thread.agent_runtime_kind == "local-studio"
+                    || Self::keep_thread_absent_from_incoming_page(thread);
                 if !keep {
                     removed_thread_keys.push(key.clone());
                 }
@@ -499,7 +518,8 @@ impl AppStoreReducer {
                 let keep = key.server_id != server_id
                     || incoming_ids.contains(&key.thread_id)
                     || active_thread_key.as_ref() == Some(key)
-                    || thread.agent_runtime_kind == "local-studio";
+                    || thread.agent_runtime_kind == "local-studio"
+                    || Self::keep_thread_absent_from_incoming_page(thread);
                 if !keep {
                     removed_thread_keys.push(key.clone());
                 }
@@ -3985,6 +4005,50 @@ mod tests {
         let snapshot = reducer.snapshot();
         let server = snapshot.servers.get("srv").expect("server snapshot");
         assert_eq!(server.wake_mac.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
+    }
+
+    #[test]
+    fn sync_thread_list_preserves_recently_created_thread_not_in_incoming_page() {
+        let reducer = AppStoreReducer::new();
+        let fresh_key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "fresh".to_string(),
+        };
+        let mut info = make_thread_info("fresh");
+        info.created_at = Some((now_ms() / 1000) as i64);
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", info));
+
+        // The incoming page does not include the just-created thread (e.g. a
+        // brand-new OpenCode session is not yet returned by GET /session).
+        reducer.sync_thread_list("srv", &[make_thread_info("other")]);
+
+        let snapshot = reducer.snapshot();
+        assert!(snapshot.threads.contains_key(&fresh_key));
+        assert!(snapshot.threads.contains_key(&ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "other".to_string(),
+        }));
+    }
+
+    #[test]
+    fn sync_thread_list_evicts_old_inactive_thread_not_in_incoming_page() {
+        let reducer = AppStoreReducer::new();
+        let stale_key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "stale".to_string(),
+        };
+        let mut info = make_thread_info("stale");
+        info.created_at = Some((now_ms() / 1000) as i64 - 3600);
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", info));
+
+        reducer.sync_thread_list("srv", &[make_thread_info("other")]);
+
+        let snapshot = reducer.snapshot();
+        assert!(!snapshot.threads.contains_key(&stale_key));
+        assert!(snapshot.threads.contains_key(&ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "other".to_string(),
+        }));
     }
 
     #[test]
