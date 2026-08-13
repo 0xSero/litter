@@ -108,7 +108,7 @@ jobs:
       - name: Shared Rust tests
         env:
           CARGO_INCREMENTAL: "0"
-        run: cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client
+        run: cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client -p codex-slingshot
 
       - name: Release script tests
         run: |
