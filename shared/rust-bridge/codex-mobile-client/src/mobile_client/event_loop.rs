@@ -356,7 +356,7 @@ impl MobileClient {
         })
     }
 
-    fn runtime_for_request(
+    pub(crate) fn runtime_for_request(
         &self,
         server_id: &str,
         request: &upstream::ClientRequest,
@@ -386,6 +386,12 @@ impl MobileClient {
             }
             upstream::ClientRequest::TurnStart { params, .. } => Some(params.thread_id.as_str()),
             upstream::ClientRequest::TurnSteer { params, .. } => Some(params.thread_id.as_str()),
+            // turn/interrupt must go to the runtime that owns the thread.
+            // Without this arm it falls through to the `codex` default channel
+            // and, on a multi-runtime host, the cancel lands on the ChatGPT
+            // app-server which doesn't know the OpenCode thread id
+            // (`server error -32600: thread not found`).
+            upstream::ClientRequest::TurnInterrupt { params, .. } => Some(params.thread_id.as_str()),
             _ => None,
         };
         thread_id
@@ -1211,7 +1217,7 @@ fn find_thread_id_value(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str {
+pub(crate) fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str {
     match request {
         upstream::ClientRequest::GetAccount { .. } => "account/read",
         upstream::ClientRequest::GetAccountRateLimits { .. } => "account/rateLimits/read",
@@ -1228,6 +1234,7 @@ fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str
         upstream::ClientRequest::ThreadTurnsList { .. } => "thread/turns/list",
         upstream::ClientRequest::TurnStart { .. } => "turn/start",
         upstream::ClientRequest::TurnSteer { .. } => "turn/steer",
+        upstream::ClientRequest::TurnInterrupt { .. } => "turn/interrupt",
         upstream::ClientRequest::CollaborationModeList { .. } => "collaboration_mode/list",
         _ => "unknown",
     }
@@ -1949,5 +1956,17 @@ mod tests {
         // Upstream replaced `permissionProfile` with `activePermissionProfile`;
         // legacy compat only needs to confirm the response decodes.
         let _ = response.active_permission_profile;
+    }
+
+    #[test]
+    fn client_request_wire_method_maps_turn_interrupt() {
+        let request = upstream::ClientRequest::TurnInterrupt {
+            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+            params: upstream::TurnInterruptParams {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+            },
+        };
+        assert_eq!(client_request_wire_method(&request), "turn/interrupt");
     }
 }
