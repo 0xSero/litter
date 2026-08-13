@@ -169,6 +169,7 @@ struct ConversationComposerEntryRowView: View {
                     HStack(spacing: 4) {
                         Text(modelLabel)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                         if let reasoningLabel, reasoningLabel != "default" {
                             Text(reasoningLabel)
                                 .foregroundColor(LitterTheme.textSecondary)
@@ -187,7 +188,8 @@ struct ConversationComposerEntryRowView: View {
                 .hoverEffect(.highlight)
                 .accessibilityIdentifier("conversation.modelPickerButton")
                 .accessibilityLabel("Choose model")
-                .layoutPriority(1)
+                .frame(maxWidth: 150)
+                .layoutPriority(0)
             }
 
             if showModeChip {
@@ -201,6 +203,8 @@ struct ConversationComposerEntryRowView: View {
                     .frame(width: 42, height: 20)
             }
             trailingControl
+                .fixedSize()
+                .layoutPriority(3)
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
@@ -250,5 +254,6 @@ struct ConversationComposerEntryRowView: View {
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
         .accessibilityLabel(label)
+        .accessibilityIdentifier("conversation.\(label.lowercased().replacingOccurrences(of: " ", with: "-"))Button")
     }
 }

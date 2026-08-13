@@ -47,6 +47,30 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
+    func testConversationComposerKeepsDictationVisibleWithLongModelName() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launchEnvironment["CODEXIOS_UI_TEST_MODEL_LABEL"] = "HomeLab DeepSeek V4 Flash 0731 Experimental"
+        app.launch()
+
+        let dictate = app.buttons["conversation.dictateButton"]
+        XCTAssertTrue(dictate.waitForExistence(timeout: 10))
+        XCTAssertTrue(dictate.isHittable)
+    }
+
+    @MainActor
+    func testConversationComposerPreservesRapidKeyboardInput() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launch()
+
+        let composer = app.textViews["conversation.composerTextView"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+        let prompt = "Rapid typing keeps every character in the correct order."
+        composer.typeText(prompt)
+        XCTAssertEqual(composer.value as? String, prompt)
+    }
+
+    @MainActor
     func testConversationLaunchPerformance() throws {
         let app = conversationDisplayHarnessApp()
         measure(metrics: [XCTApplicationLaunchMetric()]) {
