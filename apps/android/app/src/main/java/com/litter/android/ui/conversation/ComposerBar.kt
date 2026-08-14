@@ -84,6 +84,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
@@ -1267,7 +1268,8 @@ private fun QueuedFollowUpsPreviewPanel(
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .background(LitterTheme.codeBackground, RoundedCornerShape(14.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("conversation.queuedFollowUps"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1296,9 +1298,10 @@ private fun QueuedFollowUpsPreviewPanel(
             )
         }
 
-        previews.forEach { preview ->
+        previews.forEachIndexed { index, preview ->
             QueuedFollowUpCard(
                 preview = preview,
+                index = index,
                 onSteer = onSteer,
                 onDelete = onDelete,
             )
@@ -1309,6 +1312,7 @@ private fun QueuedFollowUpsPreviewPanel(
 @Composable
 private fun QueuedFollowUpCard(
     preview: AppQueuedFollowUpPreview,
+    index: Int,
     onSteer: (AppQueuedFollowUpPreview) -> Unit,
     onDelete: (AppQueuedFollowUpPreview) -> Unit,
 ) {
@@ -1319,7 +1323,8 @@ private fun QueuedFollowUpCard(
             .fillMaxWidth()
             .border(1.dp, style.border, RoundedCornerShape(12.dp))
             .background(style.background, RoundedCornerShape(12.dp))
-            .padding(12.dp),
+            .padding(12.dp)
+            .testTag("conversation.queuedFollowUp-$index"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1365,13 +1370,14 @@ private fun QueuedFollowUpCard(
                 modifier = Modifier
                     .background(LitterTheme.surface.copy(alpha = 0.96f), RoundedCornerShape(999.dp))
                     .clickable { onSteer(preview) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("conversation.queuedFollowUp-$index.steer"),
             )
         }
 
         IconButton(
             onClick = { onDelete(preview) },
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier.size(30.dp).testTag("conversation.queuedFollowUp-$index.delete"),
         ) {
             Icon(
                 Icons.Default.Close,

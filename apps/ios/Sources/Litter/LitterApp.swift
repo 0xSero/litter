@@ -303,6 +303,10 @@ struct LitterApp: App {
                 .environment(themeManager)
                 .environment(wallpaperManager)
                 .task {
+                    #if DEBUG
+                    if appModel.applyDebugProductionFixtureIfRequested() { return }
+                    appModel.debugArmBurstDriverIfRequested()
+                    #endif
                     appModel.start()
                     voiceRuntime.bind(appModel: appModel)
                     appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
@@ -328,6 +332,9 @@ struct LitterApp: App {
             switch newPhase {
             case .background:
                 appRuntime.appDidEnterBackground()
+                #if DEBUG
+                appModel.debugFlushIngressLedger(reason: "background")
+                #endif
             case .inactive:
                 appRuntime.appDidBecomeInactive()
             case .active:
@@ -418,6 +425,9 @@ struct ContentView: View {
                 standardOverlays
                 #endif
 
+                #if DEBUG
+                DebugPerfOverlays(appModel: appModel)
+                #endif
             }
             .ignoresSafeArea(.container)
             .task {
@@ -2256,3 +2266,32 @@ struct LaunchView: View {
         }
     }
 }
+
+#if DEBUG
+/// W1 measurement-only seams: A-10 burst beacon (top-leading, ~66 ms blink per driver fire)
+/// and fixture-gated counter readout/publish/reset (harness a11y pattern).
+private struct DebugPerfOverlays: View {
+    let appModel: AppModel
+    @State private var publishedCountersJSON = ""
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            TimelineView(.periodic(from: .now, by: 0.02)) { _ in
+                if appModel.debugBeaconVisible {
+                    RoundedRectangle(cornerRadius: 3).fill(.white).overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.black, lineWidth: 2)).frame(width: 14, height: 14).padding(4)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+            if appModel.debugFixtureActive {
+                HStack(spacing: 4) {
+                    Text("counters").font(.system(size: 1)).accessibilityIdentifier("fixture.counterReadout").accessibilityValue(Text(publishedCountersJSON))
+                    Button("reset") { RenderIsolationCounters.reset(); publishedCountersJSON = "{}" }.accessibilityIdentifier("fixture.resetCounters").font(.system(size: 8)).frame(width: 20, height: 20)
+                    Button("publish") { publishedCountersJSON = RenderIsolationCounters.json }.accessibilityIdentifier("fixture.publishCounters").font(.system(size: 8)).frame(width: 20, height: 20)
+                }
+                .padding(4).background(LitterTheme.surface.opacity(0.4))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+        }
+    }
+}
+#endif

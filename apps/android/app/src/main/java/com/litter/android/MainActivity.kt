@@ -11,16 +11,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.FirebaseApp
@@ -35,6 +40,7 @@ import com.litter.android.ui.LitterApp
 import com.litter.android.ui.LitterAppTheme
 import com.litter.android.ui.WallpaperManager
 import com.litter.android.util.LLog
+import com.sigkitten.litter.android.BuildConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ThreadKey
@@ -72,7 +78,12 @@ class MainActivity : ComponentActivity() {
         try {
             appModel = AppModel.init(this)
             WallpaperManager.initialize(this)
+            if (BuildConfig.DEBUG && appModel?.debugPerfBootstrap(intent) == true) {
+                // W1 fixture/burst mode: the deterministic DEBUG fixture owns the
+                // snapshot; the production Rust/store subscription is skipped.
+            } else {
             appModel?.start()
+            }
         } catch (e: Exception) {
             LLog.e("MainActivity", "AppModel.start() failed", e)
         }
@@ -126,6 +137,9 @@ class MainActivity : ComponentActivity() {
                     ) {
                         AnimatedSplashScreen()
                     }
+
+                    // A-10 beacon: 20 ms poll is disclosed Debug-venue measurement overhead.
+                    if (BuildConfig.DEBUG && model != null) DebugBurstBeaconOverlay(model)
                 }
             }
         }
@@ -147,6 +161,12 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         val model = appModel ?: return
         lifecycleController.onPause(this, model)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // W1 LEDGER_FLUSH_LAW backstop: DEBUG lifecycle flush persists the post-settle tail.
+        if (BuildConfig.DEBUG) appModel?.debugFlushPerfLedger("on-stop")
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -255,6 +275,21 @@ class MainActivity : ComponentActivity() {
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
+}
+
+// W1: single reflective bridge into the debug source set (src/debug); absent and inert in release builds.
+private fun AppModel.debugPerfBootstrap(intent: Intent): Boolean = runCatching {
+    Class.forName("com.litter.android.state.DebugFixtures")
+        .getDeclaredMethod("bootstrap", Intent::class.java, AppModel::class.java)
+        .invoke(null, intent, this) as? Boolean ?: false
+}.getOrDefault(false)
+
+// W1 A-10 burst beacon: DEBUG-only 20 ms poll; layout-only, hit-test transparent.
+@Composable
+private fun DebugBurstBeaconOverlay(appModel: AppModel) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(appModel) { while (true) { delay(20); visible = appModel.debugBeaconVisible } }
+    if (visible) Text(text = "◼◼", color = Color.White, fontSize = 30.sp, modifier = Modifier.padding(6.dp).background(Color.Black))
 }
 
 internal fun shouldRequestNotificationPermission(

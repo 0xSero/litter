@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UIKit
+import os
 
 enum LocalAccountLoginFlowError: LocalizedError {
     case localServerUnavailable
@@ -233,6 +234,9 @@ final class AppModel {
     }
 
     private func performSnapshotRefresh() async {
+        #if DEBUG
+        guard !debugFixtureActive else { return }
+        #endif
         do {
             applySnapshot(try await store.snapshot())
         } catch {
@@ -849,6 +853,9 @@ final class AppModel {
     }
 
     private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+        #if DEBUG
+        let debugArrival = debugIngressArrival(update)
+        #endif
         switch update {
         case .threadUpserted(let thread, let sessionSummary, let agentDirectoryVersion):
             applyThreadUpsert(
@@ -938,6 +945,9 @@ final class AppModel {
         case .terminalSessionsChanged:
             await refreshSnapshot()
         }
+        #if DEBUG
+        debugRecordIngressPostApply(arrival: debugArrival)
+        #endif
     }
 
     #if DEBUG
@@ -1873,6 +1883,9 @@ final class AppModel {
     }
 
     func startTurn(key: ThreadKey, payload: AppComposerPayload) async throws {
+        #if DEBUG
+        if debugBurstDriver?.noteStartTurnEntered(key: key, text: payload.text) == true { return }
+        #endif
         await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "startTurn")
 
         do {
@@ -2145,6 +2158,109 @@ final class AppModel {
 
         return snapshot
     }
+
+    #if DEBUG
+    @ObservationIgnored private(set) var debugFixtureActive = false
+    @ObservationIgnored private(set) var debugBeaconRevision: UInt64 = 0
+    @ObservationIgnored private(set) var debugBeaconVisibleUntilMs: UInt64 = 0
+    var debugBeaconVisible: Bool { debugBeaconVisibleUntilMs >= DebugPerfClock.monoMs() }
+    @ObservationIgnored private var debugBurstDriver: DebugBurstDriver?
+    @ObservationIgnored var debugIngressLedger: [String] = []
+    @ObservationIgnored var debugIngressDropped = 0
+    @ObservationIgnored private var debugWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var debugForeignStreamTask: Task<Void, Never>?
+
+    func debugBeaconBlink() { debugBeaconRevision &+= 1; debugBeaconVisibleUntilMs = DebugPerfClock.monoMs() + 66 }
+    func debugAppendLedger(_ line: String) {
+        debugIngressLedger.append(line)
+        if debugIngressLedger.count > 512 { let overflow = debugIngressLedger.count - 512; debugIngressDropped += overflow; debugIngressLedger.removeFirst(overflow) }
+    }
+    struct DebugIngressArrival { let monoMs: UInt64; let wallMs: UInt64; let variant: String; let key: ThreadKey?; let queued: Int?; let steerKinds: String; let activeTurn: String? }
+    func debugIngressArrival(_ update: AppStoreUpdateRecord) -> DebugIngressArrival {
+        var key: ThreadKey?, queued: Int?, activeTurn: String?, m = 0, p = 0, r = 0
+        func tally(_ previews: [AppQueuedFollowUpPreview]) -> Int {
+            for q in previews { switch q.kind { case .message: m += 1; case .pendingSteer: p += 1; default: r += 1 } }
+            return previews.count
+        }
+        switch update {
+        case .threadUpserted(let t, _, _): key = t.key; queued = tally(t.queuedFollowUps); activeTurn = t.activeTurnId
+        case .threadMetadataChanged(let s, _, _): key = s.key; queued = tally(s.queuedFollowUps); activeTurn = s.activeTurnId
+        case .threadItemChanged(let k, _, _): key = k
+        case .threadStreamingDelta(let k, _, _, _): key = k
+        case .threadRemoved(let k, _): key = k
+        case .activeThreadChanged(let k): key = k
+        case .dynamicWidgetStreaming(let k, _, _, _): key = k
+        default: break
+        }
+        return DebugIngressArrival(monoMs: DebugPerfClock.monoMs(), wallMs: DebugPerfClock.wallMs(), variant: Mirror(reflecting: update).children.first?.label ?? String(describing: update), key: key, queued: queued, steerKinds: queued != nil ? "\(m)/\(p)/\(r)" : "-", activeTurn: activeTurn)
+    }
+    func debugRecordIngressPostApply(arrival: DebugIngressArrival) {
+        let line = "burst.ingress arriveMs=\(arrival.monoMs) applyMs=\(DebugPerfClock.monoMs()) wallMs=\(arrival.wallMs) variant=\(arrival.variant) threadKey=\(arrival.key.map { "\($0.serverId)/\($0.threadId)" } ?? "-") queued=\(arrival.queued.map(String.init) ?? "-") steerKinds=\(arrival.steerKinds) activeTurn=\(arrival.activeTurn ?? "-") rev=\(snapshotRevision)"
+        debugAppendLedger(line)
+        os_signpost(.event, log: PerfAttribution.log, name: "burst.ingress", "%@", line)
+    }
+    @discardableResult
+    func debugFlushIngressLedger(reason: String = "manual") -> String? {
+        guard !debugIngressLedger.isEmpty else { return nil }
+        let header = "burst.ledger flush reason=\(reason) entries=\(debugIngressLedger.count) dropped=\(debugIngressDropped)"
+        NSLog("%@", header)
+        debugIngressLedger.forEach { NSLog("%@", $0) }
+        debugIngressLedger.removeAll(); debugIngressDropped = 0
+        return header
+    }
+    private func debugStartWatchdog() {
+        guard debugWatchdogTask == nil else { return }
+        debugWatchdogTask = Task { [weak self] in
+            var lastMs = DebugPerfClock.monoMs()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self else { return }
+                let nowMs = DebugPerfClock.monoMs(); let gapMs = nowMs - lastMs; lastMs = nowMs
+                if gapMs > 500 { self.debugAppendLedger("burst.watchdog gapMs=\(gapMs) t=\(nowMs) wallMs=\(DebugPerfClock.wallMs())") }
+            }
+        }
+    }
+
+    private func debugStartForeignStream(key: ThreadKey, itemId: String, intervalMs: UInt64) {
+        guard debugForeignStreamTask == nil, intervalMs > 0 else { return }
+        debugForeignStreamTask = Task { [weak self] in
+            var n = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: intervalMs * 1_000_000)
+                guard let self else { return }
+                n += 1
+                await self._testHandleStoreUpdate(.threadStreamingDelta(key: key, itemId: itemId, kind: .assistantText, text: " f\u{3b4}\(n)"))
+            }
+        }
+    }
+
+    @discardableResult
+    func applyDebugProductionFixtureIfRequested() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CODEXIOS_UI_TEST_PRODUCTION_FIXTURE"] == "1" else { return false }
+        let sessions = Int(env["CODEXIOS_UI_TEST_SESSION_COUNT"] ?? "") ?? 300
+        let items = Int(env["CODEXIOS_UI_TEST_ITEM_COUNT"] ?? "") ?? 1500
+        applySnapshot(DebugProductionFixture.makeSnapshot(sessions: max(sessions, 2), items: items))
+        debugFixtureActive = true
+        debugArmBurstDriverIfRequested(environment: env)
+        if let raw = env["CODEXIOS_UI_TEST_STREAM_FOREIGN"], !raw.isEmpty {
+            let cadenceMs: UInt64 = raw == "1" ? 100 : UInt64(raw) ?? 100
+            debugStartForeignStream(key: DebugProductionFixture.liveThreadKey, itemId: DebugProductionFixture.liveAssistantItemId, intervalMs: cadenceMs)
+        }
+        debugStartWatchdog()
+        return true
+    }
+
+    @discardableResult
+    func debugArmBurstDriverIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        if debugBurstDriver == nil { debugBurstDriver = DebugBurstDriver() }
+        guard let driver = debugBurstDriver else { return false }
+        driver.armIfRequested(environment: environment, appModel: self)
+        guard driver.phase != .idle else { return false }
+        debugStartWatchdog()
+        return true
+    }
+    #endif
 }
 
 extension AppSnapshotRecord {
@@ -2186,3 +2302,168 @@ extension AppSnapshotRecord {
         return nil
     }
 }
+
+#if DEBUG
+enum PerfAttribution {
+    static let log = OSLog(subsystem: "com.sigkitten.litter", category: "PerfAttribution")
+    static func begin(_ name: StaticString) -> OSSignpostID {
+        let id = OSSignpostID(log: log); os_signpost(.begin, log: log, name: name, signpostID: id); return id
+    }
+    static func end(_ name: StaticString, _ id: OSSignpostID) { os_signpost(.end, log: log, name: name, signpostID: id) }
+}
+enum DebugPerfClock {
+    static func monoMs() -> UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
+    static func wallMs() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+}
+extension Notification.Name { static let litterDebugBurstFire = Notification.Name("litter.debug.burstFire") }
+
+enum DebugProductionFixture {
+    static let epoch: Int64 = 1_700_000_000
+    static let serverId = "fixture-server"
+    static let liveAssistantItemId = "fixture-live-assistant-1"
+    static let liveThreadKey = ThreadKey(serverId: serverId, threadId: "fixture-thread-1")
+
+    static func item(at i: Int) -> HydratedConversationItem {
+        let id = "fixture-item-\(i)", turn = UInt32(i / 6), slot = UInt32(i % 6), ts = Double(epoch) + Double(i), turnId = "fixture-turn-\(turn)"
+        switch i % 6 {
+        case 0: return HydratedConversationItem(id: id, content: .user(HydratedUserMessageData(text: "Fixture user message \(i).", imageDataUris: [])), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: true)
+        case 1: return HydratedConversationItem(id: id, content: .assistant(HydratedAssistantMessageData(text: "Fixture assistant reply \(i).", agentNickname: nil, agentRole: nil, phase: .finalAnswer)), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: false)
+        case 2: return HydratedConversationItem(id: id, content: .reasoning(HydratedReasoningData(summary: ["Fixture reasoning \(i)."], content: [])), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: false)
+        case 3: return HydratedConversationItem(id: id, content: .commandExecution(HydratedCommandExecutionData(command: "echo fixture-\(i)", cwd: "/Projects/Workspace-\(i % 12)", status: .completed, output: "fixture output \(i)", exitCode: 0, durationMs: 120, processId: nil, actions: [])), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: false)
+        case 4: return HydratedConversationItem(id: id, content: .mcpToolCall(HydratedMcpToolCallData(server: "fixture-mcp", tool: "fixtureTool", status: .completed, durationMs: 80, argumentsJson: "{}", contentSummary: "Fixture tool summary \(i).", structuredContentJson: nil, rawOutputJson: nil, errorMessage: nil, progressMessages: [], computerUse: nil)), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: false)
+        default: return HydratedConversationItem(id: id, content: .commandExecution(HydratedCommandExecutionData(command: "sleep \(i % 3 + 1)", cwd: "/Projects/Workspace-\(i % 12)", status: .inProgress, output: nil, exitCode: nil, durationMs: nil, processId: nil, actions: [])), sourceTurnId: turnId, sourceTurnIndex: slot, timestamp: ts, isFromUserTurnBoundary: false)
+        }
+    }
+
+    static func makeThread(index i: Int, items: [HydratedConversationItem]) -> AppThreadSnapshot {
+        AppThreadSnapshot(
+            key: ThreadKey(serverId: serverId, threadId: "fixture-thread-\(i)"),
+            info: ThreadInfo(id: "fixture-thread-\(i)", title: "Fixture thread \(i)", model: "gpt-fixture", status: .idle, preview: "Fixture preview \(i)", cwd: "/Projects/Workspace-\(i / 25)", path: nil, modelProvider: "openai", agentNickname: nil, agentRole: nil, parentThreadId: i > 0 && i % 10 == 9 ? "fixture-thread-\(i - 9)" : nil, forkedFromId: nil, agentStatus: nil, createdAt: epoch - Int64(i) - 3_600, updatedAt: epoch - Int64(i)),
+            agentRuntimeKind: "codex", collaborationMode: .default, model: "gpt-fixture", reasoningEffort: nil, effectiveApprovalPolicy: nil, effectiveSandboxPolicy: nil, hydratedConversationItems: items, queuedFollowUps: [], activeTurnId: nil, activePlanProgress: nil, pendingPlanImplementationPrompt: nil, contextTokensUsed: nil, modelContextWindow: nil, rateLimits: nil, realtimeSessionId: nil, goal: nil, stats: nil, tokenUsage: nil, olderTurnsCursor: nil, initialTurnsLoaded: true
+        )
+    }
+
+    static func summary(for thread: AppThreadSnapshot) -> AppSessionSummary {
+        AppSessionSummary(key: thread.key, agentRuntimeKind: thread.agentRuntimeKind, serverDisplayName: "Fixture Studio", serverHost: "fixture.local", title: thread.info.title ?? "", preview: thread.info.preview ?? "", cwd: thread.info.cwd ?? "", model: thread.model ?? "", modelProvider: thread.info.modelProvider ?? "", parentThreadId: thread.info.parentThreadId, forkedFromId: nil, agentNickname: nil, agentRole: nil, agentDisplayLabel: thread.key.threadId, agentStatus: .unknown, updatedAt: thread.info.updatedAt, hasActiveTurn: thread.activeTurnId != nil, isResumed: false, isSubagent: false, isFork: false, lastResponsePreview: nil, lastResponseTurnId: nil, lastUserMessage: nil, lastToolLabel: nil, recentToolLog: [], lastTurnStartMs: nil, lastTurnEndMs: nil, stats: nil, tokenUsage: nil, goal: nil)
+    }
+
+    static func makeSnapshot(sessions: Int, items: Int) -> AppSnapshotRecord {
+        var threads: [AppThreadSnapshot] = []
+        for i in 0..<max(sessions, 2) {
+            let threadItems: [HydratedConversationItem]
+            if i == 0 { threadItems = (0..<max(items, 0)).map(item(at:)) } else if i == 1 {
+                threadItems = [
+                    HydratedConversationItem(id: "fixture-live-user-1", content: .user(HydratedUserMessageData(text: "Fixture live turn.", imageDataUris: [])), sourceTurnId: "fixture-live-turn", sourceTurnIndex: 0, timestamp: Double(epoch) + 10, isFromUserTurnBoundary: true),
+                    HydratedConversationItem(id: liveAssistantItemId, content: .assistant(HydratedAssistantMessageData(text: "Fixture live stream.", agentNickname: nil, agentRole: nil, phase: .commentary)), sourceTurnId: "fixture-live-turn", sourceTurnIndex: 1, timestamp: Double(epoch) + 11, isFromUserTurnBoundary: false),
+                    HydratedConversationItem(id: "fixture-live-assistant-2", content: .assistant(HydratedAssistantMessageData(text: "Done.", agentNickname: nil, agentRole: nil, phase: .finalAnswer)), sourceTurnId: "fixture-live-turn", sourceTurnIndex: 2, timestamp: Double(epoch) + 12, isFromUserTurnBoundary: false)
+                ]
+            } else { threadItems = [] }
+            threads.append(makeThread(index: i, items: threadItems))
+        }
+        let server = AppServerSnapshot(serverId: serverId, displayName: "Fixture Studio", host: "fixture.local", port: 8390, wakeMac: nil, isLocal: false, health: .connected, transportState: .connected, capabilities: AppServerCapabilities(canUseTransportActions: true, canBrowseDirectories: true, canStartThreads: true, canResumeThreads: true, supportsTurnPagination: false), account: nil, requiresOpenaiAuth: false, rateLimits: nil, rateLimitsByRuntime: [], availableModels: nil, agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)], connectionProgress: nil, usageStats: nil)
+        return AppSnapshotRecord(servers: [server], threads: threads, sessionSummaries: threads.map { summary(for: $0) }, agentDirectoryVersion: 0, activeThread: nil, pendingApprovals: [], pendingUserInputs: [], voiceSession: AppVoiceSessionSnapshot(activeThread: nil, sessionId: nil, phase: nil, lastError: nil, transcriptEntries: [], handoffThreadKey: nil), terminalSessions: [], activeTerminalId: nil)
+    }
+
+    static func burstState(_ key: ThreadKey, status: ThreadSummaryStatus, activeTurnId: String?, queued: [AppQueuedFollowUpPreview]) -> AppThreadStateRecord {
+        AppThreadStateRecord(key: key, info: ThreadInfo(id: key.threadId, title: "Fixture thread", model: "gpt-fixture", status: status, preview: "Fixture preview", cwd: "/Projects/Workspace-0", path: nil, modelProvider: "openai", agentNickname: nil, agentRole: nil, parentThreadId: nil, forkedFromId: nil, agentStatus: nil, createdAt: epoch, updatedAt: epoch), agentRuntimeKind: "codex", collaborationMode: .default, model: "gpt-fixture", reasoningEffort: nil, effectiveApprovalPolicy: nil, effectiveSandboxPolicy: nil, queuedFollowUps: queued, activeTurnId: activeTurnId, activePlanProgress: nil, pendingPlanImplementationPrompt: nil, contextTokensUsed: nil, modelContextWindow: nil, rateLimits: nil, realtimeSessionId: nil, goal: nil, olderTurnsCursor: nil, initialTurnsLoaded: true)
+    }
+
+    static func burstSummary(_ key: ThreadKey, active: Bool, updatedAt: Int64) -> AppSessionSummary {
+        AppSessionSummary(key: key, agentRuntimeKind: "codex", serverDisplayName: "Fixture Studio", serverHost: "fixture.local", title: "Fixture thread", preview: "Fixture preview", cwd: "/Projects/Workspace-0", model: "gpt-fixture", modelProvider: "openai", parentThreadId: nil, forkedFromId: nil, agentNickname: nil, agentRole: nil, agentDisplayLabel: key.threadId, agentStatus: .unknown, updatedAt: updatedAt, hasActiveTurn: active, isResumed: false, isSubagent: false, isFork: false, lastResponsePreview: nil, lastResponseTurnId: nil, lastUserMessage: nil, lastToolLabel: nil, recentToolLog: [], lastTurnStartMs: nil, lastTurnEndMs: nil, stats: nil, tokenUsage: nil, goal: nil)
+    }
+
+    static func burstUpdates(index: Int, key: ThreadKey, texts: [String]) -> [AppStoreUpdateRecord] {
+        let queued = texts.prefix(index + 1).enumerated().map { AppQueuedFollowUpPreview(id: "fixture-burst-followup-\($0.offset)", kind: .message, text: $0.element) }
+        return [.threadMetadataChanged(state: burstState(key, status: .active, activeTurnId: "fixture-burst-turn", queued: Array(queued)), sessionSummary: burstSummary(key, active: true, updatedAt: epoch), agentDirectoryVersion: 0), .threadStreamingDelta(key: key, itemId: "fixture-item-1", kind: .assistantText, text: " F\(index + 1) burst \u{3b4}")]
+    }
+
+    static func burstDrainUpdate(key: ThreadKey) -> AppStoreUpdateRecord {
+        .threadMetadataChanged(state: burstState(key, status: .idle, activeTurnId: nil, queued: []), sessionSummary: burstSummary(key, active: false, updatedAt: epoch + 1), agentDirectoryVersion: 0)
+    }
+}
+
+@MainActor
+final class DebugBurstDriver {
+    enum Phase { case idle, armed, fired }
+    enum SteerMode: String { case plain = "PLAIN", steer = "STEER" }
+    struct Configuration { let offsetsMs: [Int]; let trial: String; let attempt: String; let mode: SteerMode; let hex: String; let raw: String; let fixtureMode: Bool }
+
+    static let anchorPrompt = "Run the command sh -c 'for i in 1 2 3 4 5 6 7 8; do echo tick $i; sleep 1; done' and then summarize its output in one sentence."
+    static let anchorPromptLong = "Run the command sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do echo tick $i; sleep 1; done' and then summarize its output in one sentence."
+    static let defaultOffsetsMs = [200, 400, 700]
+    static let inputPattern = try! NSRegularExpression(pattern: #"^B([1-9][0-9]{0,2})\.([1-9][0-9]?)-(PLAIN|STEER)-([0-9a-f]{6})$"#)
+
+    static func wireNonce(_ configuration: Configuration, fire: Int) -> String { "B\(configuration.trial).\(configuration.attempt)-F\(fire)-\(configuration.hex)" }
+    static func followUpTexts(configuration: Configuration) -> [String] { ["Follow-up one \(wireNonce(configuration, fire: 1)): reply with exactly ALPHA.", "Follow-up two \(wireNonce(configuration, fire: 2)): reply with exactly \(configuration.mode == .steer ? "BRAVO-STEERED" : "BRAVO").", "Follow-up three \(wireNonce(configuration, fire: 3)): reply with exactly CHARLIE."] }
+    static func anchorWindowMs(for text: String) -> Int? { text == anchorPrompt ? 8_000 : text == anchorPromptLong ? 20_000 : nil }
+    static func checkpointDelayMs(lastFireOffsetMs: Int, commandWindowMs: Int) -> Int { max(lastFireOffsetMs + 1_000, commandWindowMs + 8_000) }
+
+    static func parseTimings(_ raw: String?) -> [Int] {
+        let fields = raw?.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+        return (0..<3).map { i in guard i < fields.count, let v = Int(fields[i]) else { return defaultOffsetsMs[i] }; return min(max(v, 10), 2000) }
+    }
+    static func rejectLine(_ reason: String, value: String? = nil) -> String { value.map { "burst.driver reject reason=\(reason) value=\"\($0)\"" } ?? "burst.driver reject reason=\(reason)" }
+
+    static func configuration(environment: [String: String]) -> Configuration? {
+        guard environment["CODEXIOS_UI_TEST_BURST_FOLLOWUPS"] == "1" else { return nil }
+        guard let input = environment["CODEXIOS_UI_TEST_BURST_NONCE"], !input.isEmpty else { NSLog("%@", rejectLine("missing-nonce")); return nil }
+        func malformed() { NSLog("%@", rejectLine("malformed-nonce", value: input)) }
+        guard let match = inputPattern.firstMatch(in: input, range: NSRange(input.startIndex..., in: input)) else { malformed(); return nil }
+        func group(_ index: Int) -> String? { Range(match.range(at: index), in: input).map { String(input[$0]) } }
+        guard let trial = group(1), let attempt = group(2), let mode = group(3).flatMap(SteerMode.init(rawValue:)), let hex = group(4) else { malformed(); return nil }
+        return Configuration(offsetsMs: parseTimings(environment["CODEXIOS_UI_TEST_BURST_TIMINGS_MS"]), trial: trial, attempt: attempt, mode: mode, hex: hex, raw: input, fixtureMode: environment["CODEXIOS_UI_TEST_PRODUCTION_FIXTURE"] == "1")
+    }
+
+    static func burstPlan(offsetsMs: [Int], anchorMs: UInt64) -> [(index: Int, intendedMs: UInt64)] {
+        offsetsMs.enumerated().map { (index: $0.offset, intendedMs: anchorMs + UInt64(max($0.element, 0))) }
+    }
+
+    private(set) var phase: Phase = .idle; private(set) var scheduledFireCount = 0
+    private var config: Configuration?; private weak var appModel: AppModel?; private var fixtureApplyChain: Task<Void, Never>?
+
+    func armIfRequested(environment: [String: String], appModel: AppModel) {
+        guard phase == .idle, let armed = Self.configuration(environment: environment) else { return }
+        config = armed; self.appModel = appModel; phase = .armed
+        NSLog("burst.driver idle->armed offsets=\(armed.offsetsMs.map(String.init).joined(separator: ",")) input=\(armed.raw) trial=\(armed.trial) attempt=\(armed.attempt) steer=\(armed.mode.rawValue) hex=\(armed.hex) mode=\(armed.fixtureMode ? "fixture" : "live")")
+    }
+
+    @discardableResult
+    func noteStartTurnEntered(key: ThreadKey, text: String) -> Bool {
+        guard let config else { return false }
+        if phase == .armed, let commandWindowMs = Self.anchorWindowMs(for: text) {
+            phase = .fired; scheduleFires(key, commandWindowMs: commandWindowMs); return config.fixtureMode
+        }
+        if phase == .fired, Self.followUpTexts(configuration: config).contains(text) { NSLog("burst.driver follow-up entry (recursion-guarded)") }
+        return false
+    }
+
+    private func scheduleFires(_ key: ThreadKey, commandWindowMs: Int) {
+        guard let config else { return }
+        let anchorMs = DebugPerfClock.monoMs(); NSLog("burst.driver armed->fired anchorMonoMs=\(anchorMs) wallMs=\(DebugPerfClock.wallMs())")
+        let plan = Self.burstPlan(offsetsMs: config.offsetsMs, anchorMs: anchorMs); let texts = Self.followUpTexts(configuration: config); let nonces = (1...3).map { Self.wireNonce(config, fire: $0) }
+        scheduledFireCount = plan.count
+        for entry in plan {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(entry.intendedMs - anchorMs) * 1_000_000); self?.fire(index: entry.index, key: key, intendedMs: entry.intendedMs, texts: texts, nonces: nonces, config: config)
+            }
+        }
+        guard let lastMs = plan.map(\.intendedMs).max() else { return }
+        if config.fixtureMode {
+            Task { [weak self] in try? await Task.sleep(nanoseconds: UInt64(lastMs - anchorMs + 1_000) * 1_000_000); guard let self, let chain = self.fixtureApplyChain else { return }; await chain.value; await self.appModel?._testHandleStoreUpdate(DebugProductionFixture.burstDrainUpdate(key: key)) }
+        }
+        Task { [weak self] in try? await Task.sleep(nanoseconds: UInt64(Self.checkpointDelayMs(lastFireOffsetMs: Int(lastMs - anchorMs), commandWindowMs: commandWindowMs)) * 1_000_000); self?.appModel?.debugFlushIngressLedger(reason: "burst-checkpoint"); NSLog("burst.driver checkpoint") }
+    }
+
+    private func fire(index: Int, key: ThreadKey, intendedMs: UInt64, texts: [String], nonces: [String], config: Configuration) {
+        let actualMs = DebugPerfClock.monoMs(); NSLog("burst.driver fire F\(index + 1) intended=\(intendedMs) actual=\(actualMs) drift=\(actualMs &- intendedMs) nonce=\(nonces[index]) wallMs=\(DebugPerfClock.wallMs())")
+        appModel?.debugBeaconBlink()
+        guard index < texts.count else { return }
+        if config.fixtureMode {
+            let updates = DebugProductionFixture.burstUpdates(index: index, key: key, texts: texts)
+            fixtureApplyChain = Task { [previous = fixtureApplyChain, weak appModel] in await previous?.value; for update in updates { await appModel?._testHandleStoreUpdate(update) } }
+        } else {
+            NotificationCenter.default.post(name: .litterDebugBurstFire, object: nil, userInfo: ["key": key, "text": texts[index]])
+        }
+    }
+}
+#endif

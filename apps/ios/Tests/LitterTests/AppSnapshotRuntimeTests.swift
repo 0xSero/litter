@@ -552,3 +552,120 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         )
     }
 }
+
+#if DEBUG
+extension AppSnapshotRuntimeTests {
+    private func grammarEnv(_ input: String) -> [String: String] { ["CODEXIOS_UI_TEST_BURST_FOLLOWUPS": "1", "CODEXIOS_UI_TEST_BURST_NONCE": input] }
+    @MainActor
+    func testDebugProductionFixtureShapeIsExactAndDeterministic() {
+        let snapshot = DebugProductionFixture.makeSnapshot(sessions: 300, items: 1500)
+        XCTAssertEqual(snapshot, DebugProductionFixture.makeSnapshot(sessions: 300, items: 1500), "independent construction must be identical")
+        XCTAssertEqual(snapshot.threads.count, 300); XCTAssertEqual(snapshot.sessionSummaries.count, 300)
+        XCTAssertEqual(Set(snapshot.threads.compactMap(\.info.cwd)), Set((0..<12).map { "/Projects/Workspace-\($0)" }))
+        XCTAssertEqual(snapshot.threads[9].info.parentThreadId, "fixture-thread-0")
+        let items = snapshot.threads[0].hydratedConversationItems
+        XCTAssertEqual(items.count, 1500)
+        XCTAssertEqual(items[749], DebugProductionFixture.item(at: 749), "thread-0 items must follow the 6-case pattern")
+        XCTAssertEqual(items[1].id, "fixture-item-1")
+        XCTAssertEqual(snapshot.threads[1].key, DebugProductionFixture.liveThreadKey)
+    }
+    @MainActor
+    func testBurstInputGrammarVectorsAndFullRejectionTable() throws {
+        let vectors: [(input: String, trial: String, attempt: String, steer: Bool, f2: String)] = [
+            ("B7.1-PLAIN-9af3c2", "7", "1", false, "Follow-up two B7.1-F2-9af3c2: reply with exactly BRAVO."),
+            ("B12.2-STEER-00ffee", "12", "2", true, "Follow-up two B12.2-F2-00ffee: reply with exactly BRAVO-STEERED."),
+            ("B901.1-STEER-0c0ffe", "901", "1", true, "Follow-up two B901.1-F2-0c0ffe: reply with exactly BRAVO-STEERED."),
+            ("B15.1-PLAIN-abc123", "15", "1", false, "Follow-up two B15.1-F2-abc123: reply with exactly BRAVO.")
+        ]
+        for v in vectors {
+            let config = try XCTUnwrap(DebugBurstDriver.configuration(environment: grammarEnv(v.input)))
+            XCTAssertEqual(config.trial, v.trial); XCTAssertEqual(config.attempt, v.attempt); XCTAssertEqual(config.mode, v.steer ? .steer : .plain)
+            XCTAssertEqual(DebugBurstDriver.wireNonce(config, fire: 2), "B\(v.trial).\(v.attempt)-F2-\(v.input.suffix(6))")
+            XCTAssertEqual(DebugBurstDriver.followUpTexts(configuration: config)[1], v.f2)
+        }
+        let v1 = try XCTUnwrap(DebugBurstDriver.configuration(environment: grammarEnv("B7.1-PLAIN-9af3c2")))
+        XCTAssertEqual(DebugBurstDriver.followUpTexts(configuration: v1), [
+            "Follow-up one B7.1-F1-9af3c2: reply with exactly ALPHA.",
+            "Follow-up two B7.1-F2-9af3c2: reply with exactly BRAVO.",
+            "Follow-up three B7.1-F3-9af3c2: reply with exactly CHARLIE."
+        ])
+        let v2 = try XCTUnwrap(DebugBurstDriver.configuration(environment: grammarEnv("B12.2-STEER-00ffee")))
+        XCTAssertEqual((1...3).map { DebugBurstDriver.wireNonce(v2, fire: $0) }, ["B12.2-F1-00ffee", "B12.2-F2-00ffee", "B12.2-F3-00ffee"])
+        XCTAssertEqual(DebugBurstDriver.followUpTexts(configuration: v2), ["Follow-up one B12.2-F1-00ffee: reply with exactly ALPHA.", "Follow-up two B12.2-F2-00ffee: reply with exactly BRAVO-STEERED.", "Follow-up three B12.2-F3-00ffee: reply with exactly CHARLIE."])
+        XCTAssertEqual(DebugBurstDriver.followUpTexts(configuration: try XCTUnwrap(DebugBurstDriver.configuration(environment: grammarEnv("B12.2-STEER-00ffee")))), DebugBurstDriver.followUpTexts(configuration: v2), "V5: fresh parse yields byte-identical texts")
+        let rejections = ["B7.1-F2-9af3c2", "B7.1-9af3c2", "B7.1-plain-9af3c2", "B7.1-Steer-9af3c2", "B7.1-PLAIN-9AF3C2", "b7.1-PLAIN-9af3c2", "B07.1-PLAIN-9af3c2", "B7.0-PLAIN-9af3c2", "B7.1-PLAIN-9af3c", "B7.1-PLAIN-9af3c2d", "B7.1-PLAIN-9af3g2", "B7.1-PLAIN-STEER-9af3c2", " B7.1-PLAIN-9af3c2", "B7.1-PLAIN-9af3c2\t"]
+        for input in rejections {
+            XCTAssertNil(DebugBurstDriver.configuration(environment: grammarEnv(input)))
+            XCTAssertEqual(DebugBurstDriver.rejectLine("malformed-nonce", value: input), "burst.driver reject reason=malformed-nonce value=\"\(input)\"")
+        }
+        XCTAssertEqual(DebugBurstDriver.rejectLine("missing-nonce"), "burst.driver reject reason=missing-nonce")
+        XCTAssertNil(DebugBurstDriver.configuration(environment: ["CODEXIOS_UI_TEST_BURST_FOLLOWUPS": "1"]), "followups armed + absent nonce: exactly one missing-nonce reject")
+        XCTAssertNil(DebugBurstDriver.configuration(environment: grammarEnv("")), "followups armed + empty nonce: exactly one missing-nonce reject")
+    }
+
+    @MainActor
+    func testBurstTimingParsingIsPositionalAndAlwaysReturnsThreeOffsets() {
+        XCTAssertEqual(DebugBurstDriver.parseTimings(nil), DebugBurstDriver.defaultOffsetsMs)
+        XCTAssertEqual(DebugBurstDriver.parseTimings(" 250 "), [250, 400, 700])
+        XCTAssertEqual(DebugBurstDriver.parseTimings("0,-5"), [10, 10, 700])
+        XCTAssertEqual(DebugBurstDriver.parseTimings("5,3000,100"), [10, 2000, 100])
+        XCTAssertEqual(DebugBurstDriver.parseTimings("100,200,300,400"), [100, 200, 300])
+        XCTAssertEqual(DebugBurstDriver.parseTimings("200,abc,700"), [200, 400, 700], "malformed slot keeps its position and defaults")
+        XCTAssertEqual(DebugBurstDriver.parseTimings("200,,700"), [200, 400, 700], "empty slot keeps its position and defaults")
+        XCTAssertEqual(DebugBurstDriver.parseTimings(",250,"), [200, 250, 700])
+        XCTAssertEqual(DebugBurstDriver.checkpointDelayMs(lastFireOffsetMs: 700, commandWindowMs: 8_000), 16_000)
+        XCTAssertEqual(DebugBurstDriver.checkpointDelayMs(lastFireOffsetMs: 700, commandWindowMs: 20_000), 28_000)
+        XCTAssertEqual(DebugBurstDriver.burstPlan(offsetsMs: [200, 400, 700], anchorMs: 10_000).map(\.intendedMs), [10_200, 10_400, 10_700])
+    }
+    @MainActor
+    func testBurstDriverArmLatchIsOneShotAndRecursionGuarded() throws {
+        let appModel = AppModel(); let driver = DebugBurstDriver()
+        driver.armIfRequested(environment: [:], appModel: appModel)
+        XCTAssertEqual(driver.phase, .idle)
+        driver.armIfRequested(environment: grammarEnv("B1.1-PLAIN-abc123"), appModel: appModel)
+        XCTAssertEqual(driver.phase, .armed)
+        let key = DebugProductionFixture.liveThreadKey
+        driver.noteStartTurnEntered(key: key, text: DebugBurstDriver.anchorPrompt + " ")
+        XCTAssertEqual(driver.phase, .armed, "near-miss anchor text must not fire")
+        XCTAssertFalse(driver.noteStartTurnEntered(key: key, text: DebugBurstDriver.anchorPrompt), "live anchor never short-circuits startTurn; the real pipeline runs")
+        XCTAssertEqual(driver.phase, .fired)
+        XCTAssertEqual(driver.scheduledFireCount, 3, "default offsets schedule exactly F1/F2/F3")
+        driver.armIfRequested(environment: grammarEnv("B2.1-PLAIN-def456"), appModel: appModel)
+        XCTAssertEqual(driver.phase, .fired, "one-shot latch must never re-arm")
+        var longEnv = grammarEnv("B29.1-PLAIN-feed42"); longEnv["CODEXIOS_UI_TEST_PRODUCTION_FIXTURE"] = "1"
+        let long = DebugBurstDriver(); long.armIfRequested(environment: longEnv, appModel: appModel); XCTAssertTrue(long.noteStartTurnEntered(key: key, text: DebugBurstDriver.anchorPromptLong), "fixture T0-LONG anchor short-circuits"); XCTAssertEqual(long.phase, .fired)
+        let texts = DebugBurstDriver.followUpTexts(configuration: try XCTUnwrap(DebugBurstDriver.configuration(environment: grammarEnv("B1.1-PLAIN-abc123"))))
+        for text in texts { driver.noteStartTurnEntered(key: key, text: text) }
+        XCTAssertEqual(driver.scheduledFireCount, 3, "driver-fired follow-ups never recursively schedule more fires")
+    }
+    @MainActor
+    func testIngressLedgerCapDropHeaderAndResetAccounting() {
+        let model = AppModel()
+        for i in 0..<520 { model.debugAppendLedger("e\(i)") }
+        XCTAssertEqual(model.debugIngressLedger.count, 512); XCTAssertEqual(model.debugIngressDropped, 8)
+        XCTAssertEqual(model.debugFlushIngressLedger(reason: "test"), "burst.ledger flush reason=test entries=512 dropped=8")
+        XCTAssertEqual(model.debugIngressLedger.count, 0); XCTAssertEqual(model.debugIngressDropped, 0)
+        XCTAssertNil(model.debugFlushIngressLedger(reason: "empty"))
+    }
+    @MainActor
+    func testFixtureAnchorShortCircuitsStartTurnAndRoutesBurstStreamToThread0Item1() async throws {
+        let model = AppModel()
+        model.applySnapshot(DebugProductionFixture.makeSnapshot(sessions: 300, items: 1500))
+        var env = grammarEnv("B1.1-PLAIN-abc123")
+        env["CODEXIOS_UI_TEST_BURST_TIMINGS_MS"] = "30,60,90"
+        env["CODEXIOS_UI_TEST_PRODUCTION_FIXTURE"] = "1"
+        XCTAssertTrue(model.debugArmBurstDriverIfRequested(environment: env))
+        let key = ThreadKey(serverId: DebugProductionFixture.serverId, threadId: "fixture-thread-0")
+        let foreignBefore = model.threadSnapshot(for: DebugProductionFixture.liveThreadKey)?.hydratedConversationItems.first { $0.id == DebugProductionFixture.liveAssistantItemId }
+        try await model.startTurn(key: key, payload: AppComposerPayload(text: DebugBurstDriver.anchorPrompt, additionalInputs: []))
+        try? await Task.sleep(nanoseconds: 800_000_000) // 30/60/90 ms fires land; the 1 s drain stays out
+        let thread0 = model.threadSnapshot(for: key)
+        XCTAssertEqual(thread0?.activeTurnId, "fixture-burst-turn")
+        XCTAssertEqual(thread0?.queuedFollowUps.count, 3)
+        guard case .assistant(let displayed)? = thread0?.hydratedConversationItems.first(where: { $0.id == "fixture-item-1" })?.content else { return XCTFail("thread-0 displayed stream item missing") }
+        XCTAssertTrue(displayed.text.contains("burst"), "thread-0 fixture-item-1 carries the displayed burst stream on the 1500-item route")
+        let foreignAfter = model.threadSnapshot(for: DebugProductionFixture.liveThreadKey)?.hydratedConversationItems.first { $0.id == DebugProductionFixture.liveAssistantItemId }
+        XCTAssertEqual(foreignAfter, foreignBefore, "foreign streaming stays distinct on thread-1's live assistant, untouched")
+    }
+}
+#endif

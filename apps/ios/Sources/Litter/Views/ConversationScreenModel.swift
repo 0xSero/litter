@@ -141,6 +141,9 @@ final class ConversationScreenModel {
     }
 
     private func refreshState() {
+        #if DEBUG
+        let refreshSignpostID = PerfAttribution.begin("RefreshState"); defer { PerfAttribution.end("RefreshState", refreshSignpostID) }
+        #endif
         guard let thread, let appModel else {
             transcript = .empty
             pinnedContextItems = []
@@ -302,6 +305,9 @@ private struct ProjectedConversationItemsResult {
 
 private extension ConversationScreenModel {
     func projectConversationItems(from hydratedItems: [HydratedConversationItem]) -> ProjectedConversationItemsResult {
+        #if DEBUG
+        let projectSignpostID = PerfAttribution.begin("ProjectItems"); defer { PerfAttribution.end("ProjectItems", projectSignpostID) }
+        #endif
         let previousHydratedItems = cachedHydratedConversationItems
         if previousHydratedItems == hydratedItems {
             return ProjectedConversationItemsResult(

@@ -44,6 +44,7 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
+import com.sigkitten.litter.android.BuildConfig
 import uniffi.codex_mobile_client.AppOperationStatus
 import uniffi.codex_mobile_client.HydratedCommandActionKind
 import uniffi.codex_mobile_client.HydratedConversationItem
@@ -113,6 +114,8 @@ fun buildTranscriptTurns(
     isStreaming: Boolean,
     expandedRecentTurnCount: Int,
 ): List<TranscriptTurn> {
+    val tracing = BuildConfig.DEBUG && runCatching { android.os.Trace.beginSection("TurnGrouping.buildTranscriptTurns"); true }.getOrDefault(false)
+    try {
     if (items.isEmpty()) return emptyList()
 
     val groupedItems = mergeConsecutiveExplorationGroups(
@@ -131,6 +134,7 @@ fun buildTranscriptTurns(
             isCollapsedByDefault = index < collapseBoundary,
         )
     }
+    } finally { if (tracing) android.os.Trace.endSection() }
 }
 
 private fun groupItems(items: List<HydratedConversationItem>): List<List<HydratedConversationItem>> {

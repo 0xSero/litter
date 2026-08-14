@@ -15,6 +15,7 @@ import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.ThreadKey
+import com.sigkitten.litter.android.BuildConfig
 
 /**
  * Lightweight projection of a thread for use in lineage breadcrumbs and
@@ -190,6 +191,8 @@ object HomeDashboardSupport {
         snapshot: AppSnapshotRecord,
         limit: Int = 10,
     ): List<AppSessionSummary> {
+        val tracing = BuildConfig.DEBUG && runCatching { android.os.Trace.beginSection("Home.RecentSessions"); true }.getOrDefault(false)
+        try {
         val connectedServerIds = snapshot.servers
             .filter { it.health == AppServerHealth.CONNECTED }
             .map { it.serverId }
@@ -201,6 +204,7 @@ object HomeDashboardSupport {
             .distinctBy { it.key.serverId to it.key.threadId }
             .sortedByDescending { it.updatedAt ?: 0L }
             .take(limit)
+        } finally { if (tracing) android.os.Trace.endSection() }
     }
 
     /**

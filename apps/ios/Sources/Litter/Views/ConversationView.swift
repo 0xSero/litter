@@ -636,6 +636,9 @@ private struct ConversationMessageList: View {
 
     private var sourceTurns: [TranscriptTurn] {
         if transcriptTurns.isEmpty {
+            #if DEBUG
+            os_signpost(.event, log: PerfAttribution.log, name: "TurnBuildInBody")
+            #endif
             return TranscriptTurn.build(
                 from: items,
                 threadStatus: threadStatus,
@@ -967,6 +970,9 @@ private struct ConversationMessageList: View {
             return
         }
 
+        #if DEBUG
+        let turnBuildSignpostID = PerfAttribution.begin("TurnBuild"); defer { PerfAttribution.end("TurnBuild", turnBuildSignpostID) }
+        #endif
         let nextTurns = TranscriptTurn.build(
             from: items,
             threadStatus: threadStatus,
@@ -1570,6 +1576,12 @@ private struct ConversationInputBar: View {
         #if targetEnvironment(macCatalyst)
         .onReceive(NotificationCenter.default.publisher(for: .litterCommandSendComposer)) { _ in
             handleSend()
+        }
+        #endif
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: .litterDebugBurstFire)) { note in
+            guard let key = note.userInfo?["key"] as? ThreadKey, key == snapshot.threadKey, let text = note.userInfo?["text"] as? String else { return }
+            inputText = text; handleSend()
         }
         #endif
         .onDisappear {
@@ -3323,7 +3335,7 @@ struct QueuedFollowUpsPreviewView: View {
                     .clipShape(Capsule())
             }
 
-            ForEach(previews, id: \.id) { preview in
+            ForEach(Array(previews.enumerated()), id: \.element.id) { index, preview in
                 let style = QueuedFollowUpPreviewStyle.forKind(preview.kind)
 
                 HStack(alignment: .center, spacing: 12) {
@@ -3369,6 +3381,7 @@ struct QueuedFollowUpsPreviewView: View {
                             .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("conversation.queuedFollowUp-\(index).steer")
                         .disabled(preview.kind == .pendingSteer)
                     }
 
@@ -3379,6 +3392,7 @@ struct QueuedFollowUpsPreviewView: View {
                             .frame(width: 30, height: 30)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("conversation.queuedFollowUp-\(index).delete")
                 }
                 .padding(12)
                 .background(style.background)
@@ -3387,11 +3401,13 @@ struct QueuedFollowUpsPreviewView: View {
                         .stroke(style.border, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 14))
+                .accessibilityIdentifier("conversation.queuedFollowUp-\(index)")
             }
         }
         .padding(12)
         .background(LitterTheme.codeBackground.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("conversation.queuedFollowUps")
     }
 }
 

@@ -231,6 +231,9 @@ final class HomeDashboardModel {
     }
 
     private func refreshState() {
+        #if DEBUG
+        let deriveSignpostID = PerfAttribution.begin("HomeDerive"); defer { PerfAttribution.end("HomeDerive", deriveSignpostID) }
+        #endif
         guard isActive, let appModel else {
             connectedServers = []
             recentSessions = []

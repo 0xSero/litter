@@ -354,3 +354,126 @@ final class LitterUITests: XCTestCase {
         return false
     }
 }
+
+extension LitterUITests {
+    private func productionFixtureApp(streamForeign: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["CODEXIOS_UI_TEST_PRODUCTION_FIXTURE"] = "1" // env defaults: 300 sessions / 1500 items
+        if streamForeign { app.launchEnvironment["CODEXIOS_UI_TEST_STREAM_FOREIGN"] = "1" }
+        return app
+    }
+    private func openConversationThenSessions(_ app: XCUIApplication) {
+        let card = app.descendants(matching: .any).matching(identifier: "home.recentSessionCard").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "fixture home dashboard must render recent session cards")
+        card.tap()
+        let composer = app.textViews["conversation.composerTextView"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "conversation must push from the home card")
+        composer.tap()
+        composer.typeText("/resume")
+        app.buttons["Send"].tap()
+        XCTAssertTrue(app.buttons["sessions.sessionRow"].firstMatch.waitForExistence(timeout: 10), "/resume must reveal the real SessionsScreen")
+    }
+    private func measureConversationCycle(enter: XCUIElement, revealed: XCUIElement, composer: XCUIElement, back: XCUIElement, route: String, warmUpSettle: TimeInterval = 0) {
+        func cycle(_ message: String, settle: TimeInterval) {
+            enter.tap()
+            XCTAssertTrue(composer.waitForExistence(timeout: 20), "conversation must open")
+            if settle > 0 { Thread.sleep(forTimeInterval: settle) } // open-time settling stays outside the measured iterations
+            back.tap()
+            XCTAssertTrue(revealed.waitForExistence(timeout: 10), message)
+        }
+        cycle(route, settle: warmUpSettle)
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTClockMetric()], options: options) {
+            cycle(route, settle: 0)
+        }
+    }
+    private func sessionRow(containing text: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(identifier: "sessions.sessionRow").matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+    @MainActor
+    func testProductionBackToSessionsAt300() throws {
+        let app = productionFixtureApp()
+        app.launch()
+        openConversationThenSessions(app)
+        let composer = app.textViews["conversation.composerTextView"]
+        let back = app.buttons["Back"].firstMatch
+        let row = app.buttons["sessions.sessionRow"].firstMatch
+        measureConversationCycle(enter: row, revealed: row, composer: composer, back: back, route: "Back must reveal the real sessions list")
+        app.navigationBars.buttons.firstMatch.tap() // sessions -> home
+        let card = app.descendants(matching: .any).matching(identifier: "home.recentSessionCard").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        measureConversationCycle(enter: card, revealed: card, composer: composer, back: back, route: "Back must remount the home dashboard")
+    }
+
+    @MainActor
+    func testProductionOpenConversationAt1500() throws {
+        let app = productionFixtureApp()
+        app.launch()
+        let card = app.descendants(matching: .any).matching(identifier: "home.recentSessionCard").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "fixture home dashboard must render recent session cards")
+        measureConversationCycle(enter: card, revealed: card, composer: app.textViews["conversation.composerTextView"], back: app.buttons["Back"].firstMatch, route: "Back must return to the home card", warmUpSettle: 1.5)
+    }
+
+    @MainActor
+    func testProductionSessionsScrollAndSearchAt300() throws {
+        let app = productionFixtureApp()
+        app.launch()
+        openConversationThenSessions(app)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        start.press(forDuration: 0.05, thenDragTo: end) // untimed warm-up fling
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric], options: options) {
+            start.press(forDuration: 0.05, thenDragTo: end) // one fling per iteration
+        }
+        let search = app.textFields["Search sessions"]
+        search.tap()
+        search.typeText("288") // untimed warm-up: type -> derived list stable
+        XCTAssertTrue(sessionRow(containing: "Fixture thread 288", in: app).waitForExistence(timeout: 5))
+        search.typeText("\u{8}\u{8}\u{8}") // clear the warm-up query
+        let cleared = expectation(for: NSPredicate(format: "value == ''"), evaluatedWith: search)
+        wait(for: [cleared], timeout: 5)
+        options.invocationOptions = [.manuallyStart, .manuallyStop]
+        measure(metrics: [XCTClockMetric()], options: options) {
+            self.startMeasuring()
+            search.typeText("299")
+            XCTAssertTrue(sessionRow(containing: "Fixture thread 299", in: app).waitForExistence(timeout: 5), "derived list must settle on the single match")
+            self.stopMeasuring()
+            search.typeText("\u{8}\u{8}\u{8}")
+            wait(for: [expectation(for: NSPredicate(format: "value == ''"), evaluatedWith: search)], timeout: 5)
+        }
+    }
+
+    @MainActor
+    func testProductionComposerTypingDuringForeignStream() throws {
+        let app = productionFixtureApp(streamForeign: true)
+        app.launch()
+        let card = app.descendants(matching: .any).matching(identifier: "home.recentSessionCard").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "fixture home dashboard must render recent session cards")
+        card.tap()
+        let composer = app.textViews["conversation.composerTextView"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "conversation must push from the home card")
+        Thread.sleep(forTimeInterval: 2) // settle the open-time scroll chain and the first foreign deltas
+        composer.tap()
+        composer.typeText("PERF0A_TYPING_PROBE") // untimed warm-up typing pass
+        app.buttons["fixture.resetCounters"].tap()
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        measure(metrics: [XCTClockMetric()], options: options) {
+            composer.typeText("PERF0A_TYPING_PROBE") // the 19-character probe
+        }
+        app.buttons["fixture.publishCounters"].tap()
+        let readout = app.staticTexts["fixture.counterReadout"]
+        XCTAssertTrue(readout.waitForExistence(timeout: 5), "fixture counter readout must be published")
+        guard let counters = (try? JSONSerialization.jsonObject(with: Data(((readout.value as? String) ?? "{}").utf8))) as? [String: Any] else { return XCTFail("could not decode counter readout JSON") }
+        let totals = (counters["totals"] as? [String: Int]) ?? [:]
+        let timelineRows = (counters["rows"] as? [String: [String: Int]])?["TimelineRow"] ?? [:]
+        XCTAssertEqual(totals["TimelineRow"] ?? 0, 0, "foreign deltas must not re-evaluate any thread-0 TimelineRow: \(timelineRows)")
+        let attachment = XCTAttachment(string: "m3-s4 epoch=\(counters["epoch"] ?? -1) totals=\(totals)") // records SessionRow/HomeCard totals
+        attachment.name = "m3-s4-counter-totals"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

@@ -58,6 +58,9 @@ final class SessionsModel {
     }
 
     private func refreshState() {
+        #if DEBUG
+        let deriveSignpostID = PerfAttribution.begin("SessionsDerive"); defer { PerfAttribution.end("SessionsDerive", deriveSignpostID) }
+        #endif
         guard let appModel, let appState else {
             derivedData = .empty
             connectedServerOptions = []

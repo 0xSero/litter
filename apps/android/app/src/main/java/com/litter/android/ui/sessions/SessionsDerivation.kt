@@ -3,6 +3,7 @@ package com.litter.android.ui.sessions
 import com.litter.android.ui.home.HomeDashboardSupport
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.ThreadKey
+import com.sigkitten.litter.android.BuildConfig
 
 /**
  * Tree node for session fork relationships.
@@ -56,6 +57,8 @@ object SessionsDerivation {
         searchQuery: String = "",
         sortMode: WorkspaceSortMode = WorkspaceSortMode.RECENT,
     ): SessionsDerivedData {
+        val tracing = BuildConfig.DEBUG && runCatching { android.os.Trace.beginSection("Sessions.Derive"); true }.getOrDefault(false)
+        try {
         val uniqueSummaries = summaries.distinctBy { it.key.serverId to it.key.threadId }
         val totalCount = uniqueSummaries.size
         val allThreadKeys = uniqueSummaries.map { it.key }
@@ -161,6 +164,7 @@ object SessionsDerivation {
             workspaceGroupKeyByThreadKey = workspaceGroupKeyByThreadKey,
             parentByKey = parentByKey,
         )
+        } finally { if (tracing) android.os.Trace.endSection() }
     }
 
     fun workspaceGroupKey(summary: AppSessionSummary): String =

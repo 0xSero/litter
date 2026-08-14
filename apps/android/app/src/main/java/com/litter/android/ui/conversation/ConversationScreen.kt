@@ -86,6 +86,7 @@ import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.AppRenameThreadRequest
 import uniffi.codex_mobile_client.PendingUserInputRequest
 import uniffi.codex_mobile_client.ThreadKey
+import com.sigkitten.litter.android.BuildConfig
 
 /**
  * Main conversation screen with turn grouping, scroll-to-bottom FAB,
@@ -324,6 +325,8 @@ fun ConversationScreen(
 
     // Pinned context: latest TODO progress + combined session diff summary
     val pinnedContext = remember(items) {
+        val tracing = BuildConfig.DEBUG && runCatching { android.os.Trace.beginSection("Conversation.PinnedContextParse"); true }.getOrDefault(false)
+        try {
         var todoProgress: String? = null
         val rawDiffSections = mutableListOf<SessionDiffSection>()
         for (i in items.indices.reversed()) {
@@ -370,6 +373,7 @@ fun ConversationScreen(
         } else {
             null
         }
+        } finally { if (tracing) android.os.Trace.endSection() }
     }
 
     // Auto-scroll state

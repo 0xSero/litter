@@ -1,6 +1,8 @@
 package com.litter.android.state
 
+import android.os.SystemClock
 import com.litter.android.core.bridge.UniffiInit
+import com.sigkitten.litter.android.BuildConfig
 import com.litter.android.util.LLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -332,6 +334,7 @@ class AppModel private constructor(context: android.content.Context) {
     // --- Snapshot refresh -----------------------------------------------------
 
     suspend fun refreshSnapshot() {
+        if (BuildConfig.DEBUG && debugFixtureActive) return
         try {
             val snap = store.snapshot()
             applySnapshot(snap)
@@ -765,6 +768,7 @@ class AppModel private constructor(context: android.content.Context) {
         key: ThreadKey,
         payload: AppComposerPayload,
     ) {
+        if (BuildConfig.DEBUG) { debugPerfHooks?.onStartTurnEntered(key, payload.text); if (debugFixtureActive) return }
         restoreStoredLocalAuthIfNeeded(key.serverId, reason = "startTurn")
 
         try {
@@ -1038,7 +1042,8 @@ class AppModel private constructor(context: android.content.Context) {
     // --- Internal event handling ----------------------------------------------
 
     private suspend fun handleUpdate(update: AppStoreUpdateRecord) {
-        when (update) {
+        val tracing = BuildConfig.DEBUG && runCatching { android.os.Trace.beginSection("AppModel.handleUpdate"); true }.getOrDefault(false)
+        try { when (update) {
             is AppStoreUpdateRecord.ThreadUpserted ->
                 applyThreadUpsert(update.thread, update.sessionSummary, update.agentDirectoryVersion)
             is AppStoreUpdateRecord.ThreadMetadataChanged ->
@@ -1096,6 +1101,8 @@ class AppModel private constructor(context: android.content.Context) {
                 applyStreamingWidget(update.key, update.itemId, update.widget)
             is AppStoreUpdateRecord.TerminalSessionsChanged -> refreshSnapshot()
         }
+        if (BuildConfig.DEBUG) debugPerfHooks?.onStoreUpdateApplied(update)
+        } finally { if (tracing) android.os.Trace.endSection() }
     }
 
     /// Mutate an in-flight widget bubble's data so the timeline WebView
@@ -1608,6 +1615,31 @@ class AppModel private constructor(context: android.content.Context) {
 
         return snapshot.copy(threads = mergedThreads)
     }
+
+    // --- W1 DEBUG perf seams (measurement-only; implementation lives in the debug source set) ---
+    @Volatile private var debugPerfHooks: AppModelDebugPerfHooks? = null
+    @Volatile var debugFixtureActive = false
+        private set
+    fun debugInstallPerfHooks(hooks: AppModelDebugPerfHooks?) { if (BuildConfig.DEBUG) debugPerfHooks = hooks }
+    /** Fixture apply seam: publishes the deterministic fixture snapshot without touching Rust. */
+    fun debugApplyFixtureSnapshot(snapshot: AppSnapshotRecord) {
+        if (!BuildConfig.DEBUG) return
+        debugFixtureActive = true; _snapshot.value = snapshot; rebindLedger.bumpGlobal(); snapshot.threads.forEach(::cacheThreadSnapshot)
+    }
+    /** Fixture apply seam: one store update through the real handleUpdate path. */
+    suspend fun debugInjectStoreUpdate(update: AppStoreUpdateRecord) { if (BuildConfig.DEBUG) handleUpdate(update) }
+    fun debugCachedThreadSnapshot(key: ThreadKey): AppThreadSnapshot? = if (BuildConfig.DEBUG) cachedThreadSnapshots[key] else null // O(1) ledger fallback; never threadSnapshot()'s linear scan
+    /** A-10 beacon window (DEBUG): ~66 ms blink polled by the MainActivity overlay. */
+    @Volatile var debugBeaconVisibleUntilMs = 0L
+    val debugBeaconVisible: Boolean get() = BuildConfig.DEBUG && SystemClock.uptimeMillis() < debugBeaconVisibleUntilMs
+    fun debugFlushPerfLedger(reason: String) { if (BuildConfig.DEBUG) debugPerfHooks?.onFlushLedger(reason) }
+}
+
+/** W1 measurement-only hooks; implemented by the debug source set, never installed in release builds. */
+interface AppModelDebugPerfHooks {
+    fun onStoreUpdateApplied(update: AppStoreUpdateRecord)
+    fun onStartTurnEntered(key: ThreadKey, text: String)
+    fun onFlushLedger(reason: String)
 }
 
 private fun registerBundledCliTools() {
