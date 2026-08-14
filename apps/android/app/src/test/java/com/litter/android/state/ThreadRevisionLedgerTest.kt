@@ -47,7 +47,7 @@ class ThreadRevisionLedgerTest {
         val a = key("a")
         val n = 50
         val m = 100
-        coroutineScope { (1..n).map { async(Dispatchers.Default) { repeat(m) { ledger.bumpThread(a) } }.awaitAll() } }
+        coroutineScope { (1..n).map { async(Dispatchers.Default) { repeat(m) { ledger.bumpThread(a) } } }.awaitAll() }
         assertEquals((n * m).toLong(), ledger.threadRevision(a).value)
     }
 }
