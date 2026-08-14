@@ -776,7 +776,7 @@ mod mobile_client_tests {
     fn thread_runtime_infers_non_codex_from_existing_thread_model_prefix() {
         for (model, expected_runtime) in [
             ("opencode/qwen3-coder", "opencode".to_string()),
-            ("amp/smart", "amp".to_string()),
+            ("amp/medium", "amp".to_string()),
             ("pi.dev/default", "pi".to_string()),
             ("factory/droid", "droid".to_string()),
         ] {
@@ -1419,7 +1419,7 @@ mod mobile_client_tests {
 
         let mut thread = thread_snapshot_with_active_turn(server_id, thread_id, "turn-active");
         thread.agent_runtime_kind = "amp".to_string();
-        thread.model = Some("amp/smart".to_string());
+        thread.model = Some("amp/medium".to_string());
         thread.info.model_provider = Some("amp".to_string());
         client.app_store.upsert_thread_snapshot(thread);
         client.note_thread_runtime(key.clone(), "amp".to_string());
@@ -1466,7 +1466,7 @@ mod mobile_client_tests {
                             "name": "thread",
                             "turns": turns
                         },
-                        "model": "amp/smart",
+                        "model": "amp/medium",
                         "modelProvider": "amp",
                         "cwd": "/tmp/thread",
                         "approvalPolicy": "never",
