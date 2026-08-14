@@ -1,5 +1,6 @@
 import SafariServices
 import SwiftUI
+import os
 
 struct HeaderView: View {
     @Environment(AppState.self) private var appState
@@ -28,6 +29,9 @@ struct HeaderView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = RenderIsolationCounters.trace(RenderIsolationCounters.Site.header)
+        #endif
         Button {
             appState.showModelSelector.toggle()
         } label: {

@@ -389,6 +389,75 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertGreaterThan(model.rebuildCount, rebuildCountBeforeDeactivate)
     }
 
+    func testSessionsDerivationBuildPerformance_100_300_1000() {
+        let fixtures: [Int: [AppSessionSummary]] = [
+            100: makeSessionSummaries(count: 100),
+            300: makeSessionSummaries(count: 300),
+            1000: makeSessionSummaries(count: 1000)
+        ]
+        measure(metrics: [XCTClockMetric()]) {
+            for count in [100, 300, 1000] {
+                _ = MainActor.assumeIsolated {
+                    SessionsDerivation.build(
+                        sessions: fixtures[count] ?? [],
+                        selectedServerFilterId: nil,
+                        showOnlyForks: false,
+                        selectedRuntimeKind: nil,
+                        workspaceSortMode: .mostRecent,
+                        searchQuery: "",
+                        frozenMostRecentOrder: nil
+                    )
+                }
+            }
+        }
+    }
+
+    private func makeSessionSummaries(count: Int) -> [AppSessionSummary] {
+        (0..<count).map { index in
+            let thread = makeThreadSnapshot(
+                serverId: "server-a",
+                threadId: "perf-session-\(index)",
+                updatedAt: TimeInterval(1_000_000 - index)
+            )
+            return AppSessionSummary(
+                key: thread.key,
+                agentRuntimeKind: thread.agentRuntimeKind,
+                serverDisplayName: "Server A",
+                serverHost: "server-a.local",
+                title: thread.info.title ?? "",
+                preview: thread.info.preview ?? "",
+                cwd: thread.info.cwd ?? "",
+                model: thread.model ?? "",
+                modelProvider: thread.info.modelProvider ?? "",
+                parentThreadId: thread.info.parentThreadId,
+                forkedFromId: nil,
+                agentNickname: thread.info.agentNickname,
+                agentRole: thread.info.agentRole,
+                agentDisplayLabel: AgentLabelFormatter.format(
+                    nickname: thread.info.agentNickname,
+                    role: thread.info.agentRole,
+                    fallbackIdentifier: thread.key.threadId
+                ),
+                agentStatus: .unknown,
+                updatedAt: thread.info.updatedAt,
+                hasActiveTurn: thread.hasActiveTurn,
+                isResumed: false,
+                isSubagent: thread.info.parentThreadId != nil,
+                isFork: thread.info.parentThreadId != nil,
+                lastResponsePreview: nil,
+                lastResponseTurnId: nil,
+                lastUserMessage: nil,
+                lastToolLabel: nil,
+                recentToolLog: [],
+                lastTurnStartMs: nil,
+                lastTurnEndMs: nil,
+                stats: nil,
+                tokenUsage: nil,
+                goal: nil
+            )
+        }
+    }
+
     private func makeThreadSnapshot(
         serverId: String,
         threadId: String,

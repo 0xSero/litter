@@ -154,6 +154,176 @@ final class LitterUITests: XCTestCase {
         }
     }
 
+    // MARK: - PERF-0a deterministic perf tests
+
+    @MainActor
+    func testBodyEvaluationCountAt1500() throws {
+        let app = midhistoryHarnessApp()
+        app.launch()
+
+        XCTAssertTrue(app.otherElements["conversationDisplayHarness.timeline"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["UITEST_PATTERN_USER_0"].waitForExistence(timeout: 10))
+
+        // Mount liveness: publish once before any reset and assert the
+        // timeline mounted at least one row (guards against a vacuous zero).
+        app.buttons["harness.publishCounters"].tap()
+        var counters = readCounters(in: app)
+        let initialEpoch = counters["epoch"] as? Int ?? 0
+        let initialTotals = (counters["totals"] as? [String: Int]) ?? [:]
+        XCTAssertGreaterThanOrEqual(initialTotals["TimelineRow"] ?? 0, 1, "timeline rows must mount")
+
+        // Phase 1: streaming delta batch. StreamingRendererCoordinator updates
+        // the streaming bubble BELOW ConversationTimelineItemRow's Equatable
+        // (assistant rows skip renderDigest), so no timeline row body may
+        // re-evaluate on a text delta. SessionRow/Header/HomeCard must be 0.
+        app.buttons["harness.resetCounters"].tap()
+        app.buttons["harness.streamBatch"].tap()
+        app.buttons["harness.publishCounters"].tap()
+
+        counters = readCounters(in: app)
+        var totals = (counters["totals"] as? [String: Int]) ?? [:]
+        var rows = (counters["rows"] as? [String: [String: Int]]) ?? [:]
+        let timelineRows = rows["TimelineRow"] ?? [:]
+        XCTAssertEqual(counters["epoch"] as? Int ?? 0, initialEpoch + 1, "epoch must advance on reset")
+        XCTAssertEqual(totals["TimelineRow"] ?? 0, 0)
+        XCTAssertEqual(totals["SessionRow"] ?? 0, 0)
+        XCTAssertEqual(totals["Header"] ?? 0, 0)
+        XCTAssertEqual(totals["HomeCard"] ?? 0, 0)
+        XCTAssertTrue(timelineRows.isEmpty, "no timeline row body may re-evaluate on a streaming delta: \(timelineRows)")
+
+        // Phase 2: mid-history tool completion — positive control. Exactly the
+        // tool row (mh-tool-K) re-evaluates (turn-state transition sample):
+        // target 1, binding ≤2, all other surfaces 0.
+        app.buttons["harness.resetCounters"].tap()
+        app.buttons["harness.completeMidhistoryTool"].tap()
+        app.buttons["harness.publishCounters"].tap()
+
+        counters = readCounters(in: app)
+        totals = (counters["totals"] as? [String: Int]) ?? [:]
+        rows = (counters["rows"] as? [String: [String: Int]]) ?? [:]
+        let toolTimelineRows = rows["TimelineRow"] ?? [:]
+        XCTAssertEqual(counters["epoch"] as? Int ?? 0, initialEpoch + 2, "epoch must advance on second reset")
+        XCTAssertEqual(totals["SessionRow"] ?? 0, 0)
+        XCTAssertEqual(toolTimelineRows.count, 1, "exactly one key expected: \(toolTimelineRows)")
+        let toolHits = toolTimelineRows["mh-tool-K"] ?? 0
+        XCTAssertGreaterThanOrEqual(toolHits, 1)
+        XCTAssertLessThanOrEqual(toolHits, 2)
+        XCTAssertEqual(totals["TimelineRow"] ?? 0, toolHits)
+        // Tool-result content visibility is proven by the dedicated 7-item
+        // `testMidhistoryToolCompletionRendersResult` (COMMAND_MODE=expanded);
+        // keep this 1500-item scale/counter gate free of a text assertion.
+    }
+
+    @MainActor
+    func testMidhistoryToolCompletionRendersResult() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui-test-conversation-display")
+        app.launchEnvironment["CODEXIOS_UI_TEST_SCENARIO"] = "midhistory-tool-result"
+        app.launchEnvironment["CODEXIOS_UI_TEST_COMMAND_MODE"] = "expanded"
+        app.launch()
+
+        let toolButton = app.buttons["harness.completeMidhistoryTool"]
+        XCTAssertTrue(toolButton.waitForExistence(timeout: 10))
+        toolButton.tap()
+
+        let resultText = app.staticTexts["ui-test tool result K"]
+        if resultText.waitForExistence(timeout: 10) {
+            return
+        }
+
+        // Fallback: an existing combined command-row accessibility element
+        // whose label or value carries the rendered result.
+        let labelPredicate = NSPredicate(format: "label CONTAINS %@", "ui-test tool result K")
+        let valuePredicate = NSPredicate(format: "value CONTAINS %@", "ui-test tool result K")
+        let combined = app.descendants(matching: .any)
+            .matching(NSCompoundPredicate(orPredicateWithSubpredicates: [labelPredicate, valuePredicate]))
+            .firstMatch
+        if combined.waitForExistence(timeout: 5) {
+            return
+        }
+
+        XCTFail("Mid-history tool completion result is not accessible as a static text or combined command-row element")
+    }
+
+    @MainActor
+    func testConversationScrollPerformanceAt1500() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui-test-conversation-display")
+        app.launchEnvironment["CODEXIOS_UI_TEST_ITEM_COUNT"] = "1500"
+        app.launch()
+
+        XCTAssertTrue(app.otherElements["conversationDisplayHarness.timeline"].waitForExistence(timeout: 15))
+
+        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric]) {
+            for _ in 0..<6 {
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+        }
+    }
+
+    @MainActor
+    func testComposerKeystrokeLatency() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui-test-conversation-display")
+        app.launch()
+
+        let composer = app.textViews["conversation.composerTextView"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+        measure(metrics: [XCTClockMetric()]) {
+            composer.typeText("PERF0A_TYPING_PROBE")
+        }
+    }
+
+    @MainActor
+    func testBackToListPerformanceAt300Sessions() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui-test-conversation-display")
+        app.launchEnvironment["CODEXIOS_UI_TEST_SESSION_COUNT"] = "300"
+        app.launchEnvironment["CODEXIOS_UI_TEST_ITEM_COUNT"] = "1500"
+        app.launch()
+
+        let firstRow = app.buttons["harness.sessionRow-0"]
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 20))
+        firstRow.tap()
+        XCTAssertTrue(app.navigationBars["Display Harness"].waitForExistence(timeout: 15))
+
+        measure(metrics: [XCTClockMetric()]) {
+            for _ in 0..<5 {
+                app.navigationBars.buttons.firstMatch.tap()
+                XCTAssertTrue(app.buttons["harness.sessionRow-0"].waitForExistence(timeout: 5))
+                app.buttons["harness.sessionRow-0"].tap()
+                XCTAssertTrue(app.navigationBars["Display Harness"].waitForExistence(timeout: 5))
+            }
+        }
+    }
+
+    @MainActor
+    private func midhistoryHarnessApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui-test-conversation-display")
+        app.launchEnvironment["CODEXIOS_UI_TEST_SCENARIO"] = "midhistory-tool-result"
+        app.launchEnvironment["CODEXIOS_UI_TEST_ITEM_COUNT"] = "1500"
+        app.launchEnvironment["CODEXIOS_UI_TEST_COMMAND_MODE"] = "expanded"
+        return app
+    }
+
+    @MainActor
+    private func readCounters(in app: XCUIApplication) -> [String: Any] {
+        let element = app.staticTexts["harness.bodyEvalCounts"]
+        XCTAssertTrue(element.waitForExistence(timeout: 5))
+        let raw = (element.value as? String) ?? "{}"
+        XCTAssertNotEqual(raw, "{}", "published counters JSON must not be the empty stub")
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Could not decode counters JSON: \(raw)")
+            return [:]
+        }
+        return object
+    }
+
     @MainActor
     private func conversationDisplayHarnessApp(
         reasoning: String = "collapsed",

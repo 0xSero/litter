@@ -1,6 +1,7 @@
 import SwiftUI
 import HairballUI
 import UIKit
+import os
 
 struct ConversationTurnTimeline: View {
     @AppStorage(ConversationDisplayPreferenceKey.reasoning) private var reasoningDisplayModeRaw = ConversationDetailDisplayMode.collapsed.rawValue
@@ -417,6 +418,9 @@ private struct ConversationTimelineItemRow: View, Equatable {
     // Time Profiler on 2026-04-18 showed that union's `outlined destroy` +
     // witness-table accessor accounting for ~49% of main-thread CPU on device.
     var body: AnyView {
+        #if DEBUG
+        RenderIsolationCounters.trace(RenderIsolationCounters.Site.timelineRow, rowID: item.id)
+        #endif
         switch item.content {
         case .user(let data):
             return AnyView(userRow(data))

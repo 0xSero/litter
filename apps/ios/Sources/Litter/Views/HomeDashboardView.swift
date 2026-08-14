@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Which chrome layer the dashboard renders with.
 ///
@@ -729,6 +730,13 @@ struct SessionCanvasLine: View {
     // ────────────────────────────────────────────────────
 
     var body: some View {
+        #if DEBUG
+        // PERF-0a HomeCard proxy: SessionCanvasLine is instantiated once per
+        // session by HomeSessionRowContent (HomeSessionsScrollView.swift, out of
+        // scope). Caveats: (a) undercounts outer-chrome-only re-evals;
+        // (b) PiPContentView also instantiates it — PERF-0b must keep PiP off.
+        let _ = RenderIsolationCounters.trace(RenderIsolationCounters.Site.homeCard)
+        #endif
         HStack(alignment: .top, spacing: 0) {
             Group {
                 if isOpening {

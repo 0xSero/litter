@@ -837,119 +837,20 @@ struct SessionsScreen: View {
         onToggleNode: @escaping () -> Void,
         onSelectSession: @escaping () -> Void
     ) -> some View {
-        let parent = derived.parentByKey[thread.key]
-        let hasTurnActive = ephemeralState?.hasTurnActive ?? thread.hasActiveTurn
-        let updatedAt = ephemeralState?.updatedAt ?? thread.updatedAtDate
-
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 6) {
-                HStack(spacing: 0) {
-                    Color.clear
-                        .frame(width: CGFloat(depth) * 8)
-                    if hasChildren {
-                        Button(action: onToggleNode) {
-                            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                                .litterFont(size: 9, weight: .semibold)
-                                .foregroundColor(LitterTheme.textSecondary)
-                                .frame(width: 10, height: 10)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Color.clear.frame(width: 10, height: 10)
-                    }
-                }
-                .padding(.top, 2)
-
-                HStack(alignment: .top, spacing: 6) {
-                    if hasTurnActive {
-                        PulsingDot().padding(.top, 3)
-                    } else if thread.isSubagent {
-                        subagentStatusIndicator(thread.subagentStatus).padding(.top, 3)
-                    } else {
-                        Circle().fill(LitterTheme.textMuted.opacity(0.4)).frame(width: 8, height: 8).padding(.top, 3)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            FormattedText(text: thread.sessionTitle, lineLimit: 2)
-                                .litterFont(.footnote)
-                                .foregroundColor(LitterTheme.textPrimary)
-                                .multilineTextAlignment(.leading)
-                                .accessibilityIdentifier("sessions.sessionTitle")
-
-                            if thread.isSubagent {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "person.2.fill")
-                                        .litterFont(size: 8, weight: .semibold)
-                                    Text(thread.agentDisplayLabel ?? "Agent")
-                                        .litterFont(.caption2)
-                                }
-                                .foregroundColor(LitterTheme.textOnAccent)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(LitterTheme.success)
-                                .cornerRadius(4)
-                            } else if thread.isFork {
-                                Text("Fork")
-                                    .litterFont(.caption2)
-                                    .foregroundColor(LitterTheme.textOnAccent)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(LitterTheme.accent)
-                                    .cornerRadius(4)
-                            }
-
-                            Spacer(minLength: 0)
-
-                            if resumingKey == thread.key {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(LitterTheme.accent)
-                            }
-                        }
-
-                        HStack(spacing: 4) {
-                            Text(relativeDate(updatedAt))
-                                .foregroundColor(LitterTheme.textSecondary)
-                            if let provider = thread.sessionModelLabel {
-                                Text("•")
-                                    .foregroundColor(LitterTheme.textMuted)
-                                Text(provider)
-                                    .foregroundColor(LitterTheme.textMuted)
-                            }
-                            if let parent {
-                                Text("•")
-                                    .foregroundColor(LitterTheme.textMuted)
-                                Text("from \(parent.sessionTitle)")
-                                    .foregroundColor(LitterTheme.textMuted)
-                            }
-                        }
-                        .litterFont(.caption2)
-                        .lineLimit(1)
-                    }
-                }
-                .contentShape(Rectangle())
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("sessions.sessionRow")
-                .onTapGesture(perform: onSelectSession)
-            }
-
-            if isActive {
-                lineageSummary(for: thread, derived: derived)
-            }
-        }
-        .padding(.leading, 1)
-        .padding(.trailing, 8)
-        .padding(.vertical, 5)
-        .background {
-            if isActive {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(LitterTheme.surfaceLight.opacity(0.55))
-            }
-        }
-        .contentShape(Rectangle())
-        .hoverEffect(.highlight)
+        SessionRowView(
+            thread: thread,
+            isActive: isActive,
+            parent: derived.parentByKey[thread.key],
+            hasTurnActive: ephemeralState?.hasTurnActive ?? thread.hasActiveTurn,
+            updatedAtText: relativeDate(ephemeralState?.updatedAt ?? thread.updatedAtDate),
+            isResuming: resumingKey == thread.key,
+            depth: depth,
+            hasChildren: hasChildren,
+            isCollapsed: isCollapsed,
+            lineage: isActive ? AnyView(lineageSummary(for: thread, derived: derived)) : nil,
+            onToggleNode: onToggleNode,
+            onSelectSession: onSelectSession
+        )
     }
 
     private func lineageSummary(for thread: AppSessionSummary, derived: SessionsDerivedData) -> some View {
@@ -1016,36 +917,6 @@ struct SessionsScreen: View {
                     .stroke(isInteractive ? LitterTheme.accent.opacity(0.5) : LitterTheme.border.opacity(0.5), lineWidth: 1)
             )
             .cornerRadius(5)
-    }
-
-    @ViewBuilder
-    private func subagentStatusIndicator(_ status: AppSubagentStatus) -> some View {
-        switch status {
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .litterFont(size: 8)
-                .foregroundColor(LitterTheme.success)
-                .frame(width: 8, height: 8)
-        case .errored:
-            Image(systemName: "exclamationmark.circle.fill")
-                .litterFont(size: 8)
-                .foregroundColor(LitterTheme.danger)
-                .frame(width: 8, height: 8)
-        case .shutdown:
-            Image(systemName: "stop.circle.fill")
-                .litterFont(size: 8)
-                .foregroundColor(LitterTheme.textMuted)
-                .frame(width: 8, height: 8)
-        case .interrupted:
-            Image(systemName: "pause.circle.fill")
-                .litterFont(size: 8)
-                .foregroundColor(LitterTheme.warning)
-                .frame(width: 8, height: 8)
-        case .pendingInit, .running, .unknown:
-            Circle()
-                .fill(LitterTheme.textMuted.opacity(0.4))
-                .frame(width: 8, height: 8)
-        }
     }
 
     private func visibleSessionRows(for group: WorkspaceSessionGroup) -> [SessionTreeRow] {
@@ -1337,6 +1208,169 @@ struct SessionsScreen: View {
 
     private func relativeDate(_ date: Date) -> String {
         Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+/// Internal row view extracted from `SessionsScreen.sessionRow` so the DEBUG
+/// PERF-0a harness can mount the real session row (pixel-identical). Preamble
+/// values and the lineage slot are pre-resolved by the caller.
+struct SessionRowView: View {
+    let thread: AppSessionSummary
+    let isActive: Bool
+    let parent: AppSessionSummary?
+    let hasTurnActive: Bool
+    let updatedAtText: String
+    let isResuming: Bool
+    let depth: Int
+    let hasChildren: Bool
+    let isCollapsed: Bool
+    let lineage: AnyView?
+    let onToggleNode: () -> Void
+    let onSelectSession: () -> Void
+
+    var body: some View {
+        #if DEBUG
+        let _ = RenderIsolationCounters.trace(RenderIsolationCounters.Site.sessionRow, rowID: "\(thread.key.serverId)/\(thread.key.threadId)")
+        #endif
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 6) {
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: CGFloat(depth) * 8)
+                    if hasChildren {
+                        Button(action: onToggleNode) {
+                            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                .litterFont(size: 9, weight: .semibold)
+                                .foregroundColor(LitterTheme.textSecondary)
+                                .frame(width: 10, height: 10)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Color.clear.frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.top, 2)
+
+                HStack(alignment: .top, spacing: 6) {
+                    if hasTurnActive {
+                        PulsingDot().padding(.top, 3)
+                    } else if thread.isSubagent {
+                        subagentStatusIndicator(thread.subagentStatus).padding(.top, 3)
+                    } else {
+                        Circle().fill(LitterTheme.textMuted.opacity(0.4)).frame(width: 8, height: 8).padding(.top, 3)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            FormattedText(text: thread.sessionTitle, lineLimit: 2)
+                                .litterFont(.footnote)
+                                .foregroundColor(LitterTheme.textPrimary)
+                                .multilineTextAlignment(.leading)
+                                .accessibilityIdentifier("sessions.sessionTitle")
+
+                            if thread.isSubagent {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "person.2.fill")
+                                        .litterFont(size: 8, weight: .semibold)
+                                    Text(thread.agentDisplayLabel ?? "Agent")
+                                        .litterFont(.caption2)
+                                }
+                                .foregroundColor(LitterTheme.textOnAccent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(LitterTheme.success)
+                                .cornerRadius(4)
+                            } else if thread.isFork {
+                                Text("Fork")
+                                    .litterFont(.caption2)
+                                    .foregroundColor(LitterTheme.textOnAccent)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(LitterTheme.accent)
+                                    .cornerRadius(4)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            if isResuming {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(LitterTheme.accent)
+                            }
+                        }
+
+                        HStack(spacing: 4) {
+                            Text(updatedAtText)
+                                .foregroundColor(LitterTheme.textSecondary)
+                            if let provider = thread.sessionModelLabel {
+                                Text("•")
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text(provider)
+                                    .foregroundColor(LitterTheme.textMuted)
+                            }
+                            if let parent {
+                                Text("•")
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text("from \(parent.sessionTitle)")
+                                    .foregroundColor(LitterTheme.textMuted)
+                            }
+                        }
+                        .litterFont(.caption2)
+                        .lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("sessions.sessionRow")
+                .onTapGesture(perform: onSelectSession)
+            }
+
+            if let lineage {
+                lineage
+            }
+        }
+        .padding(.leading, 1)
+        .padding(.trailing, 8)
+        .padding(.vertical, 5)
+        .background {
+            if isActive {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(LitterTheme.surfaceLight.opacity(0.55))
+            }
+        }
+        .contentShape(Rectangle())
+        .hoverEffect(.highlight)
+    }
+
+    @ViewBuilder
+    private func subagentStatusIndicator(_ status: AppSubagentStatus) -> some View {
+        switch status {
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .litterFont(size: 8)
+                .foregroundColor(LitterTheme.success)
+                .frame(width: 8, height: 8)
+        case .errored:
+            Image(systemName: "exclamationmark.circle.fill")
+                .litterFont(size: 8)
+                .foregroundColor(LitterTheme.danger)
+                .frame(width: 8, height: 8)
+        case .shutdown:
+            Image(systemName: "stop.circle.fill")
+                .litterFont(size: 8)
+                .foregroundColor(LitterTheme.textMuted)
+                .frame(width: 8, height: 8)
+        case .interrupted:
+            Image(systemName: "pause.circle.fill")
+                .litterFont(size: 8)
+                .foregroundColor(LitterTheme.warning)
+                .frame(width: 8, height: 8)
+        case .pendingInit, .running, .unknown:
+            Circle()
+                .fill(LitterTheme.textMuted.opacity(0.4))
+                .frame(width: 8, height: 8)
+        }
     }
 }
 
