@@ -63,6 +63,9 @@ final class AppLifecycleController {
         // path migration without paying the full reconnect handshake.
         await appModel.reconnectController.notifyNetworkChange()
         let results = await appModel.reconnectController.reconnectSavedServers()
+        for result in results {
+            appModel.recordSshHostKeyChange(serverId: result.serverId, errorMessage: result.errorMessage)
+        }
         await appModel.refreshSnapshot()
         for result in results where result.needsLocalAuthRestore {
             await appModel.restoreStoredLocalAuthState(serverId: result.serverId)
@@ -81,19 +84,30 @@ final class AppLifecycleController {
         notificationActivatedAt = Date()
     }
 
-    func reconnectServer(serverId: String, appModel: AppModel) async {
+    func reconnectServer(serverId: String, appModel: AppModel) async -> String? {
         let servers = SavedServerStore.reconnectRecords(
             localDisplayName: appModel.resolvedLocalServerDisplayName()
         )
         appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
         let result = await appModel.reconnectController.reconnectServer(serverId: serverId)
+        appModel.recordSshHostKeyChange(serverId: serverId, errorMessage: result.errorMessage)
         await appModel.refreshSnapshot()
         if result.needsLocalAuthRestore {
             await appModel.restoreStoredLocalAuthState(serverId: serverId)
         }
         await appModel.restoreMissingLocalAuthStateIfNeeded()
         await appModel.refreshSnapshot()
+        return result.errorMessage
+    }
+
+    func replaceSshHostKey(serverId: String, fingerprint: String, appModel: AppModel) async {
+        guard await appModel.reconnectController.replaceSshHostKey(
+            serverId: serverId,
+            fingerprint: fingerprint
+        ) else { return }
+        appModel.clearSshHostKeyChange()
+        _ = await reconnectServer(serverId: serverId, appModel: appModel)
     }
 
     func appDidEnterBackground(

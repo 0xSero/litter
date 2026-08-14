@@ -49,6 +49,19 @@ struct TerminalScreen: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom, .horizontal])
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .toolbar(.hidden, for: .navigationBar)
+        .alert("SSH Host Identity Changed", isPresented: Binding(
+            get: { controller.sshTrustChallenge?.isChanged == true },
+            set: { if !$0 { controller.dismissSshTrustChallenge() } }
+        )) {
+            Button("Replace Stored Identity", role: .destructive) {
+                Task { await controller.trustUnknownSshHostAndRetry() }
+            }
+            Button("Cancel", role: .cancel) {
+                controller.dismissSshTrustChallenge()
+            }
+        } message: {
+            Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: \(controller.sshTrustChallenge?.fingerprint ?? "unknown")")
+        }
         .task {
             attachOutputSink()
             guard !didStart else { return }

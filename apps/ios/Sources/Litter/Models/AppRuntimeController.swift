@@ -78,9 +78,14 @@ final class AppRuntimeController {
         await lifecycle.reconnectSavedServers(appModel: appModel)
     }
 
-    func reconnectServer(serverId: String) async {
+    func reconnectServer(serverId: String) async -> String? {
+        guard let appModel else { return nil }
+        return await lifecycle.reconnectServer(serverId: serverId, appModel: appModel)
+    }
+
+    func replaceSshHostKey(serverId: String, fingerprint: String) async {
         guard let appModel else { return }
-        await lifecycle.reconnectServer(serverId: serverId, appModel: appModel)
+        await lifecycle.replaceSshHostKey(serverId: serverId, fingerprint: fingerprint, appModel: appModel)
     }
 
     func restoreMissingLocalAuthStateIfNeeded() async {

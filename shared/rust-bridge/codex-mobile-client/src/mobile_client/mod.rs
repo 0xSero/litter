@@ -2201,14 +2201,56 @@ impl MobileClient {
         // so resume can rebuild the full SSH transport.
         self.replace_existing_session(server_id.as_str()).await;
 
+        let normalized_host = crate::terminal::normalize_host(&ssh_credentials.host);
+        let trust_store = self
+            .ssh_trust_store
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        let pinned_fingerprint = trust_store
+            .as_ref()
+            .and_then(|store| store.pinned(normalized_host.clone(), ssh_credentials.port));
+        let policy_pin = pinned_fingerprint.clone();
+        let observed_fingerprint = Arc::new(tokio::sync::Mutex::new(None::<String>));
+        let callback_observed = Arc::clone(&observed_fingerprint);
         let ssh_client = Arc::new(
             SshClient::connect(
                 ssh_credentials.clone(),
-                Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host })),
+                Box::new(move |fingerprint| {
+                    let expected = policy_pin.clone();
+                    let observed = Arc::clone(&callback_observed);
+                    let fingerprint = fingerprint.to_string();
+                    Box::pin(async move {
+                        *observed.lock().await = Some(fingerprint.clone());
+                        match expected {
+                            Some(expected) => expected == fingerprint,
+                            None => accept_unknown_host,
+                        }
+                    })
+                }),
             )
             .await
-            .map_err(map_ssh_transport_error)?,
+            .map_err(|error| match error {
+                crate::ssh::SshError::HostKeyVerification { fingerprint } => {
+                    let marker = if pinned_fingerprint.is_some() {
+                        "host-key-changed"
+                    } else {
+                        "unknown-host"
+                    };
+                    TransportError::ConnectionFailed(format!(
+                        "{marker}:{fingerprint}"
+                    ))
+                }
+                other => map_ssh_transport_error(other),
+            })?,
         );
+        if let (Some(store), None, true) = (
+            trust_store.as_ref(),
+            pinned_fingerprint.as_ref(),
+            accept_unknown_host,
+        ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+            store.pin(normalized_host.clone(), ssh_credentials.port, fingerprint);
+        }
         info!(
             "MobileClient: SSH transport established server_id={} host={} ssh_port={}",
             config.server_id,

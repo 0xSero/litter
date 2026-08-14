@@ -86,6 +86,11 @@ final class AppModel {
         let text: String
     }
 
+    struct SshHostKeyChangeChallenge: Equatable {
+        let serverId: String
+        let fingerprint: String
+    }
+
     let store: AppStore
     let client: AppClient
     let serverBridge: ServerBridge
@@ -101,6 +106,7 @@ final class AppModel {
     private(set) var snapshotRevision: UInt64 = 0
     private(set) var lastError: String?
     private(set) var composerPrefillRequest: ComposerPrefillRequest?
+    private(set) var sshHostKeyChangeChallenge: SshHostKeyChangeChallenge?
 
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
@@ -128,6 +134,21 @@ final class AppModel {
         pendingHandoffTurnErrors.removeValue(forKey: key)
     }
 
+    func recordSshHostKeyChange(serverId: String, errorMessage: String?) {
+        guard let errorMessage,
+              let marker = errorMessage.range(of: "host-key-changed:") else { return }
+        let fingerprint = errorMessage[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fingerprint.isEmpty else { return }
+        sshHostKeyChangeChallenge = SshHostKeyChangeChallenge(
+            serverId: serverId,
+            fingerprint: fingerprint
+        )
+    }
+
+    func clearSshHostKeyChange() {
+        sshHostKeyChangeChallenge = nil
+    }
+
     init(
         store: AppStore? = nil,
         client: AppClient? = nil,
@@ -141,6 +162,10 @@ final class AppModel {
         self.serverBridge = serverBridge ?? bridges.serverBridge
         self.ssh = ssh ?? bridges.ssh
         self.reconnectController = reconnectController ?? bridges.reconnectController
+
+        let sshTrustStore = TerminalSshTrustStore(backend: SwiftSshTrustBackend.shared)
+        self.serverBridge.setSshTrustStore(store: sshTrustStore)
+        self.reconnectController.setSshTrustStore(store: sshTrustStore)
 
         // Register the saved-apps directory with the Rust client so the
         // dynamic-tool finalize hook can auto-upsert on `show_widget` calls.

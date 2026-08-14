@@ -17,6 +17,7 @@ final class TerminalSessionController {
         let port: UInt16
         let fingerprint: String
         let backend: TerminalBackendKind
+        let isChanged: Bool
     }
 
     private(set) var phase: Phase = .idle
@@ -108,6 +109,11 @@ final class TerminalSessionController {
         await open(backend: challenge.backend)
     }
 
+    func dismissSshTrustChallenge() {
+        sshTrustChallenge = nil
+        phase = .idle
+    }
+
     func switchBackend(_ backend: TerminalBackendKind) async {
         close()
         output = ""
@@ -156,19 +162,22 @@ final class TerminalSessionController {
         ) = backend else {
             return nil
         }
-        guard let fingerprint = unknownHostFingerprint(from: error.localizedDescription) else {
+        let description = error.localizedDescription
+        let isChanged = description.contains("host-key-changed:")
+        guard let fingerprint = sshHostFingerprint(from: description) else {
             return nil
         }
         return SshHostTrustChallenge(
             host: host,
             port: port,
             fingerprint: fingerprint,
-            backend: backend
+            backend: backend,
+            isChanged: isChanged
         )
     }
 
-    private static func unknownHostFingerprint(from description: String) -> String? {
-        guard let range = description.range(of: "unknown-host:") else { return nil }
+    private static func sshHostFingerprint(from description: String) -> String? {
+        guard let range = description.range(of: "unknown-host:") ?? description.range(of: "host-key-changed:") else { return nil }
         let raw = description[range.upperBound...]
         let fingerprint = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
