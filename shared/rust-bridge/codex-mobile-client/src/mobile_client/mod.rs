@@ -115,6 +115,9 @@ pub struct MobileClient {
     /// session exits or the caller explicitly closes it.
     pub(crate) terminal_sessions:
         Arc<StdMutex<HashMap<String, Arc<crate::terminal::TerminalSession>>>>,
+    /// Platform-owned SSH host-key pins shared by server and terminal flows.
+    pub(crate) ssh_trust_store:
+        Arc<StdMutex<Option<Arc<crate::terminal::TerminalSshTrustStore>>>>,
 }
 
 /// State for a single in-flight guided SSH connect.
@@ -775,6 +778,14 @@ impl MobileClient {
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             alleycat_restart_targets: Arc::new(StdMutex::new(HashMap::new())),
             terminal_sessions: Arc::new(StdMutex::new(HashMap::new())),
+            ssh_trust_store: Arc::new(StdMutex::new(None)),
+        }
+    }
+
+    pub fn set_ssh_trust_store(&self, store: Arc<crate::terminal::TerminalSshTrustStore>) {
+        match self.ssh_trust_store.lock() {
+            Ok(mut guard) => *guard = Some(store),
+            Err(error) => *error.into_inner() = Some(store),
         }
     }
 
