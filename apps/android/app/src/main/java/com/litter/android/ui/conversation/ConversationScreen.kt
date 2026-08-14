@@ -126,7 +126,9 @@ fun ConversationScreen(
         }
     }
 
-    val thread = remember(snapshot, threadKey) {
+    val threadRevision by remember(threadKey) { appModel.threadRevision(threadKey) }.collectAsState()
+    val conversationGlobalRevision by appModel.conversationGlobalRevision.collectAsState()
+    val thread = remember(threadRevision, conversationGlobalRevision, threadKey) {
         appModel.threadSnapshot(threadKey)
     }
     val server = remember(snapshot, threadKey) {

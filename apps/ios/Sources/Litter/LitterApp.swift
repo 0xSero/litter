@@ -1955,7 +1955,10 @@ private struct ConversationDestinationScreen: View {
                 .onChange(of: conversationThread) { _, updatedThread in
                     bindScreenModel(for: updatedThread)
                 }
-                .onChange(of: appModel.snapshotRevision) { _, _ in
+                .onChange(of: appModel.threadRebindSignal(for: resolvedThreadKey).revision) { _, _ in
+                    bindScreenModel(for: conversationThread)
+                }
+                .onChange(of: appModel.conversationGlobalRevision) { _, _ in
                     bindScreenModel(for: conversationThread)
                 }
                 .onChange(of: pendingUserInputsForThread) { _, _ in

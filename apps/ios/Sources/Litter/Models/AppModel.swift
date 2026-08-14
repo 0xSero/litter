@@ -21,6 +21,13 @@ enum LocalAccountLoginFlowError: LocalizedError {
 
 @MainActor
 @Observable
+final class ThreadRebindSignal {
+    private(set) var revision: UInt64 = 0
+    func bump() { revision &+= 1 }
+}
+
+@MainActor
+@Observable
 final class AppModel {
     private struct PendingThreadStateEvent: Sendable {
         let state: AppThreadStateRecord
@@ -99,6 +106,14 @@ final class AppModel {
         }
     }
     private(set) var snapshotRevision: UInt64 = 0
+    private(set) var conversationGlobalRevision: UInt64 = 0
+    @ObservationIgnored private var threadRebindSignals: [ThreadKey: ThreadRebindSignal] = [:]
+    func threadRebindSignal(for key: ThreadKey) -> ThreadRebindSignal {
+        if let existing = threadRebindSignals[key] { return existing }
+        let signal = ThreadRebindSignal()
+        threadRebindSignals[key] = signal
+        return signal
+    }
     private(set) var lastError: String?
     private(set) var composerPrefillRequest: ComposerPrefillRequest?
 
@@ -800,7 +815,9 @@ final class AppModel {
     func applySnapshot(_ snapshot: AppSnapshotRecord?) {
         let normalizedSnapshot = snapshot.map(normalizingLocalServerDisplayNames)
         let mergedSnapshot = normalizedSnapshot.map(mergingCachedThreadSnapshots)
+        let revisionBefore = snapshotRevision
         self.snapshot = mergedSnapshot
+        if snapshotRevision != revisionBefore { conversationGlobalRevision &+= 1 }
         if let mergedSnapshot {
             persistWakeMACs(from: mergedSnapshot.servers)
             mergedSnapshot.threads.forEach(cacheThreadSnapshot)
@@ -881,6 +898,7 @@ final class AppModel {
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
         case .activeThreadChanged(let key):
             updateActiveThread(key)
+            conversationGlobalRevision &+= 1
             if let key, threadSnapshot(for: key) == nil {
                 await refreshThreadSnapshot(key: key)
             }
@@ -921,6 +939,10 @@ final class AppModel {
             await refreshSnapshot()
         }
     }
+
+    #if DEBUG
+    func _testHandleStoreUpdate(_ update: AppStoreUpdateRecord) async { await handleStoreUpdate(update) }
+    #endif
 
     /// Mutate an in-flight widget bubble's `HydratedWidgetData` so the
     /// timeline `WidgetWebView` picks up the growing HTML via its existing
@@ -1657,6 +1679,7 @@ final class AppModel {
             snapshot.agentDirectoryVersion = agentDirectoryVersion
         }
         self.snapshot = snapshot
+        threadRebindSignal(for: key).bump()
         if clearCache {
             cachedThreadSnapshots.removeValue(forKey: key)
         }
@@ -2073,7 +2096,9 @@ final class AppModel {
     }
 
     private func cacheThreadSnapshot(_ thread: AppThreadSnapshot) {
+        let changed = cachedThreadSnapshots[thread.key] != thread
         cachedThreadSnapshots[thread.key] = thread
+        if changed { threadRebindSignal(for: thread.key).bump() }
     }
 
     private func mergedThreadSnapshotPreservingHydratedItems(_ thread: AppThreadSnapshot) -> AppThreadSnapshot {

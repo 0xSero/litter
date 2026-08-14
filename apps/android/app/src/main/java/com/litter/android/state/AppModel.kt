@@ -175,6 +175,10 @@ class AppModel private constructor(context: android.content.Context) {
     private val _snapshot = MutableStateFlow<AppSnapshotRecord?>(null)
     val snapshot: StateFlow<AppSnapshotRecord?> = _snapshot.asStateFlow()
 
+    private val rebindLedger = ThreadRevisionLedger()
+    fun threadRevision(key: ThreadKey): StateFlow<Long> = rebindLedger.threadRevision(key)
+    val conversationGlobalRevision: StateFlow<Long> get() = rebindLedger.conversationGlobalRevision
+
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val loadingModelServerIds = mutableSetOf<String>()
@@ -348,7 +352,9 @@ class AppModel private constructor(context: android.content.Context) {
         val merged = snapshot
             ?.let(::applySavedServerNames)
             ?.let(::mergeCachedThreadSnapshots)
+        val before = _snapshot.value
         _snapshot.value = merged
+        if (before != merged) rebindLedger.bumpGlobal()
         if (merged != null) {
             persistWakeMacs(merged)
             merged.threads.forEach(::cacheThreadSnapshot)
@@ -1057,6 +1063,7 @@ class AppModel private constructor(context: android.content.Context) {
                 removeThreadSnapshot(update.key, update.agentDirectoryVersion)
             is AppStoreUpdateRecord.ActiveThreadChanged -> {
                 updateActiveThread(update.key)
+                rebindLedger.bumpGlobal()
                 if (update.key != null && threadSnapshot(update.key) == null) {
                     refreshThreadSnapshot(update.key)
                 }
@@ -1552,6 +1559,7 @@ class AppModel private constructor(context: android.content.Context) {
             agentDirectoryVersion = agentDirectoryVersion ?: current.agentDirectoryVersion,
             activeThread = if (current.activeThread == key) null else current.activeThread,
         )
+        rebindLedger.bumpThread(key)
         if (clearCache) {
             cachedThreadSnapshots.remove(key)
         }
@@ -1573,7 +1581,9 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun cacheThreadSnapshot(thread: AppThreadSnapshot) {
+        val changed = cachedThreadSnapshots[thread.key] != thread
         cachedThreadSnapshots[thread.key] = thread
+        if (changed) rebindLedger.bumpThread(thread.key)
     }
 
     private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {

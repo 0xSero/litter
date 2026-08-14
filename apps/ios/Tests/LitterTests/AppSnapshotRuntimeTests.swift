@@ -334,6 +334,91 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         XCTAssertEqual(key, ThreadKey(serverId: "srv", threadId: "thread-1"))
     }
 
+    @MainActor
+    func testR1SameThreadRebindOnStreamingDelta() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a")
+        let item = makeAssistantItem(id: "item-1", text: "hello")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshotWithItem(key: keyA, item: item)]))
+        let baseline = appModel.threadRebindSignal(for: keyA).revision
+        await appModel._testHandleStoreUpdate(.threadStreamingDelta(key: keyA, itemId: "item-1", kind: .assistantText, text: " world"))
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baseline + 1)
+    }
+    @MainActor
+    func testR2ForeignThreadIsolationOnStreamingDelta() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a"), keyB = ThreadKey(serverId: "srv", threadId: "b")
+        let item = makeAssistantItem(id: "item-1", text: "hello")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshotWithItem(key: keyA, item: item), makeThreadSnapshotWithItem(key: keyB, item: item)]))
+        let baselineA = appModel.threadRebindSignal(for: keyA).revision, baselineGlobal = appModel.conversationGlobalRevision, baselineRevision = appModel.snapshotRevision
+        await appModel._testHandleStoreUpdate(.threadStreamingDelta(key: keyB, itemId: "item-1", kind: .assistantText, text: " world"))
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baselineA)
+        XCTAssertEqual(appModel.conversationGlobalRevision, baselineGlobal)
+        XCTAssertGreaterThan(appModel.snapshotRevision, baselineRevision)
+    }
+    @MainActor
+    func testR3UnkeyedGlobalBumpOnPendingApprovals() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a"), keyB = ThreadKey(serverId: "srv", threadId: "b")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: keyA), makeThreadSnapshot(key: keyB)]))
+        let baselineGlobal = appModel.conversationGlobalRevision, baselineA = appModel.threadRebindSignal(for: keyA).revision, baselineB = appModel.threadRebindSignal(for: keyB).revision
+        var snap = appModel.snapshot!
+        snap.pendingApprovals = [PendingApproval(id: "appr-1", serverId: "srv", kind: .command, threadId: nil, turnId: nil, itemId: nil, command: "ls", path: nil, grantRoot: nil, cwd: nil, reason: "test")]
+        appModel.applySnapshot(snap)
+        XCTAssertEqual(appModel.conversationGlobalRevision, baselineGlobal + 1)
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baselineA)
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyB).revision, baselineB)
+    }
+    @MainActor
+    func testR4SummaryOnlyWriteBumpsNothing() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a")
+        let item = makeAssistantItem(id: "item-1", text: "hello")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshotWithItem(key: keyA, item: item)]))
+        let baselineSignal = appModel.threadRebindSignal(for: keyA).revision, baselineGlobal = appModel.conversationGlobalRevision, baselineRevision = appModel.snapshotRevision
+        var summary = appModel.snapshot!.sessionSummaries.first { $0.key == keyA }!
+        summary.title = "Updated"
+        await appModel._testHandleStoreUpdate(.threadItemChanged(key: keyA, item: item, sessionSummary: summary))
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baselineSignal)
+        XCTAssertEqual(appModel.conversationGlobalRevision, baselineGlobal)
+        XCTAssertGreaterThan(appModel.snapshotRevision, baselineRevision)
+    }
+    @MainActor
+    func testR5RemovalRetainsSignalEntryAndMonotonicCount() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a"), keyB = ThreadKey(serverId: "srv", threadId: "b")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: keyA), makeThreadSnapshot(key: keyB)]))
+        let signalB = appModel.threadRebindSignal(for: keyB)
+        let baselineA = appModel.threadRebindSignal(for: keyA).revision
+        await appModel._testHandleStoreUpdate(.threadRemoved(key: keyB, agentDirectoryVersion: 1))
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baselineA)
+        XCTAssertTrue(appModel.threadRebindSignal(for: keyB) === signalB)
+        let afterRemoval = appModel.threadRebindSignal(for: keyB).revision
+        let reborn = makeThreadSnapshot(key: keyB)
+        var summary = appModel.snapshot!.sessionSummaries.first { $0.key == keyB } ?? makeSnapshot(threads: [reborn]).sessionSummaries[0]
+        summary.title = "Reborn"
+        await appModel._testHandleStoreUpdate(.threadUpserted(thread: reborn, sessionSummary: summary, agentDirectoryVersion: 1))
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyB).revision, afterRemoval + 1)
+        XCTAssertTrue(appModel.threadRebindSignal(for: keyB) === signalB)
+    }
+    @MainActor
+    func testR6ActiveThreadNilBumpsGlobalNotScoped() async {
+        let appModel = AppModel()
+        let keyA = ThreadKey(serverId: "srv", threadId: "a")
+        appModel.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: keyA)]))
+        let baselineGlobal = appModel.conversationGlobalRevision, baselineA = appModel.threadRebindSignal(for: keyA).revision
+        await appModel._testHandleStoreUpdate(.activeThreadChanged(key: nil))
+        XCTAssertEqual(appModel.conversationGlobalRevision, baselineGlobal + 1)
+        XCTAssertEqual(appModel.threadRebindSignal(for: keyA).revision, baselineA)
+    }
+    private func makeAssistantItem(id: String, text: String) -> HydratedConversationItem {
+        HydratedConversationItem(id: id, content: .assistant(HydratedAssistantMessageData(text: text, agentNickname: nil, agentRole: nil, phase: nil)), sourceTurnId: nil, sourceTurnIndex: nil, timestamp: nil, isFromUserTurnBoundary: false)
+    }
+    private func makeThreadSnapshotWithItem(key: ThreadKey, item: HydratedConversationItem) -> AppThreadSnapshot {
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [item]
+        return thread
+    }
     private func makeSnapshot(threads: [AppThreadSnapshot]) -> AppSnapshotRecord {
         let server = AppServerSnapshot(
             serverId: "srv",
