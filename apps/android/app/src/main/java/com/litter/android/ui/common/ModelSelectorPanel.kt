@@ -515,7 +515,7 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
     if (supportedReasoningEfforts.isEmpty()) null else effortLabel(defaultReasoningEffort)
 
-private val AmpVisibleModes = setOf("smart", "rush", "deep")
+private val AmpVisibleModes = setOf("low", "medium", "high", "ultra")
 
 private fun normalizedAmpModeName(value: String): String =
     value.trim()
