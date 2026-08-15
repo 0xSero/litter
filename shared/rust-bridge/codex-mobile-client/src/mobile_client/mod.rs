@@ -2549,6 +2549,126 @@ impl MobileClient {
         );
     }
 
+    /// Fetch the thread list for a server, fanning out to each available
+    /// runtime (including opencode) and reconciling every page into the
+    /// store. Also runs on connect (via the post-connect warmup) so a freshly
+    /// connected server populates its sessions without the user needing to
+    /// open a sessions view first.
+    pub async fn refresh_thread_list(
+        self: &Arc<Self>,
+        server_id: &str,
+        requested_runtime_kinds: Option<Vec<AgentRuntimeKind>>,
+        params: upstream::ThreadListParams,
+    ) -> Result<(), String> {
+        let drain_all_pages = params.cursor.is_none()
+            && params.limit.is_none()
+            && params
+                .search_term
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+            && !params.use_state_db_only;
+        let session = self.get_session(server_id).map_err(|error| error.to_string())?;
+        let available_runtime_kinds = session.runtime_kinds();
+        let runtime_kinds =
+            crate::types::list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
+        if runtime_kinds.is_empty() {
+            return Err(
+                "none of the requested agent runtimes are available on this controller".to_string(),
+            );
+        }
+        info!(
+            "refresh_thread_list: fanout start server_id={} runtime_kinds={:?}",
+            server_id, runtime_kinds
+        );
+
+        // Fan out per-runtime concurrently so a slow runtime (e.g. a codex
+        // inbox with many threads) doesn't starve the others' first page.
+        let mut codex_visited = false;
+        let mut tasks = Vec::new();
+        for runtime_kind in runtime_kinds {
+            if runtime_kind == "codex" {
+                if codex_visited {
+                    continue;
+                }
+                codex_visited = true;
+            }
+            let client = Arc::clone(self);
+            let server_id = server_id.to_string();
+            let initial_params = params.clone();
+            tasks.push(async move {
+                let mut request_params = initial_params;
+                let mut ids = Vec::new();
+                let mut completed = true;
+                loop {
+                    let response: upstream::ThreadListResponse = match client
+                        .request_typed_for_server_runtime(
+                            &server_id,
+                            runtime_kind.clone(),
+                            upstream::ClientRequest::ThreadList {
+                                request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                                params: request_params.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(response) => response,
+                        Err(error) => {
+                            warn!(
+                                "refresh_thread_list: thread/list failed for runtime {:?} on server {}: {}",
+                                runtime_kind, server_id, error
+                            );
+                            completed = false;
+                            break;
+                        }
+                    };
+                    let page = client.upsert_thread_list_page_for_runtime(
+                        &server_id,
+                        runtime_kind.clone(),
+                        &response.data,
+                    );
+                    ids.extend(page.into_iter().map(|thread| thread.id));
+                    let Some(next_cursor) = response.next_cursor else {
+                        break;
+                    };
+                    if !drain_all_pages {
+                        break;
+                    }
+                    request_params.cursor = Some(next_cursor);
+                }
+                (runtime_kind, ids, completed)
+            });
+        }
+
+        let results = futures::future::join_all(tasks).await;
+        if results.iter().all(|(_, _, completed)| !completed) {
+            return Err("thread list failed for every runtime".to_string());
+        }
+        // Only prune when every runtime finished cleanly; a partial result
+        // means we don't know the true thread set and would wipe unseen
+        // threads from healthy runtimes.
+        let all_completed = results.iter().all(|(_, _, ok)| *ok);
+        if all_completed && drain_all_pages {
+            let mut all_thread_ids = Vec::new();
+            for (_, ids, _) in results {
+                all_thread_ids.extend(ids);
+            }
+            self.finalize_thread_list_sync(server_id, all_thread_ids);
+            // A full drain has reconciled the entire thread set, so paged
+            // session-list loading is complete for this server: clear the
+            // retained page cursors so `session_list_has_more` reads false
+            // and the home list stops offering "load more".
+            self.app_store.clear_thread_page_state(server_id);
+        } else if !all_completed {
+            warn!(
+                "refresh_thread_list: skipping finalize prune — partial fan-out result on server {}",
+                server_id
+            );
+        }
+        Ok(())
+    }
+
     pub async fn start_remote_ssh_oauth_login(&self, server_id: &str) -> Result<String, RpcError> {
         let session = self.get_session(server_id)?;
         if session.config().is_local {
@@ -4085,23 +4205,49 @@ pub(super) fn run_connect_warmup(
 ) {
     MobileClient::spawn_detached(async move {
         let runtime_kinds = session.runtime_kinds();
-        if !runtime_kinds_support_account_sync(&runtime_kinds) {
+        if runtime_kinds_support_account_sync(&runtime_kinds) {
+            match refresh_account_from_app_server(
+                session,
+                Arc::clone(&app_store),
+                Arc::clone(&sessions),
+                server_id.as_str(),
+            )
+            .await
+            {
+                Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
+                Err(error) => {
+                    warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+                }
+            }
+        } else {
             trace!(
                 "MobileClient: {label} account sync skipped server_id={server_id} runtime_kinds={runtime_kinds:?}"
             );
-            return;
         }
-        match refresh_account_from_app_server(
-            session,
-            Arc::clone(&app_store),
-            Arc::clone(&sessions),
-            server_id.as_str(),
-        )
-        .await
-        {
-            Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
-            Err(error) => {
-                warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+
+        // Populate the session list right after connect so the user sees the
+        // server's threads (including opencode sessions) without opening a
+        // sessions view first.
+        if let Some(client) = crate::ffi::shared::shared_mobile_client_if_initialized() {
+            let params = upstream::ThreadListParams {
+                cursor: None,
+                limit: None,
+                sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
+                sort_direction: Some(upstream::SortDirection::Desc),
+                model_providers: None,
+                source_kinds: None,
+                archived: Some(false),
+                cwd: None,
+                use_state_db_only: false,
+                search_term: None,
+            };
+            match client.refresh_thread_list(&server_id, None, params).await {
+                Ok(()) => {
+                    trace!("MobileClient: {label} thread list refreshed server_id={server_id}")
+                }
+                Err(error) => warn!(
+                    "MobileClient: {label} thread list refresh failed server_id={server_id}: {error}"
+                ),
             }
         }
     });
