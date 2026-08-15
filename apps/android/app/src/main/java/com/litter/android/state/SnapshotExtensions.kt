@@ -90,10 +90,23 @@ val AppServerSnapshot.connectionProgressLabel: String?
         null -> null
     }
 
+/**
+ * True when the server reports it needs the app's OpenAI account to be useful
+ * and no account is configured. Servers with an available opencode runtime are
+ * exempt: opencode holds its own credentials on the server (its configured
+ * provider), so the app's OpenAI sign-in isn't required to use it.
+ */
+val AppServerSnapshot.needsAppOpenaiSignIn: Boolean
+    get() = if (transportState != AppServerTransportState.CONNECTED || !requiresOpenaiAuth || account != null) {
+        false
+    } else {
+        !agentRuntimes.any { it.kind == "opencode" && it.available }
+    }
+
 val AppServerSnapshot.statusLabel: String
     get() = when {
         connectionProgressLabel != null -> connectionProgressLabel!!
-        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
+        needsAppOpenaiSignIn ->
             "Sign in required"
         else -> transportState.displayLabel
     }
@@ -103,7 +116,7 @@ val AppServerSnapshot.statusColor: Color
         currentConnectionStep?.state == AppConnectionStepState.FAILED -> Color(0xFFFF6B6B)
         currentConnectionStep?.state == AppConnectionStepState.AWAITING_USER_INPUT -> WarningOrange
         connectionProgressLabel != null -> AccentGreen
-        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
+        needsAppOpenaiSignIn ->
             WarningOrange
         else -> transportState.accentColor
     }
@@ -120,7 +133,7 @@ val AppServerSnapshot.statusDotState: com.litter.android.ui.common.StatusDotStat
             com.litter.android.ui.common.StatusDotState.PENDING
         connectionProgressLabel != null ->
             com.litter.android.ui.common.StatusDotState.PENDING
-        transportState == AppServerTransportState.CONNECTED && requiresOpenaiAuth && account == null ->
+        needsAppOpenaiSignIn ->
             com.litter.android.ui.common.StatusDotState.PENDING
         transportState == AppServerTransportState.CONNECTED ->
             com.litter.android.ui.common.StatusDotState.OK

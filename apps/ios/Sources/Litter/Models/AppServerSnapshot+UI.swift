@@ -50,11 +50,22 @@ extension AppServerSnapshot {
         currentConnectionStep?.detail ?? connectionProgress?.terminalMessage
     }
 
+    /// True when the server reports it needs the app's OpenAI account to be
+    /// useful and no account is configured. Servers with an available opencode
+    /// runtime are exempt: opencode holds its own credentials on the server
+    /// (its configured provider), so the app's OpenAI sign-in isn't required
+    /// to use it.
+    var needsAppOpenaiSignIn: Bool {
+        guard transportState == .connected, requiresOpenaiAuth, account == nil else { return false }
+        let opencodeAvailable = agentRuntimes.contains { $0.kind == "opencode" && $0.available }
+        return !opencodeAvailable
+    }
+
     var statusLabel: String {
         if let connectionProgressLabel {
             return connectionProgressLabel
         }
-        if transportState == .connected, requiresOpenaiAuth, account == nil {
+        if needsAppOpenaiSignIn {
             return "Sign in required"
         }
         return transportState.displayLabel
@@ -70,7 +81,7 @@ extension AppServerSnapshot {
         if connectionProgressLabel != nil {
             return LitterTheme.accent
         }
-        if transportState == .connected, requiresOpenaiAuth, account == nil {
+        if needsAppOpenaiSignIn {
             return .orange
         }
         return transportState.accentColor
@@ -88,7 +99,7 @@ extension AppServerSnapshot {
         if connectionProgressLabel != nil {
             return .pending
         }
-        if transportState == .connected, requiresOpenaiAuth, account == nil {
+        if needsAppOpenaiSignIn {
             return .pending
         }
         switch transportState {
