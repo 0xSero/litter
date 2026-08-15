@@ -23,11 +23,13 @@ codex-config = { path = "../third_party/codex/codex-rs/config" }
 codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolute-path" }
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # Pinned to the same immutable commit as the kittylitter daemon so the phone
-# and host share one immutable Alleycat release revision.
-alleycat-bridge-core = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
-alleycat-pi-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
-alleycat-claude-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
-alleycat-opencode-bridge = { git = "https://github.com/dnakov/alleycat.git", rev = "417f2a9fe38cbed63754f0af7df61f32ec3034e6" }
+# and host share one immutable Alleycat release revision. All crates come from
+# the same source so the `Bridge` trait identity is consistent; forked until
+# the project-aware opencode session enumeration lands upstream (dnakov/alleycat).
+alleycat-bridge-core = { git = "https://github.com/DatScreamer/alleycat.git", rev = "eead5e5a4664ed8713183afad10ba8c1389b15fc" }
+alleycat-pi-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "eead5e5a4664ed8713183afad10ba8c1389b15fc" }
+alleycat-claude-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "eead5e5a4664ed8713183afad10ba8c1389b15fc" }
+alleycat-opencode-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "eead5e5a4664ed8713183afad10ba8c1389b15fc" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
