@@ -128,7 +128,7 @@ struct ConversationView: View {
             onForkFromUserItem: forkFromMessage,
             onOpenConversation: onOpenConversation,
             onLoadOlderTurns: { key in
-                Task { await appModel.loadOlderTurns(threadId: key) }
+                await appModel.loadOlderTurns(threadId: key)
             }
         )
         .overlay(alignment: .bottomLeading) {
@@ -604,7 +604,7 @@ private struct ConversationMessageList: View {
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
-    let onLoadOlderTurns: (ThreadKey) -> Void
+    let onLoadOlderTurns: (ThreadKey) async -> Bool
     @State private var isNearBottom = true
     @State private var autoFollowStreaming = true
     @State private var userIsDraggingScroll = false
@@ -623,6 +623,12 @@ private struct ConversationMessageList: View {
     @State private var initialBottomScrollThreadScopeID: String?
     @State private var programmaticBottomScrollSettling = false
     @State private var programmaticBottomScrollGeneration = 0
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var nativeScrollView: UIScrollView?
+    @State private var visibleTurnIDs: [String] = []
+    @State private var requestedOlderTurnsCursor: String?
+    @State private var requestedOlderTurnsThreadKey: ThreadKey?
+    @State private var showOlderPageLoader = false
     @AppStorage("collapseTurns") private var collapseTurns = false
     private static let latestButtonShowDistance: CGFloat = 48
     private static let nearBottomRestoreDistance: CGFloat = 12
@@ -630,8 +636,18 @@ private struct ConversationMessageList: View {
     private static let bottomAnchorID = "conversation-message-list-bottom"
     private static let scrollCoordinateSpaceName = "conversation-message-list-scroll"
 
+    private var shouldCollapseTurns: Bool {
+        ConversationTurnCollapsePolicy.shouldCollapse(
+            preferenceEnabled: collapseTurns,
+            itemCount: items.count
+        )
+    }
+
     private var expandedRecentTurnCount: Int {
-        return collapseTurns ? 1 : .max
+        ConversationTurnCollapsePolicy.expandedRecentTurnCount(
+            preferenceEnabled: collapseTurns,
+            itemCount: items.count
+        )
     }
 
     private var sourceTurns: [TranscriptTurn] {
@@ -698,22 +714,6 @@ private struct ConversationMessageList: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            if !initialTurnsLoaded && hasOlderTurns && !turns.isEmpty {
-                                ConversationLoadingIndicator(label: "Loading earlier messages...")
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                            } else if hasOlderTurns {
-                                Button {
-                                    onLoadOlderTurns(activeThreadKey)
-                                } label: {
-                                    Text("Load earlier messages")
-                                        .litterFont(.caption, weight: .semibold)
-                                        .foregroundColor(LitterTheme.accent)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
-                                }
-                                .buttonStyle(.plain)
-                            }
                             ForEach(turns) { turn in
                                 let isLastTurn = turn.id == lastTurnID
                                 ConversationTurnRow(
@@ -748,7 +748,12 @@ private struct ConversationMessageList: View {
                                 .equatable()
                                 .turnDebugOverlay(turnId: turn.id)
                             }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.bottomAnchorID)
                         }
+                        .scrollTargetLayout()
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 16)
@@ -765,16 +770,24 @@ private struct ConversationMessageList: View {
                                 .padding(.top, 40)
                         }
 
-                        Color.clear
-                            .frame(height: 1)
-                            .id(Self.bottomAnchorID)
-                            .padding(.horizontal, 16)
                     }
                     .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
+                    .background(
+                        ConversationScrollViewResolver(scrollView: $nativeScrollView)
+                            .allowsHitTesting(false)
+                    )
                 }
                 .id(activeThreadScopeID)
                 .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
+                // Keep one semantic scroll position for both user tracking and
+                // programmatic edge jumps. Unlike ScrollViewProxy, an edge
+                // command can replace active deceleration immediately.
+                .scrollPosition($scrollPosition, anchor: .bottom)
+                .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { turnIDs in
+                    visibleTurnIDs = turnIDs
+                    prefetchOlderTurnsIfNeeded(visibleTurnIDs: turnIDs, turns: turns)
+                }
                 .coordinateSpace(name: Self.scrollCoordinateSpaceName)
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
@@ -813,6 +826,11 @@ private struct ConversationMessageList: View {
                     distanceFromBottom = 0
                     initialBottomScrollThreadScopeID = nil
                     waitingForDataExpired = false
+                    scrollPosition = ScrollPosition(idType: String.self)
+                    visibleTurnIDs = []
+                    requestedOlderTurnsCursor = nil
+                    requestedOlderTurnsThreadKey = nil
+                    showOlderPageLoader = false
                     syncTranscriptTurns(resetExpansion: true)
                     StreamingRendererCoordinator.shared.reset()
                     requestInitialBottomScrollIfNeeded(proxy)
@@ -824,6 +842,18 @@ private struct ConversationMessageList: View {
                 .onChange(of: items) { _, _ in
                     syncTranscriptTurns()
                     requestInitialBottomScrollIfNeeded(proxy)
+                }
+                .onChange(of: olderTurnsCursor) { oldCursor, newCursor in
+                    guard oldCursor != newCursor else { return }
+                    requestedOlderTurnsCursor = nil
+                    requestedOlderTurnsThreadKey = nil
+                    showOlderPageLoader = false
+                    DispatchQueue.main.async {
+                        prefetchOlderTurnsIfNeeded(
+                            visibleTurnIDs: visibleTurnIDs,
+                            turns: mergedRenderableTurns
+                        )
+                    }
                 }
                 .onChange(of: collapseTurns) {
                     syncTranscriptTurns(resetExpansion: true)
@@ -878,6 +908,16 @@ private struct ConversationMessageList: View {
                     .padding(.trailing, 14)
                     .padding(.bottom, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if showOlderPageLoader, hasOlderTurns {
+                    ConversationLoadingIndicator(label: "Loading earlier messages...")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, topInset + 8)
+                        .allowsHitTesting(false)
                 }
             }
             }
@@ -947,16 +987,94 @@ private struct ConversationMessageList: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+    private func scrollToBottom(_: ScrollViewProxy) {
         isNearBottom = true
         distanceFromBottom = 0
         programmaticBottomScrollGeneration &+= 1
         let generation = programmaticBottomScrollGeneration
         programmaticBottomScrollSettling = true
-        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        stopMomentumAndJumpToNativeBottom()
+        scrollPosition.scrollTo(edge: .bottom)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.bottomScrollSettleDuration) {
             guard programmaticBottomScrollGeneration == generation else { return }
             programmaticBottomScrollSettling = false
+        }
+    }
+
+    private func stopMomentumAndJumpToNativeBottom() {
+        guard let nativeScrollView else { return }
+
+        // End an in-progress pan as well as inertial deceleration. Without
+        // this, SwiftUI can accept a semantic scroll command and then have the
+        // still-running UIKit scroll animation write a newer offset over it.
+        let panGesture = nativeScrollView.panGestureRecognizer
+        if panGesture.state != .possible {
+            panGesture.isEnabled = false
+            panGesture.isEnabled = true
+        }
+        nativeScrollView.setContentOffset(nativeScrollView.contentOffset, animated: false)
+
+        let inset = nativeScrollView.adjustedContentInset
+        let topOffset = -inset.top
+        let bottomOffset = max(
+            topOffset,
+            nativeScrollView.contentSize.height - nativeScrollView.bounds.height + inset.bottom
+        )
+        nativeScrollView.setContentOffset(
+            CGPoint(x: nativeScrollView.contentOffset.x, y: bottomOffset),
+            animated: false
+        )
+    }
+
+    private func prefetchOlderTurnsIfNeeded(
+        visibleTurnIDs: [String],
+        turns: [TranscriptTurn]
+    ) {
+        guard let earliestVisibleIndex = ConversationInfiniteScrollPolicy.earliestVisibleIndex(
+            visibleIDs: visibleTurnIDs,
+            orderedIDs: turns.map(\.id)
+        ), earliestVisibleIndex <= ConversationInfiniteScrollPolicy.olderPrefetchDistance else { return }
+
+        requestOlderTurnsPage(showLoaderIfCacheExhausted: earliestVisibleIndex == 0)
+    }
+
+    private func requestOlderTurnsPage(showLoaderIfCacheExhausted: Bool) {
+        guard initialTurnsLoaded,
+              let cursor = olderTurnsCursor,
+              !cursor.isEmpty else { return }
+        let requestKey = activeThreadKey
+
+        if requestedOlderTurnsCursor == cursor,
+           requestedOlderTurnsThreadKey == requestKey {
+            if showLoaderIfCacheExhausted {
+                scheduleOlderPageLoader(for: cursor, threadKey: requestKey)
+            }
+            return
+        }
+
+        requestedOlderTurnsCursor = cursor
+        requestedOlderTurnsThreadKey = requestKey
+        if showLoaderIfCacheExhausted {
+            scheduleOlderPageLoader(for: cursor, threadKey: requestKey)
+        }
+
+        Task {
+            let didLoad = await onLoadOlderTurns(requestKey)
+            guard !didLoad,
+                  requestedOlderTurnsCursor == cursor,
+                  requestedOlderTurnsThreadKey == requestKey else { return }
+            requestedOlderTurnsCursor = nil
+            requestedOlderTurnsThreadKey = nil
+            showOlderPageLoader = false
+        }
+    }
+
+    private func scheduleOlderPageLoader(for cursor: String, threadKey: ThreadKey) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard requestedOlderTurnsCursor == cursor,
+                  requestedOlderTurnsThreadKey == threadKey else { return }
+            showOlderPageLoader = true
         }
     }
 
@@ -1063,7 +1181,7 @@ private struct ConversationMessageList: View {
         to nextTurns: [TranscriptTurn],
         resetExpansion: Bool
     ) -> Bool {
-        guard collapseTurns,
+        guard shouldCollapseTurns,
               !resetExpansion,
               !currentTurns.isEmpty,
               nextTurns.count == currentTurns.count + 1,
@@ -1364,26 +1482,76 @@ private struct CollapsedTurnMetaItem: View {
     }
 }
 
+private struct ConversationScrollViewResolver: UIViewRepresentable {
+    @Binding var scrollView: UIScrollView?
+
+    func makeUIView(context: Context) -> ResolverView {
+        let view = ResolverView()
+        view.onResolve = updateResolvedScrollView
+        return view
+    }
+
+    func updateUIView(_ uiView: ResolverView, context: Context) {
+        uiView.onResolve = updateResolvedScrollView
+        uiView.resolveWhenAttached()
+    }
+
+    private func updateResolvedScrollView(_ resolved: UIScrollView?) {
+        guard scrollView !== resolved else { return }
+        scrollView = resolved
+    }
+
+    final class ResolverView: UIView {
+        var onResolve: ((UIScrollView?) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            resolveWhenAttached()
+        }
+
+        func resolveWhenAttached() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                var ancestor = superview
+                while let view = ancestor {
+                    if let scrollView = view as? UIScrollView {
+                        onResolve?(scrollView)
+                        return
+                    }
+                    ancestor = view.superview
+                }
+                onResolve?(nil)
+            }
+        }
+    }
+}
+
 private struct ScrollToBottomIndicator: View {
     let action: () -> Void
     @State private var bob = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.down")
-                    .litterFont(.caption, weight: .bold)
-                    .offset(y: bob ? 1.5 : -1.5)
-                    .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
-                Text("Latest")
-                    .litterFont(.caption, weight: .semibold)
-            }
-            .foregroundColor(LitterTheme.textPrimary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .modifier(GlassCapsuleModifier())
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down")
+                .litterFont(.caption, weight: .bold)
+                .offset(y: bob ? 1.5 : -1.5)
+                .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
+            Text("Latest")
+                .litterFont(.caption, weight: .semibold)
         }
+        .foregroundColor(LitterTheme.textPrimary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .modifier(GlassCapsuleModifier())
         .contentShape(Capsule())
+        // A normal Button tap can be consumed merely to stop an actively
+        // decelerating ScrollView. Give this overlay first refusal so Latest
+        // executes on that same tap, even while momentum is still active.
+        .highPriorityGesture(TapGesture().onEnded(action))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Latest")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
         .onAppear {
             bob = true
         }
