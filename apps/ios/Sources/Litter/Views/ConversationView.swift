@@ -103,7 +103,7 @@ struct ConversationView: View {
             onForkFromUserItem: forkFromMessage,
             onOpenConversation: onOpenConversation,
             onLoadOlderTurns: { key in
-                Task { await appModel.loadOlderTurns(threadId: key) }
+                await appModel.loadOlderTurns(threadId: key)
             }
         )
         .overlay(alignment: .bottomLeading) {
@@ -586,7 +586,7 @@ private struct ConversationMessageList: View {
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
-    let onLoadOlderTurns: (ThreadKey) -> Void
+    let onLoadOlderTurns: (ThreadKey) async -> Bool
     @State private var isNearBottom = true
     @State private var isFollowingBottom = true
     @State private var scrollPosition = ScrollPosition()
@@ -601,12 +601,26 @@ private struct ConversationMessageList: View {
     @State private var expandedTurnIDs: Set<String> = []
     @State private var pendingAnimatedTurns: [TranscriptTurn]?
     @State private var turnInsertionAnimationInFlight = false
+    @State private var visibleTurnIDs: [String] = []
+    @State private var requestedOlderTurnsCursor: String?
+    @State private var requestedOlderTurnsThreadKey: ThreadKey?
+    @State private var showOlderPageLoader = false
     @AppStorage("collapseTurns") private var collapseTurns = false
     private static let latestButtonShowDistance: CGFloat = 48
     private static let nearBottomRestoreDistance: CGFloat = 12
 
+    private var shouldCollapseTurns: Bool {
+        ConversationTurnCollapsePolicy.shouldCollapse(
+            preferenceEnabled: collapseTurns,
+            itemCount: items.count
+        )
+    }
+
     private var expandedRecentTurnCount: Int {
-        return collapseTurns ? 1 : .max
+        ConversationTurnCollapsePolicy.expandedRecentTurnCount(
+            preferenceEnabled: collapseTurns,
+            itemCount: items.count
+        )
     }
 
     private var sourceTurns: [TranscriptTurn] {
@@ -669,22 +683,6 @@ private struct ConversationMessageList: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            if !initialTurnsLoaded && hasOlderTurns && !turns.isEmpty {
-                                ConversationLoadingIndicator(label: "Loading earlier messages...")
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                            } else if hasOlderTurns {
-                                Button {
-                                    onLoadOlderTurns(activeThreadKey)
-                                } label: {
-                                    Text("Load earlier messages")
-                                        .litterFont(.caption, weight: .semibold)
-                                        .foregroundColor(LitterTheme.accent)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
-                                }
-                                .buttonStyle(.plain)
-                            }
                             ForEach(turns) { turn in
                                 let isLastTurn = turn.id == lastTurnID
                                 ConversationTurnRow(
@@ -715,7 +713,12 @@ private struct ConversationMessageList: View {
                                 .equatable()
                                 .turnDebugOverlay(turnId: turn.id)
                             }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.bottomAnchorID)
                         }
+                        .scrollTargetLayout()
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 16)
@@ -737,6 +740,10 @@ private struct ConversationMessageList: View {
                 .id(activeThreadScopeID)
                 .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
+                .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { turnIDs in
+                    visibleTurnIDs = turnIDs
+                    prefetchOlderTurnsIfNeeded(visibleTurnIDs: turnIDs, turns: turns)
+                }
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
                 } action: { _, distance in
@@ -780,6 +787,11 @@ private struct ConversationMessageList: View {
                     isNearBottom = true
                     showScrollToBottomButton = false
                     waitingForDataExpired = false
+                    scrollPosition = ScrollPosition(idType: String.self)
+                    visibleTurnIDs = []
+                    requestedOlderTurnsCursor = nil
+                    requestedOlderTurnsThreadKey = nil
+                    showOlderPageLoader = false
                     syncTranscriptTurns(resetExpansion: true)
                     StreamingRendererCoordinator.shared.reset()
                 }
@@ -789,6 +801,18 @@ private struct ConversationMessageList: View {
                 }
                 .onChange(of: items) { _, _ in
                     syncTranscriptTurns()
+                }
+                .onChange(of: olderTurnsCursor) { oldCursor, newCursor in
+                    guard oldCursor != newCursor else { return }
+                    requestedOlderTurnsCursor = nil
+                    requestedOlderTurnsThreadKey = nil
+                    showOlderPageLoader = false
+                    DispatchQueue.main.async {
+                        prefetchOlderTurnsIfNeeded(
+                            visibleTurnIDs: visibleTurnIDs,
+                            turns: mergedRenderableTurns
+                        )
+                    }
                 }
                 .onChange(of: collapseTurns) {
                     syncTranscriptTurns(resetExpansion: true)
@@ -817,6 +841,16 @@ private struct ConversationMessageList: View {
                     .padding(.trailing, 14)
                     .padding(.bottom, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if showOlderPageLoader, hasOlderTurns {
+                    ConversationLoadingIndicator(label: "Loading earlier messages...")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, topInset + 8)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -853,6 +887,59 @@ private struct ConversationMessageList: View {
     private func followBottom() {
         withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
             scrollPosition.scrollTo(edge: .bottom)
+        }
+    }
+
+
+    private func prefetchOlderTurnsIfNeeded(
+        visibleTurnIDs: [String],
+        turns: [TranscriptTurn]
+    ) {
+        guard let earliestVisibleIndex = ConversationInfiniteScrollPolicy.earliestVisibleIndex(
+            visibleIDs: visibleTurnIDs,
+            orderedIDs: turns.map(\.id)
+        ), earliestVisibleIndex <= ConversationInfiniteScrollPolicy.olderPrefetchDistance else { return }
+
+        requestOlderTurnsPage(showLoaderIfCacheExhausted: earliestVisibleIndex == 0)
+    }
+
+    private func requestOlderTurnsPage(showLoaderIfCacheExhausted: Bool) {
+        guard initialTurnsLoaded,
+              let cursor = olderTurnsCursor,
+              !cursor.isEmpty else { return }
+        let requestKey = activeThreadKey
+
+        if requestedOlderTurnsCursor == cursor,
+           requestedOlderTurnsThreadKey == requestKey {
+            if showLoaderIfCacheExhausted {
+                scheduleOlderPageLoader(for: cursor, threadKey: requestKey)
+            }
+            return
+        }
+
+        requestedOlderTurnsCursor = cursor
+        requestedOlderTurnsThreadKey = requestKey
+        if showLoaderIfCacheExhausted {
+            scheduleOlderPageLoader(for: cursor, threadKey: requestKey)
+        }
+
+        Task {
+            let didLoad = await onLoadOlderTurns(requestKey)
+            guard !didLoad,
+                  requestedOlderTurnsCursor == cursor,
+                  requestedOlderTurnsThreadKey == requestKey else { return }
+            requestedOlderTurnsCursor = nil
+            requestedOlderTurnsThreadKey = nil
+            showOlderPageLoader = false
+        }
+    }
+
+    private func scheduleOlderPageLoader(for cursor: String, threadKey: ThreadKey) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard requestedOlderTurnsCursor == cursor,
+                  requestedOlderTurnsThreadKey == threadKey else { return }
+            showOlderPageLoader = true
         }
     }
 
@@ -959,7 +1046,7 @@ private struct ConversationMessageList: View {
         to nextTurns: [TranscriptTurn],
         resetExpansion: Bool
     ) -> Bool {
-        guard collapseTurns,
+        guard shouldCollapseTurns,
               !resetExpansion,
               !currentTurns.isEmpty,
               nextTurns.count == currentTurns.count + 1,
@@ -1271,21 +1358,27 @@ private struct ScrollToBottomIndicator: View {
     @State private var bob = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.down")
-                    .litterFont(.caption, weight: .bold)
-                    .offset(y: bob ? 1.5 : -1.5)
-                    .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
-                Text("Latest")
-                    .litterFont(.caption, weight: .semibold)
-            }
-            .foregroundColor(LitterTheme.textPrimary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .modifier(GlassCapsuleModifier())
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down")
+                .litterFont(.caption, weight: .bold)
+                .offset(y: bob ? 1.5 : -1.5)
+                .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
+            Text("Latest")
+                .litterFont(.caption, weight: .semibold)
         }
+        .foregroundColor(LitterTheme.textPrimary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .modifier(GlassCapsuleModifier())
         .contentShape(Capsule())
+        // A normal Button tap can be consumed merely to stop an actively
+        // decelerating ScrollView. Give this overlay first refusal so Latest
+        // executes on that same tap, even while momentum is still active.
+        .highPriorityGesture(TapGesture().onEnded(action))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Latest")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
         .onAppear {
             bob = true
         }
