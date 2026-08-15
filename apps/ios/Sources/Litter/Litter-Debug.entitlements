@@ -8,5 +8,10 @@
     <array>
         <string>group.com.sigkitten.litter</string>
     </array>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.sigkitten.litter</string>
+        <string>group.com.sigkitten.litter</string>
+    </array>
 </dict>
 </plist>
