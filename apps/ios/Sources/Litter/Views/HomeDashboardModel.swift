@@ -51,6 +51,8 @@ final class HomeDashboardModel {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
         let sessionSummaries: [AppSessionSummary]
+        let activeThread: ThreadKey?
+        let rawServers: [AppServerSnapshot]
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
@@ -64,6 +66,20 @@ final class HomeDashboardModel {
     private(set) var pinnedKeys: [SavedThreadsStore.PinnedKey] = []
     private(set) var hiddenKeys: [SavedThreadsStore.PinnedKey] = []
     private(set) var projects: [AppProject] = []
+    /// Debounced projection of the active thread key. Views observe this
+    /// instead of `appModel.snapshot?.activeThread` so they don't
+    /// re-render per streaming token.
+    private(set) var activeThread: ThreadKey?
+    /// Debounced signature driving `hydratePinnedThreadsIfNeeded`.
+    /// Computed in `refreshState` from snapshot-derived server/session
+    /// state so `HomeNavigationView.body` never reads `appModel.snapshot`.
+    private(set) var pinnedThreadHydrationSignature: String = ""
+    /// Precomputed hydration-id signature for the currently-visible sessions
+    /// (after server filter). Bound to `.onChange` in `HomeDashboardView`
+    /// so the body doesn't allocate + stringify the visible list per eval.
+    private(set) var visibleHydrationSignature: String = ""
+    /// Precomputed activity signature (`"<id>:<hasTurnActive>"` joined).
+    private(set) var visibleActivitySignature: String = ""
 
     var selectedServerId: String? {
         didSet {
@@ -258,7 +274,9 @@ final class HomeDashboardModel {
             return Snapshot(
                 connectedServers: nextConnectedServers,
                 recentSessions: nextAllSessions,
-                sessionSummaries: appSnapshot?.sessionSummaries ?? []
+                sessionSummaries: appSnapshot?.sessionSummaries ?? [],
+                activeThread: appSnapshot?.activeThread,
+                rawServers: appSnapshot?.servers ?? []
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -278,6 +296,42 @@ final class HomeDashboardModel {
         )
         lastSessionSummaries = snapshot.sessionSummaries
         projects = deriveProjects(sessions: snapshot.sessionSummaries)
+        activeThread = snapshot.activeThread
+
+        // Precompute the pinned-thread hydration signature here (debounced)
+        // so HomeNavigationView.body never has to read appModel.snapshot.
+        let pins = pinnedKeys
+            .map { "\($0.serverId)/\($0.threadId)" }
+            .joined(separator: "|")
+        let pinnedSet = Set(pinnedKeys)
+        let serversSignature = snapshot.rawServers
+            .map { "\($0.serverId)=\(String(describing: $0.transportState)):\($0.port)" }
+            .joined(separator: "|")
+        let sessionsSignature = snapshot.sessionSummaries
+            .compactMap { summary -> String? in
+                guard pinnedSet.contains(PinnedThreadKey(threadKey: summary.key)) else { return nil }
+                return "\(summary.key.serverId)/\(summary.key.threadId):\(summary.isResumed)"
+            }
+            .joined(separator: "|")
+        pinnedThreadHydrationSignature = "\(pins)|\(serversSignature)|\(sessionsSignature)"
+
+        // Precompute visible-session signatures so HomeDashboardView.body
+        // doesn't allocate + stringify the visible list on every eval.
+        // Use the published merged `recentSessions` (pinned-first) to match
+        // exactly what the view filters on.
+        let trimmedSelectedServer = selectedServerId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let visibleSessions: [HomeDashboardRecentSession]
+        if trimmedSelectedServer.isEmpty {
+            visibleSessions = recentSessions
+        } else {
+            visibleSessions = recentSessions.filter { $0.serverId == trimmedSelectedServer }
+        }
+        visibleHydrationSignature = visibleSessions
+            .map { "\($0.key.serverId)/\($0.key.threadId)" }
+            .joined(separator: "|")
+        visibleActivitySignature = visibleSessions
+            .map { "\($0.key.serverId)/\($0.key.threadId):\($0.hasTurnActive)" }
+            .joined(separator: "|")
 
         // Keep selectedServerId valid: if the server it points at isn't in
         // the live/launchable list, clear the scope. Default is no filter —

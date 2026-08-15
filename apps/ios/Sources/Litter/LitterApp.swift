@@ -377,7 +377,9 @@ struct ContentView: View {
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var petOverlay = PetOverlayController.shared
+    @State private var overlayProjection = OverlayProjectionModel()
     @State private var composerBottomInset: CGFloat = 0
+    @State private var lastObservedActiveThread: ThreadKey?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
@@ -421,6 +423,7 @@ struct ContentView: View {
             }
             .ignoresSafeArea(.container)
             .task {
+                overlayProjection.bind(appModel: appModel, petOverlay: petOverlay)
                 if composerBottomInset <= 0, geometry.safeAreaInsets.bottom > 0 {
                     composerBottomInset = geometry.safeAreaInsets.bottom
                 }
@@ -469,14 +472,19 @@ struct ContentView: View {
                 themeManager.syncSystemColorScheme(colorScheme)
             }
         }
-        .onChange(of: appModel.snapshot?.activeThread) { _, _ in
-            appState.selectedModel = ""
-            appState.selectedAgentRuntimeKind = nil
-            appState.reasoningEffort = ""
-            appState.showModelSelector = false
-        }
-        .onChange(of: appModel.snapshot) { _, nextSnapshot in
-            appRuntime.handleSnapshot(nextSnapshot)
+        .onChange(of: appModel.snapshotRevision) { _, _ in
+            // Active-thread changes reset the composer selection. Reading
+            // snapshot inside the closure (not in body) avoids a per-token
+            // observation edge on the whole snapshot.
+            let activeThread = appModel.snapshot?.activeThread
+            if activeThread != lastObservedActiveThread {
+                lastObservedActiveThread = activeThread
+                appState.selectedModel = ""
+                appState.selectedAgentRuntimeKind = nil
+                appState.reasoningEffort = ""
+                appState.showModelSelector = false
+            }
+            appRuntime.handleSnapshotRevisionChange()
         }
         .sheet(isPresented: $bindableAppState.showServerPicker) {
             NavigationStack {
@@ -524,16 +532,14 @@ struct ContentView: View {
         if petOverlay.visible, let pet = petOverlay.selectedPet {
             PetOverlayView(
                 pet: pet,
-                state: petOverlay.avatarState(snapshot: appModel.snapshot),
-                message: petOverlay.avatarMessage(snapshot: appModel.snapshot),
+                state: overlayProjection.petAvatarState,
+                message: overlayProjection.petAvatarMessage,
                 reduceMotion: UIAccessibility.isReduceMotionEnabled
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
 
-        if let approval = appModel.snapshot?.pendingApprovals.first(where: {
-            $0.kind != .mcpElicitation
-        }) {
+        if let approval = overlayProjection.pendingApproval {
             ApprovalPromptView(approval: approval) { decision in
                 Task {
                     try? await appModel.store.respondToApproval(
@@ -680,22 +686,10 @@ private struct HomeNavigationView: View {
         #endif
     }
 
+    /// Debounced projection from HomeDashboardModel — no `appModel.snapshot`
+    /// read in body, so this no longer re-evaluates per streaming token.
     private var pinnedThreadHydrationSignature: String {
-        let pins = homeDashboardModel.pinnedKeys
-            .map { "\($0.serverId)/\($0.threadId)" }
-            .joined(separator: "|")
-        let pinnedSet = Set(homeDashboardModel.pinnedKeys)
-        let servers = appModel.snapshot?.servers
-            .map { "\($0.serverId)=\(String(describing: $0.transportState)):\($0.port)" }
-            .joined(separator: "|") ?? ""
-        let sessions = appModel.snapshot?.sessionSummaries
-            .compactMap { summary -> String? in
-                guard pinnedSet.contains(PinnedThreadKey(threadKey: summary.key)) else { return nil }
-                return "\(homeHydrationId(summary.key)):\(summary.isResumed)"
-            }
-            .joined(separator: "|")
-            ?? ""
-        return "\(pins)|\(servers)|\(sessions)"
+        homeDashboardModel.pinnedThreadHydrationSignature
     }
 
     @ViewBuilder
@@ -905,7 +899,7 @@ private struct HomeNavigationView: View {
             hydratePinnedThreadsIfNeeded()
             seedInitialConversationIfNeeded(activeKey: appModel.snapshot?.activeThread)
         }
-        .onChange(of: appModel.snapshot?.activeThread) { _, newKey in
+        .onChange(of: homeDashboardModel.activeThread) { _, newKey in
             seedInitialConversationIfNeeded(activeKey: newKey)
         }
         .onChange(of: navigationPath.count) { _, _ in
@@ -986,6 +980,7 @@ private struct HomeNavigationView: View {
             ProjectPickerSheet(
                 projects: homeDashboardModel.projects,
                 serverNamesById: Dictionary(uniqueKeysWithValues: homeDashboardModel.connectedServers.map { ($0.id, $0.displayName) }),
+                localServerIds: Set(homeDashboardModel.connectedServers.filter(\.isLocal).map(\.id)),
                 onSelect: { project in
                     homeDashboardModel.selectedServerId = project.serverId
                     homeDashboardModel.selectedProject = project
@@ -1418,6 +1413,8 @@ private struct HomeNavigationView: View {
             selectedServerId: homeDashboardModel.selectedServerId,
             selectedProject: homeDashboardModel.selectedProject,
             openingRecentSessionKey: openingRecentSessionKey,
+            visibleHydrationSignature: homeDashboardModel.visibleHydrationSignature,
+            visibleActivitySignature: homeDashboardModel.visibleActivitySignature,
             onOpenRecentSession: openRecentSession,
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
@@ -1461,6 +1458,8 @@ private struct HomeNavigationView: View {
             selectedServerId: homeDashboardModel.selectedServerId,
             selectedProject: homeDashboardModel.selectedProject,
             openingRecentSessionKey: openingRecentSessionKey,
+            visibleHydrationSignature: homeDashboardModel.visibleHydrationSignature,
+            visibleActivitySignature: homeDashboardModel.visibleActivitySignature,
             onOpenRecentSession: openRecentSession,
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
@@ -1899,18 +1898,6 @@ private struct ConversationDestinationScreen: View {
         conversationThread?.key ?? threadKey
     }
 
-    private var pendingUserInputsForThread: [PendingUserInputRequest] {
-        guard let snapshot = appModel.snapshot else { return [] }
-        let key = resolvedThreadKey
-        return snapshot.pendingUserInputs.filter {
-            $0.isRelevant(to: key)
-        }
-    }
-
-    private var relevantServerSnapshot: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: resolvedThreadKey.serverId)
-    }
-
     private func bindScreenModel(for thread: AppThreadSnapshot) {
         screenModel.bind(
             thread: thread,
@@ -1951,16 +1938,13 @@ private struct ConversationDestinationScreen: View {
                 .onAppear {
                     bindScreenModel(for: conversationThread)
                 }
-                .onChange(of: conversationThread) { _, updatedThread in
-                    bindScreenModel(for: updatedThread)
-                }
+                // Single coalesced bind signal. `snapshotRevision` bumps at
+                // ~8 fps (Fix B) instead of per token, and the other
+                // signals (conversationThread, pendingUserInputs,
+                // relevantServerSnapshot) all change in lockstep with it.
+                // Collapsing five onChanges into one eliminates the
+                // redundant triple-per-token re-binds.
                 .onChange(of: appModel.snapshotRevision) { _, _ in
-                    bindScreenModel(for: conversationThread)
-                }
-                .onChange(of: pendingUserInputsForThread) { _, _ in
-                    bindScreenModel(for: conversationThread)
-                }
-                .onChange(of: relevantServerSnapshot) { _, _ in
                     bindScreenModel(for: conversationThread)
                 }
                 .onChange(of: appModel.composerPrefillRequest) { _, _ in

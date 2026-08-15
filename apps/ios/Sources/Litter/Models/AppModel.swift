@@ -34,8 +34,25 @@ final class AppModel {
         var upsertItem: HydratedConversationItem?
     }
 
+    /// Accumulated streaming-text deltas keyed by `(threadKey, itemId, kind)`.
+    /// Each batch entry holds the running concatenation of text for that item
+    /// so we can flush all accumulated tokens in a single `snapshot`
+    /// mutation (~8 fps) instead of reassigning `snapshot` per token.
+    private struct PendingStreamingDelta: Sendable {
+        var text: String = ""
+    }
+
+    /// Dictionary key for streaming-delta batches. Bundles the identifying
+    /// tuple so flush logic never has to re-parse a concatenated string.
+    private struct StreamingDeltaBatchKey: Hashable, Sendable {
+        let key: ThreadKey
+        let itemId: String
+        let kind: ThreadStreamingDeltaKind
+    }
+
     private static let liveItemMutationCoalescingNanoseconds: UInt64 = 120_000_000 // ~8fps commands
     private static let liveThreadStateCoalescingNanoseconds: UInt64 = 150_000_000  // ~6fps metadata
+    private static let streamingDeltaCoalescingNanoseconds: UInt64 = 120_000_000   // ~8fps streamed text
     private static let localAuthRestoreRetryDelays: [Duration] = [
         .seconds(1),
         .seconds(2),
@@ -116,6 +133,8 @@ final class AppModel {
     @ObservationIgnored private var pendingThreadStateTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCommandRowMutations: [String: PendingCommandRowMutation] = [:]
     @ObservationIgnored private var pendingCommandRowMutationTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingStreamingDeltas: [StreamingDeltaBatchKey: PendingStreamingDelta] = [:]
+    @ObservationIgnored private var pendingStreamingDeltaTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
     @ObservationIgnored private var loadingTurnPageThreadKeys: Set<ThreadKey> = []
     private(set) var pendingHandoffTurnErrors: [ThreadKey: String] = [:]
@@ -169,6 +188,7 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingThreadStateTask?.cancel()
         pendingCommandRowMutationTask?.cancel()
+        pendingStreamingDeltaTask?.cancel()
     }
 
     func start() {
@@ -208,6 +228,9 @@ final class AppModel {
         pendingCommandRowMutationTask?.cancel()
         pendingCommandRowMutationTask = nil
         pendingCommandRowMutations.removeAll()
+        pendingStreamingDeltaTask?.cancel()
+        pendingStreamingDeltaTask = nil
+        pendingStreamingDeltas.removeAll()
         subscription = nil
     }
 
@@ -840,6 +863,10 @@ final class AppModel {
                 agentDirectoryVersion: agentDirectoryVersion
             )
         case .threadMetadataChanged(let state, let sessionSummary, let agentDirectoryVersion):
+            // A turn finishing arrives as a metadata update. Flush any
+            // pending streamed text for this thread first so the final
+            // token is never lost behind the coalescer window.
+            flushPendingStreamingDeltas(for: state.key)
             if shouldBatchLiveThreadStateUpdate(for: state.key) {
                 enqueueThreadStateUpdate(
                     state,
@@ -854,6 +881,9 @@ final class AppModel {
                 )
             }
         case .threadItemChanged(let key, let item, let sessionSummary):
+            // The finalized assistant/command item supersedes the streamed
+            // placeholder; flush any pending deltas for this thread first.
+            flushPendingStreamingDeltas(for: key)
             let isBatched = shouldBatchCommandRowMutation(for: key, item: item)
             if isBatched {
                 enqueueCommandRowUpsert(key: key, item: item)
@@ -866,18 +896,16 @@ final class AppModel {
             // stream without waiting for a full snapshot rebuild.
             applySessionSummary(sessionSummary)
         case .threadStreamingDelta(let key, let itemId, let kind, let text):
-            switch kind {
-            case .assistantText:
-                if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {
-                    scheduleThreadSnapshotRefresh(for: key)
-                }
+            // Feed the live transcript renderer immediately so the streaming
+            // bubble stays smooth at the token rate. The snapshot mutation
+            // is coalesced below so the rest of the UI (home, overlays,
+            // composer) only re-renders ~8 fps instead of per token.
+            if kind == .assistantText {
                 StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
-            default:
-                if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {
-                    scheduleThreadSnapshotRefresh(for: key)
-                }
             }
+            enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
         case .threadRemoved(let key, let agentDirectoryVersion):
+            flushPendingStreamingDeltas(for: key)
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
         case .activeThreadChanged(let key):
             updateActiveThread(key)
@@ -894,6 +922,7 @@ final class AppModel {
         case .serverRemoved:
             await refreshSnapshot()
         case .fullResync:
+            flushPendingStreamingDeltas()
             await refreshSnapshot()
         case .voiceSessionChanged:
             await refreshSnapshot()
@@ -969,44 +998,6 @@ final class AppModel {
         cacheThreadSnapshot(thread)
     }
 
-    private func applyThreadStreamingDelta(
-        key: ThreadKey,
-        itemId: String,
-        kind: ThreadStreamingDeltaKind,
-        text: String
-    ) -> Bool {
-        guard var snapshot else { return false }
-        guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == key }) else {
-            return false
-        }
-
-        var thread = snapshot.threads[threadIndex]
-        guard let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == itemId }) else {
-            return false
-        }
-
-        var item = thread.hydratedConversationItems[itemIndex]
-        guard let updatedContent = applyingStreamingDelta(
-            kind: kind,
-            text: text,
-            to: item.content
-        ) else {
-            return false
-        }
-
-        item.content = updatedContent
-        guard thread.hydratedConversationItems[itemIndex] != item else {
-            return true
-        }
-
-        thread.hydratedConversationItems[itemIndex] = item
-        snapshot.threads[threadIndex] = thread
-        self.snapshot = snapshot
-        cacheThreadSnapshot(thread)
-        lastError = nil
-        return true
-    }
-
     private func applyingStreamingDelta(
         kind: ThreadStreamingDeltaKind,
         text: String,
@@ -1037,6 +1028,108 @@ final class AppModel {
         default:
             return nil
         }
+    }
+
+    /// Queue a streaming-text delta for coalesced application. The delta is
+    /// accumulated per `(thread, item, kind)` and flushed at ~8 fps, so
+    /// `snapshot` (and therefore every observing view) bumps once per window
+    /// instead of once per token. If the thread/item is not yet hydrated, we
+    /// fall back to the existing debounced snapshot refresh.
+    private func enqueueStreamingDelta(
+        key: ThreadKey,
+        itemId: String,
+        kind: ThreadStreamingDeltaKind,
+        text: String
+    ) {
+        // If the target item is not yet in the snapshot, batching would just
+        // accumulate text against a missing row; fall back to the debounced
+        // full-thread refresh so the item appears and then streams.
+        guard canApplyStreamingDelta(key: key, itemId: itemId) else {
+            scheduleThreadSnapshotRefresh(for: key)
+            return
+        }
+
+        let batchKey = StreamingDeltaBatchKey(key: key, itemId: itemId, kind: kind)
+        var pending = pendingStreamingDeltas[batchKey] ?? PendingStreamingDelta()
+        pending.text += text
+        pendingStreamingDeltas[batchKey] = pending
+
+        guard pendingStreamingDeltaTask == nil else { return }
+        pendingStreamingDeltaTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
+            guard let self else { return }
+            await self.flushPendingStreamingDeltas()
+        }
+    }
+
+    private func canApplyStreamingDelta(key: ThreadKey, itemId: String) -> Bool {
+        guard let snapshot else { return false }
+        guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == key }) else {
+            return false
+        }
+        return snapshot.threads[threadIndex]
+            .hydratedConversationItems
+            .contains(where: { $0.id == itemId })
+    }
+
+    /// Apply all accumulated streaming deltas in a single `snapshot`
+    /// mutation, bumping `snapshotRevision` once per flush instead of per
+    /// token. Passing a `ThreadKey` flushes only that thread's deltas
+    /// (used on turn completion); passing `nil` flushes everything.
+    private func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
+        // Cancel any scheduled coalesced flush; we are flushing now.
+        pendingStreamingDeltaTask?.cancel()
+        pendingStreamingDeltaTask = nil
+
+        guard !pendingStreamingDeltas.isEmpty else { return }
+
+        var drained: [(batchKey: StreamingDeltaBatchKey, pending: PendingStreamingDelta)] = []
+        for (batchKey, pending) in pendingStreamingDeltas {
+            if let key, batchKey.key != key { continue }
+            drained.append((batchKey, pending))
+        }
+        for entry in drained {
+            pendingStreamingDeltas.removeValue(forKey: entry.batchKey)
+        }
+        guard !drained.isEmpty else { return }
+
+        guard var snapshot else {
+            pendingStreamingDeltas.removeAll()
+            return
+        }
+
+        var mutated = false
+        var touchedThreads: Set<Int> = []
+        for entry in drained {
+            guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == entry.batchKey.key }) else {
+                continue
+            }
+            var thread = snapshot.threads[threadIndex]
+            guard let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == entry.batchKey.itemId }) else {
+                continue
+            }
+            var item = thread.hydratedConversationItems[itemIndex]
+            guard let updatedContent = applyingStreamingDelta(
+                kind: entry.batchKey.kind,
+                text: entry.pending.text,
+                to: item.content
+            ) else {
+                continue
+            }
+            item.content = updatedContent
+            guard thread.hydratedConversationItems[itemIndex] != item else { continue }
+            thread.hydratedConversationItems[itemIndex] = item
+            snapshot.threads[threadIndex] = thread
+            touchedThreads.insert(threadIndex)
+            mutated = true
+        }
+
+        guard mutated else { return }
+        self.snapshot = snapshot
+        for threadIndex in touchedThreads {
+            cacheThreadSnapshot(snapshot.threads[threadIndex])
+        }
+        lastError = nil
     }
 
     func refreshThreadSnapshot(key: ThreadKey) async {

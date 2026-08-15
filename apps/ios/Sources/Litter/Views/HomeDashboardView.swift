@@ -26,6 +26,10 @@ struct HomeDashboardView: View {
     let selectedServerId: String?
     let selectedProject: AppProject?
     let openingRecentSessionKey: ThreadKey?
+    /// Precomputed by HomeDashboardModel so `.onChange` doesn't
+    /// re-allocate + stringify the visible list on every body eval.
+    let visibleHydrationSignature: String
+    let visibleActivitySignature: String
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onSelectServer: (HomeDashboardServer) -> Void
     let onAddServer: () -> Void
@@ -200,7 +204,7 @@ struct HomeDashboardView: View {
             }
             .task { await TipJarStore.shared.loadProducts() }
             .onAppear { autoHydrateIfNeeded() }
-            .onChange(of: visibleSessions.map { hydrationId($0.key) }) { _, _ in
+            .onChange(of: visibleHydrationSignature) { _, _ in
                 autoHydrateIfNeeded()
             }
             .onChange(of: pinnedThreadKeys) { _, _ in
@@ -209,7 +213,7 @@ struct HomeDashboardView: View {
             // Clear a cancelled key once the snapshot says the turn is
             // actually gone. Gives the dot a brief red period while the
             // cancel is in flight, then reverts to normal indicator logic.
-            .onChange(of: visibleSessions.map { "\(hydrationId($0.key)):\($0.hasTurnActive)" }) { _, _ in
+            .onChange(of: visibleActivitySignature) { _, _ in
                 let stillActive = Set(
                     visibleSessions
                         .filter { $0.hasTurnActive }

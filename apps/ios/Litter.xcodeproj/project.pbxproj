@@ -519,6 +519,7 @@
 		C1690215E7C4A4BE904D6676 /* studio-violet.json in Resources */ = {isa = PBXBuildFile; fileRef = 04A3114B951209519E549760 /* studio-violet.json */; };
 		C1A1AEB74EC01BD77B480B66 /* gruvbox-dark-soft.json in Resources */ = {isa = PBXBuildFile; fileRef = E8733DBC110CC719F3AEAD45 /* gruvbox-dark-soft.json */; };
 		C1B5E30B9C0D20EB11B8BC0D /* SavedServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89AA6EE2E14187220EF70CD /* SavedServerStore.swift */; };
+		C2866CFE807C17618041D766 /* OverlayProjectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6016CB5124E39071E5F098 /* OverlayProjectionModel.swift */; };
 		C2CA8578344D8E5159C00C65 /* houston.json in Resources */ = {isa = PBXBuildFile; fileRef = 89172C83E4194291FF873A88 /* houston.json */; };
 		C415132F8B96D71B59710DBE /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1641427B3606638F140B4E9A /* SystemConfiguration.framework */; };
 		C43938B0F84917882A0DD215 /* SavedAppUpdateOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58307B7673850139031D023 /* SavedAppUpdateOverlay.swift */; };
@@ -671,6 +672,7 @@
 		F8591B754C9A672031DC87D4 /* ConversationInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73215C881883BBD745011412 /* ConversationInfoView.swift */; };
 		F8D0B05D7B596AB32391DE77 /* github-dark-default.json in Resources */ = {isa = PBXBuildFile; fileRef = 83D1805F2EFF51A7DD62CB88 /* github-dark-default.json */; };
 		F8FA54A11D223E760DD20173 /* ConversationComposerPopupOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F1267B79425E5A42068216 /* ConversationComposerPopupOverlayView.swift */; };
+		F93CD7A725753601E18F9DD6 /* OverlayProjectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6016CB5124E39071E5F098 /* OverlayProjectionModel.swift */; };
 		F982003F1BA732A2CF72C3EF /* SwiftSshTrustBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FD98644D715736EB96DF24 /* SwiftSshTrustBackend.swift */; };
 		F9CB7C7D1E911E4B1B7B06D9 /* solarized-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 887F9EF05D2351DEB6B9602D /* solarized-light.json */; };
 		F9CBE40C2CA9C8B291A9FD9C /* github-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 87E1D2E7E6CB4DA678C6605E /* github-dark.json */; };
@@ -900,6 +902,7 @@
 		59B08FFA16CBFD1A93E32980 /* sentry-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "sentry-dark.json"; sourceTree = "<group>"; };
 		5B2BFE640367D986B437735F /* IshFS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IshFS.swift; sourceTree = "<group>"; };
 		5B2CEDF857883B2E36157356 /* gruvbox-dark-medium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gruvbox-dark-medium.json"; sourceTree = "<group>"; };
+		5B6016CB5124E39071E5F098 /* OverlayProjectionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayProjectionModel.swift; sourceTree = "<group>"; };
 		5D15D6BDA456B49C319AB4F8 /* CodexTurnLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLiveActivity.swift; sourceTree = "<group>"; };
 		5D4B6D1F6DAA0D1BB518DCCD /* CodexVoiceCallLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexVoiceCallLiveActivity.swift; sourceTree = "<group>"; };
 		5DF2C84DD77E7A8282AE9831 /* slack-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "slack-dark.json"; sourceTree = "<group>"; };
@@ -1605,6 +1608,7 @@
 				952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */,
 				3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */,
 				1022F3BB191F207126130232 /* OrientationResponder.swift */,
+				5B6016CB5124E39071E5F098 /* OverlayProjectionModel.swift */,
 				14C32BD618AF48814E273862 /* PairBLE.swift */,
 				9985C47F86DE72FA41043EE3 /* PairBLEAdvertiser.swift */,
 				478418E5A888D2A8494C9725 /* PairBLEScanner.swift */,
@@ -2440,6 +2444,7 @@
 				59B39287F39980DFD5D9E746 /* OnboardingCoachmarks.swift in Sources */,
 				123438277614AD5D2F7CDBC4 /* OpenAIApiKeyStore.swift in Sources */,
 				48EDBB2A1FFD97003248727D /* OrientationResponder.swift in Sources */,
+				F93CD7A725753601E18F9DD6 /* OverlayProjectionModel.swift in Sources */,
 				E1408DE3E8499156F9A515D9 /* PairBLE.swift in Sources */,
 				7D8DF3D3DF1A25C402708CD2 /* PairBLEAdvertiser.swift in Sources */,
 				24CD21A5C1581CA35D81E655 /* PairBLEScanner.swift in Sources */,
@@ -2628,6 +2633,7 @@
 				8520A62BEAC441DA2157FE87 /* NewThreadHeroView.swift in Sources */,
 				FE3764D045C51C2313EDD24B /* OnboardingCoachmarks.swift in Sources */,
 				909A0CDCE6D9729A20D0DA43 /* OpenAIApiKeyStore.swift in Sources */,
+				C2866CFE807C17618041D766 /* OverlayProjectionModel.swift in Sources */,
 				5C32F016229C0BC29A582C3B /* PairBLE.swift in Sources */,
 				6A0C312B5A565E7D8194F224 /* PairBLEAdvertiser.swift in Sources */,
 				97715C1B8B9FF369686FE9B3 /* PairBLEScanner.swift in Sources */,
