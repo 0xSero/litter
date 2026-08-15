@@ -315,7 +315,7 @@ dependencies = [
 [[package]]
 name = "alleycat-bridge-core"
 version = "0.1.0"
-source = "git+https://github.com/DatScreamer/alleycat.git?rev=55f78eca552260aaa4b00063f67abb2a88ff019c#55f78eca552260aaa4b00063f67abb2a88ff019c"
+source = "git+https://github.com/DatScreamer/alleycat.git?rev=eead5e5a4664ed8713183afad10ba8c1389b15fc#eead5e5a4664ed8713183afad10ba8c1389b15fc"
 dependencies = [
  "alleycat-codex-proto",
  "anyhow",
@@ -334,7 +334,7 @@ dependencies = [
 [[package]]
 name = "alleycat-claude-bridge"
 version = "0.1.0"
-source = "git+https://github.com/DatScreamer/alleycat.git?rev=55f78eca552260aaa4b00063f67abb2a88ff019c#55f78eca552260aaa4b00063f67abb2a88ff019c"
+source = "git+https://github.com/DatScreamer/alleycat.git?rev=eead5e5a4664ed8713183afad10ba8c1389b15fc#eead5e5a4664ed8713183afad10ba8c1389b15fc"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -358,7 +358,7 @@ dependencies = [
 [[package]]
 name = "alleycat-codex-proto"
 version = "0.1.0"
-source = "git+https://github.com/DatScreamer/alleycat.git?rev=55f78eca552260aaa4b00063f67abb2a88ff019c#55f78eca552260aaa4b00063f67abb2a88ff019c"
+source = "git+https://github.com/DatScreamer/alleycat.git?rev=eead5e5a4664ed8713183afad10ba8c1389b15fc#eead5e5a4664ed8713183afad10ba8c1389b15fc"
 dependencies = [
  "chrono",
  "serde",
@@ -369,7 +369,7 @@ dependencies = [
 [[package]]
 name = "alleycat-opencode-bridge"
 version = "0.1.0"
-source = "git+https://github.com/DatScreamer/alleycat.git?rev=55f78eca552260aaa4b00063f67abb2a88ff019c#55f78eca552260aaa4b00063f67abb2a88ff019c"
+source = "git+https://github.com/DatScreamer/alleycat.git?rev=eead5e5a4664ed8713183afad10ba8c1389b15fc#eead5e5a4664ed8713183afad10ba8c1389b15fc"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -393,7 +393,7 @@ dependencies = [
 [[package]]
 name = "alleycat-pi-bridge"
 version = "0.1.0"
-source = "git+https://github.com/DatScreamer/alleycat.git?rev=55f78eca552260aaa4b00063f67abb2a88ff019c#55f78eca552260aaa4b00063f67abb2a88ff019c"
+source = "git+https://github.com/DatScreamer/alleycat.git?rev=eead5e5a4664ed8713183afad10ba8c1389b15fc#eead5e5a4664ed8713183afad10ba8c1389b15fc"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
