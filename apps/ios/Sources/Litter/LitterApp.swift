@@ -1987,11 +1987,12 @@ private struct ConversationDestinationScreen: View {
         .overlay(alignment: .top) {
             GlassMorphContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    Button { onBack() } label: {
+                    Button(action: onBack) {
                         Image(systemName: "chevron.left")
                             .font(LitterFont.styled(size: 17, weight: .semibold))
                             .foregroundColor(LitterTheme.textPrimary)
                             .frame(width: 40, height: 40)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .modifier(GlassCircleModifier())
