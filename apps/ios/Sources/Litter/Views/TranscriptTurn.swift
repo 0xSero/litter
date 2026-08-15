@@ -1,5 +1,40 @@
 import Foundation
 
+enum ConversationTurnCollapsePolicy {
+    /// Rendering every message/tool view in a large restored page can exhaust
+    /// SwiftUI's layout budget and leave the conversation surface blank.
+    static let automaticItemThreshold = 200
+
+    static func shouldCollapse(
+        preferenceEnabled: Bool,
+        itemCount: Int
+    ) -> Bool {
+        preferenceEnabled || itemCount >= automaticItemThreshold
+    }
+
+    static func expandedRecentTurnCount(
+        preferenceEnabled: Bool,
+        itemCount: Int
+    ) -> Int {
+        shouldCollapse(preferenceEnabled: preferenceEnabled, itemCount: itemCount) ? 1 : .max
+    }
+}
+
+enum ConversationInfiniteScrollPolicy {
+    static let olderPrefetchDistance = 6
+
+    static func earliestVisibleIndex(
+        visibleIDs: [String],
+        orderedIDs: [String]
+    ) -> Int? {
+        guard !visibleIDs.isEmpty else { return nil }
+        let indicesByID = Dictionary(
+            uniqueKeysWithValues: orderedIDs.enumerated().map { ($1, $0) }
+        )
+        return visibleIDs.compactMap { indicesByID[$0] }.min()
+    }
+}
+
 struct TranscriptTurn: Identifiable, Equatable {
     private static let collapsedExcerptLimit = 180
 
@@ -207,11 +242,14 @@ struct TranscriptTurn: Identifiable, Equatable {
     }
 
     private static func mergedExplorationTurn(from turns: [TranscriptTurn]) -> TranscriptTurn? {
-        guard let first = turns.first else { return nil }
+        guard let last = turns.last else { return nil }
         let items = turns.flatMap(\.items)
         let isLive = turns.contains(where: \.isLive)
         return TranscriptTurn(
-            id: "exploration-turn-\(first.id)",
+            // Anchor the merged row to its newest constituent turn. Older
+            // pages prepend to this run, so its identity remains stable and
+            // SwiftUI can preserve the visible scroll position.
+            id: "exploration-turn-\(last.id)",
             items: items,
             isLive: isLive,
             isCollapsedByDefault: turns.allSatisfy(\.isCollapsedByDefault),

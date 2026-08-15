@@ -2249,10 +2249,6 @@ final class AppModel {
         return nil
     }
 
-    // A page of 5 meant tapping "Load earlier" dozens of times to get back
-    // through a real conversation (#306). Raising it is only safe now that
-    // c153d1e5 makes `include_turns=false` authoritative, so a metadata read
-    // can no longer smuggle in the full archive on top of the page.
     private static let initialTurnPageSize: UInt32 = 20
     private static let olderTurnPageSize: UInt32 = 20
 
@@ -2260,7 +2256,7 @@ final class AppModel {
     /// is still false. Called after a resume that sent `exclude_turns: true`
     /// against a v0.125+ server.
     func loadInitialTurns(threadId key: ThreadKey) async {
-        await loadTurnPage(key: key, cursor: nil, limit: Self.initialTurnPageSize)
+        _ = await loadTurnPage(key: key, cursor: nil, limit: Self.initialTurnPageSize)
     }
 
     func loadInitialTurnsIfNeeded(threadId key: ThreadKey) async {
@@ -2271,18 +2267,18 @@ final class AppModel {
     }
 
     /// Fetch the next older page of turns using the thread's current cursor.
-    /// No-op when no cursor is available (older-turns button should be hidden
-    /// in that case).
-    func loadOlderTurns(threadId key: ThreadKey) async {
+    /// No-op when the loaded history cache has reached the start of the
+    /// server-side session and no cursor remains.
+    func loadOlderTurns(threadId key: ThreadKey) async -> Bool {
         guard let cursor = threadSnapshot(for: key)?.olderTurnsCursor,
               !cursor.isEmpty else {
-            return
+            return false
         }
-        await loadTurnPage(key: key, cursor: cursor, limit: Self.olderTurnPageSize)
+        return await loadTurnPage(key: key, cursor: cursor, limit: Self.olderTurnPageSize)
     }
 
-    private func loadTurnPage(key: ThreadKey, cursor: String?, limit: UInt32) async {
-        if loadingTurnPageThreadKeys.contains(key) { return }
+    private func loadTurnPage(key: ThreadKey, cursor: String?, limit: UInt32) async -> Bool {
+        if loadingTurnPageThreadKeys.contains(key) { return false }
         loadingTurnPageThreadKeys.insert(key)
         defer { loadingTurnPageThreadKeys.remove(key) }
 
@@ -2292,8 +2288,10 @@ final class AppModel {
                 cursor: cursor,
                 limit: limit
             )
+            return true
         } catch {
             lastError = error.localizedDescription
+            return false
         }
     }
 

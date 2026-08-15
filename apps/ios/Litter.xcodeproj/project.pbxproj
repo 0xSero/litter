@@ -1934,12 +1934,12 @@
 			projectRoot = "";
 			targets = (
 				A3D84F588EDBC1EA550D6691 /* Litter */,
-				4D58398238C075D3A3A3AB9B /* LitterLiveActivity */,
 				6EBBC661C017816B2D4245DF /* LitterMac */,
-				DA07A1EAC6173D09F6FB99D9 /* LitterTests */,
-				7BB0106D190F10717D781234 /* LitterUITests */,
+				4D58398238C075D3A3A3AB9B /* LitterLiveActivity */,
 				3B991C03E72B1546CAD35698 /* LitterWatch */,
 				C0C98C6012493B73CDD5AD6E /* LitterWatchComplications */,
+				DA07A1EAC6173D09F6FB99D9 /* LitterTests */,
+				7BB0106D190F10717D781234 /* LitterUITests */,
 			);
 		};
 /* End PBXProject section */
