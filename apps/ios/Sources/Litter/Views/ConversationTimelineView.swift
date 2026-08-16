@@ -16,6 +16,8 @@ struct ConversationTurnTimeline: View {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -102,6 +104,8 @@ struct ConversationTurnTimeline: View {
                     onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
                     onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                     resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus,
                     onWidgetPrompt: onWidgetPrompt,
                     onEditUserItem: onEditUserItem,
                     onForkFromUserItem: onForkFromUserItem,
@@ -122,7 +126,10 @@ struct ConversationTurnTimeline: View {
             return AnyView(
                 SubagentCardView(
                     data: merged,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         }
@@ -385,6 +392,8 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -465,7 +474,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
             return AnyView(
                 SubagentCardView(
                     data: data,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         case .webSearch(let data):

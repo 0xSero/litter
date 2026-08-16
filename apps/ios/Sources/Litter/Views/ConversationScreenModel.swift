@@ -174,6 +174,8 @@ final class ConversationScreenModel {
             composer = .empty
             followScrollToken = 0
             resolveTargetLabel = { _ in nil }
+            resolveThreadKey = { _ in nil }
+            resolveLiveStatus = { _ in nil }
             serverSnapshot = nil
             return
         }
@@ -225,6 +227,29 @@ final class ConversationScreenModel {
                 $0.key.serverId == serverId && $0.key.threadId == normalized
             }) {
                 return summary.agentDisplayLabel ?? AgentLabelFormatter.sanitized(target)
+            }
+            return nil
+        }
+        // Mirror `AppSnapshotRecord.resolvedThreadKey(for:serverId:)` against
+        // the captured summaries so SubagentCardView never reads
+        // `appModel.snapshot` in its body.
+        resolveThreadKey = { receiverId in
+            guard let normalized = AgentLabelFormatter.sanitized(receiverId) else { return nil }
+            if let summary = capturedSummaries.first(where: {
+                $0.key.serverId == serverId && $0.key.threadId == normalized
+            }) {
+                return summary.key
+            }
+            return ThreadKey(serverId: serverId, threadId: normalized)
+        }
+        // Mirror the session-summary lookup used by
+        // `SubagentCardView.liveStatus(for:)` so it can derive a running /
+        // completed / errored status without a body-path snapshot read.
+        resolveLiveStatus = { key in
+            guard let summary = capturedSummaries.first(where: { $0.key == key }) else { return nil }
+            if summary.hasActiveTurn { return .running }
+            if summary.agentStatus != .unknown {
+                return summary.agentStatus
             }
             return nil
         }

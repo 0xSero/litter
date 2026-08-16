@@ -42,6 +42,8 @@ struct ConversationView: View {
     let composer: ConversationComposerSnapshot
     var supportsTurnPagination: Bool
     var resolveTargetLabel: (String) -> String?
+    var resolveThreadKey: (String) -> ThreadKey?
+    var resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     @Binding var composerInputText: String
     @Binding var composerAttachedImage: UIImage?
     var topInset: CGFloat = 0
@@ -103,6 +105,8 @@ struct ConversationView: View {
             initialTurnsLoaded: thread.initialTurnsLoaded || !supportsTurnPagination,
             textSizeStep: $conversationTextSizeStep,
             resolveTargetLabel: { resolveTargetLabel($0) },
+            resolveThreadKey: { resolveThreadKey($0) },
+            resolveLiveStatus: { resolveLiveStatus($0) },
             onWidgetPrompt: sendWidgetPrompt,
             onEditUserItem: editMessage,
             onForkFromUserItem: forkFromMessage,
@@ -576,6 +580,8 @@ private struct ConversationMessageList: View {
     let initialTurnsLoaded: Bool
     @Binding var textSizeStep: Int
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -716,6 +722,8 @@ private struct ConversationMessageList: View {
                                         requestFollowScrollAfterLayout(proxy)
                                     },
                                     resolveTargetLabel: resolveTargetLabel,
+                                    resolveThreadKey: resolveThreadKey,
+                                    resolveLiveStatus: resolveLiveStatus,
                                     onWidgetPrompt: onWidgetPrompt,
                                     onEditUserItem: onEditUserItem,
                                     onForkFromUserItem: onForkFromUserItem,
@@ -1129,6 +1137,8 @@ private struct ConversationTurnRow: View, Equatable {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -1169,6 +1179,8 @@ private struct ConversationTurnRow: View, Equatable {
                 onStreamingSnapshotRendered: onStreamingSnapshotRendered,
                 onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                 resolveTargetLabel: resolveTargetLabel,
+                resolveThreadKey: resolveThreadKey,
+                resolveLiveStatus: resolveLiveStatus,
                 onWidgetPrompt: onWidgetPrompt,
                 onEditUserItem: onEditUserItem,
                 onForkFromUserItem: onForkFromUserItem,
