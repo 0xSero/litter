@@ -20,32 +20,43 @@ final class OverlayProjectionModel {
     @ObservationIgnored private weak var petOverlay: PetOverlayController?
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
-    @ObservationIgnored private var lastObservedRevision: UInt64 = 0
 
     private(set) var petAvatarState: PetAvatarState = .idle
     private(set) var petAvatarMessage: String?
     private(set) var pendingApproval: PendingApproval?
 
     func bind(appModel: AppModel, petOverlay: PetOverlayController) {
+        // Invalidate any prior observation generation so stale tracking
+        // closures from a previous bind() are ignored.
+        observationGeneration &+= 1
         self.appModel = appModel
         self.petOverlay = petOverlay
         observeRevision()
     }
 
-    /// Start observing `snapshotRevision` outside of any SwiftUI `body` so
-    /// the observation edge lives here rather than in a view body.
+    /// Start observing `snapshotRevision` and `PetOverlayController` state
+    /// outside of any SwiftUI `body` so the observation edge lives here
+    /// rather than in a view body. Pet overlay state (loading, dragging)
+    /// can change independently of snapshot revisions, so we track both.
     private func observeRevision() {
         guard let appModel else { return }
         let generation = observationGeneration
         let revision = withObservationTracking({
+            // Track snapshot revisions for approval/pending changes.
             appModel.snapshotRevision
+            // Track pet overlay state changes (loading, dragging, direction)
+            // that can happen without a snapshot bump.
+            if let petOverlay {
+                _ = petOverlay.isLoading
+                _ = petOverlay.isDragging
+            }
         }) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.observationGeneration == generation else { return }
                 self.scheduleRefresh()
             }
         }
-        lastObservedRevision = revision
+        _ = revision
         refreshProjection()
     }
 

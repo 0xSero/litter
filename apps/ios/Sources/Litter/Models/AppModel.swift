@@ -1044,7 +1044,10 @@ final class AppModel {
         // If the target item is not yet in the snapshot, batching would just
         // accumulate text against a missing row; fall back to the debounced
         // full-thread refresh so the item appears and then streams.
+        // Clear any previously accumulated deltas for this thread so the
+        // refresh's full item text isn't duplicated by a later flush.
         guard canApplyStreamingDelta(key: key, itemId: itemId) else {
+            pendingStreamingDeltas = pendingStreamingDeltas.filter { $0.key.key != key }
             scheduleThreadSnapshotRefresh(for: key)
             return
         }
@@ -1100,12 +1103,15 @@ final class AppModel {
 
         var mutated = false
         var touchedThreads: Set<Int> = []
+        var droppedThreadKeys: Set<ThreadKey> = []
         for entry in drained {
             guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == entry.batchKey.key }) else {
+                droppedThreadKeys.insert(entry.batchKey.key)
                 continue
             }
             var thread = snapshot.threads[threadIndex]
             guard let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == entry.batchKey.itemId }) else {
+                droppedThreadKeys.insert(entry.batchKey.key)
                 continue
             }
             var item = thread.hydratedConversationItems[itemIndex]
@@ -1114,6 +1120,7 @@ final class AppModel {
                 text: entry.pending.text,
                 to: item.content
             ) else {
+                droppedThreadKeys.insert(entry.batchKey.key)
                 continue
             }
             item.content = updatedContent
@@ -1124,12 +1131,33 @@ final class AppModel {
             mutated = true
         }
 
-        guard mutated else { return }
-        self.snapshot = snapshot
-        for threadIndex in touchedThreads {
-            cacheThreadSnapshot(snapshot.threads[threadIndex])
+        // Fall back to a debounced full-thread refresh for any batch whose
+        // thread or item disappeared (e.g. the snapshot was replaced by a
+        // full resync between enqueue and flush). The old per-token code
+        // had this fallback via applyThreadStreamingDelta returning false.
+        for droppedKey in droppedThreadKeys {
+            scheduleThreadSnapshotRefresh(for: droppedKey)
         }
-        lastError = nil
+
+        if mutated {
+            self.snapshot = snapshot
+            for threadIndex in touchedThreads {
+                cacheThreadSnapshot(snapshot.threads[threadIndex])
+            }
+            lastError = nil
+        }
+
+        // Re-arm the coalesced timer if deltas remain for other threads
+        // (e.g. a targeted flush for one thread left another thread's
+        // pending text without a scheduled timer). Without this, concurrent
+        // streaming threads (subagents/handoff) can lose the tail of text.
+        if !pendingStreamingDeltas.isEmpty && pendingStreamingDeltaTask == nil {
+            pendingStreamingDeltaTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
+                guard let self else { return }
+                await self.flushPendingStreamingDeltas()
+            }
+        }
     }
 
     func refreshThreadSnapshot(key: ThreadKey) async {

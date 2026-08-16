@@ -117,6 +117,17 @@ final class ConversationScreenModel {
     /// precomputing the closure here (in `refreshState`, a non-body context)
     /// the closure captures stale-free data without registering an observation.
     @ObservationIgnored private(set) var resolveTargetLabel: (String) -> String? = { _ in nil }
+    /// Precomputed closure that resolves a receiver thread id to a `ThreadKey`
+    /// from a captured snapshot of `sessionSummaries`. Mirrors
+    /// `resolveTargetLabel` so `SubagentCardView` can resolve thread keys
+    /// without reading `appModel.snapshot` in its body (per-row, during
+    /// streaming).
+    @ObservationIgnored private(set) var resolveThreadKey: (String) -> ThreadKey? = { _ in nil }
+    /// Precomputed closure that returns the live subagent status for a
+    /// `ThreadKey` from a captured snapshot of `sessionSummaries`. Returns
+    /// `nil` when no summary is known or the status is unknown, leaving the
+    /// caller to fall back to the row's static status.
+    @ObservationIgnored private(set) var resolveLiveStatus: (ThreadKey) -> AppSubagentStatus? = { _ in nil }
 
     @ObservationIgnored private var thread: AppThreadSnapshot?
     @ObservationIgnored private var appModel: AppModel?
@@ -163,6 +174,7 @@ final class ConversationScreenModel {
             composer = .empty
             followScrollToken = 0
             resolveTargetLabel = { _ in nil }
+            serverSnapshot = nil
             return
         }
 
