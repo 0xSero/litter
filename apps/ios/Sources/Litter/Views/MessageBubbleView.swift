@@ -622,13 +622,18 @@ private final class MarkdownThemeCache {
         let bodySize: CGFloat
         let codeSize: CGFloat
         let isDark: Bool
-        let themeVersion: Int
+        /// Slug of the currently-resolved theme. PR #317 removed
+        /// `ThemeManager.themeVersion` in favour of an `@Observable`
+        /// `ThemeStore`, so the slug is what now identifies a theme
+        /// generation. Cached `MarkdownTheme`s bake in resolved colors, so
+        /// this must change whenever those colors do.
+        let themeSlug: String
         let fontRevision: Int
     }
 
     private var contentThemes: [Key: MarkdownTheme] = [:]
     private var systemThemes: [Key: MarkdownTheme] = [:]
-    private var lastThemeVersion: Int?
+    private var lastThemeSlug: String?
     private var lastFontRevision: Int?
 
     fileprivate func contentTheme(_ key: Key, build: () -> MarkdownTheme) -> MarkdownTheme {
@@ -651,8 +656,8 @@ private final class MarkdownThemeCache {
     /// the caches bounded without an LRU (the only other key axes are the two
     /// point sizes and the color scheme, so a live generation stays tiny).
     private func invalidateIfNeeded(_ key: Key) {
-        guard lastThemeVersion != key.themeVersion || lastFontRevision != key.fontRevision else { return }
-        lastThemeVersion = key.themeVersion
+        guard lastThemeSlug != key.themeSlug || lastFontRevision != key.fontRevision else { return }
+        lastThemeSlug = key.themeSlug
         lastFontRevision = key.fontRevision
         contentThemes.removeAll(keepingCapacity: true)
         systemThemes.removeAll(keepingCapacity: true)
@@ -1112,7 +1117,7 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
             bodySize: scaledBody,
             codeSize: scaledCode,
             isDark: colorScheme == .dark,
-            themeVersion: ThemeManager.shared.themeVersion,
+            themeSlug: LitterTheme.activeThemeSlug,
             fontRevision: fontPreferenceObserver.revision
         )
         let themed = content
@@ -1148,7 +1153,7 @@ private struct ScaledSystemMarkdownModifier: ViewModifier {
             bodySize: scaledBody,
             codeSize: scaledCode,
             isDark: colorScheme == .dark,
-            themeVersion: ThemeManager.shared.themeVersion,
+            themeSlug: LitterTheme.activeThemeSlug,
             fontRevision: fontPreferenceObserver.revision
         )
         let themed = content
