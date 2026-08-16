@@ -960,6 +960,8 @@ private struct HomeNavigationView: View {
                             directoryPickerSheet = sheet
                         }
                     ),
+                    localServerIds: homeDashboardModel.localServerIds,
+                    browseableServerIds: homeDashboardModel.browseableServerIds,
                     onServerChanged: { nextServerId in
                         guard var sheet = directoryPickerSheet else { return }
                         sheet.selectedServerId = nextServerId
@@ -1921,6 +1923,8 @@ private struct ConversationDestinationScreen: View {
                     followScrollToken: screenModel.followScrollToken,
                     pinnedContextItems: screenModel.pinnedContextItems,
                     composer: screenModel.composer,
+                    supportsTurnPagination: screenModel.composer.supportsTurnPagination,
+                    resolveTargetLabel: screenModel.resolveTargetLabel,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,
@@ -2039,6 +2043,8 @@ private struct ReplayDestinationScreen: View {
                     followScrollToken: screenModel.followScrollToken,
                     pinnedContextItems: screenModel.pinnedContextItems,
                     composer: screenModel.composer,
+                    supportsTurnPagination: screenModel.composer.supportsTurnPagination,
+                    resolveTargetLabel: screenModel.resolveTargetLabel,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,

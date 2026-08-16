@@ -80,6 +80,10 @@ final class HomeDashboardModel {
     private(set) var visibleHydrationSignature: String = ""
     /// Precomputed activity signature (`"<id>:<hasTurnActive>"` joined).
     private(set) var visibleActivitySignature: String = ""
+    /// Precomputed sets of server IDs by capability, so DirectoryPickerView
+    /// rows and controls don't read `appModel.snapshot` in body.
+    private(set) var localServerIds: Set<String> = []
+    private(set) var browseableServerIds: Set<String> = []
 
     var selectedServerId: String? {
         didSet {
@@ -332,6 +336,12 @@ final class HomeDashboardModel {
         visibleActivitySignature = visibleSessions
             .map { "\($0.key.serverId)/\($0.key.threadId):\($0.hasTurnActive)" }
             .joined(separator: "|")
+
+        // Precompute server-capability sets so DirectoryPickerView doesn't
+        // read `appModel.snapshot` in its body for `isLocal` /
+        // `canBrowseDirectories` checks (which fire on every snapshot bump).
+        localServerIds = Set(snapshot.rawServers.filter(\.isLocal).map(\.serverId))
+        browseableServerIds = Set(snapshot.rawServers.filter(\.canBrowseDirectories).map(\.serverId))
 
         // Keep selectedServerId valid: if the server it points at isn't in
         // the live/launchable list, clear the scope. Default is no filter —

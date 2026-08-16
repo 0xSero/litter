@@ -16,6 +16,8 @@ final class SessionsModel {
         let ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState]
         let activeThreadKey: ThreadKey?
         let frozenMostRecentThreadOrder: [ThreadKey]?
+        let localServerIds: Set<String>
+        let browseableServerIds: Set<String>
     }
 
     private(set) var derivedData: SessionsDerivedData = .empty
@@ -23,6 +25,8 @@ final class SessionsModel {
     private(set) var connectedServers: [HomeDashboardServer] = []
     private(set) var ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState] = [:]
     private(set) var activeThreadKey: ThreadKey?
+    private(set) var localServerIds: Set<String> = []
+    private(set) var browseableServerIds: Set<String> = []
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
@@ -99,6 +103,10 @@ final class SessionsModel {
                 )
             }
 
+            let rawServers = appSnapshot?.servers ?? []
+            let nextLocalServerIds = Set(rawServers.filter(\.isLocal).map(\.serverId))
+            let nextBrowseableServerIds = Set(rawServers.filter(\.canBrowseDirectories).map(\.serverId))
+
             let nextEphemeralStateByThreadKey = (appSnapshot?.sessionSummaries ?? []).reduce(into: [ThreadKey: ThreadEphemeralState]()) { partialResult, session in
                 partialResult[session.key] = ThreadEphemeralState(
                     hasTurnActive: session.hasActiveTurn,
@@ -128,7 +136,9 @@ final class SessionsModel {
                 connectedServers: nextConnectedServers,
                 ephemeralStateByThreadKey: nextEphemeralStateByThreadKey,
                 activeThreadKey: appSnapshot?.activeThread,
-                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder
+                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder,
+                localServerIds: nextLocalServerIds,
+                browseableServerIds: nextBrowseableServerIds
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -160,6 +170,12 @@ final class SessionsModel {
         }
         if previousSnapshot?.derivedData != snapshot.derivedData {
             derivedData = snapshot.derivedData
+        }
+        if previousSnapshot?.localServerIds != snapshot.localServerIds {
+            localServerIds = snapshot.localServerIds
+        }
+        if previousSnapshot?.browseableServerIds != snapshot.browseableServerIds {
+            browseableServerIds = snapshot.browseableServerIds
         }
     }
 

@@ -42,6 +42,8 @@ struct ConversationComposerSnapshot: Equatable {
     var rateLimits: RateLimitSnapshot?
     var availableModels: [ModelInfo]
     var isConnected: Bool
+    var supportsTurnPagination: Bool
+    var hasFixedFullAccess: Bool
 
     static let empty = ConversationComposerSnapshot(
         threadKey: ThreadKey(serverId: "", threadId: ""),
@@ -62,7 +64,9 @@ struct ConversationComposerSnapshot: Equatable {
         contextTokensUsed: nil,
         rateLimits: nil,
         availableModels: [],
-        isConnected: false
+        isConnected: false,
+        supportsTurnPagination: false,
+        hasFixedFullAccess: false
     )
 }
 
@@ -101,6 +105,14 @@ final class ConversationScreenModel {
     /// vanish on app switch.
     var composerInputText: String = ""
     var composerAttachedImage: UIImage?
+
+    /// Precomputed closure that resolves agent target labels from a captured
+    /// snapshot of `sessionSummaries`. Reading `appModel.snapshot` inside a
+    /// view body (the old `resolveTargetLabel` private func on
+    /// `ConversationView`) created a per-token observation edge. By
+    /// precomputing the closure here (in `refreshState`, a non-body context)
+    /// the closure captures stale-free data without registering an observation.
+    @ObservationIgnored private(set) var resolveTargetLabel: (String) -> String? = { _ in nil }
 
     @ObservationIgnored private var thread: AppThreadSnapshot?
     @ObservationIgnored private var appModel: AppModel?
@@ -146,6 +158,7 @@ final class ConversationScreenModel {
             pinnedContextItems = []
             composer = .empty
             followScrollToken = 0
+            resolveTargetLabel = { _ in nil }
             return
         }
 
@@ -169,6 +182,35 @@ final class ConversationScreenModel {
         let composerPrefillRequest = appModel.composerPrefillRequest.flatMap { request in
             request.threadKey == thread.key ? request : nil
         }
+
+        // Precompute server-derived properties here (non-body context) so
+        // ConversationView/ConversationInputBar never read `appModel.snapshot`
+        // in their body. Each read of `appModel.snapshot` in `body` registers
+        // an observation edge that re-renders the view on every coalesced
+        // snapshot mutation (~8 fps during streaming).
+        let serverSnapshot = appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+        let supportsTurnPagination = serverSnapshot?.capabilities.supportsTurnPagination ?? false
+        let hasFixedFullAccess = String.hasFixedFullAccess(thread.agentRuntimeKind)
+
+        // Precompute the resolveTargetLabel closure from a captured copy of
+        // sessionSummaries. This avoids reading `appModel.snapshot` inside
+        // ConversationView.body (the old private func created an observation
+        // edge that re-rendered the entire conversation on every snapshot bump).
+        let capturedSummaries = appModel.snapshot?.sessionSummaries ?? []
+        let serverId = thread.key.serverId
+        resolveTargetLabel = { target in
+            if AgentLabelFormatter.looksLikeDisplayLabel(target) {
+                return AgentLabelFormatter.sanitized(target)
+            }
+            guard let normalized = AgentLabelFormatter.sanitized(target) else { return nil }
+            if let summary = capturedSummaries.first(where: {
+                $0.key.serverId == serverId && $0.key.threadId == normalized
+            }) {
+                return summary.agentDisplayLabel ?? AgentLabelFormatter.sanitized(target)
+            }
+            return nil
+        }
+
         let composerSnapshot = ConversationComposerSnapshot(
             threadKey: thread.key,
             collaborationMode: thread.collaborationMode,
@@ -191,7 +233,9 @@ final class ConversationScreenModel {
                 runtime: thread.agentRuntimeKind
             ),
             availableModels: appModel.availableModels(for: thread.key.serverId),
-            isConnected: appModel.snapshot?.serverSnapshot(for: thread.key.serverId)?.isConnected ?? false
+            isConnected: serverSnapshot?.isConnected ?? false,
+            supportsTurnPagination: supportsTurnPagination,
+            hasFixedFullAccess: hasFixedFullAccess
         )
 
         let transcriptChanged =

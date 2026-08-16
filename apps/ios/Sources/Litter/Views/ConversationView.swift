@@ -40,6 +40,8 @@ struct ConversationView: View {
     let followScrollToken: Int
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
+    var supportsTurnPagination: Bool
+    var resolveTargetLabel: (String) -> String?
     @Binding var composerInputText: String
     @Binding var composerAttachedImage: UIImage?
     var topInset: CGFloat = 0
@@ -86,13 +88,6 @@ struct ConversationView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var supportsTurnPagination: Bool {
-        appModel.snapshot?
-            .serverSnapshot(for: activeThreadKey.serverId)?
-            .capabilities
-            .supportsTurnPagination ?? false
-    }
-
     var body: some View {
         ConversationMessageList(
             items: items,
@@ -107,7 +102,7 @@ struct ConversationView: View {
             olderTurnsCursor: thread.olderTurnsCursor,
             initialTurnsLoaded: thread.initialTurnsLoaded || !supportsTurnPagination,
             textSizeStep: $conversationTextSizeStep,
-            resolveTargetLabel: resolveTargetLabel,
+            resolveTargetLabel: { resolveTargetLabel($0) },
             onWidgetPrompt: sendWidgetPrompt,
             onEditUserItem: editMessage,
             onForkFromUserItem: forkFromMessage,
@@ -269,10 +264,6 @@ struct ConversationView: View {
                 messageActionError = error.localizedDescription
             }
         }
-    }
-
-    private func resolveTargetLabel(_ target: String) -> String? {
-        appModel.snapshot?.resolvedAgentTargetLabel(for: target, serverId: activeThreadKey.serverId)
     }
 
     /// Resolve the user-message position in the currently-loaded transcript.
@@ -1442,9 +1433,7 @@ private struct ConversationInputBar: View {
     }
 
     private var hasFixedFullAccess: Bool {
-        guard let runtime = appModel.snapshot?.threads
-            .first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind else { return false }
-        return String.hasFixedFullAccess(runtime)
+        snapshot.hasFixedFullAccess
     }
 
     private var pendingModelOverride: String? {
