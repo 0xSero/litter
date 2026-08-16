@@ -30,7 +30,7 @@ struct ConversationTurnTimeline: View {
     private var timelineContent: some View {
         let rows = rowDescriptors
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,

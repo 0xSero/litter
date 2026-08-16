@@ -15,7 +15,7 @@ struct HeaderView: View {
     }
 
     private var availableModels: [ModelInfo] {
-        appModel.availableModels(for: thread.key.serverId)
+        server?.availableModels ?? []
     }
 
     private var headerPermissionPreset: AppThreadPermissionPreset {
@@ -303,7 +303,7 @@ struct ConversationModelPickerPanel: View {
     var server: AppServerSnapshot?
 
     private var availableModels: [ModelInfo] {
-        appModel.availableModels(for: thread.key.serverId)
+        server?.availableModels ?? []
     }
 
     var body: some View {

@@ -591,6 +591,7 @@ private struct ConversationMessageList: View {
     @State private var autoFollowStreaming = true
     @State private var userIsDraggingScroll = false
     @State private var distanceFromBottom: CGFloat = 0
+    @State private var showScrollToBottomButton = false
     @State private var waitingForDataExpired = false
     @State private var pinchBaseStep: Int?
     @State private var pinchAppliedDelta = 0
@@ -637,7 +638,7 @@ private struct ConversationMessageList: View {
     }
 
     private var shouldShowScrollToBottom: Bool {
-        !items.isEmpty && distanceFromBottom > Self.latestButtonShowDistance
+        !items.isEmpty && showScrollToBottomButton
     }
 
     private var activeThreadScopeID: String {
@@ -655,9 +656,15 @@ private struct ConversationMessageList: View {
     }
 
     private var mergedRenderableTurns: [TranscriptTurn] {
+        // `renderedTurns` is already kept in sync by `applyTranscriptTurns`
+        // / `syncTranscriptTurns` whenever the transcript changes. Computing
+        // the build key here would be an O(n) hash across the entire
+        // transcript on every body evaluation (including every scroll frame),
+        // defeating the purpose of the cache. Fall back to source-derived
+        // merge only when the cache is empty (e.g. first render before
+        // `.onAppear` fires `syncTranscriptTurns`).
+        if !renderedTurns.isEmpty { return renderedTurns }
         let turns = sourceTurns
-        let buildKey = makeRenderedTurnsBuildKey(for: turns)
-        if renderedTurnsBuildKey == buildKey { return renderedTurns }
         return TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
     }
 
@@ -912,6 +919,8 @@ private struct ConversationMessageList: View {
         }
 
         distanceFromBottom = clampedDistance
+        let nextShowButton = clampedDistance > Self.latestButtonShowDistance
+        if nextShowButton != showScrollToBottomButton { showScrollToBottomButton = nextShowButton }
         let nextIsNearBottom = clampedDistance <= Self.nearBottomRestoreDistance
         if nextIsNearBottom != isNearBottom { isNearBottom = nextIsNearBottom }
         if nextIsNearBottom {
