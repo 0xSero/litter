@@ -876,39 +876,6 @@ struct SessionCanvasLine: View {
 
     // MARK: - Zoom 2: meta line
 
-    private var metaLine: some View {
-        HStack(spacing: 4) {
-            Text(timeAgo)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-            // Only show the tool label + pulsing dots when a tool call
-            // is actually executing. During pure LLM thinking/streaming
-            // we fall through to the server + workspace metadata, same
-            // as when the turn is idle.
-            if isActive && isToolCallRunning {
-                Text("\u{00b7}")
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                toolActivityLabel
-                SessionPulsingDots()
-                statChips
-            } else {
-                Text("\u{00b7}")
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                Text(session.serverDisplayName)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.7))
-                if let workspace = HomeDashboardSupport.workspaceLabel(for: session.cwd) {
-                    Text("\u{00b7}")
-                        .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                    Text(workspace)
-                        .foregroundStyle(LitterTheme.textSecondary.opacity(0.8))
-                }
-                statChips
-            }
-        }
-        .litterFont(size: 10, weight: .regular)
-        .lineLimit(1)
-        .padding(.top, 2)
-    }
-
     /// Inline stat chips: tool calls, turns, context %
     @ViewBuilder
     private var statChips: some View {

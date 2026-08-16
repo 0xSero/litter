@@ -2164,34 +2164,6 @@ private struct DiffIndicatorLabel: View {
     }
 }
 
-private struct DiffLine: Identifiable {
-    enum Kind {
-        case addition, deletion, hunk, context
-
-        var foregroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success
-            case .deletion: LitterTheme.danger
-            case .hunk: LitterTheme.accentStrong
-            case .context: LitterTheme.textBody
-            }
-        }
-
-        var backgroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success.opacity(0.12)
-            case .deletion: LitterTheme.danger.opacity(0.12)
-            case .hunk: LitterTheme.accentStrong.opacity(0.12)
-            case .context: LitterTheme.codeBackground.opacity(0.72)
-            }
-        }
-    }
-
-    let id: Int
-    let text: String
-    let kind: Kind
-}
-
 private struct ConversationDiffDetailSheet: View {
     let title: String
     let stats: DiffStats

@@ -728,10 +728,6 @@ final class NearbyMacPairing: NSObject {
 
 // MARK: - NI token coding helpers
 
-private enum NICodingError: Error {
-    case archiveFailed
-}
-
 private func encodeDiscoveryToken(_ token: NIDiscoveryToken) throws -> String {
     let data = try NSKeyedArchiver.archivedData(
         withRootObject: token,

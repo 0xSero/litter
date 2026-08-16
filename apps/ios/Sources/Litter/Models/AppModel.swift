@@ -1728,41 +1728,6 @@ final class AppModel {
         self.snapshot = snapshot
     }
 
-    private func applyThreadCommandExecutionUpdated(
-        key: ThreadKey,
-        itemId: String,
-        status: AppOperationStatus,
-        exitCode: Int32?,
-        durationMs: Int64?,
-        processId: String?
-    ) -> Bool {
-        guard var snapshot else { return false }
-        guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == key }) else {
-            return false
-        }
-        guard let itemIndex = snapshot.threads[threadIndex].hydratedConversationItems.firstIndex(where: { $0.id == itemId }) else {
-            return false
-        }
-
-        var item = snapshot.threads[threadIndex].hydratedConversationItems[itemIndex]
-        guard case .commandExecution(var data) = item.content else {
-            return false
-        }
-        data.status = status
-        data.exitCode = exitCode
-        data.durationMs = durationMs
-        data.processId = processId
-        item.content = .commandExecution(data)
-        guard snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] != item else {
-            return true
-        }
-        snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] = item
-        self.snapshot = snapshot
-        cacheThreadSnapshot(snapshot.threads[threadIndex])
-        lastError = nil
-        return true
-    }
-
     private func removeThreadSnapshot(
         for key: ThreadKey,
         agentDirectoryVersion: UInt64? = nil,

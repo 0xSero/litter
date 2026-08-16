@@ -1140,13 +1140,6 @@ private struct HomeNavigationView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func openServerSessions(_ server: HomeDashboardServer) {
-        appState.sessionsSelectedServerFilterId = server.id
-        appState.sessionsShowOnlyForks = false
-        hasSeededInitialConversationRoute = true
-        navigationPath.append(.sessions(serverId: server.id, title: server.displayName))
-    }
-
     private func openSessionAtIndex(_ summary: AppSessionSummary) async {
         guard openingRecentSessionKey == nil else { return }
         openingRecentSessionKey = summary.key
@@ -1929,6 +1922,8 @@ private struct ConversationDestinationScreen: View {
                     composer: screenModel.composer,
                     supportsTurnPagination: screenModel.composer.supportsTurnPagination,
                     resolveTargetLabel: screenModel.resolveTargetLabel,
+                    resolveThreadKey: screenModel.resolveThreadKey,
+                    resolveLiveStatus: screenModel.resolveLiveStatus,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,
@@ -2051,6 +2046,8 @@ private struct ReplayDestinationScreen: View {
                     composer: screenModel.composer,
                     supportsTurnPagination: screenModel.composer.supportsTurnPagination,
                     resolveTargetLabel: screenModel.resolveTargetLabel,
+                    resolveThreadKey: screenModel.resolveThreadKey,
+                    resolveLiveStatus: screenModel.resolveLiveStatus,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,

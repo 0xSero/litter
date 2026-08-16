@@ -267,17 +267,6 @@ struct ConversationInfoView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func timestampLabel(_ label: String, timestamp: Int64) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .litterFont(size: 10, weight: .medium)
-                .foregroundStyle(LitterTheme.textMuted)
-            Text(relativeDate(timestamp))
-                .litterFont(size: 12)
-                .foregroundStyle(LitterTheme.textSecondary)
-        }
-    }
-
     private var statusColor: Color {
         switch thread?.info.status {
         case .active: return LitterTheme.success

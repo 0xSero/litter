@@ -48,7 +48,6 @@ struct HomeComposerView: View {
     @State private var isComposerFocused: Bool = false
     @State private var composerSelectionRange = NSRange(location: 0, length: 0)
 
-    private var isDisabled: Bool { project == nil }
     private var resolvedTranscriptionServerId: String? {
         project?.serverId ?? transcriptionServerId
     }

@@ -627,16 +627,6 @@ private struct ConversationMessageList: View {
         return transcriptTurns
     }
 
-    private var lastTurnIsUserOnly: Bool {
-        guard let lastTurn = sourceTurns.last else { return false }
-        return lastTurn.items.allSatisfy { $0.isUserItem }
-    }
-
-    private var isStreamingLastTurn: Bool {
-        if case .thinking = threadStatus { return true }
-        return sourceTurns.last?.isLive == true
-    }
-
     private var messageActionsDisabled: Bool {
         if case .thinking = threadStatus { return true }
         return false

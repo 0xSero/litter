@@ -27,8 +27,6 @@ struct SubagentCardView: View {
         _expanded = State(initialValue: true)
     }
 
-    private var isInProgress: Bool { data.isInProgress }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
