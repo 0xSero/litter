@@ -2852,7 +2852,7 @@ private func filterSlashCommands(_ query: String) -> [ComposerSlashCommand] {
         .map(\.0)
 }
 
-private func fuzzyScore(candidate: String, query: String) -> Int? {
+func fuzzyScore(candidate: String, query: String) -> Int? {
     let normalizedCandidate = candidate.lowercased()
     let normalizedQuery = query.lowercased()
 
@@ -2898,12 +2898,12 @@ private func isMentionNameByte(_ byte: UInt8) -> Bool {
     }
 }
 
-private func isMentionQueryValid(_ query: String) -> Bool {
+func isMentionQueryValid(_ query: String) -> Bool {
     guard !query.isEmpty else { return true }
     return query.utf8.allSatisfy(isMentionNameByte)
 }
 
-private func extractMentionNames(_ text: String) -> [String] {
+func extractMentionNames(_ text: String) -> [String] {
     let bytes = Array(text.utf8)
     guard !bytes.isEmpty else { return [] }
 

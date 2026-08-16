@@ -171,6 +171,15 @@ struct HomeComposerView: View {
     @State private var activeAtToken: ComposerTokenContext?
     @State private var showPluginPopup = false
     @State private var popupRefreshTask: Task<Void, Never>?
+    // Skill ($prefix) autocomplete state — mirrors ConversationView's pattern
+    @State private var skills: [SkillMetadata] = []
+    @State private var skillsLoading = false
+    @State private var skillUnsupportedCwds: Set<String> = []
+    @State private var skillLoadingCwds: Set<String> = []
+    @State private var mentionSkillPathsByName: [String: String] = [:]
+    @State private var activeDollarToken: ComposerTokenContext?
+    @State private var showSkillPopup = false
+    @State private var hasAttemptedSkillLoad = false
     /// Plain `@State`, not `@FocusState`: the composer's text view is a
     /// UIKit `UITextView` wrapped in a UIViewRepresentable, not a SwiftUI
     /// focusable view. Using `@FocusState` without a matching `.focused()`
@@ -257,7 +266,13 @@ struct HomeComposerView: View {
                 composerSelectionRange: $composerSelectionRange
             )
             .overlay(alignment: .bottom) {
-                if showPluginPopup, project != nil {
+                if showSkillPopup, project != nil {
+                    HomeSkillAutocompletePopup(
+                        skills: skillSuggestions,
+                        isLoading: skillsLoading,
+                        onSelect: applySkillSuggestion
+                    )
+                } else if showPluginPopup, project != nil {
                     HomePluginAutocompletePopup(
                         plugins: filteredPluginSuggestions,
                         onSelect: applyPluginSuggestion
@@ -362,9 +377,17 @@ struct HomeComposerView: View {
                 let preparedAttachments = images.compactMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
                 let mentionsToSend = collectPluginMentionsForSubmission(text)
+                let skillMentions = collectSkillMentionsForSubmission(text)
                 pluginMentionSelections = []
                 showPluginPopup = false
                 activeAtToken = nil
+                showSkillPopup = false
+                activeDollarToken = nil
+                for skill in skillMentions {
+                    additionalInputs.append(
+                        AppUserInput.skill(name: skill.name, path: AbsolutePath(value: skill.path))
+                    )
+                }
                 for mention in mentionsToSend {
                     additionalInputs.append(
                         AppUserInput.mention(name: mention.name, path: mention.path)
@@ -477,9 +500,39 @@ struct HomeComposerView: View {
         guard project != nil else {
             showPluginPopup = false
             activeAtToken = nil
+            showSkillPopup = false
+            activeDollarToken = nil
             return
         }
         let cursor = nextText.count
+
+        // $skill token
+        if let dollarToken = currentPrefixedToken(
+            text: nextText,
+            cursor: cursor,
+            prefix: "$",
+            allowEmpty: true
+        ), isMentionQueryValid(dollarToken.value) {
+            // Suppress @plugin popup if both are somehow active
+            if showPluginPopup { showPluginPopup = false }
+            if activeAtToken != nil { activeAtToken = nil }
+            if !showSkillPopup { showSkillPopup = true }
+            if activeDollarToken != dollarToken {
+                activeDollarToken = dollarToken
+            }
+            if !hasAttemptedSkillLoad && !skillsLoading {
+                hasAttemptedSkillLoad = true
+                Task { await loadSkills(showErrors: false) }
+            }
+            return
+        }
+
+        if activeDollarToken != nil || showSkillPopup {
+            activeDollarToken = nil
+            if showSkillPopup { showSkillPopup = false }
+        }
+
+        // @plugin token
         if let atToken = currentPrefixedToken(
             text: nextText,
             cursor: cursor,
@@ -564,6 +617,100 @@ struct HomeComposerView: View {
         }
         return resolved
     }
+
+    // MARK: - Skill autocomplete
+
+    private func loadSkills(forceReload: Bool = false, showErrors: Bool = false) async {
+        guard let project else { return }
+        let cwd = project.cwd
+        guard !skillUnsupportedCwds.contains(cwd) else {
+            skills = []
+            return
+        }
+        skillsLoading = true
+        defer { skillsLoading = false }
+        do {
+            let fetched = try await appModel.client.listSkills(
+                serverId: project.serverId,
+                params: AppListSkillsRequest(cwds: [cwd], forceReload: forceReload)
+            )
+            let loaded = fetched.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            skills = loaded
+            let validPaths = Set(loaded.map { $0.path.value })
+            mentionSkillPathsByName = mentionSkillPathsByName.filter { _, path in validPaths.contains(path) }
+        } catch {
+            if showErrors {
+                errorMessage = error.localizedDescription
+            }
+            skillUnsupportedCwds.insert(cwd)
+        }
+    }
+
+    private var skillSuggestions: [SkillMetadata] {
+        guard let token = activeDollarToken else { return [] }
+        return filterSkillSuggestions(token.value)
+    }
+
+    private func filterSkillSuggestions(_ query: String) -> [SkillMetadata] {
+        guard !skills.isEmpty else { return [] }
+        guard !query.isEmpty else {
+            return skills.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        }
+        return skills
+            .compactMap { skill -> (SkillMetadata, Int)? in
+                let scoreFromName = fuzzyScore(candidate: skill.name, query: query)
+                let scoreFromDescription = fuzzyScore(candidate: skill.description, query: query)
+                let best = max(scoreFromName ?? Int.min, scoreFromDescription ?? Int.min)
+                guard best != Int.min else { return nil }
+                return (skill, best)
+            }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                return lhs.0.name.lowercased() < rhs.0.name.lowercased()
+            }
+            .map(\.0)
+    }
+
+    private func applySkillSuggestion(_ skill: SkillMetadata) {
+        guard let token = activeDollarToken else { return }
+        let replacement = "$\(skill.name) "
+        if let updated = replacingRange(
+            in: inputText,
+            with: token.range,
+            replacement: replacement
+        ) {
+            inputText = updated
+        }
+        mentionSkillPathsByName[skill.name.lowercased()] = skill.path.value
+        showSkillPopup = false
+        activeDollarToken = nil
+    }
+
+    private func collectSkillMentionsForSubmission(_ text: String) -> [SkillMentionSelection] {
+        guard !skills.isEmpty else { return [] }
+        let mentionNames = extractMentionNames(text)
+        guard !mentionNames.isEmpty else { return [] }
+        let skillsByName = Dictionary(grouping: skills, by: { $0.name.lowercased() })
+        let skillsByPath = Dictionary(grouping: skills, by: \.path.value)
+        var seenPaths = Set<String>()
+        var resolved: [SkillMentionSelection] = []
+        for mentionName in mentionNames {
+            let normalizedName = mentionName.lowercased()
+            if let selectedPath = mentionSkillPathsByName[normalizedName], !selectedPath.isEmpty {
+                if let selectedSkill = skillsByPath[selectedPath]?.first {
+                    guard seenPaths.insert(selectedPath).inserted else { continue }
+                    resolved.append(SkillMentionSelection(name: selectedSkill.name, path: selectedPath))
+                    continue
+                }
+                mentionSkillPathsByName.removeValue(forKey: normalizedName)
+            }
+            guard let candidates = skillsByName[normalizedName], candidates.count == 1 else { continue }
+            let match = candidates[0]
+            guard seenPaths.insert(match.path.value).inserted else { continue }
+            resolved.append(SkillMentionSelection(name: match.name, path: match.path.value))
+        }
+        return resolved
+    }
 }
 
 private struct HomePluginAutocompletePopup: View {
@@ -598,6 +745,87 @@ private struct HomePluginAutocompletePopup: View {
                                         .lineLimit(1)
                                     if let subtitle = plugin.interface?.shortDescription, !subtitle.isEmpty {
                                         Text(subtitle)
+                                            .litterFont(.caption)
+                                            .foregroundColor(LitterTheme.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider()
+                            .background(LitterTheme.border)
+                            .opacity(item.offset < visible.count - 1 ? 1 : 0)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(LitterTheme.surface.opacity(0.95))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(LitterTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 56)
+    }
+}
+
+private struct HomeSkillAutocompletePopup: View {
+    let skills: [SkillMetadata]
+    let isLoading: Bool
+    let onSelect: (SkillMetadata) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if isLoading && skills.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(LitterTheme.accent)
+                    Text("Loading skills…")
+                        .litterFont(.footnote)
+                        .foregroundColor(LitterTheme.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            } else if skills.isEmpty {
+                Text("No matching skills")
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            } else {
+                let visible = Array(skills.prefix(8))
+                ForEach(Array(visible.enumerated()), id: \.element) { item in
+                    let skill = item.element
+                    VStack(spacing: 0) {
+                        Button {
+                            onSelect(skill)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "wand.and.stars")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("$\(skill.name)")
+                                        .litterFont(.footnote, weight: .semibold)
+                                        .foregroundColor(LitterTheme.textPrimary)
+                                        .lineLimit(1)
+                                    if let desc = skill.shortDescription, !desc.isEmpty {
+                                        Text(desc)
+                                            .litterFont(.caption)
+                                            .foregroundColor(LitterTheme.textSecondary)
+                                            .lineLimit(1)
+                                    } else if !skill.description.isEmpty {
+                                        Text(skill.description)
                                             .litterFont(.caption)
                                             .foregroundColor(LitterTheme.textSecondary)
                                             .lineLimit(1)
