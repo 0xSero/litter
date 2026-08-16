@@ -2003,6 +2003,7 @@ private struct ConversationDestinationScreen: View {
                         }
                     }
                 }
+            }
             .padding(.horizontal, 12)
             .padding(.top, 6)
         }
