@@ -100,8 +100,17 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
         ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.description ?? "This sandbox setting is managed by the server."
     }
 
+    /// `appModel.snapshot?.threads.first(where:)` is an O(threads) scan and is
+    /// read ten times across the permissions/model sheets. `threadSnapshot` is
+    /// the O(1) indexed lookup AppModel already exposes (and the one
+    /// ConversationView uses for the same thread).
+    ///
+    /// TODO(perf): stop reading `appModel` from this coordinator entirely once
+    /// `ConversationComposerSnapshot` carries `threadAgentRuntimeKind`,
+    /// `threadEffectiveApprovalPolicy`, `threadEffectiveSandboxPolicy`,
+    /// `threadAmpReasoningEffortLocked` and `modelCatalogLoaded`.
     private var currentThread: AppThreadSnapshot? {
-        appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey })
+        appModel.threadSnapshot(for: snapshot.threadKey)
     }
 
     private var currentRuntimeSupportsPermissionOverrides: Bool {

@@ -53,6 +53,11 @@ final class AppModel {
     private static let liveItemMutationCoalescingNanoseconds: UInt64 = 120_000_000 // ~8fps commands
     private static let liveThreadStateCoalescingNanoseconds: UInt64 = 150_000_000  // ~6fps metadata
     private static let streamingDeltaCoalescingNanoseconds: UInt64 = 120_000_000   // ~8fps streamed text
+    /// Default coalescing window for full-snapshot refreshes.
+    private static let snapshotRefreshDebounceNanoseconds: UInt64 = 75_000_000
+    /// Shorter window for updates the user is waiting on (approval prompts,
+    /// user-input requests) so they still surface effectively immediately.
+    private static let urgentSnapshotRefreshDebounceNanoseconds: UInt64 = 50_000_000
     private static let localAuthRestoreRetryDelays: [Duration] = [
         .seconds(1),
         .seconds(2),
@@ -111,7 +116,15 @@ final class AppModel {
 
     private(set) var snapshot: AppSnapshotRecord? {
         didSet {
-            guard oldValue != snapshot else { return }
+            // Deliberately no `oldValue != snapshot` guard here.
+            // `AppSnapshotRecord` is a deep value tree (servers + threads,
+            // each thread carrying every hydrated conversation item), so an
+            // equality check walked the entire conversation history on the
+            // main actor at each of the ~20 assignment sites. Every site
+            // either only assigns when it actually mutated something or
+            // guards cheaply on its own (see `applySessionSummary` /
+            // `updateActiveThread`).
+            threadIndexCache = nil
             snapshotRevision &+= 1
         }
     }
@@ -129,6 +142,12 @@ final class AppModel {
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
     @ObservationIgnored private var pendingActiveThreadHydrationTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSnapshotRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingSnapshotRefreshDeadline: DispatchTime?
+    /// `ThreadKey -> index into snapshot.threads`, rebuilt lazily on first
+    /// lookup after `snapshot` changes. Invalidated in `snapshot.didSet`,
+    /// which is the only way `snapshot` can change (`private(set)`, and every
+    /// mutation site copies-then-assigns), so it cannot go stale.
+    @ObservationIgnored private var threadIndexCache: [ThreadKey: Int]?
     @ObservationIgnored private var pendingThreadStateEvents: [ThreadKey: PendingThreadStateEvent] = [:]
     @ObservationIgnored private var pendingThreadStateTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCommandRowMutations: [String: PendingCommandRowMutation] = [:]
@@ -222,6 +241,7 @@ final class AppModel {
         pendingActiveThreadHydrationKey = nil
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
+        pendingSnapshotRefreshDeadline = nil
         pendingThreadStateTask?.cancel()
         pendingThreadStateTask = nil
         pendingThreadStateEvents.removeAll()
@@ -237,6 +257,7 @@ final class AppModel {
     func refreshSnapshot() async {
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
+        pendingSnapshotRefreshDeadline = nil
         await performSnapshotRefresh()
     }
 
@@ -252,16 +273,37 @@ final class AppModel {
         lastError = error.localizedDescription
     }
 
-    private func scheduleSnapshotRefreshDebounced() {
-        guard pendingSnapshotRefreshTask == nil else { return }
+    /// Coalesce full-snapshot refreshes. `refreshSnapshot()` rebuilds the
+    /// entire `AppSnapshotRecord` from Rust and is the single most expensive
+    /// main-actor operation in the app, so every store update that needs one
+    /// funnels through here instead of awaiting it inline.
+    ///
+    /// The armed task always performs a trailing refresh: it reads the whole
+    /// store, so any updates that arrived during the window are picked up.
+    /// Callers that need lower latency (user-visible approvals / input
+    /// requests) pass a shorter window; a shorter request re-arms an
+    /// already-pending longer one, and a longer request never pushes an
+    /// earlier deadline out.
+    private func scheduleSnapshotRefreshDebounced(
+        within nanoseconds: UInt64 = AppModel.snapshotRefreshDebounceNanoseconds
+    ) {
+        let deadline = DispatchTime.now() + .nanoseconds(Int(nanoseconds))
+        if pendingSnapshotRefreshTask != nil,
+           let existing = pendingSnapshotRefreshDeadline,
+           existing <= deadline {
+            return
+        }
+        pendingSnapshotRefreshTask?.cancel()
+        pendingSnapshotRefreshDeadline = deadline
         pendingSnapshotRefreshTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: 75_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
             } catch {
                 return
             }
             guard let self else { return }
             self.pendingSnapshotRefreshTask = nil
+            self.pendingSnapshotRefreshDeadline = nil
             await self.performSnapshotRefresh()
         }
     }
@@ -856,8 +898,45 @@ final class AppModel {
         return snapshot
     }
 
+    /// Stable discriminant label for a store update.
+    ///
+    /// Never interpolate `AppStoreUpdateRecord` itself: it has no
+    /// `CustomStringConvertible`, so `"\(update)"` falls back to a
+    /// `Mirror`-based reflective walk of the whole payload — for
+    /// `.threadUpserted` that is every hydrated conversation item in the
+    /// thread, on the main actor, once per store update.
+    private static func updateLabel(_ update: AppStoreUpdateRecord) -> String {
+        switch update {
+        case .threadUpserted: return "threadUpserted"
+        case .threadMetadataChanged: return "threadMetadataChanged"
+        case .threadItemChanged: return "threadItemChanged"
+        case .threadStreamingDelta: return "threadStreamingDelta"
+        case .threadRemoved: return "threadRemoved"
+        case .activeThreadChanged: return "activeThreadChanged"
+        case .pendingApprovalsChanged: return "pendingApprovalsChanged"
+        case .pendingUserInputsChanged: return "pendingUserInputsChanged"
+        case .serverChanged: return "serverChanged"
+        case .serverRemoved: return "serverRemoved"
+        case .fullResync: return "fullResync"
+        case .voiceSessionChanged: return "voiceSessionChanged"
+        case .realtimeTranscriptUpdated: return "realtimeTranscriptUpdated"
+        case .realtimeHandoffRequested: return "realtimeHandoffRequested"
+        case .realtimeSpeechStarted: return "realtimeSpeechStarted"
+        case .realtimeStarted: return "realtimeStarted"
+        case .realtimeSdp: return "realtimeSdp"
+        case .realtimeOutputAudioDelta: return "realtimeOutputAudioDelta"
+        case .realtimeError: return "realtimeError"
+        case .realtimeClosed: return "realtimeClosed"
+        case .savedAppsChanged: return "savedAppsChanged"
+        case .dynamicWidgetStreaming: return "dynamicWidgetStreaming"
+        case .terminalSessionsChanged: return "terminalSessionsChanged"
+        }
+    }
+
     private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
-        PerfTracker.event("storeUpdate", ["type": "\(update)"])
+        // Argument is an `@autoclosure`: nothing below is evaluated outside
+        // DEBUG, and even in DEBUG it only reads the case discriminant.
+        PerfTracker.event("storeUpdate", ["type": Self.updateLabel(update)])
         switch update {
         case .threadUpserted(let thread, let sessionSummary, let agentDirectoryVersion):
             applyThreadUpsert(
@@ -917,18 +996,24 @@ final class AppModel {
             }
             scheduleDeferredActiveThreadHydrationIfNeeded(for: key)
         case .pendingApprovalsChanged:
-            await refreshSnapshot()
+            // User-visible and blocking — short window, but still coalesced
+            // so a burst of approvals costs one snapshot rebuild.
+            scheduleSnapshotRefreshDebounced(
+                within: Self.urgentSnapshotRefreshDebounceNanoseconds
+            )
         case .pendingUserInputsChanged:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced(
+                within: Self.urgentSnapshotRefreshDebounceNanoseconds
+            )
         case .serverChanged:
             scheduleSnapshotRefreshDebounced()
         case .serverRemoved:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .fullResync:
             flushPendingStreamingDeltas()
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .voiceSessionChanged:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .realtimeTranscriptUpdated:
             break
         case .realtimeHandoffRequested:
@@ -936,21 +1021,21 @@ final class AppModel {
         case .realtimeSpeechStarted:
             break
         case .realtimeStarted:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .realtimeSdp:
             break
         case .realtimeOutputAudioDelta:
             break
         case .realtimeError:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .realtimeClosed:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         case .savedAppsChanged:
             SavedAppsStore.shared.reload()
         case .dynamicWidgetStreaming(let key, let itemId, _, let widget):
             applyStreamingWidget(key: key, itemId: itemId, widget: widget)
         case .terminalSessionsChanged:
-            await refreshSnapshot()
+            scheduleSnapshotRefreshDebounced()
         }
     }
 
@@ -1484,13 +1569,18 @@ final class AppModel {
                 effectiveSessionSummary.updatedAt = existingSummary.updatedAt
             }
             sessionSummaryChanged = existingSummary != effectiveSessionSummary
-            snapshot.sessionSummaries[index] = effectiveSessionSummary
+            if sessionSummaryChanged {
+                // Equivalent to the old "assign in place then full sort",
+                // minus the O(n log n).
+                Self.upsertSortedSessionSummary(
+                    effectiveSessionSummary,
+                    into: &snapshot.sessionSummaries,
+                    existingIndex: index
+                )
+            }
         } else {
             sessionSummaryChanged = true
-            snapshot.sessionSummaries.append(sessionSummary)
-        }
-        if sessionSummaryChanged {
-            snapshot.sessionSummaries.sort(by: Self.sessionSummarySort(lhs:rhs:))
+            Self.upsertSortedSessionSummary(sessionSummary, into: &snapshot.sessionSummaries)
         }
         let agentDirectoryChanged = snapshot.agentDirectoryVersion != agentDirectoryVersion
         if isVisibleActiveLiveThread && !threadChanged && !agentDirectoryChanged {
@@ -1664,12 +1754,10 @@ final class AppModel {
             snapshot.threads.append(thread)
         }
 
-        if let index = snapshot.sessionSummaries.firstIndex(where: { $0.key == sessionSummary.key }) {
-            snapshot.sessionSummaries[index] = sessionSummary
-        } else {
-            snapshot.sessionSummaries.append(sessionSummary)
-        }
-        snapshot.sessionSummaries.sort(by: Self.sessionSummarySort(lhs:rhs:))
+        // Only one summary changed, so place it directly instead of
+        // re-sorting the whole array on every ThreadUpserted event (during a
+        // Local Studio connect there is one event per thread).
+        Self.upsertSortedSessionSummary(sessionSummary, into: &snapshot.sessionSummaries)
         snapshot.agentDirectoryVersion = agentDirectoryVersion
         self.snapshot = snapshot
         cacheThreadSnapshot(thread)
@@ -1730,6 +1818,10 @@ final class AppModel {
     private func applySessionSummary(_ summary: AppSessionSummary) {
         guard var snapshot else { return }
         if let idx = snapshot.sessionSummaries.firstIndex(where: { $0.key == summary.key }) {
+            // Cheap single-summary guard (replaces the whole-snapshot deep
+            // compare that used to live in `snapshot.didSet`). This runs on
+            // every `.threadItemChanged`, i.e. per streamed item.
+            guard snapshot.sessionSummaries[idx] != summary else { return }
             snapshot.sessionSummaries[idx] = summary
         } else {
             snapshot.sessionSummaries.append(summary)
@@ -1759,6 +1851,9 @@ final class AppModel {
 
     private func updateActiveThread(_ key: ThreadKey?) {
         guard var snapshot else { return }
+        // Cheap guard (two string compares) in place of the whole-snapshot
+        // deep compare that used to sit in `snapshot.didSet`.
+        guard snapshot.activeThread != key else { return }
         snapshot.activeThread = key
         self.snapshot = snapshot
     }
@@ -1827,6 +1922,66 @@ final class AppModel {
             return lhs.key.serverId < rhs.key.serverId
         }
         return lhs.key.threadId < rhs.key.threadId
+    }
+
+    /// True when `summaries` is already in `sessionSummarySort` order.
+    /// O(n) cheap comparisons (Int64 first, strings only on ties).
+    private static func sessionSummariesAreSorted(_ summaries: [AppSessionSummary]) -> Bool {
+        guard summaries.count > 1 else { return true }
+        for index in 1..<summaries.count {
+            if sessionSummarySort(lhs: summaries[index], rhs: summaries[index - 1]) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Binary search for the insertion point of `summary` in a
+    /// `sessionSummarySort`-ordered array.
+    private static func sortedSessionSummaryInsertionIndex(
+        for summary: AppSessionSummary,
+        in summaries: [AppSessionSummary]
+    ) -> Int {
+        var low = 0
+        var high = summaries.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if sessionSummarySort(lhs: summaries[mid], rhs: summary) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    /// Replace-or-insert `summary` while keeping `summaries` in
+    /// `sessionSummarySort` order.
+    ///
+    /// Replaces the old "mutate in place, then `sort()` the whole array"
+    /// pattern, which cost O(n log n) comparisons plus a full permutation on
+    /// *every* thread event. `sessionSummaries` is not guaranteed sorted on
+    /// entry (`applySessionSummary` appends without sorting, and a full
+    /// snapshot arrives in whatever order Rust produced), so the sorted fast
+    /// path is gated on an O(n) sortedness check and otherwise falls back to
+    /// the full sort. Since the comparator is a total order over unique
+    /// `key`s, both paths produce the identical array.
+    private static func upsertSortedSessionSummary(
+        _ summary: AppSessionSummary,
+        into summaries: inout [AppSessionSummary],
+        existingIndex: Int? = nil
+    ) {
+        let index = existingIndex ?? summaries.firstIndex(where: { $0.key == summary.key })
+        if let index {
+            summaries.remove(at: index)
+        }
+        if sessionSummariesAreSorted(summaries) {
+            let insertionIndex = sortedSessionSummaryInsertionIndex(for: summary, in: summaries)
+            summaries.insert(summary, at: insertionIndex)
+        } else {
+            summaries.append(summary)
+            summaries.sort(by: sessionSummarySort(lhs:rhs:))
+        }
     }
 
     private static func insertionIndex(
@@ -2152,7 +2307,34 @@ final class AppModel {
     }
 
     func threadSnapshot(for key: ThreadKey) -> AppThreadSnapshot? {
-        snapshot?.threadSnapshot(for: key) ?? cachedThreadSnapshots[key]
+        if let index = threadIndex(for: key) {
+            return snapshot?.threads[index]
+        }
+        return cachedThreadSnapshots[key]
+    }
+
+    /// O(1) replacement for `snapshot.threads.firstIndex(where:)` on the hot
+    /// lookup path (`shouldBatchLiveThreadStateUpdate` runs this per thread
+    /// metadata event, which was O(threads) per event, i.e. quadratic during
+    /// a Local Studio connect).
+    ///
+    /// The cache is dropped in `snapshot.didSet` and rebuilt on first use, so
+    /// it is always derived from the current `snapshot`. Duplicate keys
+    /// resolve to the first occurrence, matching `firstIndex(where:)`.
+    private func threadIndex(for key: ThreadKey) -> Int? {
+        guard let snapshot else { return nil }
+        if let threadIndexCache {
+            return threadIndexCache[key]
+        }
+        var cache = [ThreadKey: Int](minimumCapacity: snapshot.threads.count)
+        for index in snapshot.threads.indices {
+            let threadKey = snapshot.threads[index].key
+            if cache[threadKey] == nil {
+                cache[threadKey] = index
+            }
+        }
+        threadIndexCache = cache
+        return cache[key]
     }
 
     private func hasAuthoritativePermissions(_ thread: AppThreadSnapshot) -> Bool {
@@ -2208,13 +2390,27 @@ final class AppModel {
             snapshot.threads[index] = mergedThreadSnapshotPreservingHydratedItems(thread)
         }
 
+        guard !cachedThreadSnapshots.isEmpty else { return snapshot }
+
+        // Hash the existing keys once instead of running two linear
+        // `contains(where:)` scans per cached thread (previously
+        // O(cached x (threads + summaries)) on every full snapshot apply).
+        var presentThreadKeys = Set<ThreadKey>(minimumCapacity: snapshot.threads.count)
+        for index in snapshot.threads.indices {
+            presentThreadKeys.insert(snapshot.threads[index].key)
+        }
+        var summaryKeys = Set<ThreadKey>(minimumCapacity: snapshot.sessionSummaries.count)
+        for index in snapshot.sessionSummaries.indices {
+            summaryKeys.insert(snapshot.sessionSummaries[index].key)
+        }
+
         for (key, cached) in cachedThreadSnapshots {
-            guard snapshot.threads.contains(where: { $0.key == key }) == false else { continue }
-            guard snapshot.activeThread == key ||
-                  snapshot.sessionSummaries.contains(where: { $0.key == key }) else {
+            guard !presentThreadKeys.contains(key) else { continue }
+            guard snapshot.activeThread == key || summaryKeys.contains(key) else {
                 continue
             }
             snapshot.threads.append(cached)
+            presentThreadKeys.insert(key)
         }
 
         return snapshot

@@ -35,16 +35,22 @@ enum PerfTracker {
             let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
             let ms = Double(elapsed) / 1_000_000
             os_signpost(.end, log: log, name: name, signpostID: signpostID)
-            LLog.debug("perf", "\(name) took \(String(format: ".2f", ms))ms")
+            LLog.debug("perf", "\(name) took \(String(format: "%.2f", ms))ms")
         }
         #endif
         return try await block()
     }
 
     /// Emit a named event signpost (for marking points in time, not durations).
-    static func event(_ name: StaticString, _ fields: [String: Any] = [:]) {
+    ///
+    /// `fields` is an `@autoclosure` so the caller's argument expression is
+    /// **never evaluated** outside DEBUG builds. Before this, the dictionary
+    /// literal (and any string interpolation inside it) was built on every
+    /// call in every configuration, including Release.
+    static func event(_ name: StaticString, _ fields: @autoclosure () -> [String: Any] = [:]) {
         #if DEBUG
         os_signpost(.event, log: log, name: name)
+        let fields = fields()
         if !fields.isEmpty {
             LLog.debug("perf", "\(name) \(fields)")
         }

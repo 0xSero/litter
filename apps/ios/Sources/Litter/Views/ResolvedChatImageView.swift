@@ -23,6 +23,7 @@ enum ResolvedChatImageSource: Equatable {
 struct ResolvedChatImageView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.activeThreadKey) private var activeThreadKey
+    @Environment(\.activeThreadCwd) private var activeThreadCwd
 
     let source: ResolvedChatImageSource
     var serverId: String? = nil
@@ -75,12 +76,18 @@ struct ResolvedChatImageView: View {
         serverId ?? activeThreadKey?.serverId ?? ""
     }
 
+    /// Falls back to the active thread's cwd, read from the environment
+    /// rather than from `appModel.threadSnapshot(for:)`. This view is
+    /// instantiated once per inline image in a transcript, so resolving the
+    /// cwd through `AppModel` put one `snapshot` observation edge per image
+    /// into `body` (via `taskKey`) — every one of them re-rendering at the
+    /// ~8 fps streaming snapshot cadence. The cwd is injected once by the
+    /// conversation host alongside `\.activeThreadKey`.
     private var resolvedCwd: String? {
         if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return cwd
         }
-        guard let activeThreadKey else { return nil }
-        return appModel.threadSnapshot(for: activeThreadKey)?.info.cwd
+        return activeThreadCwd
     }
 
     private var taskKey: String {
@@ -182,6 +189,29 @@ struct ResolvedChatImageView: View {
             return 16 / 9
         }
         return CGFloat(width / height)
+    }
+}
+
+// MARK: - Active Thread Cwd Environment
+
+/// Working directory of the thread currently on screen. Injected by the
+/// conversation host next to `\.activeThreadKey` so per-message views can
+/// resolve relative image paths without reading `AppModel.snapshot` (which
+/// churns at the streaming snapshot cadence).
+private struct ActiveThreadCwdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var activeThreadCwd: String? {
+        get { self[ActiveThreadCwdKey.self] }
+        set { self[ActiveThreadCwdKey.self] = newValue }
+    }
+}
+
+extension View {
+    func activeThreadCwd(_ cwd: String?) -> some View {
+        environment(\.activeThreadCwd, cwd)
     }
 }
 

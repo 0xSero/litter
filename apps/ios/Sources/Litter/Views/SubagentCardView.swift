@@ -50,7 +50,11 @@ struct SubagentCardView: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $sheetThreadKey) { key in
-            let resolvedKey = appModel.snapshot?.resolvedThreadKey(for: key.threadId, serverId: key.serverId) ?? key
+            // `resolveThreadKey` is precomputed by `ConversationScreenModel`
+            // from a captured snapshot and mirrors
+            // `AppSnapshotRecord.resolvedThreadKey(for:serverId:)`, so this
+            // closure no longer reads `appModel.snapshot`.
+            let resolvedKey = resolveThreadKey(key.threadId) ?? key
             SubagentDetailSheet(threadKey: resolvedKey, agentLabel: sheetAgentLabel)
                 .environment(appModel)
         }
@@ -319,23 +323,50 @@ private struct SubagentDetailSheet: View {
     var agentLabel: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var isLoading = false
+    /// Live thread + title, mirrored out of `appModel.snapshot` by
+    /// `snapshotObserver`. Both used to be computed in `body`, which meant the
+    /// sheet re-rendered its whole timeline on every snapshot revision
+    /// (~8 fps) rather than only when this thread changed.
+    @State private var threadSnapshot: AppThreadSnapshot?
+    /// Title resolved in the same precedence order the body used to compute
+    /// inline. Seeded from the caller's already-resolved `agentLabel` so the
+    /// first frame is correct, then kept current by `snapshotObserver`.
+    @State private var title: String
+    @State private var snapshotObserver = AppSnapshotObserver()
 
-    private var threadSnapshot: AppThreadSnapshot? {
-        appModel.snapshot?.threadSnapshot(for: threadKey)
+    init(threadKey: ThreadKey, agentLabel: String? = nil) {
+        self.threadKey = threadKey
+        self.agentLabel = agentLabel
+        let seed = agentLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        _title = State(initialValue: seed.isEmpty ? "Agent" : seed)
+        _threadSnapshot = State<AppThreadSnapshot?>(initialValue: nil)
     }
 
-    private var title: String {
-        if let label = threadSnapshot.flatMap({ appModel.snapshot?.sessionSummary(for: $0.key)?.agentDisplayLabel }) {
-            return label
+    /// Called from `snapshotObserver`, never from `body`. Preserves the
+    /// original resolution order: live summary for the resolved key, summary
+    /// for the requested key, the caller's label, then the directory lookup.
+    private func refreshSnapshotProjections(_ appModel: AppModel) {
+        let snapshot = appModel.snapshot
+        let nextThread = snapshot?.threadSnapshot(for: threadKey)
+        if threadSnapshot != nextThread {
+            threadSnapshot = nextThread
         }
-        if let label = appModel.snapshot?.sessionSummary(for: threadKey)?.agentDisplayLabel {
-            return label
+
+        var nextTitle = nextThread.flatMap { snapshot?.sessionSummary(for: $0.key)?.agentDisplayLabel }
+            ?? snapshot?.sessionSummary(for: threadKey)?.agentDisplayLabel
+        if nextTitle == nil, let label = agentLabel, !label.isEmpty, !looksLikeId(label) {
+            nextTitle = label
         }
-        if let label = agentLabel, !label.isEmpty, !looksLikeId(label) { return label }
-        if let resolved = appModel.snapshot?.resolvedAgentTargetLabel(for: threadKey.threadId, serverId: threadKey.serverId) {
-            return resolved
+        if nextTitle == nil {
+            nextTitle = snapshot?.resolvedAgentTargetLabel(
+                for: threadKey.threadId,
+                serverId: threadKey.serverId
+            )
         }
-        return agentLabel ?? "Agent"
+        let resolved = nextTitle ?? agentLabel ?? "Agent"
+        if title != resolved {
+            title = resolved
+        }
     }
 
     private func looksLikeId(_ value: String) -> Bool {
@@ -419,8 +450,14 @@ private struct SubagentDetailSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .task(id: threadKey.id) {
+            // Start (or re-target) the projection before the load so
+            // `loadThreadIfNeeded` sees the current thread state, and so the
+            // sheet keeps streaming while it is open.
+            let model = appModel
+            snapshotObserver.start(appModel: model) { refreshSnapshotProjections(model) }
             await loadThreadIfNeeded()
         }
+        .onDisappear { snapshotObserver.stop() }
     }
 
     private func parseLabel(_ label: String) -> (nickname: String, roleSuffix: String) {

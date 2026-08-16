@@ -28,8 +28,13 @@ final class MessageRenderCache {
 
     private var assistantCache: [RevisionKey: [AssistantSegment]] = [:]
     private var systemCache: [RevisionKey: ToolCallParseResult] = [:]
-    private var assistantAccessOrder: [RevisionKey] = []
-    private var systemAccessOrder: [RevisionKey] = []
+    // Monotonic access counters instead of an ordered array. The array form did
+    // an O(n) `firstIndex(of:)` with String-comparing keys plus an O(n)
+    // `remove(at:)` memmove on every cache *hit*, and it grew with the session —
+    // the classic "slower the longer you use it" shape.
+    private var assistantAccessStamps: [RevisionKey: UInt64] = [:]
+    private var systemAccessStamps: [RevisionKey: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
 
     var assistantEntryCount: Int { assistantCache.count }
     var systemEntryCount: Int { systemCache.count }
@@ -51,14 +56,14 @@ final class MessageRenderCache {
         key: RevisionKey
     ) -> [AssistantSegment] {
         if let cached = assistantCache[key] {
-            touch(&assistantAccessOrder, key: key)
+            touch(&assistantAccessStamps, key: key)
             return cached
         }
 
         let parsed = extractSegments(from: text, messageId: messageId, key: key)
         assistantCache[key] = parsed
-        touch(&assistantAccessOrder, key: key)
-        trimIfNeeded(&assistantCache, accessOrder: &assistantAccessOrder)
+        touch(&assistantAccessStamps, key: key)
+        trimIfNeeded(&assistantCache, accessStamps: &assistantAccessStamps)
         return parsed
     }
 
@@ -68,23 +73,24 @@ final class MessageRenderCache {
         resolveTargetLabel: ((String) -> String?)?
     ) -> ToolCallParseResult {
         if let cached = systemCache[key] {
-            touch(&systemAccessOrder, key: key)
+            touch(&systemAccessStamps, key: key)
             return cached
         }
 
         let cards = MessageContentBridge.parseToolCalls(text: message.text)
         let parsed: ToolCallParseResult = cards.first.map { .recognized($0) } ?? .unrecognized
         systemCache[key] = parsed
-        touch(&systemAccessOrder, key: key)
-        trimIfNeeded(&systemCache, accessOrder: &systemAccessOrder)
+        touch(&systemAccessStamps, key: key)
+        trimIfNeeded(&systemCache, accessStamps: &systemAccessStamps)
         return parsed
     }
 
     func reset() {
         assistantCache.removeAll(keepingCapacity: false)
         systemCache.removeAll(keepingCapacity: false)
-        assistantAccessOrder.removeAll(keepingCapacity: false)
-        systemAccessOrder.removeAll(keepingCapacity: false)
+        assistantAccessStamps.removeAll(keepingCapacity: false)
+        systemAccessStamps.removeAll(keepingCapacity: false)
+        accessCounter = 0
     }
 
     static func makeRevisionKey(
@@ -129,21 +135,28 @@ final class MessageRenderCache {
         return hasher.finalize()
     }
 
-    private func touch<Key: Hashable>(_ accessOrder: inout [Key], key: Key) {
-        if let existingIndex = accessOrder.firstIndex(of: key) {
-            accessOrder.remove(at: existingIndex)
-        }
-        accessOrder.append(key)
+    /// O(1) on a hit: one dictionary write, no array scan and no memmove.
+    private func touch<Key: Hashable>(_ accessStamps: inout [Key: UInt64], key: Key) {
+        accessCounter &+= 1
+        accessStamps[key] = accessCounter
     }
 
+    /// O(n log n), but only when the cache actually overflows `maxEntries`.
     private func trimIfNeeded<Key: Hashable, Value>(
         _ cache: inout [Key: Value],
-        accessOrder: inout [Key]
+        accessStamps: inout [Key: UInt64]
     ) {
         guard cache.count > maxEntries else { return }
-        while cache.count > trimTarget, let oldest = accessOrder.first {
-            accessOrder.removeFirst()
-            cache.removeValue(forKey: oldest)
+        let removeCount = cache.count - trimTarget
+        guard removeCount > 0 else { return }
+        let oldest = accessStamps.sorted { $0.value < $1.value }.prefix(removeCount)
+        for (key, _) in oldest {
+            cache.removeValue(forKey: key)
+            accessStamps.removeValue(forKey: key)
+        }
+        // Drop stamps for entries that were evicted or reset elsewhere.
+        if accessStamps.count > cache.count {
+            accessStamps = accessStamps.filter { cache[$0.key] != nil }
         }
     }
 

@@ -141,6 +141,11 @@ struct ConversationView: View {
             }
         }
         .activeThreadKey(activeThreadKey)
+        // Injected alongside the thread key so `ResolvedChatImageView` can read
+        // the cwd from the environment. It previously called
+        // `appModel.threadSnapshot(for:)` in its own body path, which registered
+        // one snapshot observation edge *per inline image* in the transcript.
+        .activeThreadCwd(thread.info.cwd)
         .background { ChatWallpaperBackground(threadKey: activeThreadKey) }
         .overlay(alignment: .top) {
             if thread.isSubagent {
@@ -605,7 +610,6 @@ private struct ConversationMessageList: View {
     @State private var isNearBottom = true
     @State private var autoFollowStreaming = true
     @State private var userIsDraggingScroll = false
-    @State private var distanceFromBottom: CGFloat = 0
     @State private var showScrollToBottomButton = false
     @State private var waitingForDataExpired = false
     @State private var pinchBaseStep: Int?
@@ -807,7 +811,6 @@ private struct ConversationMessageList: View {
                 .onChange(of: activeThreadKey) {
                     autoFollowStreaming = true
                     isNearBottom = true
-                    distanceFromBottom = 0
                     initialBottomScrollThreadScopeID = nil
                     waitingForDataExpired = false
                     syncTranscriptTurns(resetExpansion: true)
@@ -832,7 +835,6 @@ private struct ConversationMessageList: View {
                 .onChange(of: sendScrollToken) {
                     autoFollowStreaming = true
                     isNearBottom = true
-                    distanceFromBottom = 0
                     scrollToBottom(proxy)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
@@ -860,7 +862,6 @@ private struct ConversationMessageList: View {
                     ScrollToBottomIndicator {
                         autoFollowStreaming = true
                         isNearBottom = true
-                        distanceFromBottom = 0
                         // Jump without animation first so LazyVStack realizes
                         // content near the bottom, then do an animated corrective
                         // scroll once layout has settled.  This avoids the
@@ -934,7 +935,11 @@ private struct ConversationMessageList: View {
             }
         }
 
-        distanceFromBottom = clampedDistance
+        // `clampedDistance` is intentionally not stored: it changed on every
+        // scroll frame, keyboard move and composer-height change, and the only
+        // consumers are the two guarded booleans below. Writing it to @State
+        // invalidated `ConversationMessageList.body` (rebuilding the whole turn
+        // `ForEach`) for a value nothing read.
         let nextShowButton = clampedDistance > Self.latestButtonShowDistance
         if nextShowButton != showScrollToBottomButton { showScrollToBottomButton = nextShowButton }
         let nextIsNearBottom = clampedDistance <= Self.nearBottomRestoreDistance
@@ -948,7 +953,6 @@ private struct ConversationMessageList: View {
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         isNearBottom = true
-        distanceFromBottom = 0
         programmaticBottomScrollGeneration &+= 1
         let generation = programmaticBottomScrollGeneration
         programmaticBottomScrollSettling = true
@@ -1217,15 +1221,18 @@ private struct ConversationTurnRow: View, Equatable {
     }
 
     private var collapsedCard: some View {
-        Button(action: onToggleExpansion) {
-            previewTextBlock
+        // `turn.preview` is derived from the turn's items on access, so bind it
+        // once here instead of letting each sub-builder re-derive it.
+        let preview = turn.preview
+        return Button(action: onToggleExpansion) {
+            previewTextBlock(preview)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
                 .padding(.bottom, collapsedFooterReservedInset)
                 .modifier(GlassRectModifier(cornerRadius: 16, tint: LitterTheme.surface.opacity(0.34)))
                 .overlay(alignment: .bottomLeading) {
-                    footerRow
+                    footerRow(preview)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 10)
                 }
@@ -1233,12 +1240,12 @@ private struct ConversationTurnRow: View, Equatable {
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: 16))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(accessibilitySummary(preview))
     }
 
-    private var previewTextBlock: some View {
+    private func previewTextBlock(_ preview: TranscriptTurn.Preview) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: turn.preview.primaryText)
+            Text(verbatim: preview.primaryText)
                 .litterFont(.body, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
@@ -1248,7 +1255,7 @@ private struct ConversationTurnRow: View, Equatable {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(verbatim: responsePreviewText)
+            Text(verbatim: responsePreviewText(preview))
                 .litterFont(.body)
                 .foregroundColor(LitterTheme.textSecondary.opacity(0.82))
                 .lineLimit(2)
@@ -1265,11 +1272,12 @@ private struct ConversationTurnRow: View, Equatable {
         .frame(maxWidth: .infinity, minHeight: collapsedPreviewHeight, maxHeight: collapsedPreviewHeight, alignment: .topLeading)
     }
 
-    private var footerRow: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if !footerMetadataItems.isEmpty {
+    private func footerRow(_ preview: TranscriptTurn.Preview) -> some View {
+        let metadataItems = footerMetadataItems(preview)
+        return HStack(alignment: .center, spacing: 10) {
+            if !metadataItems.isEmpty {
                 HStack(spacing: 10) {
-                    ForEach(footerMetadataItems, id: \.id) { item in
+                    ForEach(metadataItems, id: \.id) { item in
                         CollapsedTurnMetaItem(systemImage: item.systemImage, text: item.text)
                     }
                 }
@@ -1305,41 +1313,43 @@ private struct ConversationTurnRow: View, Equatable {
     private var collapsedResponseHeight: CGFloat { (collapsedPreviewLineHeight * 2) + 2 }
     private var collapsedPreviewLineHeight: CGFloat { UIFont.preferredFont(forTextStyle: .body).lineHeight * textScale }
 
-    private var footerMetadataItems: [CollapsedTurnMeta] {
+    private func footerMetadataItems(_ preview: TranscriptTurn.Preview) -> [CollapsedTurnMeta] {
         var items: [CollapsedTurnMeta] = []
-        if let durationText = turn.preview.durationText {
+        if let durationText = preview.durationText {
             items.append(CollapsedTurnMeta(id: "duration", systemImage: "clock", text: durationText))
         }
-        if turn.preview.toolCallCount > 0 {
-            items.append(CollapsedTurnMeta(id: "tools", systemImage: "chevron.left.forwardslash.chevron.right", text: "\(turn.preview.toolCallCount)"))
+        if preview.toolCallCount > 0 {
+            items.append(CollapsedTurnMeta(id: "tools", systemImage: "chevron.left.forwardslash.chevron.right", text: "\(preview.toolCallCount)"))
         }
-        if turn.preview.eventCount > 0 {
-            items.append(CollapsedTurnMeta(id: "events", systemImage: "sparkles", text: "\(turn.preview.eventCount)"))
+        if preview.eventCount > 0 {
+            items.append(CollapsedTurnMeta(id: "events", systemImage: "sparkles", text: "\(preview.eventCount)"))
         }
-        if turn.preview.widgetCount > 0 {
-            items.append(CollapsedTurnMeta(id: "widgets", systemImage: "rectangle.3.group", text: "\(turn.preview.widgetCount)"))
+        if preview.widgetCount > 0 {
+            items.append(CollapsedTurnMeta(id: "widgets", systemImage: "rectangle.3.group", text: "\(preview.widgetCount)"))
         }
-        if turn.preview.imageCount > 0 {
-            items.append(CollapsedTurnMeta(id: "images", systemImage: "photo", text: "\(turn.preview.imageCount)"))
+        if preview.imageCount > 0 {
+            items.append(CollapsedTurnMeta(id: "images", systemImage: "photo", text: "\(preview.imageCount)"))
         }
         return items
     }
 
-    private var secondaryPreviewText: String? {
-        guard let secondaryText = turn.preview.secondaryText, secondaryText != turn.preview.primaryText else { return nil }
+    private func secondaryPreviewText(_ preview: TranscriptTurn.Preview) -> String? {
+        guard let secondaryText = preview.secondaryText, secondaryText != preview.primaryText else { return nil }
         return secondaryText
     }
 
-    private var responsePreviewText: String { secondaryPreviewText ?? turn.preview.primaryText }
+    private func responsePreviewText(_ preview: TranscriptTurn.Preview) -> String {
+        secondaryPreviewText(preview) ?? preview.primaryText
+    }
 
-    private var accessibilitySummary: String {
-        var parts = [turn.preview.primaryText]
-        if let secondaryPreviewText { parts.append(secondaryPreviewText) }
-        if let durationText = turn.preview.durationText { parts.append("Duration \(durationText)") }
-        if turn.preview.toolCallCount > 0 { parts.append("\(turn.preview.toolCallCount) tool \(turn.preview.toolCallCount == 1 ? "call" : "calls")") }
-        if turn.preview.widgetCount > 0 { parts.append("\(turn.preview.widgetCount) \(turn.preview.widgetCount == 1 ? "widget" : "widgets")") }
-        if turn.preview.eventCount > 0 { parts.append("\(turn.preview.eventCount) \(turn.preview.eventCount == 1 ? "event" : "events")") }
-        if turn.preview.imageCount > 0 { parts.append("\(turn.preview.imageCount) \(turn.preview.imageCount == 1 ? "image" : "images")") }
+    private func accessibilitySummary(_ preview: TranscriptTurn.Preview) -> String {
+        var parts = [preview.primaryText]
+        if let secondary = secondaryPreviewText(preview) { parts.append(secondary) }
+        if let durationText = preview.durationText { parts.append("Duration \(durationText)") }
+        if preview.toolCallCount > 0 { parts.append("\(preview.toolCallCount) tool \(preview.toolCallCount == 1 ? "call" : "calls")") }
+        if preview.widgetCount > 0 { parts.append("\(preview.widgetCount) \(preview.widgetCount == 1 ? "widget" : "widgets")") }
+        if preview.eventCount > 0 { parts.append("\(preview.eventCount) \(preview.eventCount == 1 ? "event" : "events")") }
+        if preview.imageCount > 0 { parts.append("\(preview.imageCount) \(preview.imageCount == 1 ? "image" : "images")") }
         return parts.joined(separator: ". ")
     }
 }
@@ -1452,7 +1462,11 @@ private struct ConversationInputBar: View {
     @State private var hasLoggedFirstFocus = false
     @State private var hasLoggedKeyboardShown = false
     @State private var isComposerFocused = false
-    @State private var composerSelectionRange = NSRange(location: 0, length: 0)
+    /// Reference-type box, not `@State`: the text view's coordinator writes the
+    /// selection on every keystroke, and nothing renders from it. Routing it
+    /// through SwiftUI state cost two extra full composer-subtree body passes
+    /// per character.
+    @State private var composerSelection = ComposerSelectionBox()
 
     private var pendingUserInputRequest: PendingUserInputRequest? {
         guard let request = snapshot.pendingUserInputRequest else { return nil }
@@ -1550,7 +1564,7 @@ private struct ConversationInputBar: View {
         .onChange(of: snapshot.composerPrefillRequest?.id) { _, _ in
             guard let prefill = snapshot.composerPrefillRequest else { return }
             inputText = prefill.text
-            composerSelectionRange = NSRange(location: (prefill.text as NSString).length, length: 0)
+            composerSelection.range = NSRange(location: (prefill.text as NSString).length, length: 0)
             attachedImage = nil
             attachedFiles = []
             hideComposerPopups()
@@ -1622,7 +1636,7 @@ private struct ConversationInputBar: View {
                 onInterrupt: interruptActiveTurn,
                 inputText: $inputText,
                 isComposerFocused: $isComposerFocused,
-                composerSelectionRange: $composerSelectionRange
+                composerSelectionRange: composerSelection.binding
             )
             .overlay(alignment: .bottom) {
                 ConversationComposerPopupOverlayView(
@@ -1831,14 +1845,14 @@ private struct ConversationInputBar: View {
 
         let nsText = inputText as NSString
         let textLength = nsText.length
-        let location = min(max(composerSelectionRange.location, 0), textLength)
-        let length = min(max(composerSelectionRange.length, 0), textLength - location)
+        let location = min(max(composerSelection.range.location, 0), textLength)
+        let length = min(max(composerSelection.range.length, 0), textLength - location)
         let range = NSRange(location: location, length: length)
         let replacement = composerInsertionText(insertion, in: nsText, replacing: range)
         let updated = nsText.replacingCharacters(in: range, with: replacement)
         inputText = updated
         let cursor = (updated as NSString).length - ((nsText.length - range.location - range.length))
-        composerSelectionRange = NSRange(location: cursor, length: 0)
+        composerSelection.range = NSRange(location: cursor, length: 0)
     }
 
     private func interruptActiveTurn() {

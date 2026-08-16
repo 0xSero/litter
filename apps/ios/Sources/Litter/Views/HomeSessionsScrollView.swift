@@ -171,6 +171,13 @@ final class HomeSessionsScrollUIView: UIView {
     /// intrinsic SwiftUI layout — shift with the user's text-size
     /// preference.
     private var lastTextScale: CGFloat = 0
+    /// Whether a deferred measurement pass is already scheduled.
+    /// Prevents stacking multiple async measurement passes when
+    /// `apply()` fires rapidly (e.g. during initial session load).
+    private var deferredMeasureScheduled = false
+    /// Reentrancy guard: `performDeferredMeasurements` calls `relayout`, which
+    /// drains the flag again.
+    private var isPerformingDeferredMeasurements = false
 
     var zoomCommit: ((Int) -> Void)?
 
@@ -368,6 +375,16 @@ final class HomeSessionsScrollUIView: UIView {
         relayout(animated: layoutAnimated)
         updatePageBackgroundVisibility()
 
+        // If any rows used fallback heights (deferred measurement),
+        // schedule the actual measurement on the next runloop so it
+        // doesn't block the keyboard or other main-thread interactions.
+        if deferredMeasureScheduled && !isPinching {
+            deferredMeasureScheduled = false
+            DispatchQueue.main.async { [weak self] in
+                self?.performDeferredMeasurements()
+            }
+        }
+
         // Repair stuck pinch-blur state. iOS can finish our paused
         // `UIViewPropertyAnimator` during NavigationStack push/pop
         // (terminal → back), leaving a row's `UIVisualEffectView`
@@ -455,6 +472,22 @@ final class HomeSessionsScrollUIView: UIView {
             contentView.frame = CGRect(origin: .zero, size: newContentSize)
             scrollView.contentSize = newContentSize
             updatePageBackgroundVisibility()
+        }
+
+        scheduleDeferredMeasurementsIfNeeded()
+    }
+
+    /// `rowHeight(for:at:width:)` sets `deferredMeasureScheduled` when it hands
+    /// back a fallback height, and it is reached from every `relayout` — not
+    /// just the one in `apply()`. Draining the flag here rather than at a
+    /// single call site is what stops a relayout driven by zoom commit, pinch
+    /// end, or a bounds change from leaving rows parked on fallback heights
+    /// until the next `apply()`.
+    private func scheduleDeferredMeasurementsIfNeeded() {
+        guard deferredMeasureScheduled, !isPinching, !isPerformingDeferredMeasurements else { return }
+        deferredMeasureScheduled = false
+        DispatchQueue.main.async { [weak self] in
+            self?.performDeferredMeasurements()
         }
     }
 
@@ -548,7 +581,15 @@ final class HomeSessionsScrollUIView: UIView {
             return measured
         }
         if container.currentDisplayZoom == zoomInt {
-            return container.forceMeasureHostHeight(width: width)
+            // During a pinch we need accurate heights immediately for
+            // smooth tracking. Otherwise, defer the measurement to the
+            // next runloop so we don't block the main thread (and the
+            // keyboard) while measuring 10+ hosted SwiftUI rows.
+            if isPinching {
+                return container.forceMeasureHostHeight(width: width)
+            }
+            deferredMeasureScheduled = true
+            return Self.staticFallbackHeight(for: zoomInt)
         }
         switch zoomInt {
         case 1: return ZoomHeights.z1
@@ -556,6 +597,41 @@ final class HomeSessionsScrollUIView: UIView {
         case 3: return ZoomHeights.z3
         default: return container.naturalHeightAtZoom4(width: width)
         }
+    }
+
+    /// Static fallback height used before a deferred measurement completes.
+    /// These match the pre-measurement anchors so the initial layout
+    /// is visually close to the final result.
+    private static func staticFallbackHeight(for zoomInt: Int) -> CGFloat {
+        switch zoomInt {
+        case 1: return ZoomHeights.z1
+        case 2: return ZoomHeights.z2
+        case 3: return ZoomHeights.z3
+        default: return 400
+        }
+    }
+
+    /// Measure all rows that still lack a cached height at their current
+    /// display zoom, then re-layout. Called on the next runloop after
+    /// `relayout` so the initial pass uses cheap fallback heights and
+    /// doesn't block the keyboard or other main-thread interactions.
+    private func performDeferredMeasurements() {
+        let width = bounds.width
+        guard width > 0 else { return }
+        // `relayout` below re-enters `rowHeight`, which would re-arm the flag
+        // and schedule another pass — an endless measure/relayout loop for any
+        // row whose height genuinely cannot be cached.
+        isPerformingDeferredMeasurements = true
+        defer { isPerformingDeferredMeasurements = false }
+        for key in order {
+            guard let container = containers[key] else { continue }
+            let zoom = container.currentDisplayZoom
+            if container.cachedNaturalHeight(atZoom: zoom, width: width) == nil {
+                container.forceMeasureHostHeight(width: width)
+            }
+        }
+        relayout(animated: false)
+        updatePageBackgroundVisibility()
     }
 
     // MARK: - Pinch

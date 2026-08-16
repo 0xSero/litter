@@ -475,7 +475,7 @@ struct StreamingAssistantBubble: View {
     }
 
     private var shouldUseSegmentedRenderer: Bool {
-        !isStreaming || MessageContentBridge.containsMath(text)
+        !isStreaming || StreamingMathDetectionCache.shared.containsMath(itemId: itemId, text: text)
     }
 
     private var segmentedRenderSegments: [MessageRenderCache.AssistantSegment] {
@@ -519,7 +519,154 @@ struct StreamingAssistantBubble: View {
     }
 }
 
+// MARK: - Streaming Math Detection
+
+/// Caches `MessageContentBridge.containsMath` for the live streaming message.
+///
+/// `containsMath` is a synchronous Rust FFI call that parses the whole message.
+/// Calling it from `body` on a message that keeps growing made the live turn
+/// quadratic in its own length.
+///
+/// The Rust math segmenter (`find_math_spans`) only opens or closes a math span
+/// at a `$` or a `\` byte, and every closing delimiter (`$`, `$$`, `\]`, `\)`)
+/// contains one of those bytes. So while a message is only being appended to,
+/// math can *newly appear* only if the appended tail contains `$` or `\`. That
+/// makes the per-tick cost O(appended bytes) instead of O(message length), with
+/// no detection delay for real math.
+@MainActor
+private final class StreamingMathDetectionCache {
+    static let shared = StreamingMathDetectionCache()
+
+    private struct Entry {
+        var scannedUTF8Count: Int
+        var result: Bool
+    }
+
+    private let maxEntries = 64
+    private let trimTarget = 48
+
+    private var entries: [String: Entry] = [:]
+    private var accessStamps: [String: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
+
+    func containsMath(itemId: String, text: String) -> Bool {
+        let utf8Count = text.utf8.count
+
+        if let entry = entries[itemId] {
+            if utf8Count == entry.scannedUTF8Count {
+                touch(itemId)
+                return entry.result
+            }
+            if utf8Count > entry.scannedUTF8Count {
+                // Math never un-appears from an append-only stream, and a new
+                // span needs a trigger byte in the appended tail.
+                if entry.result {
+                    entries[itemId] = Entry(scannedUTF8Count: utf8Count, result: true)
+                    touch(itemId)
+                    return true
+                }
+                let appended = utf8Count - entry.scannedUTF8Count
+                // +2 bytes of overlap so a `\[` / `\]` straddling the boundary
+                // is still seen.
+                if !Self.tailContainsMathTrigger(text, tailByteCount: appended + 2) {
+                    entries[itemId] = Entry(scannedUTF8Count: utf8Count, result: false)
+                    touch(itemId)
+                    return false
+                }
+            }
+        }
+
+        let result = MessageContentBridge.containsMath(text)
+        entries[itemId] = Entry(scannedUTF8Count: utf8Count, result: result)
+        touch(itemId)
+        trimIfNeeded()
+        return result
+    }
+
+    func reset() {
+        entries.removeAll(keepingCapacity: false)
+        accessStamps.removeAll(keepingCapacity: false)
+        accessCounter = 0
+    }
+
+    private static func tailContainsMathTrigger(_ text: String, tailByteCount: Int) -> Bool {
+        guard tailByteCount > 0 else { return false }
+        var remaining = tailByteCount
+        for byte in text.utf8.reversed() {
+            if byte == UInt8(ascii: "$") || byte == UInt8(ascii: "\\") { return true }
+            remaining -= 1
+            if remaining == 0 { break }
+        }
+        return false
+    }
+
+    private func touch(_ itemId: String) {
+        accessCounter &+= 1
+        accessStamps[itemId] = accessCounter
+    }
+
+    private func trimIfNeeded() {
+        guard entries.count > maxEntries else { return }
+        let removeCount = entries.count - trimTarget
+        guard removeCount > 0 else { return }
+        for (key, _) in accessStamps.sorted(by: { $0.value < $1.value }).prefix(removeCount) {
+            entries.removeValue(forKey: key)
+            accessStamps.removeValue(forKey: key)
+        }
+    }
+}
+
 // MARK: - Litter Markdown Themes
+
+/// Memoizes the two `MarkdownTheme` builders.
+///
+/// Each build constructed ~10 fonts plus a `HeadingStyleSet`, an
+/// `InlineCodeStyle`, a `CodeBlockStyle`, a `TableStyle` and friends — and ran
+/// once per markdown view per render pass.
+@MainActor
+private final class MarkdownThemeCache {
+    static let shared = MarkdownThemeCache()
+
+    fileprivate struct Key: Hashable {
+        let bodySize: CGFloat
+        let codeSize: CGFloat
+        let isDark: Bool
+        let themeVersion: Int
+        let fontRevision: Int
+    }
+
+    private var contentThemes: [Key: MarkdownTheme] = [:]
+    private var systemThemes: [Key: MarkdownTheme] = [:]
+    private var lastThemeVersion: Int?
+    private var lastFontRevision: Int?
+
+    fileprivate func contentTheme(_ key: Key, build: () -> MarkdownTheme) -> MarkdownTheme {
+        invalidateIfNeeded(key)
+        if let cached = contentThemes[key] { return cached }
+        let theme = build()
+        contentThemes[key] = theme
+        return theme
+    }
+
+    fileprivate func systemTheme(_ key: Key, build: () -> MarkdownTheme) -> MarkdownTheme {
+        invalidateIfNeeded(key)
+        if let cached = systemThemes[key] { return cached }
+        let theme = build()
+        systemThemes[key] = theme
+        return theme
+    }
+
+    /// Theme/font revisions bump rarely; dropping everything on a bump keeps
+    /// the caches bounded without an LRU (the only other key axes are the two
+    /// point sizes and the color scheme, so a live generation stays tiny).
+    private func invalidateIfNeeded(_ key: Key) {
+        guard lastThemeVersion != key.themeVersion || lastFontRevision != key.fontRevision else { return }
+        lastThemeVersion = key.themeVersion
+        lastFontRevision = key.fontRevision
+        contentThemes.removeAll(keepingCapacity: true)
+        systemThemes.removeAll(keepingCapacity: true)
+    }
+}
 
 private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> MarkdownTheme {
     var theme = MarkdownTheme.default
@@ -715,24 +862,55 @@ struct LitterCodeBlockRenderer: CodeBlockRenderer {
 private struct CodeBlockTerminalContextMenu: ViewModifier {
     let code: String
 
+    /// Resolved on appear rather than inside `body`.
+    ///
+    /// `store.activeTerminalId()` is a synchronous UniFFI call; reading it from
+    /// the `contextMenu` builder meant one main-thread FFI hop per rendered
+    /// code block per render pass.
+    @State private var hasActiveTerminal = false
+
     func body(content: Content) -> some View {
-        content.contextMenu {
-            Button {
-                UIPasteboard.general.string = code
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            if AppModel.shared.store.activeTerminalId() != nil {
+        content
+            .contextMenu {
                 Button {
-                    let bytes = Data(code.utf8)
-                    Task {
-                        _ = try? await AppModel.shared.store.writeToActiveTerminal(bytes: bytes)
-                    }
+                    UIPasteboard.general.string = code
                 } label: {
-                    Label("Run in Terminal", systemImage: "terminal")
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                if hasActiveTerminal {
+                    Button {
+                        let bytes = Data(code.utf8)
+                        Task {
+                            _ = try? await AppModel.shared.store.writeToActiveTerminal(bytes: bytes)
+                        }
+                    } label: {
+                        Label("Run in Terminal", systemImage: "terminal")
+                    }
                 }
             }
-        }
+            .onAppear {
+                hasActiveTerminal = ActiveTerminalAvailability.shared.isAvailable()
+            }
+    }
+}
+
+/// Short-TTL memo over `store.activeTerminalId()` so that scrolling a transcript
+/// full of code blocks does not fire one FFI call per block per appearance.
+@MainActor
+private final class ActiveTerminalAvailability {
+    static let shared = ActiveTerminalAvailability()
+
+    private static let ttl: TimeInterval = 2
+
+    private var cachedValue = false
+    private var lastCheck: TimeInterval = -.greatestFiniteMagnitude
+
+    func isAvailable() -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastCheck < Self.ttl { return cachedValue }
+        lastCheck = now
+        cachedValue = AppModel.shared.store.activeTerminalId() != nil
+        return cachedValue
     }
 }
 
@@ -854,8 +1032,19 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
         let scaledBody = baseBodySize * textScale
         let scaledCode = baseCodeSize * textScale
         let _ = syncHighlighterTheme(for: colorScheme)
+        let themeKey = MarkdownThemeCache.Key(
+            bodySize: scaledBody,
+            codeSize: scaledCode,
+            isDark: colorScheme == .dark,
+            themeVersion: ThemeManager.shared.themeVersion,
+            fontRevision: fontPreferenceObserver.revision
+        )
         let themed = content
-            .markdownTheme(litterContentTheme(bodySize: scaledBody, codeSize: scaledCode))
+            .markdownTheme(
+                MarkdownThemeCache.shared.contentTheme(themeKey) {
+                    litterContentTheme(bodySize: scaledBody, codeSize: scaledCode)
+                }
+            )
             .codeSyntaxHighlighter(sharedHighlighter)
             .codeBlockRenderer(LitterCodeBlockRenderer())
             .id(fontPreferenceObserver.revision)
@@ -879,8 +1068,19 @@ private struct ScaledSystemMarkdownModifier: ViewModifier {
         let scaledBody = baseBodySize * textScale
         let scaledCode = baseCodeSize * textScale
         let _ = syncHighlighterTheme(for: colorScheme)
+        let themeKey = MarkdownThemeCache.Key(
+            bodySize: scaledBody,
+            codeSize: scaledCode,
+            isDark: colorScheme == .dark,
+            themeVersion: ThemeManager.shared.themeVersion,
+            fontRevision: fontPreferenceObserver.revision
+        )
         let themed = content
-            .markdownTheme(litterSystemTheme(bodySize: scaledBody, codeSize: scaledCode))
+            .markdownTheme(
+                MarkdownThemeCache.shared.systemTheme(themeKey) {
+                    litterSystemTheme(bodySize: scaledBody, codeSize: scaledCode)
+                }
+            )
             .codeSyntaxHighlighter(sharedHighlighter)
             .codeBlockRenderer(LitterCodeBlockRenderer())
             .id(fontPreferenceObserver.revision)

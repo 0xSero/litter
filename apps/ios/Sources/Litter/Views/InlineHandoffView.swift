@@ -1,19 +1,21 @@
 import SwiftUI
 
 struct InlineHandoffView: View {
-    @Environment(AppModel.self) private var appModel
-    let threadKey: ThreadKey
+    /// The resolved handoff thread, supplied by the parent. This view used to
+    /// resolve it itself from `appModel.snapshot` and re-resolve on
+    /// `.onChange(of: appModel.snapshotRevision)` — a per-instance ~8 fps
+    /// re-render for a view that lives inside a live transcript. The parent
+    /// (`RealtimeVoiceScreen`) now mirrors the snapshot outside of `body` and
+    /// passes the result down, so this view re-renders only when its own
+    /// thread data actually changes.
+    let thread: AppThreadSnapshot?
     let maxHeight: CGFloat
 
-    /// Resolved thread snapshot stored in `@State` and refreshed from
-    /// `.onAppear`/`.onChange(of: appModel.snapshotRevision)` (closure
-    /// context) so the body never reads `appModel.snapshot` directly.
-    @State private var resolvedThread: AppThreadSnapshot?
     @State private var contentHeight: CGFloat = 0
 
     private var entries: [InlineHandoffEntry] {
-        guard let resolvedThread else { return [] }
-        return resolvedThread.hydratedConversationItems
+        guard let thread else { return [] }
+        return thread.hydratedConversationItems
             .map(\.conversationItem)
             .compactMap(InlineHandoffEntry.init(item:))
     }
@@ -23,13 +25,9 @@ struct InlineHandoffView: View {
         return "\(last.id):\(last.text.count)"
     }
 
-    private func refreshThread() {
-        resolvedThread = appModel.snapshot?.threadSnapshot(for: threadKey)
-    }
-
     var body: some View {
         Group {
-            if resolvedThread != nil, !entries.isEmpty {
+            if thread != nil, !entries.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 12) {
@@ -58,7 +56,7 @@ struct InlineHandoffView: View {
                         }
                     }
                 }
-            } else if resolvedThread != nil {
+            } else if thread != nil {
                 HStack(spacing: 8) {
                     ProgressView()
                         .scaleEffect(0.7)
@@ -70,8 +68,6 @@ struct InlineHandoffView: View {
                 .padding(.vertical, 4)
             }
         }
-        .onAppear { refreshThread() }
-        .onChange(of: appModel.snapshotRevision) { refreshThread() }
     }
 }
 

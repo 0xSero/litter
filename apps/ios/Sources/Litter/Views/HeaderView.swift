@@ -510,18 +510,30 @@ private func defaultReasoningEffortSelection(for model: ModelInfo) -> String {
 /// Allowlist of model "mode" names the runtime advertises (e.g. Amp's
 /// `smart` / `rush` / `deep`). Pulled from `capabilities.visible_modes`
 /// in the alleycat manifest so the rule is per-agent, not Amp-hardcoded.
+/// Memoized per run-loop turn by `AgentMetadataMemo` — this is called
+/// once per model per filtering pass.
 private func visibleModeNames(for kind: AgentRuntimeKind) -> Set<String>? {
-    kind.metadata?.capabilities?.visibleModes.map(Set.init)
+    kind.visibleModeNames
 }
+
+/// Separators the remote may use between an agent name and a mode name.
+/// Hoisted out of `normalizedModeName` so the hot path stops allocating
+/// three interpolated prefix strings (and their array) per call.
+private let modeNameSeparators: [Character] = ["/", ":", "\\"]
 
 /// Strip the optional agent-name prefix (`<kind>/` or `<kind>:`) the
 /// remote sometimes adds when reporting modes, so the bare mode name
 /// matches the allowlist.
 private func normalizedModeName(_ value: String, kind: AgentRuntimeKind) -> String {
     var out = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let prefixes = ["\(kind)/", "\(kind):", "\(kind)\\"]
-    for prefix in prefixes where out.hasPrefix(prefix) {
-        out = String(out.dropFirst(prefix.count))
+    guard !kind.isEmpty else { return out }
+    // Same ordered, at-most-once-per-separator stripping as the previous
+    // `["\(kind)/", "\(kind):", "\(kind)\\"]` loop, without building the
+    // prefixes.
+    for separator in modeNameSeparators {
+        if out.hasPrefix(kind), out.dropFirst(kind.count).first == separator {
+            out = String(out.dropFirst(kind.count + 1))
+        }
     }
     return out
 }
@@ -544,6 +556,11 @@ func modelPickerDisplayName(_ model: ModelInfo) -> String {
 private struct ModelProviderGroup: Identifiable {
     let key: String
     let name: String
+    /// Precomputed case-folded sort key. Group names are agent/provider
+    /// identifiers, so a plain case-insensitive ordering matches what
+    /// `localizedCaseInsensitiveCompare` produced without paying for
+    /// locale-aware collation on every body pass.
+    let sortKey: String
     let models: [ModelInfo]
 
     var id: String { key }
@@ -576,15 +593,44 @@ private func modelProviderGroups(for models: [ModelInfo]) -> [ModelProviderGroup
     }
         .map { key, groupModels in
             let model = groupModels[0]
+            let name = model.providerId?.isEmpty != false
+                ? model.agentRuntimeKind.titleDisplayLabel
+                : "\(model.agentRuntimeKind.titleDisplayLabel) · \(modelProviderName(model))"
             return ModelProviderGroup(
                 key: key,
-                name: model.providerId?.isEmpty != false
-                    ? model.agentRuntimeKind.titleDisplayLabel
-                    : "\(model.agentRuntimeKind.titleDisplayLabel) · \(modelProviderName(model))",
+                name: name,
+                sortKey: name.lowercased(),
                 models: groupModels
             )
         }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        .sorted { $0.sortKey < $1.sortKey }
+}
+
+/// Memo for `modelProviderGroups(for:)`.
+///
+/// The grouping runs a `Dictionary(grouping:)` with interpolated keys,
+/// resolves an agent title per group, and sorts — all of which used to
+/// happen on every body pass, i.e. on every keystroke in the search
+/// field. Keyed on the model list (identical `Array` buffers hit the
+/// stdlib's O(1) identity fast path) plus the agent-directory
+/// fingerprint, so a probe response that renames an agent rebuilds the
+/// groups.
+@MainActor
+private final class ModelProviderGroupCache {
+    private var cachedModels: [ModelInfo] = []
+    private var cachedFingerprint: Int?
+    private var cachedGroups: [ModelProviderGroup] = []
+
+    func groups(for models: [ModelInfo]) -> [ModelProviderGroup] {
+        let fingerprint = AgentRuntimeKind.metadataFingerprint
+        if cachedFingerprint == fingerprint, cachedModels == models {
+            return cachedGroups
+        }
+        cachedGroups = modelProviderGroups(for: models)
+        cachedModels = models
+        cachedFingerprint = fingerprint
+        return cachedGroups
+    }
 }
 
 @ViewBuilder
@@ -623,6 +669,96 @@ private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
     return modes.contains(modeName(for: model))
 }
 
+/// One pass of the model-list derivations the pickers need. Previously
+/// these were computed properties that each re-filtered the full model
+/// list; `visibleModels` alone was re-derived roughly seven times per
+/// body evaluation.
+private struct ModelSelectorDerivation {
+    var visibleModels: [ModelInfo] = []
+    var runtimeBuckets: [RuntimeModelBucket] = []
+    var activeRuntimeFilter: AgentRuntimeKind?
+    var runtimeScopedModels: [ModelInfo] = []
+}
+
+/// Memo for `ModelSelectorDerivation`.
+///
+/// Keyed on the model list, the selected runtime filter, and the
+/// agent-directory fingerprint. `models` is passed straight through from
+/// the server snapshot, so repeated body passes hand over the same
+/// `Array` buffer and the equality check short-circuits in O(1). The
+/// fingerprint dependency is what keeps this honest: `isVisibleModelOption`
+/// and the bucket ordering both read agent metadata, so a probe response
+/// must rebuild the derivation.
+@MainActor
+private final class ModelSelectorDerivationCache {
+    private var cachedModels: [ModelInfo] = []
+    private var cachedRuntimeFilter: AgentRuntimeKind?
+    private var cachedFingerprint: Int?
+    private var cached: ModelSelectorDerivation?
+
+    func derivation(
+        models: [ModelInfo],
+        selectedRuntimeFilter: AgentRuntimeKind?
+    ) -> ModelSelectorDerivation {
+        let fingerprint = AgentRuntimeKind.metadataFingerprint
+        if let cached,
+           cachedFingerprint == fingerprint,
+           cachedRuntimeFilter == selectedRuntimeFilter,
+           cachedModels == models {
+            return cached
+        }
+
+        let visible = models.filter(isVisibleModelOption)
+        let buckets = runtimeModelBuckets(for: visible)
+        let active: AgentRuntimeKind? = {
+            guard let selectedRuntimeFilter,
+                  buckets.contains(where: { $0.kind == selectedRuntimeFilter }) else {
+                return nil
+            }
+            return selectedRuntimeFilter
+        }()
+        let derivation = ModelSelectorDerivation(
+            visibleModels: visible,
+            runtimeBuckets: buckets,
+            activeRuntimeFilter: active,
+            runtimeScopedModels: active.map { kind in
+                visible.filter { $0.agentRuntimeKind == kind }
+            } ?? visible
+        )
+
+        cached = derivation
+        cachedModels = models
+        cachedRuntimeFilter = selectedRuntimeFilter
+        cachedFingerprint = fingerprint
+        return derivation
+    }
+}
+
+/// Memo for the model search index.
+///
+/// The index was previously built twice on presentation — once
+/// speculatively from `body` (thrown away) and once from `.onAppear` —
+/// and each build resolves an agent label per model. Building it here,
+/// keyed on the scoped model list plus the agent-directory fingerprint,
+/// means exactly one build per distinct input.
+@MainActor
+private final class ModelSearchIndexCache {
+    private var cachedModels: [ModelInfo] = []
+    private var cachedFingerprint: Int?
+    private var cachedIndex = ModelSearchIndex()
+
+    func searchIndex(for models: [ModelInfo]) -> ModelSearchIndex {
+        let fingerprint = AgentRuntimeKind.metadataFingerprint
+        if cachedFingerprint == fingerprint, cachedModels == models {
+            return cachedIndex
+        }
+        cachedIndex = ModelSearchIndex(models: models)
+        cachedModels = models
+        cachedFingerprint = fingerprint
+        return cachedIndex
+    }
+}
+
 struct InlineModelSelectorView: View {
     let models: [ModelInfo]
     var catalogLoaded = false
@@ -644,40 +780,24 @@ struct InlineModelSelectorView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("fastMode") private var fastMode = false
     @State private var modelSearchQuery = ""
-    @State private var modelSearchIndex = ModelSearchIndex()
+    @State private var derivationCache = ModelSelectorDerivationCache()
+    @State private var searchIndexCache = ModelSearchIndexCache()
+    @State private var providerGroupCache = ModelProviderGroupCache()
     @State private var selectedRuntimeFilter: AgentRuntimeKind?
     @State private var initializedRuntimeFilter = false
     var onDismiss: () -> Void
 
-    private var activeModelSearchIndex: ModelSearchIndex {
-        if modelSearchIndex.isEmpty, !runtimeScopedModels.isEmpty {
-            return ModelSearchIndex(models: runtimeScopedModels)
-        }
-        return modelSearchIndex
+    /// Single derivation pass shared by `body` and the event handlers.
+    /// Cached across body evaluations, so a keystroke in the search
+    /// field no longer re-filters and re-buckets the whole catalog.
+    private var derived: ModelSelectorDerivation {
+        derivationCache.derivation(
+            models: models,
+            selectedRuntimeFilter: selectedRuntimeFilter
+        )
     }
 
-    private var visibleModels: [ModelInfo] {
-        models.filter(isVisibleModelOption)
-    }
-
-    private var runtimeBuckets: [RuntimeModelBucket] {
-        runtimeModelBuckets(for: visibleModels)
-    }
-
-    private var activeRuntimeFilter: AgentRuntimeKind? {
-        guard let selectedRuntimeFilter,
-              runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) else {
-            return nil
-        }
-        return selectedRuntimeFilter
-    }
-
-    private var runtimeScopedModels: [ModelInfo] {
-        guard let activeRuntimeFilter else { return visibleModels }
-        return visibleModels.filter { $0.agentRuntimeKind == activeRuntimeFilter }
-    }
-
-    private var currentModel: ModelInfo? {
+    private func currentModel(in visibleModels: [ModelInfo]) -> ModelInfo? {
         if let match = visibleModels.first(where: {
             modelMatchesSelection(
                 $0,
@@ -705,13 +825,17 @@ struct InlineModelSelectorView: View {
         return threadPermissionPreset(approvalPolicy: approval, sandboxPolicy: sandbox) == .fullAccess
     }
 
-    private var selectedRuntimeSupportsPermissionOverrides: Bool {
+    private func selectedRuntimeSupportsPermissionOverrides(_ currentModel: ModelInfo?) -> Bool {
         let runtime = selectedAgentRuntimeKind ?? currentModel?.agentRuntimeKind
         return runtime?.supportsThreadPermissionOverrides ?? true
     }
 
     var body: some View {
-        let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+        let derived = self.derived
+        let currentModel = self.currentModel(in: derived.visibleModels)
+        let visibleModels = searchIndexCache
+            .searchIndex(for: derived.runtimeScopedModels)
+            .results(matching: modelSearchQuery)
         let selectedModelIsAmp: Bool = {
             guard let model = currentModel else { return false }
             return visibleModeNames(for: model.agentRuntimeKind) != nil
@@ -720,19 +844,19 @@ struct InlineModelSelectorView: View {
 
         VStack(spacing: 0) {
             modelSearchField
-            runtimeFilterRow
+            runtimeFilterRow(derived)
 
             ScrollView {
                 LazyVStack(spacing: 0) {
                     modelCatalogNotice(
                         loaded: catalogLoaded,
                         error: catalogError,
-                        hasModels: !self.visibleModels.isEmpty,
+                        hasModels: !derived.visibleModels.isEmpty,
                         horizontalPadding: 16,
                         onRetry: onRetryModels
                     )
 
-                    if !self.visibleModels.isEmpty && visibleModels.isEmpty {
+                    if !derived.visibleModels.isEmpty && visibleModels.isEmpty {
                         Text("No matching models")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
@@ -741,7 +865,7 @@ struct InlineModelSelectorView: View {
                             .padding(.vertical, 24)
                     }
 
-                    ForEach(modelProviderGroups(for: visibleModels)) { group in
+                    ForEach(providerGroupCache.groups(for: visibleModels)) { group in
                         Text(group.name.uppercased())
                             .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.textMuted)
@@ -885,7 +1009,7 @@ struct InlineModelSelectorView: View {
                     .clipShape(Capsule())
                 }
 
-                if selectedRuntimeSupportsPermissionOverrides {
+                if selectedRuntimeSupportsPermissionOverrides(currentModel) {
                     Button {
                         if isFullAccess {
                             appState.setPermissions(approvalPolicy: "on-request", sandboxMode: "workspace-write", for: threadKey)
@@ -915,16 +1039,15 @@ struct InlineModelSelectorView: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(showsBackground ? LitterTheme.surface : Color.clear)
+        // The search index is no longer (re)built here: `searchIndexCache`
+        // builds it lazily from the scoped model list, so presentation
+        // constructs it exactly once instead of once speculatively from
+        // `body` plus once from `.onAppear`.
         .onAppear {
             synchronizeRuntimeFilter()
-            resetModelSearchIndex()
         }
-        .onChange(of: models) { _, newModels in
+        .onChange(of: models) { _, _ in
             synchronizeRuntimeFilter()
-            modelSearchIndex = ModelSearchIndex(models: newModels.filter(isVisibleModelOption).filtered(by: activeRuntimeFilter))
-        }
-        .onChange(of: selectedRuntimeFilter) { _, _ in
-            resetModelSearchIndex()
         }
         .onChange(of: selectedAgentRuntimeKind) { _, _ in
             synchronizeRuntimeFilter()
@@ -954,33 +1077,31 @@ struct InlineModelSelectorView: View {
     }
 
     @ViewBuilder
-    private var runtimeFilterRow: some View {
-        if runtimeBuckets.count > 1 {
+    private func runtimeFilterRow(_ derived: ModelSelectorDerivation) -> some View {
+        if derived.runtimeBuckets.count > 1 {
             RuntimeFilterRow(
-                buckets: runtimeBuckets,
-                totalCount: visibleModels.count,
-                selectedRuntime: activeRuntimeFilter,
+                buckets: derived.runtimeBuckets,
+                totalCount: derived.visibleModels.count,
+                selectedRuntime: derived.activeRuntimeFilter,
                 onSelect: { selectedRuntimeFilter = $0 }
             )
             .padding(.bottom, 6)
         }
     }
 
-    private func resetModelSearchIndex() {
-        modelSearchIndex = ModelSearchIndex(models: runtimeScopedModels)
-    }
-
     private func synchronizeRuntimeFilter() {
+        let derived = self.derived
         if !initializedRuntimeFilter {
-            let initial = selectedAgentRuntimeKind ?? currentModel?.agentRuntimeKind
-            if let initial, runtimeBuckets.contains(where: { $0.kind == initial }) {
+            let initial = selectedAgentRuntimeKind
+                ?? self.currentModel(in: derived.visibleModels)?.agentRuntimeKind
+            if let initial, derived.runtimeBuckets.contains(where: { $0.kind == initial }) {
                 selectedRuntimeFilter = initial
             }
             initializedRuntimeFilter = true
             return
         }
         if let selectedRuntimeFilter,
-           !runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) {
+           !derived.runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) {
             self.selectedRuntimeFilter = nil
         }
     }
@@ -1009,11 +1130,21 @@ struct ModelSelectorSheet: View {
     var isReasoningEffortLocked = false
     @AppStorage("fastMode") private var fastMode = false
     @State private var modelSearchQuery = ""
-    @State private var modelSearchIndex = ModelSearchIndex()
+    @State private var derivationCache = ModelSelectorDerivationCache()
+    @State private var searchIndexCache = ModelSearchIndexCache()
+    @State private var providerGroupCache = ModelProviderGroupCache()
     @State private var selectedRuntimeFilter: AgentRuntimeKind?
     @State private var initializedRuntimeFilter = false
 
-    private var currentModel: ModelInfo? {
+    /// Single derivation pass shared by `body` and the event handlers.
+    private var derived: ModelSelectorDerivation {
+        derivationCache.derivation(
+            models: models,
+            selectedRuntimeFilter: selectedRuntimeFilter
+        )
+    }
+
+    private func currentModel(in visibleModels: [ModelInfo]) -> ModelInfo? {
         visibleModels.first {
             modelMatchesSelection(
                 $0,
@@ -1023,36 +1154,12 @@ struct ModelSelectorSheet: View {
         }
     }
 
-    private var visibleModels: [ModelInfo] {
-        models.filter(isVisibleModelOption)
-    }
-
-    private var runtimeBuckets: [RuntimeModelBucket] {
-        runtimeModelBuckets(for: visibleModels)
-    }
-
-    private var activeRuntimeFilter: AgentRuntimeKind? {
-        guard let selectedRuntimeFilter,
-              runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) else {
-            return nil
-        }
-        return selectedRuntimeFilter
-    }
-
-    private var runtimeScopedModels: [ModelInfo] {
-        guard let activeRuntimeFilter else { return visibleModels }
-        return visibleModels.filter { $0.agentRuntimeKind == activeRuntimeFilter }
-    }
-
-    private var activeModelSearchIndex: ModelSearchIndex {
-        if modelSearchIndex.isEmpty, !runtimeScopedModels.isEmpty {
-            return ModelSearchIndex(models: runtimeScopedModels)
-        }
-        return modelSearchIndex
-    }
-
     var body: some View {
-        let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+        let derived = self.derived
+        let currentModel = self.currentModel(in: derived.visibleModels)
+        let visibleModels = searchIndexCache
+            .searchIndex(for: derived.runtimeScopedModels)
+            .results(matching: modelSearchQuery)
         let selectedModelIsAmp: Bool = {
             guard let model = currentModel else { return false }
             return visibleModeNames(for: model.agentRuntimeKind) != nil
@@ -1062,17 +1169,17 @@ struct ModelSelectorSheet: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 modelSearchField
-                runtimeFilterRow
+                runtimeFilterRow(derived)
 
                 modelCatalogNotice(
                     loaded: catalogLoaded,
                     error: catalogError,
-                    hasModels: !self.visibleModels.isEmpty,
+                    hasModels: !derived.visibleModels.isEmpty,
                     horizontalPadding: 20,
                     onRetry: onRetryModels
                 )
 
-                if !self.visibleModels.isEmpty && visibleModels.isEmpty {
+                if !derived.visibleModels.isEmpty && visibleModels.isEmpty {
                     Text("No matching models")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
@@ -1081,7 +1188,7 @@ struct ModelSelectorSheet: View {
                         .padding(.vertical, 24)
                 }
 
-                ForEach(modelProviderGroups(for: visibleModels)) { group in
+                ForEach(providerGroupCache.groups(for: visibleModels)) { group in
                     Text(group.name.uppercased())
                         .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.textMuted)
@@ -1201,14 +1308,9 @@ struct ModelSelectorSheet: View {
         .background(.ultraThinMaterial)
         .onAppear {
             synchronizeRuntimeFilter()
-            resetModelSearchIndex()
         }
-        .onChange(of: models) { _, newModels in
+        .onChange(of: models) { _, _ in
             synchronizeRuntimeFilter()
-            modelSearchIndex = ModelSearchIndex(models: newModels.filter(isVisibleModelOption).filtered(by: activeRuntimeFilter))
-        }
-        .onChange(of: selectedRuntimeFilter) { _, _ in
-            resetModelSearchIndex()
         }
         .onChange(of: selectedAgentRuntimeKind) { _, _ in
             synchronizeRuntimeFilter()
@@ -1238,33 +1340,31 @@ struct ModelSelectorSheet: View {
     }
 
     @ViewBuilder
-    private var runtimeFilterRow: some View {
-        if runtimeBuckets.count > 1 {
+    private func runtimeFilterRow(_ derived: ModelSelectorDerivation) -> some View {
+        if derived.runtimeBuckets.count > 1 {
             RuntimeFilterRow(
-                buckets: runtimeBuckets,
-                totalCount: visibleModels.count,
-                selectedRuntime: activeRuntimeFilter,
+                buckets: derived.runtimeBuckets,
+                totalCount: derived.visibleModels.count,
+                selectedRuntime: derived.activeRuntimeFilter,
                 onSelect: { selectedRuntimeFilter = $0 }
             )
             .padding(.bottom, 10)
         }
     }
 
-    private func resetModelSearchIndex() {
-        modelSearchIndex = ModelSearchIndex(models: runtimeScopedModels)
-    }
-
     private func synchronizeRuntimeFilter() {
+        let derived = self.derived
         if !initializedRuntimeFilter {
-            let initial = selectedAgentRuntimeKind ?? currentModel?.agentRuntimeKind
-            if let initial, runtimeBuckets.contains(where: { $0.kind == initial }) {
+            let initial = selectedAgentRuntimeKind
+                ?? self.currentModel(in: derived.visibleModels)?.agentRuntimeKind
+            if let initial, derived.runtimeBuckets.contains(where: { $0.kind == initial }) {
                 selectedRuntimeFilter = initial
             }
             initializedRuntimeFilter = true
             return
         }
         if let selectedRuntimeFilter,
-           !runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) {
+           !derived.runtimeBuckets.contains(where: { $0.kind == selectedRuntimeFilter }) {
             self.selectedRuntimeFilter = nil
         }
     }
@@ -1282,13 +1382,6 @@ private func runtimeModelBuckets(for models: [ModelInfo]) -> [RuntimeModelBucket
     return AgentRuntimeKind.presentationOrder.compactMap { kind in
         guard let models = grouped[kind], !models.isEmpty else { return nil }
         return RuntimeModelBucket(kind: kind, count: models.count)
-    }
-}
-
-private extension [ModelInfo] {
-    func filtered(by runtime: AgentRuntimeKind?) -> [ModelInfo] {
-        guard let runtime else { return self }
-        return filter { $0.agentRuntimeKind == runtime }
     }
 }
 
@@ -1358,10 +1451,6 @@ private struct ModelSearchIndex {
     private static let maxResults = 80
 
     private var rows: [Row] = []
-
-    var isEmpty: Bool {
-        rows.isEmpty
-    }
 
     init() {}
 

@@ -64,6 +64,71 @@ private let directoryPickerSignpostLog = OSLog(
     category: "DirectoryPicker"
 )
 
+/// ASCII-only case-insensitive substring matching. Directory names are
+/// overwhelmingly ASCII, and for ASCII-vs-ASCII this is equivalent to
+/// `localizedCaseInsensitiveContains` at a fraction of the cost; callers
+/// fall back to the Foundation call whenever either side is not ASCII.
+private enum ASCIICaseFold {
+    static func lowercasedBytes(_ value: String) -> [UInt8]? {
+        var out: [UInt8] = []
+        out.reserveCapacity(value.utf8.count)
+        for byte in value.utf8 {
+            if byte >= 0x80 { return nil }
+            out.append(byte >= 0x41 && byte <= 0x5A ? byte &+ 0x20 : byte)
+        }
+        return out
+    }
+
+    /// `nil` when `haystack` is not pure ASCII, meaning the caller must
+    /// fall back to the locale-aware comparison.
+    static func contains(_ haystack: String, lowercasedNeedle needle: [UInt8]) -> Bool? {
+        guard !needle.isEmpty else { return true }
+        guard let hay = lowercasedBytes(haystack) else { return nil }
+        guard hay.count >= needle.count else { return false }
+
+        let first = needle[0]
+        let lastStart = hay.count - needle.count
+        var start = 0
+        while start <= lastStart {
+            if hay[start] == first {
+                var offset = 1
+                while offset < needle.count, hay[start + offset] == needle[offset] {
+                    offset += 1
+                }
+                if offset == needle.count { return true }
+            }
+            start += 1
+        }
+        return false
+    }
+}
+
+/// Feedback generators kept alive and pre-armed for the picker.
+///
+/// Allocating a generator at tap time leaves the Taptic Engine cold, so
+/// the first tap pays a perceptible warm-up. Holding prepared instances
+/// (and re-preparing right after each fire) keeps subsequent taps warm.
+@MainActor
+private final class DirectoryPickerHaptics {
+    private let impact = UIImpactFeedbackGenerator(style: .light)
+    private let notification = UINotificationFeedbackGenerator()
+
+    func prepare() {
+        impact.prepare()
+        notification.prepare()
+    }
+
+    func selection() {
+        impact.impactOccurred()
+        impact.prepare()
+    }
+
+    func success() {
+        notification.notificationOccurred(.success)
+        notification.prepare()
+    }
+}
+
 private func isDisconnectedClientError(_ error: Error) -> Bool {
     switch error {
     case let ClientError.Transport(message):
@@ -111,10 +176,53 @@ private final class DirectoryPickerSheetModel {
         return true
     }
 
+    @ObservationIgnored private var cachedVisibleEntries: [String] = []
+    @ObservationIgnored private var cachedVisibleEntriesSource: [String] = []
+    @ObservationIgnored private var cachedVisibleEntriesQuery = ""
+    @ObservationIgnored private var cachedVisibleEntriesShowsHidden = false
+    @ObservationIgnored private var hasCachedVisibleEntries = false
+
+    /// Filtered directory listing for the current search query.
+    ///
+    /// Called from `body`, so it re-ran on every keystroke over the full
+    /// listing. Memoized on (entries, hidden toggle, query) — the cache
+    /// fields are `@ObservationIgnored` so writing them cannot feed back
+    /// into the view's observation graph, while the reads below still
+    /// register the real dependencies.
     func visibleEntries() -> [String] {
-        let hiddenFiltered = showHiddenDirectories ? allEntries : allEntries.filter { !$0.hasPrefix(".") }
-        guard !trimmedSearchQuery.isEmpty else { return hiddenFiltered }
-        return hiddenFiltered.filter { $0.localizedCaseInsensitiveContains(trimmedSearchQuery) }
+        let query = trimmedSearchQuery
+        let entries = allEntries
+        let showsHidden = showHiddenDirectories
+        if hasCachedVisibleEntries,
+           cachedVisibleEntriesShowsHidden == showsHidden,
+           cachedVisibleEntriesQuery == query,
+           cachedVisibleEntriesSource == entries {
+            return cachedVisibleEntries
+        }
+
+        let hiddenFiltered = showsHidden ? entries : entries.filter { !$0.hasPrefix(".") }
+        let result: [String]
+        if query.isEmpty {
+            result = hiddenFiltered
+        } else if let needle = ASCIICaseFold.lowercasedBytes(query) {
+            // Fast path: ASCII query. `localizedCaseInsensitiveContains`
+            // pays for locale-aware ICU folding on every entry; for an
+            // ASCII-vs-ASCII comparison a byte scan is equivalent, and
+            // any non-ASCII entry still falls back to the original call.
+            result = hiddenFiltered.filter { entry in
+                ASCIICaseFold.contains(entry, lowercasedNeedle: needle)
+                    ?? entry.localizedCaseInsensitiveContains(query)
+            }
+        } else {
+            result = hiddenFiltered.filter { $0.localizedCaseInsensitiveContains(query) }
+        }
+
+        cachedVisibleEntries = result
+        cachedVisibleEntriesSource = entries
+        cachedVisibleEntriesQuery = query
+        cachedVisibleEntriesShowsHidden = showsHidden
+        hasCachedVisibleEntries = true
+        return result
     }
 
     func emptyMessage() -> String {
@@ -407,6 +515,7 @@ struct DirectoryPickerView: View {
 
     @Environment(AppModel.self) private var appModel
     @State private var model = DirectoryPickerSheetModel()
+    @State private var haptics = DirectoryPickerHaptics()
     @State private var showClearRecentsConfirmation = false
     @State private var showNewFolderAlert = false
     @State private var showGoToPathAlert = false
@@ -463,6 +572,9 @@ struct DirectoryPickerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(model.canNavigateUp)
         .task(id: selectedServerId) {
+            // Arm the Taptic Engine before the user can reach a row, so
+            // the first folder tap does not pay the cold-start latency.
+            haptics.prepare()
             onServerChanged?(selectedServerId)
             model.handleServerSelectionChanged(selectedServerId)
             await model.loadInitialPath(
@@ -470,6 +582,7 @@ struct DirectoryPickerView: View {
                 appModel: appModel,
                 isLocalServer: selectedServerIsLocal
             )
+            haptics.prepare()
         }
         .onChange(of: servers.map(\.id)) { _, ids in
             if !ids.contains(selectedServerId), let fallback = ids.first {
@@ -505,7 +618,7 @@ struct DirectoryPickerView: View {
                     ) {
                         newFolderError = err
                     } else {
-                        emitSuccessHaptic()
+                        haptics.success()
                     }
                 }
             }
@@ -730,7 +843,7 @@ struct DirectoryPickerView: View {
             if let recent = mostRecentEntry {
                 Section {
                     Button {
-                        emitSuccessHaptic()
+                        haptics.success()
                         withAnimation(.easeInOut(duration: 0.16)) {
                             onDirectorySelected?(selectedServerId, recent.path)
                         }
@@ -760,7 +873,7 @@ struct DirectoryPickerView: View {
                 Section {
                     ForEach(model.recentEntries) { recent in
                         Button {
-                            emitSuccessHaptic()
+                            haptics.success()
                             withAnimation(.easeInOut(duration: 0.16)) {
                                 onDirectorySelected?(selectedServerId, recent.path)
                             }
@@ -826,7 +939,7 @@ struct DirectoryPickerView: View {
             } else {
                 ForEach(visibleEntries, id: \.self) { entry in
                     Button {
-                        emitSelectionHaptic()
+                        haptics.selection()
                         Task {
                             await model.navigateInto(
                                 entry,
@@ -890,7 +1003,7 @@ struct DirectoryPickerView: View {
                 .cornerRadius(8)
 
                 Button(DirectoryPickerStrings.selectFolder) {
-                    emitSuccessHaptic()
+                    haptics.success()
                     withAnimation(.easeInOut(duration: 0.16)) {
                         onDirectorySelected?(selectedServerId, model.currentPath)
                     }
@@ -926,13 +1039,6 @@ struct DirectoryPickerView: View {
         selectedServerId = servers[nextIndex].id
     }
 
-    private func emitSelectionHaptic() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
-
-    private func emitSuccessHaptic() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
 }
 
 #if DEBUG

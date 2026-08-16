@@ -29,12 +29,17 @@ struct ConversationTurnTimeline: View {
 
     private var timelineContent: some View {
         let rows = rowDescriptors
+        // Hoisted: this used to be a computed property doing an O(n)
+        // `items.last(where:)` scan, and `rowView` read it twice per row —
+        // O(n²) across the live turn on every body evaluation.
+        let streamingItemId = streamingAssistantItemId
 
         return LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,
-                    isLastRow: index == rows.indices.last
+                    isLastRow: index == rows.indices.last,
+                    streamingAssistantItemId: streamingItemId
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
@@ -49,16 +54,12 @@ struct ConversationTurnTimeline: View {
     }
 
     private var rowDescriptors: [ConversationTimelineRowDescriptor] {
-        ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
-            ConversationTimelineRowDescriptor.build(from: items)
+        ConversationTimelineRowCache.shared.rows(
+            for: items,
+            reasoningDisplayMode: reasoningDisplayMode,
+            commandDisplayMode: commandDisplayMode,
+            toolDisplayMode: toolDisplayMode
         )
-        .filter {
-            $0.isVisible(
-                reasoningDisplayMode: reasoningDisplayMode,
-                commandDisplayMode: commandDisplayMode,
-                toolDisplayMode: toolDisplayMode
-            )
-        }
     }
 
     private var streamingAssistantItemId: String? {
@@ -85,7 +86,8 @@ struct ConversationTurnTimeline: View {
     // the union every SwiftUI pass.
     private func rowView(
         _ row: ConversationTimelineRowDescriptor,
-        isLastRow: Bool
+        isLastRow: Bool,
+        streamingAssistantItemId: String?
     ) -> AnyView {
         switch row {
         case .item(let item):
@@ -121,6 +123,7 @@ struct ConversationTurnTimeline: View {
                     showsCollapsedPreview: isLastRow,
                     displayMode: commandDisplayMode
                 )
+                .equatable()
             )
         case .subagentGroup(_, let merged, _):
             return AnyView(
@@ -303,6 +306,100 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
 
         flushAccumulator()
         return mergedRows
+    }
+}
+
+/// Memoizes `build` → `mergeConsecutiveExplorationRows` → `filter`.
+///
+/// Those three chained passes each allocated a fresh array and ran on every
+/// body evaluation of every turn timeline — including body evaluations driven
+/// by layout, viewport, or display-mode churn rather than by item changes.
+/// The key is a digest over item identity + `renderDigest`, so a cache hit is
+/// exact: any content change produces a different key.
+@MainActor
+private final class ConversationTimelineRowCache {
+    static let shared = ConversationTimelineRowCache()
+
+    private struct Key: Hashable {
+        let itemsDigest: Int
+        let itemCount: Int
+        let reasoningDisplayMode: ConversationDetailDisplayMode
+        let commandDisplayMode: ConversationDetailDisplayMode
+        let toolDisplayMode: ConversationDetailDisplayMode
+    }
+
+    private let maxEntries = 32
+    private let trimTarget = 24
+
+    private var entries: [Key: [ConversationTimelineRowDescriptor]] = [:]
+    private var accessStamps: [Key: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
+
+    fileprivate func rows(
+        for items: [ConversationItem],
+        reasoningDisplayMode: ConversationDetailDisplayMode,
+        commandDisplayMode: ConversationDetailDisplayMode,
+        toolDisplayMode: ConversationDetailDisplayMode
+    ) -> [ConversationTimelineRowDescriptor] {
+        let key = Key(
+            itemsDigest: Self.digest(of: items),
+            itemCount: items.count,
+            reasoningDisplayMode: reasoningDisplayMode,
+            commandDisplayMode: commandDisplayMode,
+            toolDisplayMode: toolDisplayMode
+        )
+
+        if let cached = entries[key] {
+            touch(key)
+            return cached
+        }
+
+        let rows = ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
+            ConversationTimelineRowDescriptor.build(from: items)
+        )
+        .filter {
+            $0.isVisible(
+                reasoningDisplayMode: reasoningDisplayMode,
+                commandDisplayMode: commandDisplayMode,
+                toolDisplayMode: toolDisplayMode
+            )
+        }
+
+        entries[key] = rows
+        touch(key)
+        trimIfNeeded()
+        return rows
+    }
+
+    func reset() {
+        entries.removeAll(keepingCapacity: false)
+        accessStamps.removeAll(keepingCapacity: false)
+        accessCounter = 0
+    }
+
+    private static func digest(of items: [ConversationItem]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.renderDigest)
+        }
+        return hasher.finalize()
+    }
+
+    private func touch(_ key: Key) {
+        accessCounter &+= 1
+        accessStamps[key] = accessCounter
+    }
+
+    private func trimIfNeeded() {
+        guard entries.count > maxEntries else { return }
+        let removeCount = entries.count - trimTarget
+        guard removeCount > 0 else { return }
+        for (key, _) in accessStamps.sorted(by: { $0.value < $1.value }).prefix(removeCount) {
+            entries.removeValue(forKey: key)
+            accessStamps.removeValue(forKey: key)
+        }
     }
 }
 
@@ -843,7 +940,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
     }
 }
 
-private struct ConversationExplorationGroupRow: View {
+private struct ConversationExplorationGroupRow: View, Equatable {
     @Environment(\.textScale) private var textScale
 
     let id: String
@@ -852,6 +949,15 @@ private struct ConversationExplorationGroupRow: View {
     let displayMode: ConversationDetailDisplayMode
 
     @State private var expanded = false
+
+    /// `ConversationItem.==` is now id + renderDigest, so the item comparison
+    /// is a cheap integer walk rather than a deep content compare.
+    static func == (lhs: ConversationExplorationGroupRow, rhs: ConversationExplorationGroupRow) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.showsCollapsedPreview == rhs.showsCollapsedPreview &&
+            lhs.displayMode == rhs.displayMode &&
+            lhs.items == rhs.items
+    }
 
     var body: some View {
         let entries = explorationEntries

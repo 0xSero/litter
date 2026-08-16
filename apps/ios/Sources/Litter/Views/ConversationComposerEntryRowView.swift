@@ -74,8 +74,12 @@ struct ConversationComposerEntryRowView: View {
 
     @State private var showExpanded: Bool = false
 
+    /// Equivalent to `!inputText.trimmingCharacters(in: .whitespaces).isEmpty`
+    /// without allocating a trimmed copy of the whole draft on every body
+    /// pass. `.whitespaces` does not include newlines, so a newline still
+    /// counts as content — hence the explicit `isNewline` arm.
     private var hasText: Bool {
-        !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+        inputText.contains(where: { !$0.isWhitespace || $0.isNewline })
     }
 
     private var canSend: Bool {
@@ -87,7 +91,20 @@ struct ConversationComposerEntryRowView: View {
     private var shouldShowExpand: Bool {
         !voiceManager.isRecording
             && !voiceManager.isTranscribing
-            && (inputText.contains("\n") || inputText.count > 60)
+            && isMultilineOrLong
+    }
+
+    /// Same predicate as `inputText.contains("\n") || inputText.count > 60`,
+    /// but one early-exiting pass bounded at 61 characters instead of two full
+    /// walks of the draft on every body pass.
+    private var isMultilineOrLong: Bool {
+        var count = 0
+        for character in inputText {
+            if character == "\n" { return true }
+            count += 1
+            if count > 60 { return true }
+        }
+        return false
     }
 
     var body: some View {
