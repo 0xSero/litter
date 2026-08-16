@@ -1542,16 +1542,18 @@ final class HomeRowContainer: UIView {
     func forceResetPinchBlurIfIdle() {
         if LitterPlatform.rendersAsMacApp { return }
         if UIAccessibility.isReduceTransparencyEnabled { return }
-        // A live fade-out is still scrubbing the animator's
-        // fractionComplete back to 0 — don't yank the animator out
-        // from under it.
-        if fadeLink != nil { return }
         // If the scroll host says a pinch is active, the animator is
         // being scrubbed in real time. Leave it alone.
         if scrollHost?.pinchActive == true { return }
+        // Navigation can leave the fade display link alive even though
+        // no pinch is active. Treat that as stale transition state and
+        // cancel it before removing the stale effect view. The pinch
+        // path lazily reinstalls the view and animator when needed.
+        fadeLink?.invalidate()
+        fadeLink = nil
         tearDownPinchBlurAnimator()
+        pinchBlur.removeFromSuperview()
         pinchBlur.effect = nil
-        pinchBlurAnimator = makePinchBlurAnimator()
     }
 
     /// Smoothly wind the blur back to zero on pinch release. Uses
