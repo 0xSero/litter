@@ -2249,8 +2249,12 @@ final class AppModel {
         return nil
     }
 
-    private static let initialTurnPageSize: UInt32 = 5
-    private static let olderTurnPageSize: UInt32 = 5
+    // A page of 5 meant tapping "Load earlier" dozens of times to get back
+    // through a real conversation (#306). Raising it is only safe now that
+    // c153d1e5 makes `include_turns=false` authoritative, so a metadata read
+    // can no longer smuggle in the full archive on top of the page.
+    private static let initialTurnPageSize: UInt32 = 20
+    private static let olderTurnPageSize: UInt32 = 20
 
     /// Fetch the first page of turns for a thread whose `initialTurnsLoaded`
     /// is still false. Called after a resume that sent `exclude_turns: true`

@@ -28,8 +28,26 @@ pub struct AgentMetadataStore {
 }
 
 impl AgentMetadataStore {
+    /// Empty store. Only useful for tests that want to assert on probe
+    /// behaviour in isolation — the app builds its store with
+    /// [`Self::with_builtin_catalog`].
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Store pre-seeded from [`crate::store::agent_catalog`].
+    ///
+    /// Without this, every non-alleycat connection path (SSH bridge,
+    /// Slingshot, direct `ws://` Codex URL) left the store empty, and
+    /// platform code that orders runtimes by intersecting with
+    /// [`Self::all_sorted`] rendered an empty list — a connected Claude
+    /// or opencode runtime simply never appeared in the picker. Seeding
+    /// gives every known agent a label, title, sort order and capability
+    /// set up front; a probe response still overwrites it.
+    pub fn with_builtin_catalog() -> Arc<Self> {
+        let store = Self::default();
+        store.upsert_all(crate::store::agent_catalog::seed_metadata());
+        Arc::new(store)
     }
 
     /// Replace this agent's metadata. Called whenever a probe response
@@ -53,19 +71,52 @@ impl AgentMetadataStore {
         }
     }
 
+    /// Resolve an agent id to its metadata, tolerating every spelling
+    /// litter may hold: the canonical id, the runtime kind an alleycat
+    /// `name`/`display_name` pair normalizes to, a built-in catalog
+    /// alias (`claude-code`, `factory-droid`, `local_studio`, …), or an
+    /// alias the host itself advertised in `presentation.aliases`.
     pub fn get(&self, name: &str) -> Option<AppAgentMetadata> {
-        let key = name.to_ascii_lowercase();
+        let key = name.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            return None;
+        }
         let guard = self.inner.read().expect("agent metadata lock");
-        guard.get(&key).cloned().or_else(|| {
-            guard
-                .values()
-                .find(|metadata| {
-                    crate::alleycat::agent_runtime_kind(&metadata.name, &metadata.display_name)
-                        .as_deref()
-                        == Some(key.as_str())
-                })
-                .cloned()
-        })
+        if let Some(found) = guard.get(&key) {
+            return Some(found.clone());
+        }
+        // An entry stored under a host-specific name (`pi.dev`) answers
+        // to the canonical kind it normalizes to (`pi`).
+        if let Some(found) = guard.values().find(|metadata| {
+            crate::alleycat::agent_runtime_kind(&metadata.name, &metadata.display_name).as_deref()
+                == Some(key.as_str())
+        }) {
+            return Some(found.clone());
+        }
+        // The reverse direction: the caller asked with an alias, the
+        // entry is stored under the canonical id.
+        if let Some(canonical) = crate::store::agent_catalog::canonical_kind(&key)
+            && canonical != key
+            && let Some(found) = guard.get(&canonical)
+        {
+            return Some(found.clone());
+        }
+        // Aliases the host advertised for an agent litter has no
+        // built-in catalog entry for.
+        guard
+            .values()
+            .find(|metadata| {
+                metadata
+                    .presentation
+                    .as_ref()
+                    .is_some_and(|presentation| {
+                        presentation
+                            .aliases
+                            .iter()
+                            .any(|alias| alias.trim().to_ascii_lowercase() == key)
+                    })
+            })
+            .cloned()
     }
 
     /// All known agents in presentation-sort order. Agents without an
@@ -134,5 +185,58 @@ mod tests {
         store.upsert(metadata("pi.dev", 0));
         let fetched = store.get("pi").expect("canonical alias should resolve");
         assert_eq!(fetched.name, "pi.dev");
+    }
+
+    #[test]
+    fn builtin_catalog_seeds_every_known_agent() {
+        let store = AgentMetadataStore::with_builtin_catalog();
+        for name in [
+            "codex",
+            "local-studio",
+            "pi",
+            "amp",
+            "opencode",
+            "claude",
+            "droid",
+            "hermes",
+            "devin",
+            "grok",
+            "shell",
+        ] {
+            assert!(store.get(name).is_some(), "{name} missing from seed");
+        }
+        // Presentation order must be non-empty before any probe: the
+        // platforms intersect their runtime lists with this ordering, so
+        // an empty store hides every connected runtime.
+        assert!(!store.all_sorted().is_empty());
+    }
+
+    #[test]
+    fn builtin_catalog_resolves_aliases_and_labels() {
+        let store = AgentMetadataStore::with_builtin_catalog();
+        assert_eq!(
+            store.get("claude-code").map(|entry| entry.display_name),
+            Some("Claude".to_string())
+        );
+        assert_eq!(
+            store.get("factory-droid").map(|entry| entry.name),
+            Some("droid".to_string())
+        );
+        assert_eq!(
+            store.get("local_studio").map(|entry| entry.display_name),
+            Some("Local Studio".to_string())
+        );
+    }
+
+    #[test]
+    fn probe_response_overwrites_seeded_catalog_entry() {
+        let store = AgentMetadataStore::with_builtin_catalog();
+        store.upsert(metadata("claude", 42));
+        let fetched = store.get("claude").expect("present");
+        assert_eq!(
+            fetched.presentation.expect("presentation").sort_order,
+            42,
+            "a live probe must win over the seeded entry"
+        );
     }
 }

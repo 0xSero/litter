@@ -760,7 +760,7 @@ impl MobileClient {
             sessions,
             event_processor,
             app_store,
-            agent_metadata: crate::store::AgentMetadataStore::new(),
+            agent_metadata: crate::store::AgentMetadataStore::with_builtin_catalog(),
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
             slingshot_apis: Arc::new(StdMutex::new(HashMap::new())),
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),

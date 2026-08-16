@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -629,10 +630,18 @@ private fun SessionNodeRow(
                 }
             }
 
+            // Without these the timestamp is the flex loser in the Row and
+            // gets squeezed to a one-character column, wrapping after every
+            // letter (#162). `softWrap = false` keeps it on one line and
+            // `wrapContentWidth(unbounded = false)` lets it claim its
+            // intrinsic width instead of being compressed to nothing.
             Text(
                 text = HomeDashboardSupport.relativeTime(summary.updatedAt),
                 color = LitterTheme.textMuted,
                 fontSize = 10.sp,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.wrapContentWidth(),
             )
         }
 

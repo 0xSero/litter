@@ -66,10 +66,18 @@ It must not parse upstream wire strings or maintain a second reducer.
    `AppStore`.
 5. SwiftUI or Compose re-renders from the typed snapshot/update stream.
 
-iPhone first-launch nearby-Mac pairing uses the separate `_litter-pair._tcp.`
-Bonjour service. Swift owns that platform browse; Rust owns only the pair
-protocol and resulting saved-server/session flow. Neither platform runs a
-general LAN, Tailscale, Codex Bonjour, SSH Bonjour or ARP discovery scan.
+Nearby-Mac pairing uses the separate `_litter-pair._tcp.` Bonjour service.
+Swift owns that platform browse; Rust owns only the pair protocol and resulting
+saved-server/session flow. **It does not ship.** The whole stack — BLE
+advertiser/scanner, ultrasonic emitter/reader, NISession, Bonjour publish and
+the WS listener — starts only when the user opens Settings → Experimental →
+Pair, and that entry point is behind `#if DEBUG`, so it is unreachable in
+Release builds. Treat `ProximityPairView`, `UWBDebugView`, `NearbyMacPairing`,
+`MacPairingHost`, `PairBLE*`, `Ultrasonic*` and `ProximityHaptics` as a parked
+feature (~2,600 lines) that still compiles into the shipping binary.
+
+Neither platform runs a general LAN, Tailscale, Codex Bonjour, SSH Bonjour or
+ARP discovery scan.
 
 `codex-slingshot` adapts JSON-line and HTTP stream transports to the same RPC
 wire abstraction used by the patched Codex app-server client. SSH bootstrap,

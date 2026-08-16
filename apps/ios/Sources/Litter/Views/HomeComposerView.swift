@@ -13,27 +13,39 @@ import os
 /// photosPicker, fileImporter, fullScreenCover and onChange chain.
 @Observable
 final class HomeComposerAttachmentState {
-    var attachedImage: UIImage?
+    var attachedImages: [UIImage] = []
     var attachedFiles: [ComposerFileAttachment] = []
     var showAttachMenu = false
     var showPhotoPicker = false
     var showCamera = false
     var showFileImporter = false
-    var selectedPhoto: PhotosPickerItem?
+    var selectedPhotos: [PhotosPickerItem] = []
 
     var hasAttachment: Bool {
-        attachedImage != nil || !attachedFiles.isEmpty
+        !attachedImages.isEmpty || !attachedFiles.isEmpty
     }
 
     func clearAttachments() {
-        attachedImage = nil
+        attachedImages = []
         attachedFiles = []
+    }
+
+    /// Appends up to `ComposerAttachmentLimits.maxImages`; extra images are
+    /// dropped rather than replacing what is already attached.
+    func appendImage(_ image: UIImage) {
+        guard attachedImages.count < ComposerAttachmentLimits.maxImages else { return }
+        attachedImages.append(image)
+    }
+
+    func removeImage(at index: Int) {
+        guard attachedImages.indices.contains(index) else { return }
+        attachedImages.remove(at: index)
     }
 
     func apply(_ picked: PickedComposerFile) {
         switch picked {
         case .image(let image):
-            attachedImage = image
+            appendImage(image)
         case .file(let file):
             if !attachedFiles.contains(file) {
                 attachedFiles.append(file)
@@ -41,13 +53,30 @@ final class HomeComposerAttachmentState {
         }
     }
 
+    /// Bridge for `CameraView`, which hands back a single optional `UIImage`.
+    /// Appends rather than replacing so a camera capture stacks onto whatever
+    /// is already attached.
     @MainActor
-    func loadSelectedPhoto(_ item: PhotosPickerItem) async {
-        if let data = try? await item.loadTransferable(type: Data.self),
-           let image = UIImage(data: data) {
-            attachedImage = image
+    var cameraImageBinding: Binding<UIImage?> {
+        Binding(
+            get: { [weak self] in self?.attachedImages.last },
+            set: { [weak self] newImage in
+                guard let self, let newImage else { return }
+                self.appendImage(newImage)
+            }
+        )
+    }
+
+    @MainActor
+    func loadSelectedPhotos(_ items: [PhotosPickerItem]) async {
+        for item in items {
+            if attachedImages.count >= ComposerAttachmentLimits.maxImages { break }
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let image = UIImage(data: data) {
+                attachedImages.append(image)
+            }
         }
-        selectedPhoto = nil
+        selectedPhotos = []
     }
 }
 
@@ -87,7 +116,8 @@ private struct HomeComposerPresentationHost: View {
             }
             .photosPicker(
                 isPresented: $attach.showPhotoPicker,
-                selection: $attach.selectedPhoto,
+                selection: $attach.selectedPhotos,
+                maxSelectionCount: ComposerAttachmentLimits.maxImages,
                 matching: .images
             )
             .fileImporter(
@@ -100,12 +130,12 @@ private struct HomeComposerPresentationHost: View {
                 guard let picked = ConversationAttachmentSupport.loadPickedFile(at: url) else { return }
                 attach.apply(picked)
             }
-            .onChange(of: attach.selectedPhoto) { _, item in
-                guard let item else { return }
-                Task { await attach.loadSelectedPhoto(item) }
+            .onChange(of: attach.selectedPhotos) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await attach.loadSelectedPhotos(items) }
             }
             .fullScreenCover(isPresented: $attach.showCamera) {
-                CameraView(image: $attach.attachedImage)
+                CameraView(image: attach.cameraImageBinding)
                     .ignoresSafeArea()
             }
     }
@@ -192,7 +222,7 @@ struct HomeComposerView: View {
             }
 
             ConversationComposerContentView(
-                attachedImage: attach.attachedImage,
+                attachedImages: attach.attachedImages,
                 attachedFiles: attach.attachedFiles,
                 collaborationMode: .default,
                 activePlanProgress: nil,
@@ -208,7 +238,8 @@ struct HomeComposerView: View {
                 voiceManager: voiceManager,
                 allowsVoiceInput: project != nil,
                 showAttachMenu: $attach.showAttachMenu,
-                onClearAttachment: { attach.attachedImage = nil },
+                onClearAttachment: { attach.attachedImages = [] },
+                onRemoveImage: { index in attach.removeImage(at: index) },
                 onRemoveFileAttachment: { file in
                     attach.attachedFiles.removeAll { $0 == file }
                 },
@@ -216,7 +247,7 @@ struct HomeComposerView: View {
                 onSteerQueuedFollowUp: { _ in },
                 onDeleteQueuedFollowUp: { _ in },
                 onRemovePluginMention: removePluginMention,
-                onPasteImage: { image in attach.attachedImage = image },
+                onPasteImage: { image in attach.appendImage(image) },
                 onOpenModePicker: {},
                 onSendText: handleSend,
                 onStopRecording: stopVoiceRecording,
@@ -252,10 +283,11 @@ struct HomeComposerView: View {
             return true
         }
         .dropDestination(for: Data.self) { items, _ in
-            guard let image = items.lazy.compactMap({ UIImage(data: $0) }).first else {
-                return false
+            let images = items.compactMap { UIImage(data: $0) }
+            guard !images.isEmpty else { return false }
+            for image in images {
+                attach.appendImage(image)
             }
-            attach.attachedImage = image
             return true
         }
         // All attachment presentation lives behind a stable object reference so
@@ -283,9 +315,9 @@ struct HomeComposerView: View {
 
     private func handleSend() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let image = attach.attachedImage
+        let images = attach.attachedImages
         let files = attach.attachedFiles
-        guard !text.isEmpty || image != nil || !files.isEmpty else { return }
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty else { return }
         guard !isSubmitting else { return }
         guard let project else {
             errorMessage = "Pick a project before sending."
@@ -330,7 +362,7 @@ struct HomeComposerView: View {
                 createdThreadKey = threadKey
                 onThreadCreated(threadKey)
                 RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
-                let preparedAttachment = image.flatMap(ConversationAttachmentSupport.prepareImage)
+                let preparedAttachments = images.compactMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
                 let mentionsToSend = collectPluginMentionsForSubmission(text)
                 pluginMentionSelections = []
@@ -341,8 +373,8 @@ struct HomeComposerView: View {
                         AppUserInput.mention(name: mention.name, path: mention.path)
                     )
                 }
-                if let preparedAttachment {
-                    additionalInputs.append(preparedAttachment.userInput)
+                for prepared in preparedAttachments {
+                    additionalInputs.append(prepared.userInput)
                 }
                 let payload = AppComposerPayload(
                     text: text,

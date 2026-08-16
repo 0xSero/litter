@@ -1558,7 +1558,7 @@ mod tests {
             updated_at: None,
         };
         let mut primed = ThreadSnapshot::from_info("srv", info);
-        primed.items = vec![item_with_turn("paged-turn", "paged-item")];
+        primed.items = vec![item_with_turn("paged-turn", "paged-item")].into();
         primed.older_turns_cursor = Some("older-cursor".to_string());
         primed.initial_turns_loaded = true;
         client.app_store.upsert_thread_snapshot(primed);
