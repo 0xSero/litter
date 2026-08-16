@@ -395,7 +395,30 @@ impl MobileClient {
                     thread_id: thread_id.to_string(),
                 })
             })
-            .unwrap_or("codex".to_string())
+            .unwrap_or_else(|| {
+                // Catalog RPCs (SkillsList, PluginList, ModelList, etc.) are
+                // not thread-bearing, so they fall through to this default.
+                // On a server that only has the local-studio runtime, the
+                // "codex" runtime is not registered and the request would
+                // silently fall back to the default channel — which doesn't
+                // implement Codex catalog methods. Mirror the special case
+                // from runtime_for_thread_start so catalog RPCs reach the
+                // correct runtime.
+                if self
+                    .app_store
+                    .snapshot()
+                    .servers
+                    .get(server_id)
+                    .is_some_and(|server| {
+                        server.agent_runtimes.len() == 1
+                            && server.agent_runtimes[0].kind == "local-studio"
+                    })
+                {
+                    "local-studio".to_string()
+                } else {
+                    "codex".to_string()
+                }
+            })
     }
 
     pub(super) fn pending_approval(&self, request_id: &str) -> Result<PendingApproval, RpcError> {

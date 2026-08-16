@@ -837,6 +837,7 @@ impl AppClient {
         params: types::AppReadThreadRequest,
     ) -> Result<types::ThreadKey, ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
+            let include_turns = params.include_turns;
             let response: upstream::ThreadReadResponse = rpc(
                 c.as_ref(),
                 &server_id,
@@ -844,7 +845,7 @@ impl AppClient {
             )
             .await?;
             let key = c
-                .apply_thread_read_response(&server_id, &response)
+                .apply_thread_read_response(&server_id, &response, include_turns)
                 .map_err(ClientError::Serialization)?;
             hydrate_thread_goal_if_available(c.as_ref(), &server_id, &key).await;
             Ok(key)

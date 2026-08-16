@@ -56,7 +56,14 @@ impl MobileClient {
                     wire_method,
                     response,
                 )?;
-                self.apply_thread_read_response(server_id, response)
+                let include_turns = params
+                    .and_then(|p| {
+                        let p_any: &dyn Any = p;
+                        p_any.downcast_ref::<upstream::ThreadReadParams>()
+                    })
+                    .map(|p| p.include_turns)
+                    .unwrap_or(true);
+                self.apply_thread_read_response(server_id, response, include_turns)
                     .map(|_| ())
                     .map_err(RpcError::Deserialization)
             }
@@ -251,6 +258,7 @@ impl MobileClient {
         &self,
         server_id: &str,
         response: &upstream::ThreadReadResponse,
+        include_turns: bool,
     ) -> Result<ThreadKey, String> {
         let mut snapshot = crate::thread_snapshot_from_upstream_thread_with_overrides(
             server_id,
@@ -263,21 +271,26 @@ impl MobileClient {
         .map_err(|e| e.to_string())?;
         let key = snapshot.key.clone();
         let existing = self.app_store.thread_snapshot(&key);
-        // Share the preserve-on-empty merge with resume/fork. A paginated
-        // v0.125+ server returns `thread.turns: []` on thread/read — we
-        // must keep any items + `older_turns_cursor` the prior
-        // `load_thread_turns_page` stored. A legacy (or authoritative)
-        // response with embedded turns clears the cursor because the
-        // embedded list is the full history.
-        apply_pagination_merge(existing.as_ref(), &mut snapshot, &response.thread.turns);
+        // When the caller asked for a metadata-only read (include_turns =
+        // false), the server should return an empty turns array. Some
+        // bridges violate this contract and embed history anyway — treat
+        // those embedded turns as non-authoritative and preserve the
+        // store's existing paged items + cursor, exactly as we do for an
+        // empty-turns response.
+        let effective_turns: &[upstream::Turn] = if include_turns {
+            &response.thread.turns
+        } else {
+            &[]
+        };
+        apply_pagination_merge(existing.as_ref(), &mut snapshot, effective_turns);
         // thread/read is authoritative for `initial_turns_loaded`: if the
         // server returned no turns AND no prior state exists, treat the
         // thread as having no history rather than a pending page load, so
         // the iOS spinner doesn't stick (task #10 invariant).
-        if existing.is_none() && response.thread.turns.is_empty() {
+        if existing.is_none() && effective_turns.is_empty() {
             snapshot.initial_turns_loaded = true;
         }
-        crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
+        crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, effective_turns);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(key)
     }
@@ -1341,7 +1354,7 @@ mod tests {
             sandbox: None,
         };
         let key = client
-            .apply_thread_read_response("srv", &response)
+            .apply_thread_read_response("srv", &response, true)
             .expect("thread/read reconciliation");
         let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
         assert!(
@@ -1416,7 +1429,7 @@ mod tests {
             sandbox: None,
         };
         let key = client
-            .apply_thread_read_response("srv", &response)
+            .apply_thread_read_response("srv", &response, true)
             .expect("thread/read");
         let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
         assert!(snapshot.initial_turns_loaded);
@@ -1481,7 +1494,7 @@ mod tests {
             sandbox: None,
         };
         let key = client
-            .apply_thread_read_response("srv", &response)
+            .apply_thread_read_response("srv", &response, true)
             .expect("thread/read");
         let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
         assert!(
