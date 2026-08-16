@@ -69,6 +69,7 @@
 		18505C3526851FD8F141B78E /* WidgetWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1C08AB8EA89D69A67AA7B2 /* WidgetWebView.swift */; };
 		18E05E61B326B6F0BA4BF241 /* absolutely-light.json in Resources */ = {isa = PBXBuildFile; fileRef = ADE3C405C5BF7CFDD59604A0 /* absolutely-light.json */; };
 		19B4F5707625A7336C99DC88 /* CrossServerTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F39212507F7334160D127E8 /* CrossServerTools.swift */; };
+		19F1A6368F9DECCBA45AB55B /* AppSnapshotObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8D8E49DD6C1B742C847FA4 /* AppSnapshotObserver.swift */; };
 		1AF5B0CFD0F28F0A7E787A04 /* MessageRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D3FB91329C177A51F198B3 /* MessageRenderCache.swift */; };
 		1B6CB8BC9F613C565C3F66A7 /* kitty-litter-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 1F375FD1856F2663DBEA699F /* kitty-litter-light.json */; };
 		1BFD0FD1F466901FB05DACBD /* LitterLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2DF6931F753DFD2AB67F62DC /* LitterLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -353,6 +354,7 @@
 		8181782DFED3DEC99DC63030 /* DebugBuildLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */; };
 		818679028BC9D93AEBD01BF5 /* ConnectionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4925417F70C546B80DBD9EFF /* ConnectionTarget.swift */; };
 		81EDE80D456A85034D7F2AD5 /* GhosttyBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A9881AF33F0C5E5B007B7E88 /* GhosttyBridge.m */; };
+		829A08F8CE7BFA4E4BC54787 /* AppSnapshotObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8D8E49DD6C1B742C847FA4 /* AppSnapshotObserver.swift */; };
 		82E763E808260942539A23E8 /* notion-dark-BTRKJ-yg.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */; };
 		82E7F97F0BBB0EB0FE1B4362 /* AgentLabelFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02ED53258B9C053AB7035CD1 /* AgentLabelFormatter.swift */; };
 		8307121CA65B93FFB0CE7F9D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CFDCB6C4655E3D2D76B41B /* AppState.swift */; };
@@ -1165,6 +1167,7 @@
 		F9F1AA9A960B33D4BF4DEA49 /* SessionsTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsTypes.swift; sourceTree = "<group>"; };
 		FA194C891016B4A079CBB2C9 /* OpenServerOnWatchIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenServerOnWatchIntent.swift; sourceTree = "<group>"; };
 		FA7B1E3B542D557D080E913D /* codex-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "codex-light.json"; sourceTree = "<group>"; };
+		FB8D8E49DD6C1B742C847FA4 /* AppSnapshotObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSnapshotObserver.swift; sourceTree = "<group>"; };
 		FBDCA7E13AFEF6228B66347D /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 		FE2B786FCD5DBBFC5BBEB20E /* snazzy-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "snazzy-light.json"; sourceTree = "<group>"; };
 		FE71A015A197F8B7F6AE82B8 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -1670,6 +1673,7 @@
 				78076308EEAAE64BC3BFDC1F /* AnimatedSplashView.swift */,
 				9D216CEBFB1B4B71CFC2C0F8 /* AppearanceSettingsView.swift */,
 				DD7A57CD59F1F3C8300A9ECE /* AppsListView.swift */,
+				FB8D8E49DD6C1B742C847FA4 /* AppSnapshotObserver.swift */,
 				63D9ACF04F4018F2949FB7E0 /* AudioWaveformView.swift */,
 				C361CBF40ED3D35C44D46880 /* BrandLogo.swift */,
 				A36C53F042D99EC31804B19E /* CatalystVoiceStubs.swift */,
@@ -2358,6 +2362,7 @@
 				A83B160D16DD271CCD128393 /* AppRuntimeController.swift in Sources */,
 				6CCF5EA627DE6F2B495365EB /* AppServerHealth+UI.swift in Sources */,
 				E7C078C9B33B1534229993DB /* AppServerSnapshot+UI.swift in Sources */,
+				19F1A6368F9DECCBA45AB55B /* AppSnapshotObserver.swift in Sources */,
 				0675CB344BC928B7A6AF926D /* AppSnapshotRecord+Runtime.swift in Sources */,
 				A34B4D9FECC447E17DA15364 /* AppSpecificTypes.swift in Sources */,
 				7E7B4AC85F18366192E98E8B /* AppState.swift in Sources */,
@@ -2562,6 +2567,7 @@
 				76BE50FE6BD45F34126B1EE6 /* AppRpcParams.swift in Sources */,
 				3D14179A9B467B535DBFB70E /* AppServerHealth+UI.swift in Sources */,
 				E04DA65EF01434275B11D39D /* AppServerSnapshot+UI.swift in Sources */,
+				829A08F8CE7BFA4E4BC54787 /* AppSnapshotObserver.swift in Sources */,
 				9106629F6ABA8F5D30DBA0F2 /* AppSnapshotRecord+Runtime.swift in Sources */,
 				0961507E635A132B0137ACF0 /* AppSpecificTypes.swift in Sources */,
 				8307121CA65B93FFB0CE7F9D /* AppState.swift in Sources */,

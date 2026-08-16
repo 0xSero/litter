@@ -3868,7 +3868,7 @@ impl MobileClient {
         &self,
         bytes: Vec<u8>,
     ) -> Result<bool, crate::terminal::TerminalError> {
-        let active_id = self.app_store.snapshot().active_terminal_id.clone();
+        let active_id = self.app_store.active_terminal_id();
         let Some(id) = active_id else {
             return Ok(false);
         };

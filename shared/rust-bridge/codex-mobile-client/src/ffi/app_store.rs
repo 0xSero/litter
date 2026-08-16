@@ -172,8 +172,12 @@ mod tests {
         ));
     }
 
+    /// Unrelated refresh-style updates must stay distinct instead of being
+    /// promoted to `FullResync`. The platform layer debounces
+    /// `.serverChanged` but reacts to `.fullResync` immediately, so
+    /// promoting made these bursts strictly more expensive to render.
     #[test]
-    fn app_store_subscription_coalesces_refresh_only_updates_into_full_resync() {
+    fn app_store_subscription_keeps_unrelated_refresh_updates_distinct() {
         let reducer = AppStoreReducer::new();
         let subscription = AppStoreSubscription {
             state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
@@ -184,14 +188,57 @@ mod tests {
 
         reducer.update_server_health("srv", crate::store::ServerHealthSnapshot::Connected);
         reducer.replace_pending_approvals(Vec::new());
-        reducer.set_voice_handoff_thread(None);
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let first = runtime
+            .block_on(subscription.next_update())
+            .expect("next update should succeed");
+        assert!(matches!(
+            first,
+            AppStoreUpdateRecord::ServerChanged { ref server_id } if server_id == "srv"
+        ));
+
+        let second = runtime
+            .block_on(subscription.next_update())
+            .expect("next update should succeed");
+        assert!(matches!(
+            second,
+            AppStoreUpdateRecord::PendingApprovalsChanged { .. }
+        ));
+    }
+
+    /// Repeated same-kind refresh updates still collapse onto the newest
+    /// value, which carries the complete replacement state.
+    #[test]
+    fn app_store_subscription_collapses_repeated_same_kind_refresh_updates() {
+        let reducer = AppStoreReducer::new();
+        let subscription = AppStoreSubscription {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx: reducer.subscribe(),
+                buffered: VecDeque::new(),
+            })),
+        };
+
+        reducer.replace_pending_approvals(Vec::new());
+        reducer.replace_pending_approvals(Vec::new());
+        reducer.replace_pending_approvals(Vec::new());
 
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         let update = runtime
             .block_on(subscription.next_update())
             .expect("next update should succeed");
+        assert!(matches!(
+            update,
+            AppStoreUpdateRecord::PendingApprovalsChanged { .. }
+        ));
 
-        assert!(matches!(update, AppStoreUpdateRecord::FullResync));
+        // Nothing else is pending: the three emits merged into one.
+        let mut state = subscription.state.lock().unwrap().take().expect("state");
+        assert!(state.buffered.is_empty());
+        assert!(matches!(
+            state.rx.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
     }
 
     #[test]
@@ -371,7 +418,12 @@ impl AppStore {
         &self,
         key: ThreadKey,
     ) -> Result<Option<AppThreadSnapshot>, ClientError> {
-        crate::store::project_thread_snapshot(&self.inner.app_snapshot(), &key)
+        // Projects under the store's read lock. Going through
+        // `app_snapshot()` deep-cloned every server, thread, item and 64 KiB
+        // terminal output tail just to keep one thread.
+        self.inner
+            .app_store
+            .project_thread_snapshot(&key)
             .map_err(ClientError::Serialization)
     }
 
@@ -680,7 +732,7 @@ impl AppStore {
 
     /// Return the currently-focused terminal session id, if any.
     pub fn active_terminal_id(&self) -> Option<String> {
-        self.inner.app_store.snapshot().active_terminal_id
+        self.inner.app_store.active_terminal_id()
     }
 
     /// Set the focused terminal session id. Pass `None` to clear focus.
@@ -764,10 +816,6 @@ fn merge_app_update(
         return Ok(());
     }
     if matches!(next, AppStoreUpdateRecord::FullResync) {
-        *current = AppStoreUpdateRecord::FullResync;
-        return Ok(());
-    }
-    if triggers_snapshot_refresh(current) && triggers_snapshot_refresh(&next) {
         *current = AppStoreUpdateRecord::FullResync;
         return Ok(());
     }
@@ -858,6 +906,46 @@ fn merge_app_update(
             *key = next_key;
             Ok(())
         }
+        // Same-kind refresh-style updates collapse onto the newest value,
+        // which already carries the full replacement state. They are
+        // deliberately NOT promoted to `FullResync` when they differ: the
+        // platform layer debounces the specific variants but reacts to
+        // `FullResync` immediately, so promoting made the common
+        // "server changed, then approvals changed" burst *more* expensive.
+        (
+            AppStoreUpdateRecord::ServerChanged { server_id },
+            AppStoreUpdateRecord::ServerChanged {
+                server_id: next_server_id,
+            },
+        ) if *server_id == next_server_id => Ok(()),
+        (
+            AppStoreUpdateRecord::ServerRemoved { server_id },
+            AppStoreUpdateRecord::ServerRemoved {
+                server_id: next_server_id,
+            },
+        ) if *server_id == next_server_id => Ok(()),
+        (
+            AppStoreUpdateRecord::PendingApprovalsChanged { approvals },
+            AppStoreUpdateRecord::PendingApprovalsChanged {
+                approvals: next_approvals,
+            },
+        ) => {
+            *approvals = next_approvals;
+            Ok(())
+        }
+        (
+            AppStoreUpdateRecord::PendingUserInputsChanged { requests },
+            AppStoreUpdateRecord::PendingUserInputsChanged {
+                requests: next_requests,
+            },
+        ) => {
+            *requests = next_requests;
+            Ok(())
+        }
+        (
+            AppStoreUpdateRecord::VoiceSessionChanged,
+            AppStoreUpdateRecord::VoiceSessionChanged,
+        ) => Ok(()),
         (_current, next) => Err(Box::new(next)),
     }
 }
@@ -909,16 +997,3 @@ fn should_preserve_thread_item_update_boundary(
     }
 }
 
-fn triggers_snapshot_refresh(update: &AppStoreUpdateRecord) -> bool {
-    matches!(
-        update,
-        AppStoreUpdateRecord::ServerChanged { .. }
-            | AppStoreUpdateRecord::ServerRemoved { .. }
-            | AppStoreUpdateRecord::PendingApprovalsChanged { .. }
-            | AppStoreUpdateRecord::PendingUserInputsChanged { .. }
-            | AppStoreUpdateRecord::VoiceSessionChanged
-            | AppStoreUpdateRecord::RealtimeStarted { .. }
-            | AppStoreUpdateRecord::RealtimeError { .. }
-            | AppStoreUpdateRecord::RealtimeClosed { .. }
-    )
-}

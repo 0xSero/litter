@@ -9,7 +9,6 @@ mod voice;
 
 pub use agent_metadata::{AgentMetadataStore, AppAgentMetadata};
 
-pub(crate) use boundary::project_thread_snapshot;
 pub use boundary::{
     AppServerHealth, AppServerSnapshot, AppSessionSummary, AppSnapshotRecord, AppThreadSnapshot,
     AppThreadStateRecord,
@@ -20,6 +19,6 @@ pub use snapshot::{
     AppConnectionProgressSnapshot, AppConnectionStepKind, AppConnectionStepSnapshot,
     AppConnectionStepState, AppQueuedFollowUpKind, AppQueuedFollowUpPreview, AppSnapshot,
     AppTerminalSessionPhase, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
-    TerminalSessionSnapshot, ThreadSnapshot,
+    TerminalSessionSnapshot, ThreadItems, ThreadSnapshot,
 };
 pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
