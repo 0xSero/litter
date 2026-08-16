@@ -138,7 +138,6 @@ struct AppearanceSettingsView: View {
             }
             .padding(.vertical, 6)
             .environment(\.textScale, ConversationTextSize.clamped(rawValue: textSizeStep).scale)
-            .id(themeManager.themeVersion)
             .listRowBackground(LitterTheme.backgroundGradient)
             .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
         } header: {

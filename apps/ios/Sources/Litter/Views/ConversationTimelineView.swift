@@ -370,7 +370,6 @@ extension AnyTransition {
 
 private struct ConversationTimelineItemRow: View, Equatable {
     private let renderCache = MessageRenderCache.shared
-    @Environment(ThemeManager.self) private var themeManager
 
     let item: ConversationItem
     let serverId: String
@@ -592,7 +591,6 @@ private struct ConversationTimelineItemRow: View, Equatable {
             text: data.text,
             isStreaming: isStreamingMessage,
             label: assistantLabel,
-            themeVersion: themeManager.themeVersion,
             onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
         )
     }
@@ -2188,7 +2186,6 @@ private struct ConversationDiffDetailSheet: View {
     let title: String
     let stats: DiffStats
     let sections: [PresentedDiffSectionModel]
-    @Environment(ThemeManager.self) private var themeManager
     @Environment(\.dismiss) private var dismiss
     @State private var collapsedSectionIDs: Set<String> = []
     private let fullDiffFontSize = LitterFont.conversationDiffPointSize
@@ -2263,7 +2260,6 @@ private struct ConversationDiffDetailSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .id(themeManager.themeVersion)
     }
 
     private var usesStickyHeaders: Bool {
@@ -2280,7 +2276,6 @@ private struct ConversationDiffDetailSheet: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     SyntaxHighlightedDiffText(
                         diff: section.diff,
-                        titleHint: section.title.isEmpty ? nil : section.title,
                         fontSize: fullDiffFontSize
                     )
                         .padding(.horizontal, 8)

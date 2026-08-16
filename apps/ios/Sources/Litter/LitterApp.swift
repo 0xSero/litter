@@ -452,9 +452,7 @@ struct ContentView: View {
         .onChange(of: colorScheme) { _, nextColorScheme in
             // iOS toggles `colorScheme` while capturing light+dark
             // app-switcher snapshots on background. Reacting to that
-            // bumps `themeManager.themeVersion`, which the navigation
-            // root uses as `.id(...)` and would tear down every
-            // in-flight @State (composer text, focus, scroll) every
+            // recolors views through the @Observable ThemeStore every
             // time the user switches apps. Only react when the scene
             // is actually active — i.e., a real user theme toggle.
             guard scenePhase == .active else { return }
@@ -513,7 +511,6 @@ struct ContentView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: [.top, .bottom])
-        .id(themeManager.themeVersion)
         .onAppear {
             Task { await conversationWarmup.prewarmIfNeeded() }
         }

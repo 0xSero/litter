@@ -242,7 +242,6 @@ struct AssistantBubble: View, Equatable {
     let markdownIdentity: Int
     var label: String? = nil
     var compact: Bool = false
-    var themeVersion: Int = 0
     var allowsInlineSelection: Bool = true
     private let contentFontSize = LitterFont.conversationBodyPointSize
 
@@ -250,14 +249,12 @@ struct AssistantBubble: View, Equatable {
         text: String,
         label: String? = nil,
         compact: Bool = false,
-        themeVersion: Int = 0,
         allowsInlineSelection: Bool = true
     ) {
         self.markdownString = text
         self.markdownIdentity = text.hashValue
         self.label = label
         self.compact = compact
-        self.themeVersion = themeVersion
         self.allowsInlineSelection = allowsInlineSelection
     }
 
@@ -266,14 +263,12 @@ struct AssistantBubble: View, Equatable {
         markdownIdentity: Int,
         label: String? = nil,
         compact: Bool = false,
-        themeVersion: Int = 0,
         allowsInlineSelection: Bool = true
     ) {
         self.markdownString = markdownString
         self.markdownIdentity = markdownIdentity
         self.label = label
         self.compact = compact
-        self.themeVersion = themeVersion
         self.allowsInlineSelection = allowsInlineSelection
     }
 
@@ -281,7 +276,6 @@ struct AssistantBubble: View, Equatable {
         lhs.markdownIdentity == rhs.markdownIdentity &&
         lhs.label == rhs.label &&
         lhs.compact == rhs.compact &&
-        lhs.themeVersion == rhs.themeVersion &&
         lhs.allowsInlineSelection == rhs.allowsInlineSelection
     }
 
@@ -419,7 +413,6 @@ struct StreamingAssistantBubble: View {
     let text: String
     var isStreaming: Bool = false
     var label: String? = nil
-    var themeVersion: Int = 0
     var onSnapshotRendered: (() -> Void)? = nil
     private let contentFontSize: CGFloat
 
@@ -434,7 +427,6 @@ struct StreamingAssistantBubble: View {
         text: String,
         isStreaming: Bool = false,
         label: String? = nil,
-        themeVersion: Int = 0,
         bodySize: CGFloat = LitterFont.conversationBodyPointSize,
         onSnapshotRendered: (() -> Void)? = nil
     ) {
@@ -442,7 +434,6 @@ struct StreamingAssistantBubble: View {
         self.text = text
         self.isStreaming = isStreaming
         self.label = label
-        self.themeVersion = themeVersion
         self.contentFontSize = bodySize
         self.onSnapshotRendered = onSnapshotRendered
 
@@ -692,7 +683,6 @@ struct LitterCodeBlockRenderer: CodeBlockRenderer {
                 ScrollView(.horizontal, showsIndicators: false) {
                     SyntaxHighlightedDiffText(
                         diff: configuration.code,
-                        titleHint: configuration.language,
                         fontSize: LitterFont.conversationDiffPointSize
                     )
                     .padding(configuration.theme.codeBlock.padding)
@@ -738,8 +728,94 @@ private struct CodeBlockTerminalContextMenu: ViewModifier {
 
 // MARK: - Syntax Highlighting Theme Mapping
 
+/// Memoizes Highlightr's JS-based code tokenization.
+///
+/// `HighlightrCodeSyntaxHighlighter.highlightCode` runs highlight.js through
+/// JavaScriptCore — a synchronous, main-thread expensive call that also bakes
+/// the current theme's token colors into the result. HairballUI's
+/// `CodeBlockBody` calls it inline in `body`, so without memoization the same
+/// block is re-tokenized on every SwiftUI re-evaluation (streaming deltas,
+/// snapshot updates, scroll layout passes, theme changes).
+///
+/// The cache is keyed on the full render inputs — `(code, language, themeName)`
+/// — the same "compute once per inputs, reuse until they change" pattern the
+/// app already uses for diff rendering (`SyntaxHighlightedDiffText`). Because
+/// most Litter themes map to a shared Highlightr palette (e.g. the whole
+/// "atom-one-dark" family), switching between those themes does not change
+/// `themeName`, so the cached tokenization survives the switch and code blocks
+/// simply recolor through the theme environment instead of re-running the JS
+/// tokenizer.
+private final class CachedHighlightrCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+    private struct Key: Hashable {
+        let code: String
+        let language: String?
+        let themeName: String
+    }
+
+    private let inner: HighlightrCodeSyntaxHighlighter
+    private let lock = NSLock()
+    private var cache: [Key: AttributedString] = [:]
+    private var insertionOrder: [Key] = []
+
+    private static let maxEntries = 256
+
+    init(theme: String) {
+        self.inner = HighlightrCodeSyntaxHighlighter(theme: theme)
+    }
+
+    var themeName: String {
+        inner.themeName
+    }
+
+    @discardableResult
+    func setTheme(_ name: String) -> Bool {
+        inner.setTheme(name)
+    }
+
+    func highlightCode(_ code: String, language: String?) -> AttributedString {
+        let key = Key(code: code, language: language, themeName: inner.themeName)
+
+        lock.lock()
+        if let hit = cache[key] {
+            touchLocked(key)
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+
+        let result = inner.highlightCode(code, language: language)
+
+        lock.lock()
+        // Guard against caching a result colored by a theme that changed while
+        // the JS call was in flight (all current callers are main-thread, so
+        // this is defensive).
+        if cache[key] == nil && inner.themeName == key.themeName {
+            cache[key] = result
+            insertionOrder.append(key)
+            trimIfNeededLocked()
+        }
+        lock.unlock()
+        return result
+    }
+
+    private func touchLocked(_ key: Key) {
+        if let index = insertionOrder.firstIndex(of: key) {
+            insertionOrder.remove(at: index)
+        }
+        insertionOrder.append(key)
+    }
+
+    private func trimIfNeededLocked() {
+        guard cache.count > Self.maxEntries else { return }
+        while cache.count > Self.maxEntries * 3 / 4, let oldest = insertionOrder.first {
+            insertionOrder.removeFirst()
+            cache.removeValue(forKey: oldest)
+        }
+    }
+}
+
 /// Shared highlighter instance — theme is switched at runtime via `setTheme(_:)`.
-private let sharedHighlighter = HighlightrCodeSyntaxHighlighter(theme: "atom-one-dark")
+private let sharedHighlighter = CachedHighlightrCodeSyntaxHighlighter(theme: "atom-one-dark")
 
 /// Maps a Litter theme slug to the closest Highlightr theme name.
 /// Direct matches are checked first, then known family prefixes, then light/dark fallback.
