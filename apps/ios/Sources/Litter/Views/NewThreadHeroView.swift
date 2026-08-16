@@ -94,6 +94,22 @@ struct NewThreadHeroView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let onCancel {
+                // The trailing "Cancel" was the only way out of this screen,
+                // and with an empty `navigationTitle` the system chevron is
+                // near-invisible against the themed background — so the new
+                // thread page read as a dead end (#305). Mirrors the
+                // conversation screen's leading chevron.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onCancel) {
+                        Image(systemName: "chevron.left")
+                            .font(LitterFont.styled(size: 17, weight: .semibold))
+                            .foregroundColor(LitterTheme.textPrimary)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { onCancel() }
                         .foregroundStyle(LitterTheme.textSecondary)

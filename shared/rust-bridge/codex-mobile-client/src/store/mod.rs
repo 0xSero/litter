@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod agent_catalog;
 pub mod agent_metadata;
 pub mod boundary;
 pub mod reconcile;

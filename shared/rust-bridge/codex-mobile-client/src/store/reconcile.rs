@@ -1499,4 +1499,87 @@ mod tests {
             "existing paged items must be preserved when embedded turns are empty"
         );
     }
+
+    #[tokio::test]
+    async fn metadata_only_thread_read_ignores_bridge_embedded_history() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &ServerConfig {
+                server_id: "srv".to_string(),
+                display_name: "Server".to_string(),
+                host: "localhost".to_string(),
+                port: 8390,
+                websocket_url: None,
+                is_local: true,
+                tls: false,
+            },
+            ServerHealthSnapshot::Connected,
+        );
+
+        let info = crate::types::ThreadInfo {
+            id: "thread-1".to_string(),
+            title: None,
+            model: None,
+            status: crate::types::ThreadSummaryStatus::Idle,
+            preview: None,
+            cwd: None,
+            path: None,
+            model_provider: None,
+            agent_nickname: None,
+            agent_role: None,
+            parent_thread_id: None,
+            forked_from_id: None,
+            agent_status: None,
+            created_at: None,
+            updated_at: None,
+        };
+        let mut primed = ThreadSnapshot::from_info("srv", info);
+        primed.items = vec![item_with_turn("paged-turn", "paged-item")].into();
+        primed.older_turns_cursor = Some("older-cursor".to_string());
+        primed.initial_turns_loaded = true;
+        client.app_store.upsert_thread_snapshot(primed);
+
+        let mut violating_thread = test_upstream_thread("thread-1");
+        violating_thread.turns = vec![upstream::Turn {
+            id: "unbounded-turn".to_string(),
+            status: upstream::TurnStatus::Completed,
+            items: vec![upstream::ThreadItem::UserMessage {
+                id: "unbounded-item".to_string(),
+                content: vec![upstream::UserInput::Text {
+                    text: "bridge returned history despite includeTurns=false".to_string(),
+                    text_elements: Vec::new(),
+                }],
+            }],
+            items_view: upstream::TurnItemsView::Full,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+        }];
+        let response = upstream::ThreadReadResponse {
+            thread: violating_thread,
+            approval_policy: None,
+            sandbox: None,
+        };
+        let params = upstream::ThreadReadParams {
+            thread_id: "thread-1".to_string(),
+            include_turns: false,
+        };
+
+        client
+            .reconcile_public_rpc("thread/read", "srv", Some(&params), &response)
+            .await
+            .expect("metadata-only thread/read reconciliation");
+
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let snapshot = client.app_store.thread_snapshot(&key).expect("snapshot");
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].id, "paged-item");
+        assert_eq!(snapshot.older_turns_cursor.as_deref(), Some("older-cursor"));
+        assert!(snapshot.initial_turns_loaded);
+    }
+
 }

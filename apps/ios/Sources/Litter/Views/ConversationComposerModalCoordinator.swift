@@ -15,8 +15,8 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     @Binding var showPhotoPicker: Bool
     @Binding var showCamera: Bool
     @Binding var showFileImporter: Bool
-    @Binding var selectedPhoto: PhotosPickerItem?
-    @Binding var attachedImage: UIImage?
+    @Binding var selectedPhotos: [PhotosPickerItem]
+    @Binding var attachedImages: [UIImage]
     @Binding var showModelSelector: Bool
     @Binding var showPermissionsSheet: Bool
     @Binding var showExperimentalSheet: Bool
@@ -27,7 +27,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     @Binding var slashErrorMessage: String?
     @Binding var showMicPermissionAlert: Bool
     let onOpenSettings: () -> Void
-    let onLoadSelectedPhoto: (PhotosPickerItem) async -> Void
+    let onLoadSelectedPhotos: ([PhotosPickerItem]) async -> Void
     let onLoadSelectedFile: (URL) -> Void
     let onLoadExperimentalFeatures: () async -> Void
     let onIsExperimentalFeatureEnabled: (String, Bool) -> Bool
@@ -36,6 +36,21 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     let onRenameThread: (String) async -> Void
     @ViewBuilder let content: Content
     @State private var modelSelectorDetent: PresentationDetent = .large
+
+    /// Bridge binding for `CameraView` which expects a single `UIImage?`.
+    /// Appends the captured photo to the `attachedImages` array (capped at 4)
+    /// instead of replacing existing attachments.
+    private var cameraImageBinding: Binding<UIImage?> {
+        Binding(
+            get: { attachedImages.last },
+            set: { newImage in
+                guard let newImage else { return }
+                if attachedImages.count < 4 {
+                    attachedImages.append(newImage)
+                }
+            }
+        )
+    }
 
     private var selectedModelBinding: Binding<String> {
         Binding(
@@ -158,7 +173,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 .presentationDetents([.height(attachSheetDetentHeight)])
                 .presentationDragIndicator(.visible)
             }
-            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 4, matching: .images)
             .fileImporter(
                 isPresented: $showFileImporter,
                 allowedContentTypes: ConversationAttachmentSupport.supportedFileContentTypes,
@@ -168,12 +183,12 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                       let url = urls.first else { return }
                 onLoadSelectedFile(url)
             }
-            .onChange(of: selectedPhoto) { _, item in
-                guard let item else { return }
-                Task { await onLoadSelectedPhoto(item) }
+            .onChange(of: selectedPhotos) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await onLoadSelectedPhotos(items) }
             }
             .fullScreenCover(isPresented: $showCamera) {
-                CameraView(image: $attachedImage)
+                CameraView(image: cameraImageBinding)
                     .ignoresSafeArea()
             }
             .sheet(isPresented: $showModelSelector) {

@@ -321,6 +321,7 @@ struct AssistantBubble: View, Equatable {
             .fixedSize(horizontal: false, vertical: true)
             .transaction { $0.animation = nil }
         }
+        .modifier(MessageTextContextMenu(payload: .text(markdownString)))
     }
 }
 
@@ -348,6 +349,7 @@ struct AssistantBlocksBubble: View {
                 }
             }
             .transaction { $0.animation = nil }
+            .modifier(MessageTextContextMenu(payload: .segments(segments)))
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: compact ? 8 : 20)
         }
@@ -730,6 +732,143 @@ private struct CodeBlockTerminalContextMenu: ViewModifier {
                     }
                 } label: {
                     Label("Run in Terminal", systemImage: "terminal")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Message Text Selection / Copy
+
+/// What a message context menu should put on the pasteboard.
+///
+/// Held as an enum rather than a pre-joined `String` so that assistant messages
+/// rendered as segments do not pay a join on every body evaluation — the text is
+/// only materialized inside the menu action, which runs on tap.
+private enum MessageCopyPayload {
+    case text(String)
+    case segments([MessageRenderCache.AssistantSegment])
+
+    var plainText: String {
+        switch self {
+        case .text(let value):
+            return value
+        case .segments(let segments):
+            var parts: [String] = []
+            parts.reserveCapacity(segments.count)
+            for segment in segments {
+                switch segment.kind {
+                case .markdown(let content, _):
+                    parts.append(content)
+                case .codeBlock(let language, let code, _):
+                    let fence = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    parts.append("```\(fence)\n\(code)\n```")
+                case .image, .localImage:
+                    continue
+                }
+            }
+            return parts.joined(separator: "\n\n")
+        }
+    }
+}
+
+/// Adds a long-press "Copy" / "Select Text" menu to a chat message.
+///
+/// Mirrors `CodeBlockTerminalContextMenu`, and is deliberately cheap on the
+/// render path:
+/// * the `contextMenu` builder is only evaluated when the menu opens, so the
+///   trim/join work never runs during scrolling or streaming;
+/// * it stores a payload rather than a closure, so no per-body-eval allocation;
+/// * "Select Text" presents imperatively through the window scene instead of a
+///   `.sheet` modifier — one presentation modifier per transcript row would cost
+///   real memory and layout work on long threads.
+///
+/// Fine-grained in-place selection still comes from `.textSelection(.enabled)`
+/// applied by the markdown modifiers; this menu guarantees a whole-message copy
+/// and a selectable full-text view even where the renderer swallows the drag.
+private struct MessageTextContextMenu: ViewModifier {
+    let payload: MessageCopyPayload
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            let text = payload.plainText
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    UIPasteboard.general.string = text
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                Button {
+                    MessageTextSelectionPresenter.present(text: text)
+                } label: {
+                    Label("Select Text", systemImage: "character.cursor.ibeam")
+                }
+            }
+        }
+    }
+}
+
+/// Presents `MessageTextSelectionView` without attaching a `.sheet` modifier to
+/// every transcript row.
+@MainActor
+private enum MessageTextSelectionPresenter {
+    private final class HostBox {
+        weak var controller: UIViewController?
+    }
+
+    static func present(text: String) {
+        guard let presenter = topViewController() else { return }
+        let box = HostBox()
+        let host = UIHostingController(
+            rootView: MessageTextSelectionView(text: text) { [box] in
+                box.controller?.dismiss(animated: true)
+            }
+        )
+        box.controller = host
+        host.modalPresentationStyle = .pageSheet
+        presenter.present(host, animated: true)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+        guard var top = scene?.keyWindow?.rootViewController else { return nil }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+}
+
+/// Plain-text view of a message whose body is fully selectable, so a reader can
+/// drag out an arbitrary range instead of copying the whole message.
+private struct MessageTextSelectionView: View {
+    let text: String
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text)
+                    .litterFont(size: LitterFont.conversationBodyPointSize)
+                    .foregroundColor(LitterTheme.textPrimary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            .background(LitterTheme.surface.ignoresSafeArea())
+            .navigationTitle("Select Text")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        UIPasteboard.general.string = text
+                    } label: {
+                        Label("Copy All", systemImage: "doc.on.doc")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done", action: onDone)
                 }
             }
         }

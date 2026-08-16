@@ -108,7 +108,7 @@ final class ConversationScreenModel {
     /// refresh — otherwise typed-but-unsent text and pasted attachments
     /// vanish on app switch.
     var composerInputText: String = ""
-    var composerAttachedImage: UIImage?
+    var composerAttachedImages: [UIImage] = []
 
     /// Precomputed closure that resolves agent target labels from a captured
     /// snapshot of `sessionSummaries`. Reading `appModel.snapshot` inside a
@@ -161,7 +161,7 @@ final class ConversationScreenModel {
             minigameTask = nil
             minigameOverlay = .idle
             composerInputText = ""
-            composerAttachedImage = nil
+            composerAttachedImages = []
         }
 
         refreshState()

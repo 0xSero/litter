@@ -1720,28 +1720,6 @@ private struct TurnStopwatchChip: View {
     }
 }
 
-private struct SessionPulsingDots: View {
-    @State private var phase = 0
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(LitterTheme.accent)
-                    .frame(width: 3, height: 3)
-                    .opacity(phase == i ? 1.0 : 0.25)
-            }
-        }
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    phase = (phase + 1) % 3
-                }
-            }
-        }
-    }
-}
-
 private struct HomeRuntimeIcon: View {
     let kind: AgentRuntimeKind
 

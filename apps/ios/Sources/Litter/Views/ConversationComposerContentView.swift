@@ -1,9 +1,16 @@
 import SwiftUI
 import UIKit
 
+/// Shared limits for composer attachments, so the home composer, the
+/// in-conversation composer and the photo pickers cannot drift apart.
+enum ComposerAttachmentLimits {
+    /// Maximum number of images that can ride along with a single turn.
+    static let maxImages = 4
+}
+
 struct ConversationComposerContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    let attachedImage: UIImage?
+    let attachedImages: [UIImage]
     let attachedFiles: [ComposerFileAttachment]
     let collaborationMode: AppModeKind
     let activePlanProgress: AppPlanProgressSnapshot?
@@ -22,6 +29,7 @@ struct ConversationComposerContentView: View {
     let allowsVoiceInput: Bool
     @Binding var showAttachMenu: Bool
     let onClearAttachment: () -> Void
+    let onRemoveImage: (Int) -> Void
     let onRemoveFileAttachment: (ComposerFileAttachment) -> Void
     let onRespondToPendingUserInput: ([String: [String]]) -> Void
     let onDismissPendingUserInput: () -> Void
@@ -41,7 +49,7 @@ struct ConversationComposerContentView: View {
     @Binding var composerSelectionRange: NSRange
 
     init(
-        attachedImage: UIImage?,
+        attachedImages: [UIImage] = [],
         attachedFiles: [ComposerFileAttachment] = [],
         collaborationMode: AppModeKind,
         activePlanProgress: AppPlanProgressSnapshot?,
@@ -60,6 +68,7 @@ struct ConversationComposerContentView: View {
         allowsVoiceInput: Bool = true,
         showAttachMenu: Binding<Bool>,
         onClearAttachment: @escaping () -> Void,
+        onRemoveImage: @escaping (Int) -> Void = { _ in },
         onRemoveFileAttachment: @escaping (ComposerFileAttachment) -> Void = { _ in },
         onRespondToPendingUserInput: @escaping ([String: [String]]) -> Void,
         onDismissPendingUserInput: @escaping () -> Void = {},
@@ -78,7 +87,7 @@ struct ConversationComposerContentView: View {
         isComposerFocused: Binding<Bool>,
         composerSelectionRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0))
     ) {
-        self.attachedImage = attachedImage
+        self.attachedImages = attachedImages
         self.attachedFiles = attachedFiles
         self.collaborationMode = collaborationMode
         self.activePlanProgress = activePlanProgress
@@ -97,6 +106,7 @@ struct ConversationComposerContentView: View {
         self.allowsVoiceInput = allowsVoiceInput
         _showAttachMenu = showAttachMenu
         self.onClearAttachment = onClearAttachment
+        self.onRemoveImage = onRemoveImage
         self.onRemoveFileAttachment = onRemoveFileAttachment
         self.onRespondToPendingUserInput = onRespondToPendingUserInput
         self.onDismissPendingUserInput = onDismissPendingUserInput
@@ -118,28 +128,31 @@ struct ConversationComposerContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let attachedImage {
-                HStack {
-                    ZStack(alignment: .topTrailing) {
-                        Image(uiImage: attachedImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 60, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+            if !attachedImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachedImages.indices, id: \.self) { index in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: attachedImages[index])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                        Button(action: onClearAttachment) {
-                            Image(systemName: "xmark.circle.fill")
-                                .litterFont(.body)
-                                .foregroundColor(.white)
-                                .background(Circle().fill(Color.black.opacity(0.6)))
+                                Button(action: { onRemoveImage(index) }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .litterFont(.body)
+                                        .foregroundColor(.white)
+                                        .background(Circle().fill(Color.black.opacity(0.6)))
+                                }
+                                .offset(x: 4, y: -4)
+                                .accessibilityLabel("Remove image \(index + 1)")
+                            }
                         }
-                        .offset(x: 4, y: -4)
                     }
-
-                    Spacer()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
             }
 
             if !attachedFiles.isEmpty {
@@ -148,7 +161,7 @@ struct ConversationComposerContentView: View {
                     onRemove: onRemoveFileAttachment
                 )
                 .padding(.horizontal, 16)
-                .padding(.top, attachedImage == nil ? 8 : 6)
+                .padding(.top, attachedImages.isEmpty ? 8 : 6)
             }
 
             VStack(alignment: .trailing, spacing: 0) {
@@ -216,7 +229,7 @@ struct ConversationComposerContentView: View {
                     composerSelectionRange: $composerSelectionRange,
                     voiceManager: voiceManager,
                     isTurnActive: isTurnActive,
-                    hasAttachment: attachedImage != nil || !attachedFiles.isEmpty,
+                    hasAttachment: !attachedImages.isEmpty || !attachedFiles.isEmpty,
                     allowsVoiceInput: allowsVoiceInput,
                     onPasteImage: onPasteImage,
                     onSendText: onSendText,

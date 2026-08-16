@@ -636,11 +636,8 @@ final class HomeSessionsScrollUIView: UIView {
 
         // Promote every row to displayZoom=4 FIRST so the full content tree
         // is rendered. UIKit frame animation reveals it progressively.
-        // Also reset the per-row blur-progress peak so the ease-out curve
-        // starts from zero for this new gesture.
         for key in order {
             containers[key]?.setDisplayZoom(4)
-            containers[key]?.resetPinchBlurPeak()
         }
 
         isPinching = true
@@ -1574,10 +1571,6 @@ final class HomeRowContainer: UIView {
         let eased = pow(p, Self.pinchBlurExponent) * Self.pinchBlurCeiling
         pinchBlurAnimator.fractionComplete = max(0, min(0.999, eased))
     }
-
-    /// No-op kept for the scroll host's `.began` call site; the
-    /// direction-aware curve was replaced with a symmetric one.
-    func resetPinchBlurPeak() {}
 
     /// Force the pinch blur back to a clean, nil-effect state when no
     /// pinch is in progress. Called from the scroll host's `apply()`

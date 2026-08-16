@@ -1925,8 +1925,9 @@ private struct ConversationDestinationScreen: View {
                     resolveThreadKey: screenModel.resolveThreadKey,
                     resolveLiveStatus: screenModel.resolveLiveStatus,
                     composerInputText: $bindableScreenModel.composerInputText,
-                    composerAttachedImage: $bindableScreenModel.composerAttachedImage,
-                    topInset: 0,
+                    composerAttachedImages: $bindableScreenModel.composerAttachedImages,
+                    topInset: 12,
+
                     bottomInset: bottomInset,
                     onOpenConversation: onOpenConversation,
                     onResumeSessions: onResumeSessions,
@@ -2049,7 +2050,7 @@ private struct ReplayDestinationScreen: View {
                     resolveThreadKey: screenModel.resolveThreadKey,
                     resolveLiveStatus: screenModel.resolveLiveStatus,
                     composerInputText: $bindableScreenModel.composerInputText,
-                    composerAttachedImage: $bindableScreenModel.composerAttachedImage,
+                    composerAttachedImages: $bindableScreenModel.composerAttachedImages,
                     topInset: 0,
                     bottomInset: bottomInset,
                     onOpenConversation: nil,
@@ -2222,19 +2223,5 @@ private struct ApprovalPromptView: View {
             .padding(.horizontal, 16)
         }
         .transition(.opacity)
-    }
-}
-
-struct LaunchView: View {
-    var body: some View {
-        ZStack {
-            LitterTheme.backgroundGradient.ignoresSafeArea()
-            VStack(spacing: 24) {
-                BrandLogo(size: 132)
-                Text("AI coding agent on iOS")
-                    .litterFont(.body)
-                    .foregroundColor(LitterTheme.textMuted)
-            }
-        }
     }
 }
