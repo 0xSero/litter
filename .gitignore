@@ -32,6 +32,7 @@ Packages/
 # Generated code (codegen + UniFFI — regenerate with build-rust.sh)
 *.generated.rs
 *.generated.swift
+*.generated.kt
 shared/rust-bridge/generated/
 
 # Android JNI outputs (generated from Rust bridge)
