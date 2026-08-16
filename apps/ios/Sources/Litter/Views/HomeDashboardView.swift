@@ -30,6 +30,9 @@ struct HomeDashboardView: View {
     /// re-allocate + stringify the visible list on every body eval.
     let visibleHydrationSignature: String
     let visibleActivitySignature: String
+    /// Precomputed server snapshot lookup so HomeModelChip and other home
+    /// views don't read `appModel.snapshot` in body.
+    var serverSnapshotsById: [String: AppServerSnapshot] = [:]
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onSelectServer: (HomeDashboardServer) -> Void
     let onAddServer: () -> Void
@@ -519,6 +522,7 @@ struct HomeDashboardView: View {
                     HomeModelChip(
                         serverId: composerServerId,
                         disabled: selectedLaunchableServer == nil,
+                        server: composerServerId.flatMap { serverSnapshotsById[$0] },
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
                         }

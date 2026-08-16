@@ -776,6 +776,7 @@ private struct HomeNavigationView: View {
                         project: homeDashboardModel.selectedProject,
                         connectedServers: homeDashboardModel.connectedServers,
                         selectedServerId: homeDashboardModel.selectedServerId,
+                        serverSnapshotsById: homeDashboardModel.serverSnapshotsById,
                         onSelectServer: { serverId in
                             homeDashboardModel.selectedServerId = serverId
                         },
@@ -1352,6 +1353,7 @@ private struct HomeNavigationView: View {
             project: homeDashboardModel.selectedProject,
             connectedServers: homeDashboardModel.connectedServers,
             selectedServerId: homeDashboardModel.selectedServerId,
+            serverSnapshotsById: homeDashboardModel.serverSnapshotsById,
             onSelectServer: { serverId in
                 homeDashboardModel.selectedServerId = serverId
             },
@@ -1417,6 +1419,7 @@ private struct HomeNavigationView: View {
             openingRecentSessionKey: openingRecentSessionKey,
             visibleHydrationSignature: homeDashboardModel.visibleHydrationSignature,
             visibleActivitySignature: homeDashboardModel.visibleActivitySignature,
+            serverSnapshotsById: homeDashboardModel.serverSnapshotsById,
             onOpenRecentSession: openRecentSession,
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
@@ -1462,6 +1465,7 @@ private struct HomeNavigationView: View {
             openingRecentSessionKey: openingRecentSessionKey,
             visibleHydrationSignature: homeDashboardModel.visibleHydrationSignature,
             visibleActivitySignature: homeDashboardModel.visibleActivitySignature,
+            serverSnapshotsById: homeDashboardModel.serverSnapshotsById,
             onOpenRecentSession: openRecentSession,
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },

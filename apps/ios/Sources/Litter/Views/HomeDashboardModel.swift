@@ -84,6 +84,9 @@ final class HomeDashboardModel {
     /// rows and controls don't read `appModel.snapshot` in body.
     private(set) var localServerIds: Set<String> = []
     private(set) var browseableServerIds: Set<String> = []
+    /// Precomputed server snapshot lookup, so HomeModelChip and other home
+    /// views can access server info without reading `appModel.snapshot` in body.
+    private(set) var serverSnapshotsById: [String: AppServerSnapshot] = [:]
 
     var selectedServerId: String? {
         didSet {
@@ -342,6 +345,7 @@ final class HomeDashboardModel {
         // `canBrowseDirectories` checks (which fire on every snapshot bump).
         localServerIds = Set(snapshot.rawServers.filter(\.isLocal).map(\.serverId))
         browseableServerIds = Set(snapshot.rawServers.filter(\.canBrowseDirectories).map(\.serverId))
+        serverSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.rawServers.map { ($0.serverId, $0) })
 
         // Keep selectedServerId valid: if the server it points at isn't in
         // the live/launchable list, clear the scope. Default is no filter —

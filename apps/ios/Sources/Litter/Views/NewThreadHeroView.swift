@@ -16,6 +16,7 @@ struct NewThreadHeroView: View {
     let project: AppProject?
     let connectedServers: [HomeDashboardServer]
     let selectedServerId: String?
+    var serverSnapshotsById: [String: AppServerSnapshot] = [:]
     let onSelectServer: (String) -> Void
     let onOpenProjectPicker: () -> Void
     let onThreadCreated: (ThreadKey) -> Void
@@ -113,7 +114,8 @@ struct NewThreadHeroView: View {
             )
             HomeModelChip(
                 serverId: project?.serverId ?? selectedServerId,
-                disabled: selectedLaunchableServer == nil
+                disabled: selectedLaunchableServer == nil,
+                server: (project?.serverId ?? selectedServerId).flatMap { serverSnapshotsById[$0] }
             )
         }
         .frame(maxWidth: .infinity, alignment: .center)
