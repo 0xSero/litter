@@ -821,13 +821,15 @@ final class AppModel {
     }
 
     func applySnapshot(_ snapshot: AppSnapshotRecord?) {
-        let normalizedSnapshot = snapshot.map(normalizingLocalServerDisplayNames)
-        let mergedSnapshot = normalizedSnapshot.map(mergingCachedThreadSnapshots)
-        self.snapshot = mergedSnapshot
-        if let mergedSnapshot {
-            persistWakeMACs(from: mergedSnapshot.servers)
-            mergedSnapshot.threads.forEach(cacheThreadSnapshot)
-            lastError = nil
+        PerfTracker.time("applySnapshot") {
+            let normalizedSnapshot = snapshot.map(normalizingLocalServerDisplayNames)
+            let mergedSnapshot = normalizedSnapshot.map(mergingCachedThreadSnapshots)
+            self.snapshot = mergedSnapshot
+            if let mergedSnapshot {
+                persistWakeMACs(from: mergedSnapshot.servers)
+                mergedSnapshot.threads.forEach(cacheThreadSnapshot)
+                lastError = nil
+            }
         }
     }
 
@@ -855,6 +857,7 @@ final class AppModel {
     }
 
     private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+        PerfTracker.event("storeUpdate", ["type": "\(update)"])
         switch update {
         case .threadUpserted(let thread, let sessionSummary, let agentDirectoryVersion):
             applyThreadUpsert(
@@ -1080,6 +1083,12 @@ final class AppModel {
     /// token. Passing a `ThreadKey` flushes only that thread's deltas
     /// (used on turn completion); passing `nil` flushes everything.
     private func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
+        PerfTracker.time("flushStreamingDeltas") {
+            flushPendingStreamingDeltasImpl(for: key)
+        }
+    }
+
+    private func flushPendingStreamingDeltasImpl(for key: ThreadKey? = nil) {
         // Cancel any scheduled coalesced flush; we are flushing now.
         pendingStreamingDeltaTask?.cancel()
         pendingStreamingDeltaTask = nil
@@ -1936,6 +1945,7 @@ final class AppModel {
     }
 
     func startTurn(key: ThreadKey, payload: AppComposerPayload) async throws {
+        let start = DispatchTime.now()
         await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "startTurn")
 
         do {
@@ -1947,6 +1957,9 @@ final class AppModel {
             lastError = error.localizedDescription
             throw error
         }
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+        let ms = Double(elapsed) / 1_000_000
+        LLog.info("perf", "startTurn completed in \(String(format: "%.2f", ms))ms")
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {

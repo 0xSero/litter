@@ -168,6 +168,7 @@ final class ConversationScreenModel {
     }
 
     private func refreshState() {
+        PerfTracker.event("ConversationScreenModel.refreshState")
         guard let thread, let appModel else {
             transcript = .empty
             pinnedContextItems = []

@@ -669,6 +669,7 @@ private struct ConversationMessageList: View {
     }
 
     var body: some View {
+        let _ = PerfTracker.event("ConversationMessageList.body")
         let turns = mergedRenderableTurns
         let lastTurnID = turns.last?.id
         ScrollViewReader { proxy in
