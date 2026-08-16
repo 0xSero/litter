@@ -475,11 +475,15 @@ func abbreviateHomePath(_ path: String) -> String {
     return trimmed
 }
 
-func relativeDate(_ timestamp: Int64) -> String {
-    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+private let cachedRelativeDateFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: date, relativeTo: Date())
+    return formatter
+}()
+
+func relativeDate(_ timestamp: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+    return cachedRelativeDateFormatter.localizedString(for: date, relativeTo: Date())
 }
 
 // MARK: - Glass Effect Availability Wrappers

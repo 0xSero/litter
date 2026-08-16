@@ -399,6 +399,8 @@ private final class DirectoryPickerSheetModel {
 struct DirectoryPickerView: View {
     let servers: [DirectoryPickerServerOption]
     @Binding var selectedServerId: String
+    var localServerIds: Set<String> = []
+    var browseableServerIds: Set<String> = []
     var onServerChanged: ((String) -> Void)?
     var onDirectorySelected: ((String, String) -> Void)?
     var onDismissRequested: (() -> Void)?
@@ -416,17 +418,17 @@ struct DirectoryPickerView: View {
         servers.first { $0.id == selectedServerId }
     }
 
-    private var selectedServerSnapshot: AppServerSnapshot? {
-        appModel.snapshot?.servers.first(where: { $0.serverId == selectedServerId })
+    private var selectedServerIsLocal: Bool {
+        localServerIds.contains(selectedServerId)
     }
 
-    private var selectedServerIsLocal: Bool {
-        selectedServerSnapshot?.isLocal ?? false
+    private var selectedServerCanBrowse: Bool {
+        browseableServerIds.contains(selectedServerId)
     }
 
     private var canSelectPath: Bool {
         !model.currentPath.isEmpty &&
-            selectedServerSnapshot?.canBrowseDirectories == true &&
+            selectedServerCanBrowse &&
             selectedServerOption != nil
     }
 
@@ -642,7 +644,7 @@ struct DirectoryPickerView: View {
                         Label(DirectoryPickerStrings.goToPath, systemImage: "arrow.right.to.line")
                             .litterFont(.caption)
                     }
-                    .disabled(selectedServerSnapshot?.canBrowseDirectories != true)
+                    .disabled(!selectedServerCanBrowse)
 
                     Button {
                         newFolderName = ""

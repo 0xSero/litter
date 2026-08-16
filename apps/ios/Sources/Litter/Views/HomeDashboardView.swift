@@ -26,6 +26,13 @@ struct HomeDashboardView: View {
     let selectedServerId: String?
     let selectedProject: AppProject?
     let openingRecentSessionKey: ThreadKey?
+    /// Precomputed by HomeDashboardModel so `.onChange` doesn't
+    /// re-allocate + stringify the visible list on every body eval.
+    let visibleHydrationSignature: String
+    let visibleActivitySignature: String
+    /// Precomputed server snapshot lookup so HomeModelChip and other home
+    /// views don't read `appModel.snapshot` in body.
+    var serverSnapshotsById: [String: AppServerSnapshot] = [:]
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onSelectServer: (HomeDashboardServer) -> Void
     let onAddServer: () -> Void
@@ -200,7 +207,7 @@ struct HomeDashboardView: View {
             }
             .task { await TipJarStore.shared.loadProducts() }
             .onAppear { autoHydrateIfNeeded() }
-            .onChange(of: visibleSessions.map { hydrationId($0.key) }) { _, _ in
+            .onChange(of: visibleHydrationSignature) { _, _ in
                 autoHydrateIfNeeded()
             }
             .onChange(of: pinnedThreadKeys) { _, _ in
@@ -209,7 +216,7 @@ struct HomeDashboardView: View {
             // Clear a cancelled key once the snapshot says the turn is
             // actually gone. Gives the dot a brief red period while the
             // cancel is in flight, then reverts to normal indicator logic.
-            .onChange(of: visibleSessions.map { "\(hydrationId($0.key)):\($0.hasTurnActive)" }) { _, _ in
+            .onChange(of: visibleActivitySignature) { _, _ in
                 let stillActive = Set(
                     visibleSessions
                         .filter { $0.hasTurnActive }
@@ -515,6 +522,7 @@ struct HomeDashboardView: View {
                     HomeModelChip(
                         serverId: composerServerId,
                         disabled: selectedLaunchableServer == nil,
+                        server: composerServerId.flatMap { serverSnapshotsById[$0] },
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
                         }
@@ -867,39 +875,6 @@ struct SessionCanvasLine: View {
     }
 
     // MARK: - Zoom 2: meta line
-
-    private var metaLine: some View {
-        HStack(spacing: 4) {
-            Text(timeAgo)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-            // Only show the tool label + pulsing dots when a tool call
-            // is actually executing. During pure LLM thinking/streaming
-            // we fall through to the server + workspace metadata, same
-            // as when the turn is idle.
-            if isActive && isToolCallRunning {
-                Text("\u{00b7}")
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                toolActivityLabel
-                SessionPulsingDots()
-                statChips
-            } else {
-                Text("\u{00b7}")
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                Text(session.serverDisplayName)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.7))
-                if let workspace = HomeDashboardSupport.workspaceLabel(for: session.cwd) {
-                    Text("\u{00b7}")
-                        .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                    Text(workspace)
-                        .foregroundStyle(LitterTheme.textSecondary.opacity(0.8))
-                }
-                statChips
-            }
-        }
-        .litterFont(size: 10, weight: .regular)
-        .lineLimit(1)
-        .padding(.top, 2)
-    }
 
     /// Inline stat chips: tool calls, turns, context %
     @ViewBuilder

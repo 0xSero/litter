@@ -5,15 +5,15 @@ struct InlineHandoffView: View {
     let threadKey: ThreadKey
     let maxHeight: CGFloat
 
-    private var thread: AppThreadSnapshot? {
-        appModel.snapshot?.threadSnapshot(for: threadKey)
-    }
-
+    /// Resolved thread snapshot stored in `@State` and refreshed from
+    /// `.onAppear`/`.onChange(of: appModel.snapshotRevision)` (closure
+    /// context) so the body never reads `appModel.snapshot` directly.
+    @State private var resolvedThread: AppThreadSnapshot?
     @State private var contentHeight: CGFloat = 0
 
     private var entries: [InlineHandoffEntry] {
-        guard let thread else { return [] }
-        return thread.hydratedConversationItems
+        guard let resolvedThread else { return [] }
+        return resolvedThread.hydratedConversationItems
             .map(\.conversationItem)
             .compactMap(InlineHandoffEntry.init(item:))
     }
@@ -23,47 +23,55 @@ struct InlineHandoffView: View {
         return "\(last.id):\(last.text.count)"
     }
 
-    var body: some View {
-        if thread != nil, !entries.isEmpty {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 12) {
-                        ForEach(entries) { entry in
-                            InlineHandoffRow(entry: entry)
-                                .id(entry.id)
-                        }
+    private func refreshThread() {
+        resolvedThread = appModel.snapshot?.threadSnapshot(for: threadKey)
+    }
 
-                        Color.clear
-                            .frame(height: 1)
-                            .id("handoff-bottom")
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        GeometryReader { geometry in
-                            Color.clear.preference(key: InlineHandoffContentHeightKey.self, value: geometry.size.height)
+    var body: some View {
+        Group {
+            if resolvedThread != nil, !entries.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 12) {
+                            ForEach(entries) { entry in
+                                InlineHandoffRow(entry: entry)
+                                    .id(entry.id)
+                            }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id("handoff-bottom")
                         }
-                    )
-                }
-                .frame(height: min(contentHeight, maxHeight))
-                .onPreferenceChange(InlineHandoffContentHeightKey.self) { contentHeight = $0 }
-                .onChange(of: scrollSignature) { _, _ in
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo("handoff-bottom", anchor: .bottom)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(key: InlineHandoffContentHeightKey.self, value: geometry.size.height)
+                            }
+                        )
+                    }
+                    .frame(height: min(contentHeight, maxHeight))
+                    .onPreferenceChange(InlineHandoffContentHeightKey.self) { contentHeight = $0 }
+                    .onChange(of: scrollSignature) { _, _ in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo("handoff-bottom", anchor: .bottom)
+                        }
                     }
                 }
+            } else if resolvedThread != nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(Color.white.opacity(0.7))
+                    Text("Running...")
+                        .font(LitterFont.styled(.caption))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.vertical, 4)
             }
-        } else if thread != nil {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .tint(Color.white.opacity(0.7))
-                Text("Running...")
-                    .font(LitterFont.styled(.caption))
-                    .foregroundColor(.white.opacity(0.7))
-            }
-            .padding(.vertical, 4)
         }
+        .onAppear { refreshThread() }
+        .onChange(of: appModel.snapshotRevision) { refreshThread() }
     }
 }
 

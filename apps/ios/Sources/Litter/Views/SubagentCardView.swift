@@ -5,20 +5,27 @@ struct SubagentCardView: View {
     @Environment(AppModel.self) private var appModel
     let data: ConversationMultiAgentActionData
     let serverId: String
+    let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     @State private var expanded: Bool
     @State private var sheetThreadKey: ThreadKey?
     @State private var sheetAgentLabel: String?
 
     init(
         data: ConversationMultiAgentActionData,
-        serverId: String
+        serverId: String,
+        resolveTargetLabel: @escaping (String) -> String?,
+        resolveThreadKey: @escaping (String) -> ThreadKey?,
+        resolveLiveStatus: @escaping (ThreadKey) -> AppSubagentStatus?
     ) {
         self.data = data
         self.serverId = serverId
+        self.resolveTargetLabel = resolveTargetLabel
+        self.resolveThreadKey = resolveThreadKey
+        self.resolveLiveStatus = resolveLiveStatus
         _expanded = State(initialValue: true)
     }
-
-    private var isInProgress: Bool { data.isInProgress }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -129,11 +136,11 @@ struct SubagentCardView: View {
         if !row.label.isEmpty && !looksLikeRawId(row.label) {
             return row.label
         }
-        if let resolved = appModel.snapshot?.resolvedAgentTargetLabel(for: row.label, serverId: serverId) {
+        if let resolved = resolveTargetLabel(row.label) {
             return resolved
         }
         if let threadId = row.threadId,
-           let resolved = appModel.snapshot?.resolvedAgentTargetLabel(for: threadId, serverId: serverId) {
+           let resolved = resolveTargetLabel(threadId) {
             return resolved
         }
         return row.label
@@ -141,18 +148,15 @@ struct SubagentCardView: View {
 
     private func resolvedThreadKey(for row: AgentRowData) -> ThreadKey? {
         if let threadId = row.threadId {
-            return appModel.snapshot?.resolvedThreadKey(for: threadId, serverId: serverId)
+            return resolveThreadKey(threadId)
         }
         return nil
     }
 
     private func liveStatus(for row: AgentRowData) -> AppSubagentStatus? {
         if let key = resolvedThreadKey(for: row),
-           let summary = appModel.snapshot?.sessionSummary(for: key) {
-            if summary.hasActiveTurn { return .running }
-            if summary.agentStatus != .unknown {
-                return summary.agentStatus
-            }
+           let status = resolveLiveStatus(key) {
+            return status
         }
         return row.status
     }
@@ -366,6 +370,8 @@ private struct SubagentDetailSheet: View {
                                 onStreamingSnapshotRendered: nil,
                                 onLiveContentLayoutChanged: nil,
                                 resolveTargetLabel: { _ in nil },
+                                resolveThreadKey: { _ in nil },
+                                resolveLiveStatus: { _ in nil },
                                 onWidgetPrompt: { _ in },
                                 onEditUserItem: { _ in },
                                 onForkFromUserItem: { _ in }
@@ -494,7 +500,10 @@ private struct AgentRowData {
                         ConversationMultiAgentState(targetId: "thread-def-456", status: .running, message: nil)
                     ]
                 ),
-                serverId: "preview-server"
+                serverId: "preview-server",
+                resolveTargetLabel: { _ in nil },
+                resolveThreadKey: { ThreadKey(serverId: "preview-server", threadId: $0) },
+                resolveLiveStatus: { _ in nil }
             )
 
             SubagentCardView(
@@ -509,7 +518,10 @@ private struct AgentRowData {
                         ConversationMultiAgentState(targetId: "thread-def-456", status: .errored, message: "context limit")
                     ]
                 ),
-                serverId: "preview-server"
+                serverId: "preview-server",
+                resolveTargetLabel: { _ in nil },
+                resolveThreadKey: { ThreadKey(serverId: "preview-server", threadId: $0) },
+                resolveLiveStatus: { _ in nil }
             )
         }
         .padding(16)

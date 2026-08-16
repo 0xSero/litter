@@ -61,6 +61,8 @@ struct ConversationDisplayUITestHarnessView: View {
                         onStreamingSnapshotRendered: nil,
                         onLiveContentLayoutChanged: nil,
                         resolveTargetLabel: { _ in nil },
+                        resolveThreadKey: { _ in nil },
+                        resolveLiveStatus: { _ in nil },
                         onWidgetPrompt: { _ in },
                         onEditUserItem: { _ in },
                         onForkFromUserItem: { _ in }

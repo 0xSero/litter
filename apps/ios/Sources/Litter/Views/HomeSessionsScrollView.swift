@@ -1176,11 +1176,6 @@ final class HomeRowContainer: UIView {
     private var wallpaperManager: WallpaperManager?
     private var pageBackgroundVisible = false
     private var fadeLink: CADisplayLink?
-    /// Highest `setPinchBlurProgress` value observed during the current
-    /// pinch. When progress dips below this, we're on the way back and
-    /// the blur uses the inverse (ease-in) curve so it drops faster at
-    /// first — symmetric feel with the slow ramp-up on the way in.
-    private var peakBlurProgress: CGFloat = 0
     /// Natural hostingView height per displayZoom, keyed by (zoom,width).
     /// Invalidated when session data or displayZoom changes.
     private var hostHeightByZoom: [Int: CGFloat] = [:]

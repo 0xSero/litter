@@ -16,6 +16,8 @@ struct ConversationTurnTimeline: View {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -28,7 +30,7 @@ struct ConversationTurnTimeline: View {
     private var timelineContent: some View {
         let rows = rowDescriptors
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,
@@ -102,6 +104,8 @@ struct ConversationTurnTimeline: View {
                     onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
                     onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                     resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus,
                     onWidgetPrompt: onWidgetPrompt,
                     onEditUserItem: onEditUserItem,
                     onForkFromUserItem: onForkFromUserItem,
@@ -122,7 +126,10 @@ struct ConversationTurnTimeline: View {
             return AnyView(
                 SubagentCardView(
                     data: merged,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         }
@@ -385,6 +392,8 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -468,7 +477,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
             return AnyView(
                 SubagentCardView(
                     data: data,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         case .webSearch(let data):
@@ -542,6 +554,11 @@ private struct ConversationTimelineItemRow: View, Equatable {
         )
     }
 
+    /// Mirrors `commandDefaultExpanded`: a running tool call stays open so its
+    /// result streams in, rather than staying collapsed until the turn ends.
+    /// Takes flags rather than a status because callers hand in two different
+    /// enums — `ToolCallStatus` for card models, `AppOperationStatus` for the
+    /// MCP/image-generation rows.
     private func toolDefaultExpanded(isFailed: Bool, isInProgress: Bool) -> Bool {
         toolDisplayMode.defaultExpanded(isFailed: isFailed, isInProgress: isInProgress)
     }
@@ -2154,34 +2171,6 @@ private struct DiffIndicatorLabel: View {
         }
         return "Show diff details."
     }
-}
-
-private struct DiffLine: Identifiable {
-    enum Kind {
-        case addition, deletion, hunk, context
-
-        var foregroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success
-            case .deletion: LitterTheme.danger
-            case .hunk: LitterTheme.accentStrong
-            case .context: LitterTheme.textBody
-            }
-        }
-
-        var backgroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success.opacity(0.12)
-            case .deletion: LitterTheme.danger.opacity(0.12)
-            case .hunk: LitterTheme.accentStrong.opacity(0.12)
-            case .context: LitterTheme.codeBackground.opacity(0.72)
-            }
-        }
-    }
-
-    let id: Int
-    let text: String
-    let kind: Kind
 }
 
 private struct ConversationDiffDetailSheet: View {

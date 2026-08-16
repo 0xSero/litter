@@ -40,6 +40,10 @@ struct ConversationView: View {
     let followScrollToken: Int
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
+    var supportsTurnPagination: Bool
+    var resolveTargetLabel: (String) -> String?
+    var resolveThreadKey: (String) -> ThreadKey?
+    var resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     @Binding var composerInputText: String
     @Binding var composerAttachedImage: UIImage?
     var topInset: CGFloat = 0
@@ -101,13 +105,6 @@ struct ConversationView: View {
         }
     }
 
-    private var supportsTurnPagination: Bool {
-        appModel.snapshot?
-            .serverSnapshot(for: activeThreadKey.serverId)?
-            .capabilities
-            .supportsTurnPagination ?? false
-    }
-
     var body: some View {
         ConversationMessageList(
             items: items,
@@ -122,7 +119,9 @@ struct ConversationView: View {
             olderTurnsCursor: thread.olderTurnsCursor,
             initialTurnsLoaded: thread.initialTurnsLoaded || !supportsTurnPagination,
             textSizeStep: $conversationTextSizeStep,
-            resolveTargetLabel: resolveTargetLabel,
+            resolveTargetLabel: { resolveTargetLabel($0) },
+            resolveThreadKey: { resolveThreadKey($0) },
+            resolveLiveStatus: { resolveLiveStatus($0) },
             onWidgetPrompt: sendWidgetPrompt,
             onEditUserItem: editMessage,
             onForkFromUserItem: forkFromMessage,
@@ -284,10 +283,6 @@ struct ConversationView: View {
                 messageActionError = error.localizedDescription
             }
         }
-    }
-
-    private func resolveTargetLabel(_ target: String) -> String? {
-        appModel.snapshot?.resolvedAgentTargetLabel(for: target, serverId: activeThreadKey.serverId)
     }
 
     /// Resolve the user-message position in the currently-loaded transcript.
@@ -600,6 +595,8 @@ private struct ConversationMessageList: View {
     let initialTurnsLoaded: Bool
     @Binding var textSizeStep: Int
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -609,6 +606,7 @@ private struct ConversationMessageList: View {
     @State private var autoFollowStreaming = true
     @State private var userIsDraggingScroll = false
     @State private var distanceFromBottom: CGFloat = 0
+    @State private var showScrollToBottomButton = false
     @State private var waitingForDataExpired = false
     @State private var pinchBaseStep: Int?
     @State private var pinchAppliedDelta = 0
@@ -645,16 +643,6 @@ private struct ConversationMessageList: View {
         return transcriptTurns
     }
 
-    private var lastTurnIsUserOnly: Bool {
-        guard let lastTurn = sourceTurns.last else { return false }
-        return lastTurn.items.allSatisfy { $0.isUserItem }
-    }
-
-    private var isStreamingLastTurn: Bool {
-        if case .thinking = threadStatus { return true }
-        return sourceTurns.last?.isLive == true
-    }
-
     private var messageActionsDisabled: Bool {
         if case .thinking = threadStatus { return true }
         return false
@@ -665,7 +653,7 @@ private struct ConversationMessageList: View {
     }
 
     private var shouldShowScrollToBottom: Bool {
-        !items.isEmpty && distanceFromBottom > Self.latestButtonShowDistance
+        !items.isEmpty && showScrollToBottomButton
     }
 
     private var activeThreadScopeID: String {
@@ -683,13 +671,20 @@ private struct ConversationMessageList: View {
     }
 
     private var mergedRenderableTurns: [TranscriptTurn] {
+        // `renderedTurns` is already kept in sync by `applyTranscriptTurns`
+        // / `syncTranscriptTurns` whenever the transcript changes. Computing
+        // the build key here would be an O(n) hash across the entire
+        // transcript on every body evaluation (including every scroll frame),
+        // defeating the purpose of the cache. Fall back to source-derived
+        // merge only when the cache is empty (e.g. first render before
+        // `.onAppear` fires `syncTranscriptTurns`).
+        if !renderedTurns.isEmpty { return renderedTurns }
         let turns = sourceTurns
-        let buildKey = makeRenderedTurnsBuildKey(for: turns)
-        if renderedTurnsBuildKey == buildKey { return renderedTurns }
         return TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
     }
 
     var body: some View {
+        let _ = PerfTracker.event("ConversationMessageList.body")
         let turns = mergedRenderableTurns
         let lastTurnID = turns.last?.id
         ScrollViewReader { proxy in
@@ -740,6 +735,8 @@ private struct ConversationMessageList: View {
                                         requestFollowScrollAfterLayout(proxy)
                                     },
                                     resolveTargetLabel: resolveTargetLabel,
+                                    resolveThreadKey: resolveThreadKey,
+                                    resolveLiveStatus: resolveLiveStatus,
                                     onWidgetPrompt: onWidgetPrompt,
                                     onEditUserItem: onEditUserItem,
                                     onForkFromUserItem: onForkFromUserItem,
@@ -938,6 +935,8 @@ private struct ConversationMessageList: View {
         }
 
         distanceFromBottom = clampedDistance
+        let nextShowButton = clampedDistance > Self.latestButtonShowDistance
+        if nextShowButton != showScrollToBottomButton { showScrollToBottomButton = nextShowButton }
         let nextIsNearBottom = clampedDistance <= Self.nearBottomRestoreDistance
         if nextIsNearBottom != isNearBottom { isNearBottom = nextIsNearBottom }
         if nextIsNearBottom {
@@ -1153,6 +1152,8 @@ private struct ConversationTurnRow: View, Equatable {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -1193,6 +1194,8 @@ private struct ConversationTurnRow: View, Equatable {
                 onStreamingSnapshotRendered: onStreamingSnapshotRendered,
                 onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                 resolveTargetLabel: resolveTargetLabel,
+                resolveThreadKey: resolveThreadKey,
+                resolveLiveStatus: resolveLiveStatus,
                 onWidgetPrompt: onWidgetPrompt,
                 onEditUserItem: onEditUserItem,
                 onForkFromUserItem: onForkFromUserItem,
@@ -1457,9 +1460,7 @@ private struct ConversationInputBar: View {
     }
 
     private var hasFixedFullAccess: Bool {
-        guard let runtime = appModel.snapshot?.threads
-            .first(where: { $0.key == snapshot.threadKey })?.agentRuntimeKind else { return false }
-        return String.hasFixedFullAccess(runtime)
+        snapshot.hasFixedFullAccess
     }
 
     private var pendingModelOverride: String? {
