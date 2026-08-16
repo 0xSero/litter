@@ -1974,12 +1974,13 @@ private struct ConversationDestinationScreen: View {
         .toolbar {
             if let conversationThread {
                 ToolbarItem(placement: .principal) {
-                    HeaderView(thread: conversationThread)
+                    HeaderView(thread: conversationThread, server: screenModel.serverSnapshot)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     ConversationToolbarControls(
                         thread: conversationThread,
-                        control: .reload
+                        control: .reload,
+                        server: screenModel.serverSnapshot
                     )
                 }
                 if onInfo != nil {
@@ -1987,7 +1988,8 @@ private struct ConversationDestinationScreen: View {
                         ConversationToolbarControls(
                             thread: conversationThread,
                             control: .info,
-                            onInfo: onInfo
+                            onInfo: onInfo,
+                            server: screenModel.serverSnapshot
                         )
                     }
                 }

@@ -6,15 +6,12 @@ struct HeaderView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let thread: AppThreadSnapshot
+    var server: AppServerSnapshot?
     @State private var pulsing = false
     @AppStorage("fastMode") private var fastMode = false
 
     private var isRegularSurface: Bool {
         LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass)
-    }
-
-    private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
     }
 
     private var availableModels: [ModelInfo] {
@@ -48,7 +45,7 @@ struct HeaderView: View {
             attachmentAnchor: .rect(.bounds),
             arrowEdge: .top
         ) {
-            ConversationModelPickerPanel(thread: thread)
+            ConversationModelPickerPanel(thread: thread, server: server)
                 .environment(appModel)
                 .environment(appState)
                 .presentationCompactAdaptation(.popover)
@@ -303,13 +300,10 @@ struct ConversationModelPickerPanel: View {
     @Environment(AppState.self) private var appState
     @Environment(AppModel.self) private var appModel
     let thread: AppThreadSnapshot
+    var server: AppServerSnapshot?
 
     private var availableModels: [ModelInfo] {
         appModel.availableModels(for: thread.key.serverId)
-    }
-
-    private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
     }
 
     var body: some View {
@@ -391,12 +385,9 @@ struct ConversationToolbarControls: View {
     let thread: AppThreadSnapshot
     let control: Control
     var onInfo: (() -> Void)?
+    var server: AppServerSnapshot?
     @State private var isReloading = false
     @State private var remoteAuthSession: RemoteAuthSession?
-
-    private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
-    }
 
     var body: some View {
         Group {

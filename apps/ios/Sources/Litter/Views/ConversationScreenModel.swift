@@ -98,6 +98,10 @@ final class ConversationScreenModel {
     private(set) var composer: ConversationComposerSnapshot = .empty
     private(set) var followScrollToken = 0
     private(set) var minigameOverlay: MinigameOverlayState = .idle
+    /// Precomputed server snapshot for the current thread's server. Read by
+    /// HeaderView and ConversationToolbarControls via param instead of
+    /// `appModel.snapshot` in body (which would create a per-token edge).
+    private(set) var serverSnapshot: AppServerSnapshot?
     /// Live composer draft. Lifted out of `ConversationInputBar` so it
     /// survives view teardown when `ConversationDestinationScreen` flips
     /// through its `if let conversationThread` branch during foreground
@@ -184,12 +188,14 @@ final class ConversationScreenModel {
         }
 
         // Precompute server-derived properties here (non-body context) so
-        // ConversationView/ConversationInputBar never read `appModel.snapshot`
-        // in their body. Each read of `appModel.snapshot` in `body` registers
-        // an observation edge that re-renders the view on every coalesced
-        // snapshot mutation (~8 fps during streaming).
-        let serverSnapshot = appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
-        let supportsTurnPagination = serverSnapshot?.capabilities.supportsTurnPagination ?? false
+        // ConversationView/ConversationInputBar/HeaderView never read
+        // `appModel.snapshot` in their body. Each read of
+        // `appModel.snapshot` in `body` registers an observation edge that
+        // re-renders the view on every coalesced snapshot mutation (~8 fps
+        // during streaming).
+        let serverSnap = appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+        serverSnapshot = serverSnap
+        let supportsTurnPagination = serverSnap?.capabilities.supportsTurnPagination ?? false
         let hasFixedFullAccess = String.hasFixedFullAccess(thread.agentRuntimeKind)
 
         // Precompute the resolveTargetLabel closure from a captured copy of
@@ -233,7 +239,7 @@ final class ConversationScreenModel {
                 runtime: thread.agentRuntimeKind
             ),
             availableModels: appModel.availableModels(for: thread.key.serverId),
-            isConnected: serverSnapshot?.isConnected ?? false,
+            isConnected: serverSnap?.isConnected ?? false,
             supportsTurnPagination: supportsTurnPagination,
             hasFixedFullAccess: hasFixedFullAccess
         )
