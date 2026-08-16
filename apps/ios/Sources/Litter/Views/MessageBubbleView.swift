@@ -84,14 +84,22 @@ struct LitterMarkdownView: View {
     }
 
     private var externalBrowserAction: OpenURLAction {
-        OpenURLAction { url in
-            guard let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return .systemAction
-            }
-            UIApplication.shared.open(url)
-            return .handled
+        ExternalBrowserURLHandler.action
+    }
+}
+
+/// Shared open-URL handler that opens http(s) links in the external browser
+/// (Safari) and defers everything else to the system. Used by both
+/// `LitterMarkdownView` and `AssistantBlocksBubble` so links are tappable
+/// regardless of which rendering path the message takes.
+enum ExternalBrowserURLHandler {
+    static let action: OpenURLAction = OpenURLAction { url in
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return .systemAction
         }
+        UIApplication.shared.open(url)
+        return .handled
     }
 }
 
@@ -203,7 +211,7 @@ struct UserBubble: View {
 
     fileprivate static func imageRequest(for image: ChatImage) -> ImageRequest? {
         let source = image.source
-        guard source.hasPrefix("data:") || source.hasPrefix("file://") else {
+        guard source.hasPrefix("data:") || source.hasPrefix("file://") || source.hasPrefix("http://") || source.hasPrefix("https://") else {
             return nil
         }
         let cacheKey = image.cacheKey
@@ -214,6 +222,18 @@ struct UserBubble: View {
                 contentMode: .aspectFit
             )
         ]
+
+        // Remote URLs: let Nuke handle the network fetch via its default
+        // URLSession pipeline rather than blocking on a synchronous data
+        // provider closure.
+        if source.hasPrefix("http://") || source.hasPrefix("https://"),
+           let url = URL(string: source) {
+            return ImageRequest(
+                url: url,
+                processors: processors
+            )
+        }
+
         return ImageRequest(
             id: cacheKey,
             data: { @Sendable in
@@ -350,6 +370,7 @@ struct AssistantBlocksBubble: View {
             }
             .transaction { $0.animation = nil }
             .modifier(MessageTextContextMenu(payload: .segments(segments)))
+            .environment(\.openURL, ExternalBrowserURLHandler.action)
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: compact ? 8 : 20)
         }
