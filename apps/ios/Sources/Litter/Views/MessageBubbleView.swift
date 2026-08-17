@@ -104,10 +104,6 @@ enum ExternalBrowserURLHandler {
 }
 
 struct InlineSelectableMarkdownMessage<Content: View>: View {
-    let markdown: String
-    var style: LitterMarkdownStyleVariant = .content
-    var bodySize: CGFloat = LitterFont.conversationBodyPointSize
-    var codeSize: CGFloat = LitterFont.conversationBodyPointSize
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -115,23 +111,19 @@ struct InlineSelectableMarkdownMessage<Content: View>: View {
     }
 }
 
-private extension LitterMarkdownStyleVariant {
-    var cacheKey: String {
-        switch self {
-        case .content:
-            return "content"
-        case .system:
-            return "system"
-        }
-    }
-}
-
-struct UserBubble: View {
+struct UserBubble: View, Equatable {
     let text: String
     var images: [ChatImage] = []
     var compact: Bool = false
     var maxVisibleCharacters: Int = 1_000
     @State private var expandedLongText = false
+
+    static func == (lhs: UserBubble, rhs: UserBubble) -> Bool {
+        lhs.text == rhs.text &&
+        lhs.images == rhs.images &&
+        lhs.compact == rhs.compact &&
+        lhs.maxVisibleCharacters == rhs.maxVisibleCharacters
+    }
     private let contentFontSize = LitterFont.conversationBodyPointSize
 
     var body: some View {
@@ -308,12 +300,7 @@ struct AssistantBubble: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if allowsInlineSelection {
-                InlineSelectableMarkdownMessage(
-                    markdown: markdownString,
-                    style: .content,
-                    bodySize: contentFontSize,
-                    codeSize: contentFontSize
-                ) {
+                InlineSelectableMarkdownMessage {
                     bubbleContent
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -498,7 +485,7 @@ struct StreamingAssistantBubble: View {
     }
 
     private var shouldUseSegmentedRenderer: Bool {
-        !isStreaming || MessageContentBridge.containsMath(text)
+        !isStreaming || StreamingAssistantRenderCache.shared.containsMath(itemId: itemId, text: text)
     }
 
     private var segmentedRenderSegments: [MessageRenderCache.AssistantSegment] {

@@ -27,6 +27,10 @@ final class StreamingAssistantRenderCache {
     private let minimumReusablePrefixCharacters = 1024
 
     private var entries: [String: Entry] = [:]
+    /// Cached math-detection results keyed by itemId. Stores the text the
+    /// check ran against so a stale result is never returned after the text
+    /// changes. Shares the LRU eviction with `entries`.
+    private var mathResults: [String: (text: String, hasMath: Bool)] = [:]
     private var accessTimestamps: [String: UInt64] = [:]
     private var accessCounter: UInt64 = 0
 
@@ -47,8 +51,25 @@ final class StreamingAssistantRenderCache {
         return nextEntry.combinedSegments
     }
 
+    /// Returns whether the text contains LaTeX math, using a cached result
+    /// when the text hasn't changed since the last call. This avoids a
+    /// redundant `extractSegmentsTyped` Rust FFI parse on body re-evaluations
+    /// that don't change the text (e.g. display-mode toggles).
+    func containsMath(itemId: String, text: String) -> Bool {
+        if let cached = mathResults[itemId], cached.text == text {
+            touch(itemId)
+            return cached.hasMath
+        }
+        let result = MessageContentBridge.containsMath(text)
+        mathResults[itemId] = (text, result)
+        touch(itemId)
+        trimIfNeeded()
+        return result
+    }
+
     func reset() {
         entries.removeAll(keepingCapacity: false)
+        mathResults.removeAll(keepingCapacity: false)
         accessTimestamps.removeAll(keepingCapacity: false)
         accessCounter = 0
     }
@@ -340,6 +361,7 @@ final class StreamingAssistantRenderCache {
         let removeCount = entries.count - trimTarget
         for (key, _) in sorted.prefix(removeCount) {
             entries.removeValue(forKey: key)
+            mathResults.removeValue(forKey: key)
             accessTimestamps.removeValue(forKey: key)
         }
     }
