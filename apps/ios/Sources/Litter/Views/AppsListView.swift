@@ -9,6 +9,8 @@ struct AppsListView: View {
     @State private var renameText: String = ""
     @State private var deleteTarget: SavedApp?
     @State private var detailAppId: String?
+    // Sorted once on appear / store change, not on every body evaluation.
+    @State private var sortedApps: [SavedApp] = []
 
     var body: some View {
         ZStack {
@@ -26,9 +28,13 @@ struct AppsListView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear {
             store.reload()
+            sortedApps = store.apps.sorted(by: { $0.updatedAtMs > $1.updatedAtMs })
             if let pending = navigation.consumeRequest() {
                 detailAppId = pending
             }
+        }
+        .onChange(of: store.apps) { _, _ in
+            sortedApps = store.apps.sorted(by: { $0.updatedAtMs > $1.updatedAtMs })
         }
         .onChange(of: navigation.pendingOpenAppId) { _, newValue in
             if let id = newValue {
@@ -90,10 +96,6 @@ struct AppsListView: View {
         }
         .scrollContentBackground(.hidden)
         .listStyle(.plain)
-    }
-
-    private var sortedApps: [SavedApp] {
-        store.apps.sorted(by: { $0.updatedAtMs > $1.updatedAtMs })
     }
 
     private func row(for app: SavedApp) -> some View {

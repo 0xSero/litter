@@ -55,9 +55,9 @@ struct LitterCommands: Commands {
 
 private struct SessionShortcutsMenu: View {
     let appModel: AppModel
+    @State private var summaries: [AppSessionSummary] = []
 
     var body: some View {
-        let summaries = appModel.snapshot?.sessionSummaries ?? []
         ForEach(0..<9, id: \.self) { index in
             let shortcutKey = KeyEquivalent(Character("\(index + 1)"))
             let summary: AppSessionSummary? = summaries.indices.contains(index) ? summaries[index] : nil
@@ -71,6 +71,10 @@ private struct SessionShortcutsMenu: View {
             }
             .keyboardShortcut(shortcutKey, modifiers: [.command])
             .disabled(summary == nil)
+        }
+        .onAppear { summaries = appModel.snapshot?.sessionSummaries ?? [] }
+        .onChange(of: appModel.snapshotRevision) { _, _ in
+            summaries = appModel.snapshot?.sessionSummaries ?? []
         }
     }
 

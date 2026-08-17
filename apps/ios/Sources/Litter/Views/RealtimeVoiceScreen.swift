@@ -240,7 +240,7 @@ struct RealtimeVoiceScreen: View {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
                         ScrollView(.vertical, showsIndicators: false) {
-                            VStack(spacing: 18) {
+                            LazyVStack(spacing: 18) {
                                 ForEach(Array(visibleTranscriptEntries.enumerated()), id: \.element.id) { index, entry in
                                     transcriptLine(
                                         entry,

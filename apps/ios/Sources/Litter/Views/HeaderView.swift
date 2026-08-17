@@ -711,6 +711,7 @@ struct InlineModelSelectorView: View {
 
     var body: some View {
         let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+        let providerGroups = modelProviderGroups(for: visibleModels)
         let selectedModelIsAmp: Bool = {
             guard let model = currentModel else { return false }
             return visibleModeNames(for: model.agentRuntimeKind) != nil
@@ -740,7 +741,7 @@ struct InlineModelSelectorView: View {
                             .padding(.vertical, 24)
                     }
 
-                    ForEach(modelProviderGroups(for: visibleModels)) { group in
+                    ForEach(providerGroups) { group in
                         Text(group.name.uppercased())
                             .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.textMuted)
@@ -1052,6 +1053,7 @@ struct ModelSelectorSheet: View {
 
     var body: some View {
         let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+        let providerGroups = modelProviderGroups(for: visibleModels)
         let selectedModelIsAmp: Bool = {
             guard let model = currentModel else { return false }
             return visibleModeNames(for: model.agentRuntimeKind) != nil
@@ -1080,7 +1082,7 @@ struct ModelSelectorSheet: View {
                         .padding(.vertical, 24)
                 }
 
-                ForEach(modelProviderGroups(for: visibleModels)) { group in
+                ForEach(providerGroups) { group in
                     Text(group.name.uppercased())
                         .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.textMuted)
