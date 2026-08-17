@@ -118,13 +118,20 @@ private extension LitterMarkdownStyleVariant {
     }
 }
 
-struct UserBubble: View {
+struct UserBubble: View, Equatable {
     let text: String
     var images: [ChatImage] = []
     var compact: Bool = false
     var maxVisibleCharacters: Int = 1_000
     @State private var expandedLongText = false
     private let contentFontSize = LitterFont.conversationBodyPointSize
+
+    static func == (lhs: UserBubble, rhs: UserBubble) -> Bool {
+        lhs.text == rhs.text &&
+        lhs.images == rhs.images &&
+        lhs.compact == rhs.compact &&
+        lhs.maxVisibleCharacters == rhs.maxVisibleCharacters
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {

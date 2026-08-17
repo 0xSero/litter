@@ -2543,26 +2543,3 @@ private extension ToolCallStatus {
         }
     }
 }
-
-private extension ConversationItem {
-    var liveDetailStatus: ToolCallStatus? {
-        switch content {
-        case .commandExecution(let data):
-            return data.status.toolCallStatus
-        case .fileChange(let data):
-            return data.status.toolCallStatus
-        case .mcpToolCall(let data):
-            return data.status.toolCallStatus
-        case .dynamicToolCall(let data):
-            return data.status.toolCallStatus
-        case .webSearch(let data):
-            return data.isInProgress ? .inProgress : .completed
-        case .imageView:
-            return .completed
-        case .imageGeneration(let data):
-            return data.status.toolCallStatus
-        default:
-            return nil
-        }
-    }
-}

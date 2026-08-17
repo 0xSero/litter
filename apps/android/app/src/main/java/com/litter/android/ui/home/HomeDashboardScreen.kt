@@ -228,14 +228,6 @@ fun HomeDashboardScreen(
         try { com.litter.android.state.SavedAppsStore.reload(context) } catch (_: Exception) {}
     }
     val savedAppsAll by com.litter.android.state.SavedAppsStore.apps.collectAsState()
-    val savedAppsByThread = remember(savedAppsAll) {
-        savedAppsAll
-            .asSequence()
-            .filter { it.originThreadId != null }
-            .groupBy { it.originThreadId!! }
-            .mapValues { (_, v) -> v.sortedByDescending { it.updatedAtMs } }
-    }
-
     var confirmAction by remember { mutableStateOf<ConfirmAction?>(null) }
     // Hoisted reply-sheet target. Both the row swipe and the long-press
     // "Reply" menu item set this; the QuickReplySheet renders once at this
@@ -434,7 +426,6 @@ fun HomeDashboardScreen(
                     // QuickReplySheet. Nesting `SwipeToHideRow` inside
                     // `SessionReplySwipe` would have the two pointer handlers
                     // fighting over the same drag stream.
-                    val sessionApps = savedAppsByThread[session.key.threadId].orEmpty()
                     val sessionPinKey = PinnedThreadKey(
                         serverId = session.key.serverId,
                         threadId = session.key.threadId,
@@ -1498,53 +1489,3 @@ private fun Rect.relativeTo(root: Rect): Rect {
     )
 }
 
-@Composable
-private fun HomeAppTakeoverRow(
-    app: SavedApp,
-    extraCount: Int,
-    onClick: () -> Unit,
-) {
-    val monogram = app.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    val subtitle = buildString {
-        append(app.appId.ifBlank { "app" })
-        if (extraCount > 0) append(" · +$extraCount more")
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(LitterTheme.surface, RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(LitterTheme.accent.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = monogram,
-                color = LitterTheme.accent,
-                fontSize = LitterTextStyle.headline.scaled,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = app.title.ifBlank { "Saved App" },
-                color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.callout.scaled,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = subtitle,
-                color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.caption2.scaled,
-                fontFamily = LitterTheme.monoFont,
-            )
-        }
-    }
-}

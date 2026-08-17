@@ -45,7 +45,6 @@ import com.litter.android.ui.settings.SettingsStartDestination
 import com.litter.android.ui.sessions.DirectoryPickerServerOption
 import com.litter.android.ui.sessions.DirectoryPickerSheet
 import com.litter.android.ui.sessions.SessionLaunchSupport
-import com.litter.android.ui.sessions.SessionsUiState
 import com.litter.android.ui.terminal.TerminalScreen
 import uniffi.codex_mobile_client.AppProject
 import uniffi.codex_mobile_client.ApprovalKind
@@ -117,7 +116,6 @@ fun LitterApp(
         // Navigation state
         var navStack by remember { mutableStateOf<List<Route>>(listOf(Route.Home)) }
         val currentRoute = navStack.lastOrNull() ?: Route.Home
-        val sessionsUiState = remember { SessionsUiState() }
 
         // Global sheet state
         var showDiscovery by remember { mutableStateOf(false) }
@@ -335,18 +333,6 @@ fun LitterApp(
                         } else {
                             null
                         },
-                    )
-                }
-
-                is Route.Sessions -> {
-                    com.litter.android.ui.sessions.SessionsScreen(
-                        serverId = route.serverId,
-                        title = route.title,
-                        sessionsUiState = sessionsUiState,
-                        onOpenConversation = navigateToConversation,
-                        onNewSession = { openDirectoryPicker(route.serverId) },
-                        onBack = navigateBack,
-                        onInfo = { navigate(Route.ServerInfo(route.serverId)) },
                     )
                 }
 
