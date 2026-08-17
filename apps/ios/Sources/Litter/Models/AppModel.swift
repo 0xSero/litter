@@ -156,6 +156,7 @@ final class AppModel {
     @ObservationIgnored private var pendingStreamingDeltaTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
     @ObservationIgnored private var loadingTurnPageThreadKeys: Set<ThreadKey> = []
+    @ObservationIgnored private var loadingThreadPageServerIds: Set<String> = []
     private(set) var pendingHandoffTurnErrors: [ThreadKey: String] = [:]
 
     func reportHandoffTurnError(key: ThreadKey, message: String) {
@@ -2251,6 +2252,9 @@ final class AppModel {
 
     private static let initialTurnPageSize: UInt32 = 20
     private static let olderTurnPageSize: UInt32 = 20
+    /// Home sessions-list page size. Kept small so the first screen of the
+    /// dashboard loads quickly and scrolling reveals more sessions in chunks.
+    static let homeSessionPageSize: UInt32 = 10
 
     /// Fetch the first page of turns for a thread whose `initialTurnsLoaded`
     /// is still false. Called after a resume that sent `exclude_turns: true`
@@ -2292,6 +2296,43 @@ final class AppModel {
         } catch {
             lastError = error.localizedDescription
             return false
+        }
+    }
+
+    /// Fetch the next page of the session list for each of the given servers
+    /// via `AppStore.load_threads_page`, merging additively into the store.
+    /// Used by the home dashboard's infinite scroll. On failure for a server,
+    /// falls back to a full `listThreads` drain so the home list still
+    /// populates (the retained Rust cursor state is cleared by that drain).
+    func loadThreadsPage(serverIds: [String], limit: UInt32 = Self.homeSessionPageSize) async {
+        let pageable = serverIds.filter { !loadingThreadPageServerIds.contains($0) }
+        guard !pageable.isEmpty else { return }
+        pageable.forEach { loadingThreadPageServerIds.insert($0) }
+        defer { pageable.forEach { loadingThreadPageServerIds.remove($0) } }
+
+        let client = client
+        let store = store
+        await withTaskGroup(of: Void.self) { group in
+            for serverId in pageable {
+                group.addTask {
+                    do {
+                        _ = try await store.loadThreadsPage(serverId: serverId, limit: limit)
+                    } catch {
+                        // Safe degradation: a paged load failure should never
+                        // leave the home list empty, so fall back to the
+                        // existing full drain for this server.
+                        _ = try? await client.listThreads(
+                            serverId: serverId,
+                            params: AppListThreadsRequest(
+                                limit: nil,
+                                sortKey: .updatedAt,
+                                sortDirection: .desc,
+                                runtimeKinds: nil
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 

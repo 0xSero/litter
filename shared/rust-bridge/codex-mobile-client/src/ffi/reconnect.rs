@@ -601,6 +601,7 @@ mod tests {
         AppSnapshot {
             servers: HashMap::new(),
             threads: HashMap::new(),
+            session_pages: HashMap::new(),
             active_thread: None,
             pending_approvals: Vec::new(),
             pending_approval_seeds: HashMap::new(),

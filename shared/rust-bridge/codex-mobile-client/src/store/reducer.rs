@@ -340,6 +340,49 @@ impl AppStoreReducer {
             .clone()
     }
 
+    /// Read the stored `thread/list` page cursor for a (server, runtime) pair.
+    /// `None` when that pair has never been paged (first page) or when a full
+    /// drain completed (all sessions already in the store).
+    pub fn thread_page_cursor(
+        &self,
+        server_id: &str,
+        runtime_kind: &AgentRuntimeKind,
+    ) -> Option<String> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .session_pages
+            .get(&(server_id.to_string(), runtime_kind.clone()))?
+            .cursor
+            .clone()
+    }
+
+    /// Persist the `thread/list` page cursor + `has_more` flag for a
+    /// (server, runtime) pair after a paged load.
+    pub fn set_thread_page_state(
+        &self,
+        server_id: &str,
+        runtime_kind: &AgentRuntimeKind,
+        cursor: Option<String>,
+        has_more: bool,
+    ) {
+        let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+        snapshot.session_pages.insert(
+            (server_id.to_string(), runtime_kind.clone()),
+            super::snapshot::SessionPageCursor { cursor, has_more },
+        );
+    }
+
+    /// Drop all `thread/list` page cursor state for a server. Used after a
+    /// full drain completes (so `session_list_has_more` reflects that
+    /// everything is already loaded) and on server removal.
+    pub fn clear_thread_page_state(&self, server_id: &str) {
+        let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+        snapshot
+            .session_pages
+            .retain(|(page_server_id, _), _| page_server_id != server_id);
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.updates_tx.subscribe()
     }
@@ -430,6 +473,9 @@ impl AppStoreReducer {
                 }
                 keep
             });
+            snapshot
+                .session_pages
+                .retain(|(page_server_id, _), _| page_server_id != server_id);
             if snapshot
                 .active_thread
                 .as_ref()

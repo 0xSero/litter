@@ -99,6 +99,10 @@ struct HomeDashboardServer: Identifiable, Equatable {
     let statusColor: Color
     let statusDotState: StatusDotState
     let agentRuntimes: [AgentRuntimeInfo]
+    /// Whether the session list on this server has more pages to load via
+    /// `AppStore.load_threads_page`. Rust owns this; offline/remembered
+    /// servers default to false.
+    let sessionListHasMore: Bool
 
     var deduplicationKey: String {
         if isLocal {
@@ -127,7 +131,8 @@ struct HomeDashboardServer: Identifiable, Equatable {
             lhs.health == rhs.health &&
             lhs.sourceLabel == rhs.sourceLabel &&
             lhs.statusLabel == rhs.statusLabel &&
-            lhs.agentRuntimes.map(agentRuntimeEqualityKey) == rhs.agentRuntimes.map(agentRuntimeEqualityKey)
+            lhs.agentRuntimes.map(agentRuntimeEqualityKey) == rhs.agentRuntimes.map(agentRuntimeEqualityKey) &&
+            lhs.sessionListHasMore == rhs.sessionListHasMore
     }
 }
 
@@ -207,7 +212,8 @@ enum HomeDashboardSupport {
                     statusLabel: server.statusLabel,
                     statusColor: server.statusColor,
                     statusDotState: server.statusDotState,
-                    agentRuntimes: server.agentRuntimes
+                    agentRuntimes: server.agentRuntimes,
+                    sessionListHasMore: server.sessionListHasMore
                 )
             }
 
@@ -255,7 +261,8 @@ enum HomeDashboardSupport {
             statusLabel: AppServerHealth.disconnected.displayLabel,
             statusColor: AppServerHealth.disconnected.accentColor,
             statusDotState: .idle,
-            agentRuntimes: savedAgentRuntimes(for: saved)
+            agentRuntimes: savedAgentRuntimes(for: saved),
+            sessionListHasMore: false
         )
     }
 

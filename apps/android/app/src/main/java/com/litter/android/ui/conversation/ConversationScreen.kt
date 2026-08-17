@@ -143,7 +143,10 @@ fun ConversationScreen(
         buildTranscriptTurns(
             items = items,
             isStreaming = isThinking,
-            expandedRecentTurnCount = if (collapseTurns) 1 else Int.MAX_VALUE,
+            // iOS parity: auto-collapse exploration turns past 200 rendered
+            // items even when the user hasn't opted in, so a large restored
+            // page cannot exhaust the layout budget.
+            expandedRecentTurnCount = if (collapseTurns || items.size >= 200) 1 else Int.MAX_VALUE,
         )
     }
     val transcriptTailSignature = remember(items, normalizedActiveTurnId, isThinking) {
@@ -158,18 +161,19 @@ fun ConversationScreen(
     }
     // Server-paginated windowing: the Rust reducer owns which turns are
     // currently loaded for this thread. Kotlin just renders whatever is in
-    // `hydratedConversationItems` and exposes a "Load earlier" button gated
-    // on `olderTurnsCursor`. On legacy v0.124 servers this cursor stays null
-    // (all turns arrive in the resume response), so the button stays hidden.
+    // `hydratedConversationItems` and auto-prefetches older pages when the
+    // user scrolls near the top (iOS parity — replaces the manual "Load
+    // earlier messages" button). On legacy v0.124 servers the cursor stays
+    // null (all turns arrive in the resume response), so prefetch stays off.
     val displayedTurns = transcriptTurns
     val hasMoreTurnsAbove = thread?.olderTurnsCursor != null
     val supportsTurnPagination = server?.capabilities?.supportsTurnPagination == true
-    val isInitialTurnsLoading = thread != null &&
-        !thread.initialTurnsLoaded &&
-        supportsTurnPagination &&
-        hasMoreTurnsAbove &&
-        displayedTurns.isNotEmpty()
-    var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
+    // Guard so a single cursor is only requested once while it is current.
+    // Released when the store advances `olderTurnsCursor` (a page merged).
+    var requestedOlderCursor by remember(threadKey) { mutableStateOf<String?>(null) }
+    // "Loading earlier messages…" capsule shown while a page is fetched with
+    // the user pinned at the very top of the transcript.
+    var olderPageLoaderVisible by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
     var streamingRenderTick by remember(threadKey) { mutableStateOf(0) }
     var followScrollToken by remember(threadKey) { mutableStateOf(0) }
@@ -382,7 +386,58 @@ fun ConversationScreen(
         }
     }
 
-    val displayedTurnCount = displayedTurns.size + (if (hasMoreTurnsAbove) 1 else 0)
+    // Index (within `displayedTurns`) of the earliest turn currently visible.
+    // Drives older-page prefetching — iOS parity uses the same
+    // "within N rows of the top" proximity heuristic.
+    val turnIndexByKey = remember(displayedTurns) {
+        displayedTurns.mapIndexed { index, turn -> turn.id to index }.toMap()
+    }
+    val earliestVisibleTurnIndex by remember(turnIndexByKey) {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo
+                .mapNotNull { item -> (item.key as? String)?.let { turnIndexByKey[it] } }
+                .minOrNull() ?: Int.MAX_VALUE
+        }
+    }
+
+    // Release the requested-cursor guard whenever the store advances
+    // `olderTurnsCursor` (a page was merged), so the proximity effect can
+    // prefetch the next page in the same pinned-at-top scroll session.
+    LaunchedEffect(threadKey, thread?.olderTurnsCursor) {
+        requestedOlderCursor = null
+        olderPageLoaderVisible = false
+    }
+
+    LaunchedEffect(
+        earliestVisibleTurnIndex,
+        thread?.olderTurnsCursor,
+        thread?.initialTurnsLoaded,
+        supportsTurnPagination,
+    ) {
+        if (!supportsTurnPagination) return@LaunchedEffect
+        if (thread?.initialTurnsLoaded != true) return@LaunchedEffect
+        val cursor = thread?.olderTurnsCursor
+        if (cursor.isNullOrEmpty()) return@LaunchedEffect
+        if (earliestVisibleTurnIndex > OlderTurnsPrefetchDistance) return@LaunchedEffect
+        if (requestedOlderCursor == cursor) {
+            if (earliestVisibleTurnIndex == 0) olderPageLoaderVisible = true
+            return@LaunchedEffect
+        }
+        requestedOlderCursor = cursor
+        if (earliestVisibleTurnIndex == 0) olderPageLoaderVisible = true
+        val requestedAt = cursor
+        appModel.loadOlderTurns(threadKey) { didLoad ->
+            // Release the guard only on failure (cursor unchanged). On
+            // success the store advances the cursor and the reset effect
+            // above re-arms prefetching.
+            if (requestedOlderCursor == requestedAt && !didLoad) {
+                requestedOlderCursor = null
+                olderPageLoaderVisible = false
+            }
+        }
+    }
+
+    val displayedTurnCount = displayedTurns.size
     LaunchedEffect(threadKey, displayedTurnCount, transcriptTailSignature, followScrollToken, streamingRenderTick) {
         if (shouldFollowTail && displayedTurns.isNotEmpty()) {
             val bottomAnchorIndex = conversationBottomAnchorIndex(displayedTurnCount)
@@ -436,7 +491,7 @@ fun ConversationScreen(
                                 } else Modifier.drawWithContent { drawContent() }
                             ),
                     ) {
-                        if (isWaitingForData || isInitialTurnsLoading) {
+                        if (isWaitingForData) {
                             item {
                                 Box(
                                     modifier = Modifier
@@ -444,61 +499,20 @@ fun ConversationScreen(
                                         .padding(top = 40.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (isInitialTurnsLoading) {
-                                        CircularProgressIndicator(
-                                            color = LitterTheme.accent,
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    } else {
-                                        Text(
-                                            "Loading conversation…",
-                                            color = LitterTheme.textMuted,
-                                            fontSize = LitterTextStyle.caption.scaled,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (hasMoreTurnsAbove) {
-                            item {
-                                TextButton(
-                                    enabled = !isLoadingOlderTurns,
-                                    onClick = {
-                                        if (isLoadingOlderTurns) return@TextButton
-                                        isLoadingOlderTurns = true
-                                        scope.launch {
-                                            try {
-                                                appModel.loadOlderTurns(threadKey).join()
-                                            } finally {
-                                                isLoadingOlderTurns = false
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    if (isLoadingOlderTurns) {
-                                        CircularProgressIndicator(
-                                            color = LitterTheme.accent,
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    } else {
-                                        Text(
-                                            "Load earlier messages",
-                                            color = LitterTheme.accent,
-                                            fontSize = LitterTextStyle.caption.scaled,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                    }
+                                    Text(
+                                        "Loading conversation…",
+                                        color = LitterTheme.textMuted,
+                                        fontSize = LitterTextStyle.caption.scaled,
+                                    )
                                 }
                             }
                         }
 
                         itemsIndexed(
                             items = displayedTurns,
-                            key = { index, turn -> "${turn.id}#$index" },
+                            // Stable keys let LazyColumn preserve scroll position
+                            // when an older page is prepended (iOS parity).
+                            key = { _, turn -> turn.id },
                         ) { _, turn ->
                             val isExpanded = !turn.isCollapsedByDefault || expandedTurnIds.contains(turn.id)
                             val streamingAssistantItemId = remember(turn.items, turn.isActiveTurn) {
@@ -681,6 +695,31 @@ fun ConversationScreen(
                         contentColor = LitterTheme.textPrimary,
                     ) {
                         Icon(Icons.Default.KeyboardArrowDown, "Scroll to bottom", modifier = Modifier.size(20.dp))
+                    }
+                }
+
+                // "Loading earlier messages…" capsule while an older page is
+                // fetched with the user pinned at the very top (iOS parity).
+                if (olderPageLoaderVisible && hasMoreTurnsAbove) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                            .background(LitterTheme.surface.copy(alpha = 0.92f), RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            color = LitterTheme.accent,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "Loading earlier messages…",
+                            color = LitterTheme.textMuted,
+                            fontSize = LitterTextStyle.caption.scaled,
+                        )
                     }
                 }
             }
@@ -1255,6 +1294,10 @@ private fun uniffi.codex_mobile_client.AppThreadSnapshot.composerContextPercent(
 }
 
 private fun conversationBottomAnchorIndex(turnCount: Int): Int = turnCount + 1
+
+/// iOS parity: prefetch the next older page once the earliest visible turn is
+/// within this many rows of the top of the transcript.
+private const val OlderTurnsPrefetchDistance = 6
 
 @Composable
 private fun PlanContextBadge(progress: String) {

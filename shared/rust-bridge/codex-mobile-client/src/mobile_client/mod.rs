@@ -3141,6 +3141,116 @@ impl MobileClient {
         }
     }
 
+    /// Composite action: fetch the next page of the session list for a server
+    /// via `thread/list` and merge it additively into the canonical store.
+    ///
+    /// - Fetches exactly ONE page per agent runtime (never drain-all), using
+    ///   the retained per-(server, runtime) cursors from `AppStore`.
+    /// - Merges each page through `upsert_thread_list_page_for_runtime`
+    ///   (additive — never prunes, so a single-page load cannot evict unseen
+    ///   sessions the way `finalize_thread_list_sync` would).
+    /// - Advances the retained cursor to the page's `next_cursor` and records
+    ///   `has_more` per runtime; the aggregate `has_more` is true when any
+    ///   runtime still has more pages.
+    /// - A per-runtime RPC failure marks that runtime exhausted and continues
+    ///   with the others rather than failing the whole load; the caller can
+    ///   fall back to a full `list_threads` drain if desired.
+    pub async fn load_threads_page(
+        &self,
+        server_id: &str,
+        limit: Option<u32>,
+    ) -> Result<crate::types::AppLoadThreadsOutcome, RpcError> {
+        let session = self.get_session(server_id)?;
+        let mut runtime_kinds = session.runtime_kinds();
+        runtime_kinds.sort();
+        runtime_kinds.dedup();
+        if runtime_kinds.is_empty() {
+            return Ok(crate::types::AppLoadThreadsOutcome {
+                loaded: false,
+                has_more: false,
+            });
+        }
+        tracing::info!(
+            "load_threads_page: server_id={} runtimes={:?} limit={:?}",
+            server_id,
+            runtime_kinds,
+            limit
+        );
+
+        let mut codex_visited = false;
+        let mut any_loaded = false;
+        let mut any_has_more = false;
+        for runtime_kind in runtime_kinds {
+            if runtime_kind == "codex" {
+                if codex_visited {
+                    continue;
+                }
+                codex_visited = true;
+            }
+            let cursor = self.app_store.thread_page_cursor(server_id, &runtime_kind);
+            let params = upstream::ThreadListParams {
+                cursor,
+                limit,
+                sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
+                sort_direction: Some(upstream::SortDirection::Desc),
+                model_providers: None,
+                source_kinds: None,
+                archived: None,
+                cwd: None,
+                search_term: None,
+                use_state_db_only: false,
+            };
+            let request = upstream::ClientRequest::ThreadList {
+                request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                params,
+            };
+            match self
+                .request_typed_for_server_runtime::<upstream::ThreadListResponse>(
+                    server_id,
+                    runtime_kind.clone(),
+                    request,
+                )
+                .await
+            {
+                Ok(response) => {
+                    let page = self.upsert_thread_list_page_for_runtime(
+                        server_id,
+                        runtime_kind.clone(),
+                        &response.data,
+                    );
+                    let next_cursor = response.next_cursor;
+                    let has_more = next_cursor.is_some();
+                    self.app_store.set_thread_page_state(
+                        server_id,
+                        &runtime_kind,
+                        next_cursor,
+                        has_more,
+                    );
+                    if !page.is_empty() {
+                        any_loaded = true;
+                    }
+                    if has_more {
+                        any_has_more = true;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "load_threads_page: thread/list failed for runtime {:?} on server {}: {}",
+                        runtime_kind,
+                        server_id,
+                        error
+                    );
+                    self.app_store
+                        .set_thread_page_state(server_id, &runtime_kind, None, false);
+                }
+            }
+        }
+        Ok(crate::types::AppLoadThreadsOutcome {
+            loaded: any_loaded,
+            has_more: any_has_more,
+        })
+    }
+
     async fn read_thread_metadata_only_for_runtime(
         &self,
         server_id: &str,

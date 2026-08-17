@@ -566,6 +566,23 @@ impl AppStore {
         })
     }
 
+    /// Fetch the next page of the session list for a server, merging it
+    /// additively into the canonical store. Uses the retained per-runtime
+    /// cursors, advancing them on success. Safe to call repeatedly as the
+    /// user scrolls the home sessions list; returns `has_more` so the UI can
+    /// stop offering "load more" when exhausted.
+    pub async fn load_threads_page(
+        &self,
+        server_id: String,
+        limit: Option<u32>,
+    ) -> Result<crate::types::AppLoadThreadsOutcome, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.load_threads_page(&server_id, limit)
+                .await
+                .map_err(|e| ClientError::Rpc(e.to_string()))
+        })
+    }
+
     pub async fn unsubscribe_thread(&self, key: ThreadKey) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             c.thread_unsubscribe(&key.server_id, &key.thread_id)

@@ -821,6 +821,11 @@ impl AppClient {
                     all_thread_ids.extend(ids);
                 }
                 c.finalize_thread_list_sync(&server_id, all_thread_ids);
+                // A full drain has reconciled the entire thread set, so paged
+                // session-list loading is complete for this server: clear the
+                // retained page cursors so `session_list_has_more` reads false
+                // and the home list stops offering "load more".
+                c.app_store.clear_thread_page_state(&server_id);
             } else if !all_completed {
                 tracing::warn!(
                     "list_threads: skipping finalize prune — partial fan-out result on server {}",

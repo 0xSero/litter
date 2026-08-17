@@ -246,7 +246,10 @@ class AppLifecycleController {
             }
             appModel.restoreStoredLocalAuthState(result.serverId)
             runCatching {
-                appModel.refreshSessions(listOf(result.serverId))
+                // First page only — the home dashboard drives the rest via
+                // infinite scroll. Full drains still happen on pull-to-refresh
+                // and the dedicated Sessions screen.
+                appModel.loadSessionsPage(listOf(result.serverId), limit = 10u)
             }
         }
     }
