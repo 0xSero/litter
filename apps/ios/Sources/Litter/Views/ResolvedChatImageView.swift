@@ -170,22 +170,25 @@ struct ResolvedChatImageView: View {
         return prefix.contains("<svg")
     }
 
+    private static let viewBoxRegex: NSRegularExpression = {
+        let pattern = #"viewBox\s*=\s*[\"']\s*[-+0-9.eE]+[\s,]+[-+0-9.eE]+[\s,]+([-+0-9.eE]+)[\s,]+([-+0-9.eE]+)\s*[\"']"#
+        return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }()
+
     private static func svgAspectRatio(_ data: Data) -> CGFloat {
         guard let source = String(data: data.prefix(8192), encoding: .utf8) else {
             return 16 / 9
         }
-        let pattern = #"viewBox\s*=\s*[\"']\s*[-+0-9.eE]+[\s,]+[-+0-9.eE]+[\s,]+([-+0-9.eE]+)[\s,]+([-+0-9.eE]+)\s*[\"']"#
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = expression.firstMatch(
-                in: source,
-                range: NSRange(source.startIndex..<source.endIndex, in: source)
-              ),
-              let widthRange = Range(match.range(at: 1), in: source),
-              let heightRange = Range(match.range(at: 2), in: source),
-              let width = Double(source[widthRange]),
-              let height = Double(source[heightRange]),
-              width > 0,
-              height > 0 else {
+        guard let match = viewBoxRegex.firstMatch(
+            in: source,
+            range: NSRange(source.startIndex..<source.endIndex, in: source)
+        ),
+        let widthRange = Range(match.range(at: 1), in: source),
+        let heightRange = Range(match.range(at: 2), in: source),
+        let width = Double(source[widthRange]),
+        let height = Double(source[heightRange]),
+        width > 0,
+        height > 0 else {
             return 16 / 9
         }
         return CGFloat(width / height)

@@ -135,7 +135,6 @@ blanket allows would erase useful architecture signals.
 Lack of an internal caller is not proof of removability. These are retained
 deliberately:
 
-- `local_studio_realtime.rs` is a large cross-repository protocol contract, not
   dead code. Superseded SSH and realtime boundary wrappers require live mobile
   acceptance before any later removal.
 - `tools/scripts/codex-e2e-proof.sh`, `tools/scripts/local-studio-e2e-proof.sh`,

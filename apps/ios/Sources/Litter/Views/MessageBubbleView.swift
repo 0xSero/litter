@@ -96,25 +96,10 @@ struct LitterMarkdownView: View {
 }
 
 struct InlineSelectableMarkdownMessage<Content: View>: View {
-    let markdown: String
-    var style: LitterMarkdownStyleVariant = .content
-    var bodySize: CGFloat = LitterFont.conversationBodyPointSize
-    var codeSize: CGFloat = LitterFont.conversationBodyPointSize
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         content()
-    }
-}
-
-private extension LitterMarkdownStyleVariant {
-    var cacheKey: String {
-        switch self {
-        case .content:
-            return "content"
-        case .system:
-            return "system"
-        }
     }
 }
 
@@ -289,12 +274,7 @@ struct AssistantBubble: View, Equatable {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if allowsInlineSelection {
-                InlineSelectableMarkdownMessage(
-                    markdown: markdownString,
-                    style: .content,
-                    bodySize: contentFontSize,
-                    codeSize: contentFontSize
-                ) {
+                InlineSelectableMarkdownMessage {
                     bubbleContent
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
