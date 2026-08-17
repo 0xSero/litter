@@ -176,6 +176,47 @@ mod tests {
     /// promoted to `FullResync`. The platform layer debounces
     /// `.serverChanged` but reacts to `.fullResync` immediately, so
     /// promoting made these bursts strictly more expensive to render.
+    /// Non-empty approval so `replace_pending_approvals` actually changes
+    /// state. `replace_pending_approvals(vec![])` on a fresh reducer is a
+    /// no-op -- the snapshot is already empty, so `changed` is false and
+    /// nothing is emitted. Awaiting an update after one of those blocks
+    /// forever.
+    #[cfg(test)]
+    fn test_pending_approval(id: &str) -> crate::types::PendingApproval {
+        crate::types::PendingApproval {
+            id: id.to_string(),
+            server_id: "srv".to_string(),
+            kind: crate::types::ApprovalKind::Command,
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            command: Some("ls".to_string()),
+            path: None,
+            grant_root: None,
+            cwd: Some("/tmp".to_string()),
+            reason: None,
+        }
+    }
+
+    /// Bound every `next_update()` await. Without this a missing emit hangs
+    /// the whole CI job to its 60-minute timeout instead of failing.
+    #[cfg(test)]
+    fn await_next_update(
+        runtime: &tokio::runtime::Runtime,
+        subscription: &AppStoreSubscription,
+    ) -> AppStoreUpdateRecord {
+        runtime
+            .block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    subscription.next_update(),
+                )
+                .await
+            })
+            .expect("next_update timed out -- no update was emitted")
+            .expect("next update should succeed")
+    }
+
     #[test]
     fn app_store_subscription_keeps_unrelated_refresh_updates_distinct() {
         let reducer = AppStoreReducer::new();
@@ -187,20 +228,16 @@ mod tests {
         };
 
         reducer.update_server_health("srv", crate::store::ServerHealthSnapshot::Connected);
-        reducer.replace_pending_approvals(Vec::new());
+        reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
 
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
-        let first = runtime
-            .block_on(subscription.next_update())
-            .expect("next update should succeed");
+        let first = await_next_update(&runtime, &subscription);
         assert!(matches!(
             first,
             AppStoreUpdateRecord::ServerChanged { ref server_id } if server_id == "srv"
         ));
 
-        let second = runtime
-            .block_on(subscription.next_update())
-            .expect("next update should succeed");
+        let second = await_next_update(&runtime, &subscription);
         assert!(matches!(
             second,
             AppStoreUpdateRecord::PendingApprovalsChanged { .. }
@@ -219,14 +256,12 @@ mod tests {
             })),
         };
 
-        reducer.replace_pending_approvals(Vec::new());
-        reducer.replace_pending_approvals(Vec::new());
-        reducer.replace_pending_approvals(Vec::new());
+        reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
+        reducer.replace_pending_approvals(vec![test_pending_approval("approval-2")]);
+        reducer.replace_pending_approvals(vec![test_pending_approval("approval-3")]);
 
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
-        let update = runtime
-            .block_on(subscription.next_update())
-            .expect("next update should succeed");
+        let update = await_next_update(&runtime, &subscription);
         assert!(matches!(
             update,
             AppStoreUpdateRecord::PendingApprovalsChanged { .. }
