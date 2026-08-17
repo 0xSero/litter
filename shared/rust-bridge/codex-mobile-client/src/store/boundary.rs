@@ -39,6 +39,10 @@ pub struct AppServerSnapshot {
     pub agent_runtimes: Vec<crate::types::AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub usage_stats: Option<AppServerUsageStats>,
+    /// Whether the session list on this server has more pages to load via
+    /// `AppStore::load_threads_page`. `false` once a full `thread/list`
+    /// drain (pull-to-refresh / Sessions screen) has completed.
+    pub session_list_has_more: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Enum)]
@@ -483,6 +487,13 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     transport_state == AppServerTransportState::Connected;
 
                 let usage_stats = compute_server_usage_stats(&snapshot, &server.server_id);
+                let session_list_has_more =
+                    snapshot
+                        .session_pages
+                        .iter()
+                        .any(|((page_server_id, _), page)| {
+                            page_server_id == &server.server_id && page.has_more
+                        });
 
                 AppServerSnapshot {
                     server_id: server.server_id,
@@ -519,6 +530,7 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     agent_runtimes: server.agent_runtimes,
                     connection_progress: server.connection_progress,
                     usage_stats,
+                    session_list_has_more,
                 }
             })
             .collect::<Vec<_>>();

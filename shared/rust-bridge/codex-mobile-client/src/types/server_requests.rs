@@ -555,6 +555,18 @@ pub struct AppLoadThreadTurnsOutcome {
     pub has_more: bool,
 }
 
+/// Outcome of a `load_threads_page` store action (paged session list load).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, uniffi::Record)]
+#[serde(rename_all = "camelCase")]
+pub struct AppLoadThreadsOutcome {
+    /// True when at least one runtime returned a page that was merged into
+    /// the store.
+    pub loaded: bool,
+    /// True when any runtime reported a next cursor, i.e. more sessions
+    /// remain on this server.
+    pub has_more: bool,
+}
+
 impl From<upstream::ThreadTurnsListResponse> for AppListThreadTurnsResponse {
     fn from(value: upstream::ThreadTurnsListResponse) -> Self {
         let turns = crate::conversation::hydrate_turns(

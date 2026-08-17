@@ -35,6 +35,10 @@ struct HomeSessionsScrollView: UIViewRepresentable {
     let showCatFooter: Bool
     let topInset: CGFloat
     let bottomInset: CGFloat
+    let hasMoreSessions: Bool
+    let isLoadingMoreSessions: Bool
+    let onLoadMore: (() -> Void)?
+    let onRefreshSessions: (@MainActor () async -> Void)?
     let callbacks: Callbacks
     /// App's text scale from `@Environment(\.textScale)`. Piped in so
     /// row height measurements (which depend on rendered font sizes)
@@ -68,6 +72,10 @@ struct HomeSessionsScrollView: UIViewRepresentable {
             showCatFooter: showCatFooter,
             topInset: topInset,
             bottomInset: bottomInset,
+            hasMoreSessions: hasMoreSessions,
+            isLoadingMoreSessions: isLoadingMoreSessions,
+            onLoadMore: onLoadMore,
+            onRefreshSessions: onRefreshSessions,
             textScale: textScale,
             themeManager: themeManager,
             wallpaperManager: wallpaperManager,
@@ -138,6 +146,8 @@ final class HomeSessionsScrollUIView: UIView {
     private let contentView = UIView()
     private let pinchVignette = PinchVignetteView()
     private let catFooterHostingController = UIHostingController(rootView: AnyView(EmptyView()))
+    private var refreshControl: UIRefreshControl?
+    private var loadMoreHostingController = UIHostingController(rootView: AnyView(EmptyView()))
     private var containers: [ThreadKey: HomeRowContainer] = [:]
     private var order: [ThreadKey] = []
 
@@ -163,6 +173,7 @@ final class HomeSessionsScrollUIView: UIView {
     private(set) var bottomInsetValue: CGFloat = 0
     private var catFooterCountEligible = false
     private var catFooterHostVisible = false
+    private var loadMoreHostVisible = false
     private var catFooterEntranceStarted = false
     private var widthUsed: CGFloat = 0
     private var lastCommittedInteger: Int = 2
@@ -178,6 +189,17 @@ final class HomeSessionsScrollUIView: UIView {
     /// Reentrancy guard: `performDeferredMeasurements` calls `relayout`, which
     /// drains the flag again.
     private var isPerformingDeferredMeasurements = false
+
+    // --- Infinite-scroll + pull-to-refresh state --------------------------
+    /// Whether more sessions are available on the visible servers. Drives the
+    /// near-bottom load-more trigger and the loading row.
+    private var hasMoreSessions = false
+    /// True while a load-more page fetch is in flight.
+    private var isLoadingMoreSessions = false
+    private var onLoadMore: (() -> Void)?
+    /// Drag-down-to-refresh callback (async full reload).
+    private var refreshControlAction: (@MainActor () async -> Void)?
+    private var loadMoreFired = false
 
     var zoomCommit: ((Int) -> Void)?
 
@@ -223,9 +245,20 @@ final class HomeSessionsScrollUIView: UIView {
         scrollView.contentInsetAdjustmentBehavior = .always
         scrollView.delegate = self
         scrollView.addGestureRecognizer(pinchRecognizer)
+
+        // Drag-down-to-reload. `alwaysBounceVertical` is already true so the
+        // refresh control can be revealed by overscrolling from the top.
+        let refreshControl = UIRefreshControl()
+        refreshControl.tintColor = .secondaryLabel
+        refreshControl.addTarget(self, action: #selector(handleRefreshControl), for: .valueChanged)
+        scrollView.refreshControl = refreshControl
+        self.refreshControl = refreshControl
         catFooterHostingController.view.backgroundColor = .clear
         catFooterHostingController.view.isHidden = true
         contentView.addSubview(catFooterHostingController.view)
+        loadMoreHostingController.view.backgroundColor = .clear
+        loadMoreHostingController.view.isHidden = true
+        contentView.addSubview(loadMoreHostingController.view)
         // Let pinch and scroll pan arbitrate naturally. Pinch requires 2
         // touches to begin; `numberOfTouchesRequired = 2` on pinch + our
         // pinchActive check (which disables `scrollView.isScrollEnabled`
@@ -291,11 +324,20 @@ final class HomeSessionsScrollUIView: UIView {
         showCatFooter: Bool,
         topInset: CGFloat,
         bottomInset: CGFloat,
+        hasMoreSessions: Bool,
+        isLoadingMoreSessions: Bool,
+        onLoadMore: (() -> Void)?,
+        onRefreshSessions: (@MainActor () async -> Void)?,
         textScale: CGFloat,
         themeManager: ThemeManager,
         wallpaperManager: WallpaperManager,
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
+        self.hasMoreSessions = hasMoreSessions
+        self.isLoadingMoreSessions = isLoadingMoreSessions
+        self.onLoadMore = onLoadMore
+        self.refreshControlAction = onRefreshSessions
+        self.loadMoreFired = isLoadingMoreSessions ? true : loadMoreFired
         let zoomChanged = self.zoomLevel != zoomLevel && !isPinching
         let enteredPageFit = zoomChanged && zoomLevel == 4
         self.zoomLevel = zoomLevel
@@ -320,6 +362,7 @@ final class HomeSessionsScrollUIView: UIView {
         scrollView.contentInset = UIEdgeInsets(top: effectiveTopInset, left: 0, bottom: effectiveBottomInset, right: 0)
         scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: effectiveTopInset, left: 0, bottom: effectiveBottomInset, right: 0)
         refreshCatFooterVisibility()
+        refreshLoadMoreVisibility()
 
         // Text scale change → blow out every row's height cache and
         // propagate the new scale into each hosted SwiftUI tree.
@@ -454,12 +497,22 @@ final class HomeSessionsScrollUIView: UIView {
         } else {
             footerFrame = .zero
         }
+
+        let loadMoreFrame: CGRect
+        if shouldShowLoadMore {
+            let h = loadMoreRowHeight
+            loadMoreFrame = CGRect(x: 0, y: y, width: width, height: h)
+            y += h
+        } else {
+            loadMoreFrame = .zero
+        }
         let newContentSize = CGSize(width: width, height: y)
 
         if animated {
             UIView.animate(withDuration: zoomSnapDuration, delay: 0, options: [.curveEaseOut]) {
                 for (container, frame) in frames { container.frame = frame }
                 self.catFooterHostingController.view.frame = footerFrame
+                self.loadMoreHostingController.view.frame = loadMoreFrame
                 self.contentView.frame = CGRect(origin: .zero, size: newContentSize)
                 self.scrollView.contentSize = newContentSize
                 self.updatePageBackgroundVisibility()
@@ -469,6 +522,7 @@ final class HomeSessionsScrollUIView: UIView {
         } else {
             for (container, frame) in frames { container.frame = frame }
             catFooterHostingController.view.frame = footerFrame
+            loadMoreHostingController.view.frame = loadMoreFrame
             contentView.frame = CGRect(origin: .zero, size: newContentSize)
             scrollView.contentSize = newContentSize
             updatePageBackgroundVisibility()
@@ -504,6 +558,60 @@ final class HomeSessionsScrollUIView: UIView {
 
     private var shouldShowCatFooter: Bool {
         catFooterCountEligible && zoomLevel == 1 && !isPinching
+    }
+
+    /// Show the "Loading more sessions…" row only when there are more sessions
+    /// to fetch and we're not at page-fit (zoom 4), so it doesn't obscure a
+    /// single full-screen card.
+    private var shouldShowLoadMore: Bool {
+        hasMoreSessions && !isPinching && zoomLevel != 4
+    }
+
+    private var loadMoreRowHeight: CGFloat { 44 }
+
+    private func refreshLoadMoreVisibility() {
+        let visible = shouldShowLoadMore
+        // Always refresh the hosted row so the spinner/label reflects the
+        // current `isLoadingMoreSessions` even while already visible.
+        if visible {
+            loadMoreHostingController.rootView = AnyView(HomeLoadMoreRow(isLoading: isLoadingMoreSessions))
+        }
+        guard loadMoreHostVisible != visible else {
+            loadMoreHostingController.view.isHidden = !visible
+            return
+        }
+        loadMoreHostVisible = visible
+        loadMoreHostingController.view.isHidden = !visible
+    }
+
+    private func refreshControlValueChanged() {
+        guard let onRefresh = refreshControlAction else {
+            refreshControl?.endRefreshing()
+            return
+        }
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        Task { @MainActor in
+            await onRefresh()
+            refreshControl?.endRefreshing()
+        }
+    }
+
+    @objc private func handleRefreshControl() {
+        refreshControlValueChanged()
+    }
+
+    /// Debounced near-bottom load-more. Fires at most once per "page" (the
+    /// guard resets after `apply` observes `isLoadingMoreSessions` flip).
+    private func maybeTriggerLoadMore() {
+        guard hasMoreSessions, !isLoadingMoreSessions, !loadMoreFired else { return }
+        let threshold = bounds.height * 0.6
+        let bottom = scrollView.contentOffset.y + bounds.height
+        let contentBottom = scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
+        if bottom >= contentBottom - threshold {
+            loadMoreFired = true
+            onLoadMore?()
+        }
     }
 
     private func catFooterHeight(width: CGFloat) -> CGFloat {
@@ -917,6 +1025,7 @@ extension HomeSessionsScrollUIView: UIGestureRecognizerDelegate {
 extension HomeSessionsScrollUIView: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         updatePageBackgroundVisibility()
+        maybeTriggerLoadMore()
     }
 
     func scrollViewWillEndDragging(
@@ -986,6 +1095,24 @@ extension HomeSessionsScrollUIView: UIScrollViewDelegate {
         if drift > 0.5 && drift < (page - 0.5) {
             snapToNearestPage(animated: true)
         }
+    }
+}
+
+private struct HomeLoadMoreRow: View {
+    let isLoading: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(LitterTheme.accent)
+            }
+            Text(isLoading ? "Loading more sessions..." : "Pull up for more")
+                .litterFont(.caption)
+                .foregroundColor(LitterTheme.textMuted)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
