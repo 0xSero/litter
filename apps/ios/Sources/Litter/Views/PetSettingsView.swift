@@ -7,10 +7,8 @@ struct PetSettingsView: View {
     @State private var pets: [AppPetSummary] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-
-    private var connectedServers: [AppServerSnapshot] {
-        appModel.snapshot?.servers.filter(\.isConnected) ?? []
-    }
+    // Cached from appModel.snapshot in closures, never read in body.
+    @State private var connectedServers: [AppServerSnapshot] = []
 
     var body: some View {
         Form {
@@ -143,6 +141,8 @@ struct PetSettingsView: View {
         .background(LitterTheme.backgroundGradient.ignoresSafeArea())
         .navigationTitle("Pet")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { refreshServerCache() }
+        .onChange(of: appModel.snapshotRevision) { _, _ in refreshServerCache() }
         .task {
             if selectedServerId.isEmpty {
                 selectedServerId = controller.selectedPet?.serverId
@@ -152,6 +152,10 @@ struct PetSettingsView: View {
             }
             await refreshPets()
         }
+    }
+
+    private func refreshServerCache() {
+        connectedServers = appModel.snapshot?.servers.filter(\.isConnected) ?? []
     }
 
     @MainActor

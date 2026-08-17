@@ -12,21 +12,9 @@ struct SettingsView: View {
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var activeServerSheet: SettingsServerSheet?
     @State private var serverEditError: String?
-
-    private var localServer: AppServerSnapshot? {
-        // Account management (ChatGPT login / API key) is local-only, always.
-        // If the local Codex bridge hasn't spun up there's no login target, and
-        // the caller falls through to `SettingsDisconnectedAccountSection`.
-        appModel.snapshot?.servers.first(where: \.isLocal)
-    }
-
-    private var connectedServers: [HomeDashboardServer] {
-        HomeDashboardSupport.sortedConnectedServers(
-            from: appModel.snapshot?.servers ?? [],
-            savedServers: SavedServerStore.rememberedServers(),
-            activeServerId: appModel.snapshot?.activeThread?.serverId
-        )
-    }
+    // Cached from appModel.snapshot in closures, never read in body.
+    @State private var localServer: AppServerSnapshot?
+    @State private var connectedServers: [HomeDashboardServer] = []
 
     var body: some View {
         NavigationStack {
@@ -95,6 +83,17 @@ struct SettingsView: View {
                 Text(serverEditError ?? "Unable to update this server.")
             }
         }
+        .onAppear { refreshServerCache() }
+        .onChange(of: appModel.snapshotRevision) { _, _ in refreshServerCache() }
+    }
+
+    private func refreshServerCache() {
+        localServer = appModel.snapshot?.servers.first(where: \.isLocal)
+        connectedServers = HomeDashboardSupport.sortedConnectedServers(
+            from: appModel.snapshot?.servers ?? [],
+            savedServers: SavedServerStore.rememberedServers(),
+            activeServerId: appModel.snapshot?.activeThread?.serverId
+        )
     }
 
     // MARK: - Appearance Section

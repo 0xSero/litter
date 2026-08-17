@@ -319,22 +319,13 @@ private struct SubagentDetailSheet: View {
     var agentLabel: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var isLoading = false
-
-    private var threadSnapshot: AppThreadSnapshot? {
-        appModel.snapshot?.threadSnapshot(for: threadKey)
-    }
+    // Cached from appModel.snapshot in closures, never read in body.
+    @State private var threadSnapshot: AppThreadSnapshot?
+    @State private var resolvedTitle: String?
 
     private var title: String {
-        if let label = threadSnapshot.flatMap({ appModel.snapshot?.sessionSummary(for: $0.key)?.agentDisplayLabel }) {
-            return label
-        }
-        if let label = appModel.snapshot?.sessionSummary(for: threadKey)?.agentDisplayLabel {
-            return label
-        }
+        if let resolvedTitle { return resolvedTitle }
         if let label = agentLabel, !label.isEmpty, !looksLikeId(label) { return label }
-        if let resolved = appModel.snapshot?.resolvedAgentTargetLabel(for: threadKey.threadId, serverId: threadKey.serverId) {
-            return resolved
-        }
         return agentLabel ?? "Agent"
     }
 
@@ -418,8 +409,28 @@ private struct SubagentDetailSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .onAppear { refreshFromSnapshot() }
+        .onChange(of: appModel.snapshotRevision) { _, _ in refreshFromSnapshot() }
         .task(id: threadKey.id) {
             await loadThreadIfNeeded()
+        }
+    }
+
+    private func refreshFromSnapshot() {
+        let snap = appModel.snapshot
+        threadSnapshot = snap?.threadSnapshot(for: threadKey)
+        if let snap {
+            if let label = threadSnapshot.flatMap({ snap.sessionSummary(for: $0.key)?.agentDisplayLabel }) {
+                resolvedTitle = label
+            } else if let label = snap.sessionSummary(for: threadKey)?.agentDisplayLabel {
+                resolvedTitle = label
+            } else if let resolved = snap.resolvedAgentTargetLabel(for: threadKey.threadId, serverId: threadKey.serverId) {
+                resolvedTitle = resolved
+            } else {
+                resolvedTitle = nil
+            }
+        } else {
+            resolvedTitle = nil
         }
     }
 

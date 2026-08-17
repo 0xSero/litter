@@ -14,6 +14,8 @@ struct RealtimeVoiceScreen: View {
     @State private var hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
     @State private var apiKeyError: String?
     @State private var isRetryingAfterAuthSave = false
+    // Cached from appModel.snapshot in closures, never read in body.
+    @State private var server: AppServerSnapshot?
 
     private var glowPalette: GlowPalette {
         .from(colorScheme: colorScheme)
@@ -42,10 +44,6 @@ struct RealtimeVoiceScreen: View {
         guard let session = voiceRuntime.activeVoiceSession,
               session.threadKey == threadKey else { return nil }
         return session
-    }
-
-    private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: threadKey.serverId)
     }
 
     private var phase: VoiceSessionPhase {
@@ -172,6 +170,10 @@ struct RealtimeVoiceScreen: View {
             }
         }
         .statusBarHidden()
+        .onAppear { server = appModel.snapshot?.serverSnapshot(for: threadKey.serverId) }
+        .onChange(of: appModel.snapshotRevision) { _, _ in
+            server = appModel.snapshot?.serverSnapshot(for: threadKey.serverId)
+        }
         .task {
             do {
                 _ = try await appModel.client.refreshAccount(
