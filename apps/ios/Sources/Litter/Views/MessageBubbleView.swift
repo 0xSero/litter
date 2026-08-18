@@ -49,11 +49,10 @@ struct LitterMarkdownView: View {
     var codeSize: CGFloat = LitterFont.conversationBodyPointSize
     var selectionEnabled = true
 
-    @State private var debugSettings = DebugSettings.shared
     @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
 
     var body: some View {
-        if debugSettings.enabled && debugSettings.disableMarkdown {
+        if DebugSettings.isMarkdownDisabled {
             Text(markdown)
                 .font(LitterFont.markdownBodyFont(size: bodySize))
                 .foregroundColor(style == .system ? LitterTheme.textSecondary : LitterTheme.textPrimary)

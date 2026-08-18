@@ -43,7 +43,7 @@ final class DebugSettings {
     static let shared = DebugSettings()
 
     @ObservationIgnored private let key = "litter.debugSettings"
-    private var overrides: [String: Bool]
+    @ObservationIgnored private var overrides: [String: Bool]
 
     private init() {
         overrides = UserDefaults.standard.dictionary(forKey: key) as? [String: Bool] ?? [:]
@@ -66,5 +66,15 @@ final class DebugSettings {
     var disableMarkdown: Bool {
         get { overrides["disableMarkdown"] ?? false }
         set { overrides["disableMarkdown"] = newValue; persist() }
+    }
+
+    /// Non-observable snapshot for use in hot view paths (e.g. per-row
+    /// `LitterMarkdownView.body`) where the debug-disable state is only
+    /// needed as a read and should not register an observation edge.
+    /// Reading `DebugSettings.shared.enabled` directly in body creates an
+    /// edge per row; this static accessor avoids that.
+    @ObservationIgnored
+    static var isMarkdownDisabled: Bool {
+        shared.overrides["enabled"] == true && shared.overrides["disableMarkdown"] == true
     }
 }
