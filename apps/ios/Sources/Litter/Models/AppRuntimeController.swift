@@ -117,6 +117,18 @@ final class AppRuntimeController {
     }
 
     func handleSnapshot(_ snapshot: AppSnapshotRecord?) {
+        syncLiveActivitiesIfNeeded(snapshot: snapshot)
+    }
+
+    /// Called from `.onChange(of: appModel.snapshotRevision)` so the
+    /// top-level view body never reads `appModel.snapshot` directly (which
+    /// would re-render the whole shell per streaming token). The revision
+    /// change is the same signal; we just fetch the snapshot here instead.
+    func handleSnapshotRevisionChange() {
+        syncLiveActivitiesIfNeeded(snapshot: appModel?.snapshot)
+    }
+
+    private func syncLiveActivitiesIfNeeded(snapshot: AppSnapshotRecord?) {
         let now = CFAbsoluteTimeGetCurrent()
         let elapsed = now - lastLiveActivitySyncTime
         if elapsed >= 3.0 {

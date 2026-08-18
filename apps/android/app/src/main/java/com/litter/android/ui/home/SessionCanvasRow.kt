@@ -382,6 +382,14 @@ private fun MetaLine(
                         color = LitterTheme.textMuted,
                         fontFamily = LitterTheme.monoFont,
                         fontSize = META_FONT_SP.scaled,
+                        // Every sibling in this row caps at one line; this one
+                        // did not, so when the row ran out of width the
+                        // timestamp was the only child that could wrap -- and
+                        // being squeezed to a ~1-character column it wrapped
+                        // after every letter (#162).
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
                     )
                 }
                 Text(

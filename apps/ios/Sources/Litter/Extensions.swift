@@ -37,6 +37,17 @@ enum LitterTheme {
         Color(hex: colorScheme == .dark ? dark : light)
     }
 
+    /// Slug of the theme currently supplying colors, i.e. the light or dark
+    /// resolved theme depending on the active color scheme.
+    ///
+    /// Caches that bake resolved colors into a stored value (see
+    /// `MarkdownThemeCache`) key on this so they drop when the theme changes.
+    /// It reads through `ThemeStore`, which is `@Observable`, so a read from a
+    /// view body also registers the dependency that repaints on theme switch.
+    static var activeThemeSlug: String {
+        colorScheme == .dark ? dark.slug : light.slug
+    }
+
     static var accent: Color        { adaptive(light: light.accent, dark: dark.accent) }
     static var accentStrong: Color   { adaptive(light: light.accentStrong, dark: dark.accentStrong) }
     static var textPrimary: Color    { adaptive(light: light.textPrimary, dark: dark.textPrimary) }
@@ -475,11 +486,15 @@ func abbreviateHomePath(_ path: String) -> String {
     return trimmed
 }
 
-func relativeDate(_ timestamp: Int64) -> String {
-    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+private let cachedRelativeDateFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: date, relativeTo: Date())
+    return formatter
+}()
+
+func relativeDate(_ timestamp: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+    return cachedRelativeDateFormatter.localizedString(for: date, relativeTo: Date())
 }
 
 // MARK: - Glass Effect Availability Wrappers

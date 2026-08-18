@@ -215,13 +215,14 @@ pub async fn probe_remote_agents(
     info!("ssh bridge agent probe start");
     let shell = ssh.detect_remote_shell().await;
     info!("ssh bridge agent probe shell={shell:?}");
-    let kinds = [
-        crate::local_studio::RUNTIME_KIND.to_string(),
-        "claude".to_string(),
-        "pi".to_string(),
-        "opencode".to_string(),
-        "codex".to_string(),
-    ];
+    // Single source of truth for "which agents can litter itself launch
+    // over SSH". Pairing-only agents (droid, devin, amp, hermes, grok,
+    // shell) are deliberately absent: litter links no bridge for them,
+    // so probing would advertise a connection it cannot make.
+    let kinds = crate::store::agent_catalog::SSH_BRIDGE_PROBE_ORDER
+        .iter()
+        .map(|kind| (*kind).to_string())
+        .collect::<Vec<_>>();
     if shell == RemoteShell::PowerShell {
         let availability = kinds
             .into_iter()
@@ -235,7 +236,7 @@ pub async fn probe_remote_agents(
     }
 
     let script = format!(
-        "{PROFILE_INIT}\n{}\n{}",
+        "{PROFILE_INIT}\n{}\n{}\n{}",
         crate::local_studio::probe_script(),
         r#"find_cmd() {
   cmd="$1"
@@ -285,12 +286,8 @@ probe_one_executes() {
     fi
   done
   printf '%s\t\n' "$label"
-}
-
-probe_one claude claude
-probe_one pi pi-coding-agent pi
-probe_one_executes opencode opencode
-probe_one codex codex"#
+}"#,
+        crate::store::agent_catalog::ssh_probe_script_lines()
     );
     let result = ssh.exec_shell(&script, shell).await?;
     if result.exit_code != 0 {
@@ -460,6 +457,36 @@ async fn connect_app_server_client_via_ssh_with_close(
     bin_override: Option<String>,
     transport: SshBridgeTransport,
 ) -> Result<(AppServerClient, Option<StreamCloseHandle>), SshBridgeError> {
+    let annotate_kind = kind.clone();
+    connect_bridge_runtime_via_ssh(ssh, state_dir, kind, bin_override, transport)
+        .await
+        .map_err(|error| annotate_with_requirement(error, &annotate_kind))
+}
+
+/// Rewrite a bare "binary not found" into "<Agent>: <binary> not found —
+/// install X". Every SSH-bridge failure the user can act on flows
+/// through here, so the picker never shows a dead end without saying
+/// what it needs.
+fn annotate_with_requirement(error: SshBridgeError, kind: &str) -> SshBridgeError {
+    let SshBridgeError::AgentCliMissing(detail) = error else {
+        return error;
+    };
+    let label = runtime_display_name(kind);
+    match crate::store::agent_catalog::requirement(kind) {
+        Some(requirement) => SshBridgeError::AgentCliMissing(format!(
+            "{label}: `{detail}` was not found on the SSH host — {requirement}"
+        )),
+        None => SshBridgeError::AgentCliMissing(format!("{label}: `{detail}`")),
+    }
+}
+
+async fn connect_bridge_runtime_via_ssh(
+    ssh: Arc<SshClient>,
+    state_dir: impl AsRef<Path>,
+    kind: AgentRuntimeKind,
+    bin_override: Option<String>,
+    transport: SshBridgeTransport,
+) -> Result<(AppServerClient, Option<StreamCloseHandle>), SshBridgeError> {
     let shell = ssh.detect_remote_shell().await;
     if shell == RemoteShell::PowerShell {
         return Err(SshBridgeError::WindowsRemoteNotYetSupported);
@@ -563,13 +590,15 @@ async fn connect_app_server_client_via_ssh_with_close(
             return connect_opencode_via_ssh(ssh, state_dir, bin_override).await;
         }
         "codex" => return Err(SshBridgeError::UseExistingCodexPath),
-        // Every other agent (amp/droid/hermes/anything new from
-        // alleycat) is alleycat-only — the SSH bootstrap path doesn't
-        // know how to launch it on the remote.
+        // Every other agent (amp/droid/devin/hermes/grok/shell, plus
+        // anything new alleycat starts advertising) is pairing-only:
+        // litter links no bridge crate that can launch it on the remote,
+        // so the host has to run the bridge itself. Say exactly what the
+        // user needs to do instead of failing with a bare id.
         _ => {
-            return Err(SshBridgeError::BridgeStartupFailed(format!(
-                "agent `{kind}` is only available through Alleycat pairing"
-            )));
+            return Err(SshBridgeError::BridgeStartupFailed(
+                pairing_only_message(&kind),
+            ));
         }
     };
     connect_bridge_stream(bridge, kind).await
@@ -1183,14 +1212,13 @@ fn parse_agent_probe(stdout: &str) -> Vec<RemoteAgentAvailability> {
         .lines()
         .filter_map(|line| {
             let (cmd, path) = line.split_once('\t').unwrap_or((line, ""));
-            let kind = match cmd {
-                "claude" => "claude".to_string(),
-                "local-studio" => crate::local_studio::RUNTIME_KIND.to_string(),
-                "pi" | "pi-coding-agent" => "pi".to_string(),
-                "opencode" => "opencode".to_string(),
-                "codex" => "codex".to_string(),
-                _ => return None,
-            };
+            // Normalize through the catalog so probe labels, aliases
+            // (`pi-coding-agent`) and the canonical kind stay in sync
+            // with the script that produced them, and so an agent litter
+            // cannot bridge never leaks into the picker.
+            let kind = crate::store::agent_catalog::entry(cmd)
+                .filter(|entry| entry.reach.supports_ssh_bridge())
+                .map(|entry| entry.name.to_string())?;
             let status = if path.trim().is_empty() {
                 AgentAvailabilityStatus::AgentCliMissing
             } else {
@@ -1266,6 +1294,20 @@ fn now_millis() -> u128 {
         .as_millis()
 }
 
+/// Explain why an agent cannot be reached over SSH and what to do about
+/// it. Reaches the user verbatim as a connect-failure message.
+fn pairing_only_message(kind: &str) -> String {
+    let label = runtime_display_name(kind);
+    match crate::store::agent_catalog::requirement(kind) {
+        Some(requirement) => format!(
+            "{label} can't be started over SSH — it runs on the paired host. To use it, {requirement}."
+        ),
+        None => format!(
+            "{label} can't be started over SSH — litter has no bridge for it. Pair with kittylitter on a host that runs it."
+        ),
+    }
+}
+
 pub fn runtime_label(kind: &str) -> &str {
     // The stable name *is* the wire label now — alleycat advertises
     // each agent by its id (`"codex"`, `"claude"`, …) and litter just
@@ -1274,14 +1316,12 @@ pub fn runtime_label(kind: &str) -> &str {
 }
 
 fn runtime_display_name(kind: &str) -> &str {
-    // Fall back to the raw id when no metadata is cached. Real
-    // human-facing display strings come from
-    // `AgentMetadataStore::get(kind).display_name`.
-    if kind == crate::local_studio::RUNTIME_KIND {
-        "Local Studio"
-    } else {
-        kind
-    }
+    // Prefer the built-in catalog label so an SSH-bridge server shows
+    // "Claude" / "Local Studio" rather than the raw id. Agents litter
+    // has no catalog entry for fall back to the id; richer strings
+    // still come from `AgentMetadataStore::get(kind).display_name` once
+    // a host has been probed.
+    crate::store::agent_catalog::display_name(kind).unwrap_or(kind)
 }
 
 #[cfg(test)]
@@ -1300,5 +1340,120 @@ mod local_studio_tests {
     fn probe_parser_keeps_missing_catalog_unavailable() {
         let agents = parse_agent_probe("local-studio\t\n");
         assert_eq!(agents[0].status, AgentAvailabilityStatus::AgentCliMissing);
+    }
+}
+
+#[cfg(test)]
+mod agent_registration_tests {
+    use super::*;
+
+    /// Claude and opencode are fully bridged by litter's own SSH path —
+    /// they must survive the probe with their real availability, not be
+    /// filtered out on the way through.
+    #[test]
+    fn probe_parser_registers_every_ssh_bridgeable_agent() {
+        let agents = parse_agent_probe(concat!(
+            "local-studio\t1\n",
+            "claude\t/usr/local/bin/claude\n",
+            "pi\t/usr/local/bin/pi-coding-agent\n",
+            "opencode\t\n",
+            "codex\t/usr/local/bin/codex\n",
+        ));
+        let kinds = agents
+            .iter()
+            .map(|agent| agent.kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec!["local-studio", "claude", "pi", "opencode", "codex"]
+        );
+        assert_eq!(
+            agents
+                .iter()
+                .find(|agent| agent.kind == "claude")
+                .map(|agent| agent.status.clone()),
+            Some(AgentAvailabilityStatus::Available)
+        );
+        assert_eq!(
+            agents
+                .iter()
+                .find(|agent| agent.kind == "opencode")
+                .map(|agent| agent.status.clone()),
+            Some(AgentAvailabilityStatus::AgentCliMissing)
+        );
+    }
+
+    #[test]
+    fn probe_parser_normalizes_aliases_to_canonical_kinds() {
+        let agents = parse_agent_probe("pi-coding-agent\t/usr/bin/pi\nclaude-code\t/usr/bin/claude\n");
+        assert_eq!(
+            agents.iter().map(|a| a.kind.as_str()).collect::<Vec<_>>(),
+            vec!["pi", "claude"]
+        );
+    }
+
+    /// A visible-but-unusable agent is worse than a hidden one: litter
+    /// links no bridge for these, so they must never reach the SSH
+    /// picker as "available".
+    #[test]
+    fn probe_parser_drops_pairing_only_agents() {
+        let agents = parse_agent_probe(concat!(
+            "droid\t/usr/local/bin/droid\n",
+            "devin\t/usr/local/bin/devin\n",
+            "amp\t/usr/local/bin/amp\n",
+            "hermes\t/usr/local/bin/hermes\n",
+            "grok\t/usr/local/bin/grok\n",
+            "shell\t/bin/sh\n",
+            "unknown-agent\t/usr/bin/unknown\n",
+        ));
+        assert!(
+            agents.is_empty(),
+            "pairing-only agents must not be offered over SSH: {agents:?}"
+        );
+    }
+
+    #[test]
+    fn runtime_display_name_uses_catalog_labels() {
+        assert_eq!(runtime_display_name("claude"), "Claude");
+        assert_eq!(runtime_display_name("opencode"), "opencode");
+        assert_eq!(runtime_display_name("codex"), "Codex");
+        assert_eq!(runtime_display_name("local-studio"), "Local Studio");
+        assert_eq!(runtime_display_name("droid"), "Droid");
+        assert_eq!(runtime_display_name("brand-new"), "brand-new");
+    }
+
+    #[test]
+    fn pairing_only_message_names_the_agent_and_the_fix() {
+        let message = pairing_only_message("droid");
+        assert!(message.contains("Droid"), "{message}");
+        assert!(message.contains("kittylitter"), "{message}");
+
+        let unknown = pairing_only_message("brand-new");
+        assert!(unknown.contains("brand-new"), "{unknown}");
+        assert!(unknown.contains("kittylitter"), "{unknown}");
+    }
+
+    #[test]
+    fn missing_cli_errors_say_what_to_install() {
+        let annotated = annotate_with_requirement(
+            SshBridgeError::AgentCliMissing("claude".to_string()),
+            "claude",
+        );
+        let message = annotated.to_string();
+        assert!(message.contains("Claude"), "{message}");
+        assert!(message.contains("`claude`"), "{message}");
+        assert!(message.contains("authenticate"), "{message}");
+    }
+
+    #[test]
+    fn non_cli_errors_are_left_alone() {
+        let untouched = annotate_with_requirement(
+            SshBridgeError::WindowsRemoteNotYetSupported,
+            "claude",
+        );
+        assert!(matches!(
+            untouched,
+            SshBridgeError::WindowsRemoteNotYetSupported
+        ));
     }
 }

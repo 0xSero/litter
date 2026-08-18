@@ -1,27 +1,32 @@
 # Repository Guidelines
 
+Companion docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the ownership map,
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) is the build/release guide, and
+[`docs/REPOSITORY_AUDIT.md`](docs/REPOSITORY_AUDIT.md) is the open risk register
+(dependency advisories, parked features, unreachable code). Check the risk
+register before starting work that touches dependencies, voice, or Alleycat.
+
 ## Project Structure & Module Organization
 - `apps/ios/Sources/Litter/` contains the iOS app code.
-- `apps/ios/Sources/Litter/Views/` holds SwiftUI screens, `Models/` contains app state/session logic, and `Bridge/` contains JSON-RPC + C FFI bridge code.
+- `apps/ios/Sources/Litter/Views/` holds SwiftUI screens, `Models/` contains platform controllers and the observation shell, and `Bridge/` contains the generated UniFFI Swift surface plus thin C/Obj-C bridges (Ghostty renderer) and platform callback shims (SSH credentials/trust, dynamic tools).
 - `apps/android/app/src/main/java/com/litter/android/ui/` contains Android Compose shell/screens.
-- `apps/android/app/src/main/java/com/litter/android/state/` contains Android app state, server/session manager, SSH, and websocket transport.
-- `apps/android/core/bridge/` contains Android UniFFI bootstrap and generated Rust bindings.
+- `apps/android/app/src/main/java/com/litter/android/state/` contains the Kotlin observation shell (`AppModel`) and platform-only services: encrypted credential/trust stores, saved-entity stores, lifecycle and reachability observers. Session, transport, and SSH logic live in Rust.
+- `apps/android/core/bridge/` contains the Android UniFFI/JNI bootstrap only (`UniffiInit.kt`, `GhosttyRendererBridge.kt`).
 - `apps/android/app/src/test/java/` contains Android unit tests.
 - `apps/android/docs/qa-matrix.md` tracks Android parity QA coverage.
 - `shared/rust-bridge/codex-mobile-client/` is the single shared Rust client library consumed by both iOS and Android. It owns the public UniFFI surface, generated upstream RPC coverage, canonical store/reducer state, hydration, reconnect, SSH, shared runtime logic, and the Android JNI bootstrap (`android_context.rs`). `MobileClient` is the top-level internal Rust facade.
-- `shared/rust-bridge/codex-bridge/` was removed; its one load-bearing Android JNI bootstrap (`nativeBridgeInit`) was folded into `codex-mobile-client/src/android_context.rs`.
 - `apps/ios/Sources/Litter/Bridge/Rust*.swift` — iOS bridge files mapping Swift to the shared Rust layer.
-- `apps/android/core/bridge/.../Rust*.kt` — Android bridge files mapping Kotlin to the shared Rust layer. UniFFI Kotlin sources are generated into `shared/rust-bridge/generated/kotlin/` and consumed directly from there; do not maintain copied binding files under Android source roots.
+- UniFFI Kotlin sources are generated into `shared/rust-bridge/generated/kotlin/` and consumed directly from there; do not maintain copied binding files under Android source roots.
 - `shared/third_party/codex/` is the upstream Codex submodule.
 - `apps/ios/GeneratedRust/` contains local generated Rust artifacts for iOS builds: UniFFI headers/modulemap plus raw device/simulator staticlibs. These artifacts are not committed.
 - `apps/ios/Frameworks/` contains downloaded/package-lane iOS XCFrameworks (`codex_mobile_client.xcframework` in package builds and `litter_ish.xcframework`). These artifacts are not committed.
 - `apps/ios/project.yml` is the source of truth for project generation; regenerate `apps/ios/Litter.xcodeproj` instead of hand-editing project files.
 
 ## Architecture
-- **iOS root layout:** `ContentView` uses a `ZStack` with a persistent `HeaderView`, main content area, and a `SidebarOverlay` that slides from the left.
+- **iOS root layout:** `ContentView` (in `LitterApp.swift`) is a `ZStack` over the theme background hosting `HomeNavigationView`, which owns the `[HomeNavigationRoute]` navigation path, plus overlays (pet, coachmarks).
 - **iOS state management:** `AppStore` (Rust, via UniFFI) is the canonical runtime state owner. `AppModel` is the thin Swift observation shell over Rust snapshots and updates. `AppState` is UI-only state.
-- **iOS server flow:** Add Server uses explicit Kittylitter, Local Studio, connected-computer, direct URL, or SSH paths. Nearby Mac pairing has a separate platform-owned `_litter-pair._tcp.` browser. Thread/session/account operations come from generated Rust RPC plus store updates.
-- **Android root layout:** `LitterAppShell` is the Compose entry; `DefaultLitterAppState` maps backend state into UI state.
+- **iOS server flow:** Add Server uses explicit Kittylitter, Local Studio, connected-computer, direct URL, or SSH paths. Thread/session/account operations come from generated Rust RPC plus store updates. Nearby Mac pairing (`_litter-pair._tcp.`, BLE, ultrasonic, UWB) is a platform-owned browse that is **not a shipping path**: its only entry point is behind `#if DEBUG` in Settings → Experimental, so it is unreachable in Release builds.
+- **Android root layout:** `MainActivity` hosts the `LitterApp` composable (`ui/LitterApp.kt`), which drives a `List<Route>` nav stack over the sealed `Route` type in `ui/Navigation.kt` and reads state from the `AppModel` snapshot flow.
 - **Android state/transport:** Android should use the same Rust-owned runtime model as iOS instead of re-implementing shared session/thread/account logic in Kotlin.
 - **Android server flow:** Add Server uses explicit Kittylitter, Local Studio, connected-computer, direct URL, or SSH paths. Connection, auth, and thread/account flows go through Rust RPC + store updates; Android does not run background NSD or subnet scans.
 - **Message rendering parity:** both platforms support reasoning/system sections, code block rendering, and inline image handling.
@@ -82,6 +87,8 @@
 ## Dependencies
 ### iOS (SPM via `apps/ios/project.yml`)
 - **Hairball** / **HairballUI** — Render Markdown in assistant/system messages with custom theming and streaming support.
+- **WebRTC** (stasel) — libwebrtc peer connection and audio processing for realtime voice.
+- **Nuke** — async image loading/caching for generated and inline chat images.
 ### Android (Gradle)
 - **Compose Material3** — primary Android UI toolkit.
 - **Markwon** — Markdown rendering for assistant/system text.
@@ -163,12 +170,6 @@ Incremental policy:
 - `./tools/scripts/testflight-feedback.sh` — fetch TestFlight feedback with optional screenshot download; supports `SINCE` / `UNTIL` env filtering for createdDate windows
 - `./tools/scripts/fetch-mobile-store-artifacts.py` — one-shot iOS + Android store triage fetcher; use `--last-hours N` or `--since ... --until ...` to pull TestFlight feedback/crashes/crash logs plus Play reviews/crash issues/reports into one output directory and print a Markdown summary with local artifact links. Reuses `testflight-feedback.sh` for the TestFlight feedback path. Android private testing feedback remains Play Console UI-only and is not available through the public APIs used here.
 - `./tools/scripts/triage-mobile-feedback.py` — rerunnable GitHub + TestFlight + Play triage ledger. It wraps `fetch-mobile-store-artifacts.py`, fetches GitHub issues/PRs, stores raw per-run snapshots under `artifacts/mobile-triage/runs/`, and preserves per-item status/notes in `artifacts/mobile-triage/triage-state.json`. Use `mark '<item-id>' --status done --note ...` after an item is handled, or `--status pr-open --note 'Fix PR #...'` when a fix PR has been opened, so later runs do not put the same item back in the unhandled queue.
-
-### Hot Reload (InjectionIII)
-- Install: `brew install --cask injectioniii`
-- Key views have `@ObserveInjection` + `.enableInjection()` wired up (ContentView, ConversationView, HeaderView, SessionSidebarView, MessageBubbleView).
-- Debug builds include `-Xlinker -interposable` in linker flags.
-- Run the app in simulator, open InjectionIII pointed at the project directory, then save any Swift file to see changes without relaunching.
 
 ## Autonomous Debugging Runbook
 - Prefer the fast lanes for local iteration before package/release lanes: `make ios-sim-fast`, `make ios-device-fast`, and `make android-emulator-fast`.

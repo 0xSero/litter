@@ -23,6 +23,7 @@ enum ResolvedChatImageSource: Equatable {
 struct ResolvedChatImageView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.activeThreadKey) private var activeThreadKey
+    @Environment(\.activeThreadCwd) private var activeThreadCwd
 
     let source: ResolvedChatImageSource
     var serverId: String? = nil
@@ -75,12 +76,18 @@ struct ResolvedChatImageView: View {
         serverId ?? activeThreadKey?.serverId ?? ""
     }
 
+    /// Falls back to the active thread's cwd, read from the environment
+    /// rather than from `appModel.threadSnapshot(for:)`. This view is
+    /// instantiated once per inline image in a transcript, so resolving the
+    /// cwd through `AppModel` put one `snapshot` observation edge per image
+    /// into `body` (via `taskKey`) — every one of them re-rendering at the
+    /// ~8 fps streaming snapshot cadence. The cwd is injected once by the
+    /// conversation host alongside `\.activeThreadKey`.
     private var resolvedCwd: String? {
         if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return cwd
         }
-        guard let activeThreadKey else { return nil }
-        return appModel.threadSnapshot(for: activeThreadKey)?.info.cwd
+        return activeThreadCwd
     }
 
     private var taskKey: String {
@@ -163,25 +170,51 @@ struct ResolvedChatImageView: View {
         return prefix.contains("<svg")
     }
 
+    private static let viewBoxRegex: NSRegularExpression = {
+        let pattern = #"viewBox\s*=\s*[\"']\s*[-+0-9.eE]+[\s,]+[-+0-9.eE]+[\s,]+([-+0-9.eE]+)[\s,]+([-+0-9.eE]+)\s*[\"']"#
+        return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }()
+
     private static func svgAspectRatio(_ data: Data) -> CGFloat {
         guard let source = String(data: data.prefix(8192), encoding: .utf8) else {
             return 16 / 9
         }
-        let pattern = #"viewBox\s*=\s*[\"']\s*[-+0-9.eE]+[\s,]+[-+0-9.eE]+[\s,]+([-+0-9.eE]+)[\s,]+([-+0-9.eE]+)\s*[\"']"#
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = expression.firstMatch(
-                in: source,
-                range: NSRange(source.startIndex..<source.endIndex, in: source)
-              ),
-              let widthRange = Range(match.range(at: 1), in: source),
-              let heightRange = Range(match.range(at: 2), in: source),
-              let width = Double(source[widthRange]),
-              let height = Double(source[heightRange]),
-              width > 0,
-              height > 0 else {
+        guard let match = viewBoxRegex.firstMatch(
+            in: source,
+            range: NSRange(source.startIndex..<source.endIndex, in: source)
+        ),
+        let widthRange = Range(match.range(at: 1), in: source),
+        let heightRange = Range(match.range(at: 2), in: source),
+        let width = Double(source[widthRange]),
+        let height = Double(source[heightRange]),
+        width > 0,
+        height > 0 else {
             return 16 / 9
         }
         return CGFloat(width / height)
+    }
+}
+
+// MARK: - Active Thread Cwd Environment
+
+/// Working directory of the thread currently on screen. Injected by the
+/// conversation host next to `\.activeThreadKey` so per-message views can
+/// resolve relative image paths without reading `AppModel.snapshot` (which
+/// churns at the streaming snapshot cadence).
+private struct ActiveThreadCwdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var activeThreadCwd: String? {
+        get { self[ActiveThreadCwdKey.self] }
+        set { self[ActiveThreadCwdKey.self] = newValue }
+    }
+}
+
+extension View {
+    func activeThreadCwd(_ cwd: String?) -> some View {
+        environment(\.activeThreadCwd, cwd)
     }
 }
 

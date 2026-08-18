@@ -89,6 +89,8 @@ struct SessionsScreen: View {
                             directoryPickerSheet = sheet
                         }
                     ),
+                    localServerIds: sessionsModel.localServerIds,
+                    browseableServerIds: sessionsModel.browseableServerIds,
                     onServerChanged: { nextServerId in
                         guard var sheet = directoryPickerSheet else { return }
                         sheet.selectedServerId = nextServerId

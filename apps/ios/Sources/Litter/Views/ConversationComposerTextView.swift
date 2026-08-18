@@ -1,6 +1,37 @@
 import SwiftUI
 import UIKit
 
+/// Holds the composer's UIKit selection range *outside* SwiftUI state.
+///
+/// The range is pure edit plumbing: nothing draws it. Its only readers are the
+/// transcript-insert and composer-prefill handlers, which query it on demand.
+/// Routing it through `@State` meant every keystroke published an extra
+/// invalidation of the whole composer subtree (the coordinator writes it from
+/// both `textViewDidChange` and `textViewDidChangeSelection`) for a value no
+/// body ever reads. A reference box keeps the *synchronous* write behaviour
+/// that `Coordinator.updateSelectedRange` depends on to avoid reordering edits,
+/// at zero body passes.
+///
+/// Owning views keep it alive with `@State private var selection = ComposerSelectionBox()`
+/// and hand `selection.binding` to the composer instead of `$someNSRangeState`.
+/// Readers/writers use `selection.range` directly.
+final class ComposerSelectionBox {
+    var range: NSRange
+
+    init(_ range: NSRange = NSRange(location: 0, length: 0)) {
+        self.range = range
+    }
+
+    /// Bridges the box into the existing `Binding<NSRange>` plumbing. Writes
+    /// land on the box, never on SwiftUI state, so they invalidate nothing.
+    var binding: Binding<NSRange> {
+        Binding(
+            get: { self.range },
+            set: { self.range = $0 }
+        )
+    }
+}
+
 struct ConversationComposerTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
@@ -129,6 +160,15 @@ struct ConversationComposerTextView: UIViewRepresentable {
         var textReconciler: ComposerTextReconciler
         private var requestedFocusState: Bool?
         private var focusSyncWorkItem: DispatchWorkItem?
+        /// `LitterFont.uiFont` reads `UserDefaults` and probes `UIFont(name:)`
+        /// up to twice on every call, and `applyStyling` runs from every
+        /// `updateUIView` — i.e. several times per keystroke. Cache the
+        /// resolved font per coordinator (one per text view) keyed on the
+        /// Dynamic Type point size plus the app's font-preference revision,
+        /// which `SettingsView` bumps whenever the family changes.
+        private var cachedFont: UIFont?
+        private var cachedFontPointSize: CGFloat = 0
+        private var cachedFontRevision: Int = -1
 
         init(_ parent: ConversationComposerTextView) {
             self.parent = parent
@@ -248,7 +288,17 @@ struct ConversationComposerTextView: UIViewRepresentable {
 
         private func composerFont() -> UIFont {
             let pointSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-            return LitterFont.uiFont(size: pointSize)
+            let revision = FontPreferenceObserver.shared.revision
+            if let cachedFont,
+               cachedFontPointSize == pointSize,
+               cachedFontRevision == revision {
+                return cachedFont
+            }
+            let font = LitterFont.uiFont(size: pointSize)
+            cachedFont = font
+            cachedFontPointSize = pointSize
+            cachedFontRevision = revision
+            return font
         }
 
         private func updateFocusBinding(_ isFocused: Bool) {

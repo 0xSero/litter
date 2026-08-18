@@ -10,7 +10,6 @@ struct CodeBlockView: View {
             if isDiffLanguage(language) {
                 SyntaxHighlightedDiffText(
                     diff: code,
-                    titleHint: language.isEmpty ? nil : language,
                     fontSize: LitterFont.conversationDiffPointSize
                 )
                 .padding(12)

@@ -131,9 +131,11 @@ disconnects and re-establishes the chosen transport.
 
 ### Session Sidebar
 
-- Sidebar stays unmounted while closed; local UI controls persist when reopened.
-- Search + server filter + forks filter produce stable grouping and lineage chips.
-- Opening/closing sidebar does not trigger excessive recomposition/signpost churn in idle state.
+**Unreachable — do not QA until re-wired.** Android's `SessionsScreen` (search,
+server filter, forks filter, lineage chips) is still compiled but `Route.Sessions`
+is never constructed, so no user path opens it. iOS has no sidebar either; the
+home dashboard replaced it. Treat this section as a parked feature, not a
+shipping surface.
 
 ### Thread List Consistency
 
@@ -183,7 +185,7 @@ for the matching state.
 | Zoom 4 (deep) | Tool log expands to 3 rows; response preview cap rises to 50% screen; preview scroll-anchors to bottom when overflowing. |
 | Response preview crossfade | New assistant-block id flip triggers Crossfade on the preview; preserved on empty new-turn assistant items via `displayedAssistantMessage` walking back to last non-empty. |
 | TurnStopwatchChip | Live 1Hz tick while turn active (end=null) via `produceState` + `delay(1000)`; static elapsed when ended. Format `<60s → "Xs"`, `<3600s → "Xm" or "XmYs"`. |
-| Tool log grouping | Consecutive exploration commands (read/search/listFiles `HydratedCommandActionKind`) collapse into `⌕ Explored N files, M searches, K listings` summary row; other tool kinds render as single-line rows with `toolIconForName` glyph. |
+| Tool log grouping | Consecutive exploration commands (read/search/listFiles `HydratedCommandActionKind`) collapse into `⌕ Explored N files, M searches, K listings` summary row; other tool kinds render as single-line rows. |
 | inlineStats chips | Turn count, tool count, diff `+N/-N`, TurnStopwatchChip, token % (warning tint ≥80%). Left text truncates first; chips stay pinned. |
 | recentUserMessage | `>` chip prefix + FormattedText at `LitterFont.conversationBodyPointSize × textScale`. Only shown when message exists and differs from title. |
 | StatusDot shimmer | Active state gets both the 800ms alpha pulse AND a 2s linear-gradient sweep overlay. |
@@ -229,7 +231,7 @@ Generative UI is permanent (no flag). Local-server threads register `show_widget
 | Bootstrap | `AppClient.setSavedAppsDirectory(MobilePreferencesDirectory.path(context))` is called once in `AppModel.init`, before any thread starts. Without this, the Rust `show_widget` finalize hook is a silent no-op. |
 | Auto-upsert | When the model finalizes a `show_widget` with `app_id = "fitness-tracker"` on a local-server thread, the Rust hook calls `saved_app_upsert(directory, originThreadId, appId, title, html, w, h, schema)` and writes to `{filesDir}/LitterPreferences/apps/saved_apps.json` + `html/<uuid>.html`. No Kotlin-initiated promote call is needed. |
 | Saved-as chip | Finalized `WidgetRow` whose `HydratedWidgetData.appId` is non-null renders a compact "Saved as `<slug>`" chip below the WebView (11sp mono, accent slug). Tap resolves `SavedAppsStore.appForSlug(slug, threadId)` to a UUID and pushes `Route.SavedApp`. Chip is absent when `appId == null` or the widget isn't finalized. |
-| Home-row takeover | `HomeDashboardScreen` keeps a `savedAppsByThread` map keyed by `originThreadId`, reloaded via `SavedAppsStore.reload` on every snapshot tick (MVP coarse reactivity; R3 will supply a `SavedAppsChanged` stream). When a session's threadId has entries, its row renders `HomeAppTakeoverRow` (monogram + title + slug subtitle + "+N more" when there are siblings) instead of `SessionCanvasRow`. Tap navigates to `Route.SavedApp(mostRecent.id)`. Swipe-to-hide on the session still works. |
+| Home-row takeover | **Not wired.** `HomeDashboardScreen` builds a `savedAppsByThread` map keyed by `originThreadId` (reloaded via `SavedAppsStore.reload` on every snapshot tick) and a per-session `sessionApps` list, but the row always renders `SessionCanvasRow`. `HomeAppTakeoverRow` exists and is never called. Saved apps are reachable only via the Saved-as chip and the Apps list. |
 | Apps list entry | Settings sheet "Apps → Saved Apps" row is always visible (no flag gate). Pushes `Route.Apps`. |
 | Apps list | `AppsListScreen` renders apps newest-updated-first: monogram tile + title + relative timestamp. Swipe-to-dismiss cascades `savedAppDelete`. Empty state explains that saved apps are created automatically. |
 | Detail relaunch | Tapping a row (or a Saved-as chip, or a home-row takeover) pushes `Route.SavedApp(uuid)`. `SavedAppScreen` calls `savedAppGet(dir, uuid)` on enter, hydrates the WebView with `wrapWidgetHtml(html, AppStateInjection(stateJson, schemaVersion))`, and registers `__LitterAppBridge` via `addJavascriptInterface`. |

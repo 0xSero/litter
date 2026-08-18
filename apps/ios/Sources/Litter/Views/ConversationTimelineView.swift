@@ -16,6 +16,8 @@ struct ConversationTurnTimeline: View {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -27,12 +29,17 @@ struct ConversationTurnTimeline: View {
 
     private var timelineContent: some View {
         let rows = rowDescriptors
+        // Hoisted: this used to be a computed property doing an O(n)
+        // `items.last(where:)` scan, and `rowView` read it twice per row —
+        // O(n²) across the live turn on every body evaluation.
+        let streamingItemId = streamingAssistantItemId
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,
-                    isLastRow: index == rows.indices.last
+                    isLastRow: index == rows.indices.last,
+                    streamingAssistantItemId: streamingItemId
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
@@ -47,16 +54,12 @@ struct ConversationTurnTimeline: View {
     }
 
     private var rowDescriptors: [ConversationTimelineRowDescriptor] {
-        ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
-            ConversationTimelineRowDescriptor.build(from: items)
+        ConversationTimelineRowCache.shared.rows(
+            for: items,
+            reasoningDisplayMode: reasoningDisplayMode,
+            commandDisplayMode: commandDisplayMode,
+            toolDisplayMode: toolDisplayMode
         )
-        .filter {
-            $0.isVisible(
-                reasoningDisplayMode: reasoningDisplayMode,
-                commandDisplayMode: commandDisplayMode,
-                toolDisplayMode: toolDisplayMode
-            )
-        }
     }
 
     private var streamingAssistantItemId: String? {
@@ -83,7 +86,8 @@ struct ConversationTurnTimeline: View {
     // the union every SwiftUI pass.
     private func rowView(
         _ row: ConversationTimelineRowDescriptor,
-        isLastRow: Bool
+        isLastRow: Bool,
+        streamingAssistantItemId: String?
     ) -> AnyView {
         switch row {
         case .item(let item):
@@ -102,6 +106,8 @@ struct ConversationTurnTimeline: View {
                     onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
                     onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                     resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus,
                     onWidgetPrompt: onWidgetPrompt,
                     onEditUserItem: onEditUserItem,
                     onForkFromUserItem: onForkFromUserItem,
@@ -117,12 +123,16 @@ struct ConversationTurnTimeline: View {
                     showsCollapsedPreview: isLastRow,
                     displayMode: commandDisplayMode
                 )
+                .equatable()
             )
         case .subagentGroup(_, let merged, _):
             return AnyView(
                 SubagentCardView(
                     data: merged,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         }
@@ -299,6 +309,100 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
     }
 }
 
+/// Memoizes `build` → `mergeConsecutiveExplorationRows` → `filter`.
+///
+/// Those three chained passes each allocated a fresh array and ran on every
+/// body evaluation of every turn timeline — including body evaluations driven
+/// by layout, viewport, or display-mode churn rather than by item changes.
+/// The key is a digest over item identity + `renderDigest`, so a cache hit is
+/// exact: any content change produces a different key.
+@MainActor
+private final class ConversationTimelineRowCache {
+    static let shared = ConversationTimelineRowCache()
+
+    private struct Key: Hashable {
+        let itemsDigest: Int
+        let itemCount: Int
+        let reasoningDisplayMode: ConversationDetailDisplayMode
+        let commandDisplayMode: ConversationDetailDisplayMode
+        let toolDisplayMode: ConversationDetailDisplayMode
+    }
+
+    private let maxEntries = 32
+    private let trimTarget = 24
+
+    private var entries: [Key: [ConversationTimelineRowDescriptor]] = [:]
+    private var accessStamps: [Key: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
+
+    fileprivate func rows(
+        for items: [ConversationItem],
+        reasoningDisplayMode: ConversationDetailDisplayMode,
+        commandDisplayMode: ConversationDetailDisplayMode,
+        toolDisplayMode: ConversationDetailDisplayMode
+    ) -> [ConversationTimelineRowDescriptor] {
+        let key = Key(
+            itemsDigest: Self.digest(of: items),
+            itemCount: items.count,
+            reasoningDisplayMode: reasoningDisplayMode,
+            commandDisplayMode: commandDisplayMode,
+            toolDisplayMode: toolDisplayMode
+        )
+
+        if let cached = entries[key] {
+            touch(key)
+            return cached
+        }
+
+        let rows = ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
+            ConversationTimelineRowDescriptor.build(from: items)
+        )
+        .filter {
+            $0.isVisible(
+                reasoningDisplayMode: reasoningDisplayMode,
+                commandDisplayMode: commandDisplayMode,
+                toolDisplayMode: toolDisplayMode
+            )
+        }
+
+        entries[key] = rows
+        touch(key)
+        trimIfNeeded()
+        return rows
+    }
+
+    func reset() {
+        entries.removeAll(keepingCapacity: false)
+        accessStamps.removeAll(keepingCapacity: false)
+        accessCounter = 0
+    }
+
+    private static func digest(of items: [ConversationItem]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.renderDigest)
+        }
+        return hasher.finalize()
+    }
+
+    private func touch(_ key: Key) {
+        accessCounter &+= 1
+        accessStamps[key] = accessCounter
+    }
+
+    private func trimIfNeeded() {
+        guard entries.count > maxEntries else { return }
+        let removeCount = entries.count - trimTarget
+        guard removeCount > 0 else { return }
+        for (key, _) in accessStamps.sorted(by: { $0.value < $1.value }).prefix(removeCount) {
+            entries.removeValue(forKey: key)
+            accessStamps.removeValue(forKey: key)
+        }
+    }
+}
+
 private struct RowEntranceModifier: ViewModifier {
     let isAssistantRow: Bool
 
@@ -370,7 +474,6 @@ extension AnyTransition {
 
 private struct ConversationTimelineItemRow: View, Equatable {
     private let renderCache = MessageRenderCache.shared
-    @Environment(ThemeManager.self) private var themeManager
 
     let item: ConversationItem
     let serverId: String
@@ -385,6 +488,8 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let onStreamingSnapshotRendered: (() -> Void)?
     let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
@@ -468,7 +573,10 @@ private struct ConversationTimelineItemRow: View, Equatable {
             return AnyView(
                 SubagentCardView(
                     data: data,
-                    serverId: serverId
+                    serverId: serverId,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus
                 )
             )
         case .webSearch(let data):
@@ -542,6 +650,11 @@ private struct ConversationTimelineItemRow: View, Equatable {
         )
     }
 
+    /// Mirrors `commandDefaultExpanded`: a running tool call stays open so its
+    /// result streams in, rather than staying collapsed until the turn ends.
+    /// Takes flags rather than a status because callers hand in two different
+    /// enums — `ToolCallStatus` for card models, `AppOperationStatus` for the
+    /// MCP/image-generation rows.
     private func toolDefaultExpanded(isFailed: Bool, isInProgress: Bool) -> Bool {
         toolDisplayMode.defaultExpanded(isFailed: isFailed, isInProgress: isInProgress)
     }
@@ -592,7 +705,6 @@ private struct ConversationTimelineItemRow: View, Equatable {
             text: data.text,
             isStreaming: isStreamingMessage,
             label: assistantLabel,
-            themeVersion: themeManager.themeVersion,
             onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
         )
     }
@@ -826,7 +938,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
     }
 }
 
-private struct ConversationExplorationGroupRow: View {
+private struct ConversationExplorationGroupRow: View, Equatable {
     @Environment(\.textScale) private var textScale
 
     let id: String
@@ -835,6 +947,15 @@ private struct ConversationExplorationGroupRow: View {
     let displayMode: ConversationDetailDisplayMode
 
     @State private var expanded = false
+
+    /// `ConversationItem.==` is now id + renderDigest, so the item comparison
+    /// is a cheap integer walk rather than a deep content compare.
+    static func == (lhs: ConversationExplorationGroupRow, rhs: ConversationExplorationGroupRow) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.showsCollapsedPreview == rhs.showsCollapsedPreview &&
+            lhs.displayMode == rhs.displayMode &&
+            lhs.items == rhs.items
+    }
 
     var body: some View {
         let entries = explorationEntries
@@ -2156,39 +2277,10 @@ private struct DiffIndicatorLabel: View {
     }
 }
 
-private struct DiffLine: Identifiable {
-    enum Kind {
-        case addition, deletion, hunk, context
-
-        var foregroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success
-            case .deletion: LitterTheme.danger
-            case .hunk: LitterTheme.accentStrong
-            case .context: LitterTheme.textBody
-            }
-        }
-
-        var backgroundColor: Color {
-            switch self {
-            case .addition: LitterTheme.success.opacity(0.12)
-            case .deletion: LitterTheme.danger.opacity(0.12)
-            case .hunk: LitterTheme.accentStrong.opacity(0.12)
-            case .context: LitterTheme.codeBackground.opacity(0.72)
-            }
-        }
-    }
-
-    let id: Int
-    let text: String
-    let kind: Kind
-}
-
 private struct ConversationDiffDetailSheet: View {
     let title: String
     let stats: DiffStats
     let sections: [PresentedDiffSectionModel]
-    @Environment(ThemeManager.self) private var themeManager
     @Environment(\.dismiss) private var dismiss
     @State private var collapsedSectionIDs: Set<String> = []
     private let fullDiffFontSize = LitterFont.conversationDiffPointSize
@@ -2263,7 +2355,6 @@ private struct ConversationDiffDetailSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .id(themeManager.themeVersion)
     }
 
     private var usesStickyHeaders: Bool {
@@ -2280,7 +2371,6 @@ private struct ConversationDiffDetailSheet: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     SyntaxHighlightedDiffText(
                         diff: section.diff,
-                        titleHint: section.title.isEmpty ? nil : section.title,
                         fontSize: fullDiffFontSize
                     )
                         .padding(.horizontal, 8)
@@ -2450,29 +2540,6 @@ private extension ToolCallStatus {
             return LitterTheme.danger
         case .unknown:
             return LitterTheme.textSecondary
-        }
-    }
-}
-
-private extension ConversationItem {
-    var liveDetailStatus: ToolCallStatus? {
-        switch content {
-        case .commandExecution(let data):
-            return data.status.toolCallStatus
-        case .fileChange(let data):
-            return data.status.toolCallStatus
-        case .mcpToolCall(let data):
-            return data.status.toolCallStatus
-        case .dynamicToolCall(let data):
-            return data.status.toolCallStatus
-        case .webSearch(let data):
-            return data.isInProgress ? .inProgress : .completed
-        case .imageView:
-            return .completed
-        case .imageGeneration(let data):
-            return data.status.toolCallStatus
-        default:
-            return nil
         }
     }
 }

@@ -1,4 +1,7 @@
+use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crate::conversation_uniffi::{
     HydratedCommandActionKind, HydratedCommandExecutionData, HydratedConversationItem,
@@ -12,7 +15,7 @@ use crate::types::{
 
 use super::snapshot::{
     AppConnectionProgressSnapshot, AppQueuedFollowUpPreview, AppSnapshot, AppVoiceSessionSnapshot,
-    ServerHealthSnapshot, ServerSnapshot, ThreadSnapshot,
+    ServerHealthSnapshot, ServerSnapshot, ThreadItems, ThreadSnapshot,
 };
 
 const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
@@ -135,15 +138,25 @@ pub struct AppThreadStateRecord {
     pub initial_turns_loaded: bool,
 }
 
-fn merged_hydrated_items(
-    items: &[crate::conversation_uniffi::HydratedConversationItem],
-    local_overlay_items: &[crate::conversation_uniffi::HydratedConversationItem],
-) -> Vec<HydratedConversationItem> {
-    let mut merged = Vec::with_capacity(items.len() + local_overlay_items.len());
-    merged.extend(items.iter().cloned());
+/// Merge the canonical items with the local overlay items, producing the
+/// display order as *borrows* into both input lists.
+///
+/// This used to clone every item into the merged vector and then clone each
+/// one again during projection. Callers now clone at most once, when they
+/// actually need an owned `AppThreadSnapshot`.
+fn merged_hydrated_item_refs<'a>(
+    items: &'a [HydratedConversationItem],
+    local_overlay_items: &'a [HydratedConversationItem],
+) -> Vec<&'a HydratedConversationItem> {
+    let mut merged: Vec<&'a HydratedConversationItem> =
+        Vec::with_capacity(items.len() + local_overlay_items.len());
+    merged.extend(items.iter());
 
-    let mut selected_overlays: Vec<&crate::conversation_uniffi::HydratedConversationItem> =
-        Vec::new();
+    if local_overlay_items.is_empty() {
+        return merged;
+    }
+
+    let mut selected_overlays: Vec<&'a HydratedConversationItem> = Vec::new();
     for overlay in local_overlay_items {
         if items
             .iter()
@@ -156,18 +169,18 @@ fn merged_hydrated_items(
         }
     }
     for overlay in selected_overlays {
-        insert_overlay_item(&mut merged, overlay.clone());
+        insert_overlay_item(&mut merged, overlay);
     }
     merged
 }
 
-fn insert_overlay_item(
-    merged: &mut Vec<HydratedConversationItem>,
-    overlay: HydratedConversationItem,
+fn insert_overlay_item<'a>(
+    merged: &mut Vec<&'a HydratedConversationItem>,
+    overlay: &'a HydratedConversationItem,
 ) {
     // Bound local user overlays semantically start their turn even when the
     // server has not echoed a UserMessage item yet.
-    let insert_at = if is_local_user_turn_boundary_overlay(&overlay) {
+    let insert_at = if is_local_user_turn_boundary_overlay(overlay) {
         overlay.source_turn_id.as_deref().and_then(|turn_id| {
             merged.iter().position(|item| {
                 item.source_turn_id.as_deref() == Some(turn_id)
@@ -188,13 +201,18 @@ fn is_local_user_turn_boundary_overlay(item: &HydratedConversationItem) -> bool 
         && matches!(&item.content, HydratedConversationItemContent::User(_))
 }
 
-pub(crate) fn project_hydrated_item(
+/// Rewrite multi-agent target ids into display labels.
+///
+/// The overwhelmingly common case is "nothing to rewrite"; returning a
+/// `Cow::Borrowed` there keeps the caller from paying for a full item clone
+/// on every projection.
+pub(crate) fn project_hydrated_item<'a>(
     snapshot: &AppSnapshot,
     server_id: &str,
-    item: &HydratedConversationItem,
-) -> HydratedConversationItem {
+    item: &'a HydratedConversationItem,
+) -> Cow<'a, HydratedConversationItem> {
     let HydratedConversationItemContent::MultiAgentAction(data) = &item.content else {
-        return item.clone();
+        return Cow::Borrowed(item);
     };
 
     let projected_targets: Vec<String> = data
@@ -211,7 +229,7 @@ pub(crate) fn project_hydrated_item(
         .collect();
 
     if projected_targets == data.targets {
-        return item.clone();
+        return Cow::Borrowed(item);
     }
 
     let mut projected = item.clone();
@@ -225,18 +243,7 @@ pub(crate) fn project_hydrated_item(
             agent_states: data.agent_states.clone(),
         },
     );
-    projected
-}
-
-pub(crate) fn project_hydrated_items(
-    snapshot: &AppSnapshot,
-    server_id: &str,
-    items: &[HydratedConversationItem],
-) -> Vec<HydratedConversationItem> {
-    items
-        .iter()
-        .map(|item| project_hydrated_item(snapshot, server_id, item))
-        .collect()
+    Cow::Owned(projected)
 }
 
 fn resolve_agent_target_label(
@@ -539,20 +546,29 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
     }
 }
 
-fn app_thread_snapshot_from_state(
+pub(crate) fn app_thread_snapshot_from_state(
     snapshot: &AppSnapshot,
     thread: &ThreadSnapshot,
 ) -> Result<AppThreadSnapshot, String> {
-    let hydrated_conversation_items = project_hydrated_items(
-        snapshot,
-        &thread.key.server_id,
-        &merged_hydrated_items(&thread.items, &thread.local_overlay_items),
-    );
-    let stats = if hydrated_conversation_items.is_empty() {
+    let merged = merged_hydrated_item_refs(&thread.items, &thread.local_overlay_items);
+    let stats = if merged.is_empty() {
         None
     } else {
-        Some(extract_conversation_activity(&hydrated_conversation_items).stats)
+        // Target-label projection only rewrites `MultiAgentAction.targets`,
+        // which no statistic reads, so the stats are identical whether they
+        // are derived pre- or post-projection.
+        Some(
+            thread
+                .activity_cache
+                .merged(&thread.items, &thread.local_overlay_items, &merged)
+                .stats
+                .clone(),
+        )
     };
+    let hydrated_conversation_items = merged
+        .into_iter()
+        .map(|item| project_hydrated_item(snapshot, &thread.key.server_id, item).into_owned())
+        .collect::<Vec<_>>();
     Ok(AppThreadSnapshot {
         key: thread.key.clone(),
         info: thread.info.clone(),
@@ -735,8 +751,9 @@ pub(crate) fn app_session_summary(
     let is_subagent = parent_thread_id.is_some() && has_agent_label;
     let is_fork = forked_from_id.is_some();
 
-    // Derive conversation activity from hydrated items (if any).
-    let activity = extract_conversation_activity(&thread.items);
+    // Derive conversation activity from hydrated items (if any). Memoized on
+    // `thread.items`' revision — this runs on every metadata/item emit.
+    let activity = thread.activity_cache.items_only(&thread.items);
 
     AppSessionSummary {
         key: thread.key.clone(),
@@ -777,17 +794,17 @@ pub(crate) fn app_session_summary(
         is_resumed: thread.is_resumed,
         is_subagent,
         is_fork,
-        last_response_preview: activity.last_response,
-        last_response_turn_id: activity.last_response_turn_id,
-        last_user_message: activity.last_user_message,
-        last_tool_label: activity.last_tool,
-        recent_tool_log: activity.log,
+        last_response_preview: activity.last_response.clone(),
+        last_response_turn_id: activity.last_response_turn_id.clone(),
+        last_user_message: activity.last_user_message.clone(),
+        last_tool_label: activity.last_tool.clone(),
+        recent_tool_log: activity.log.clone(),
         last_turn_start_ms: activity.last_turn_start_ms,
         last_turn_end_ms: activity.last_turn_end_ms,
         stats: if thread.items.is_empty() {
             None
         } else {
-            Some(activity.stats)
+            Some(activity.stats.clone())
         },
         token_usage: thread_token_usage(thread),
         goal: thread.goal.clone(),
@@ -895,7 +912,7 @@ fn compute_server_usage_stats(
     })
 }
 
-struct ConversationActivity {
+pub(crate) struct ConversationActivity {
     last_response: Option<String>,
     last_response_turn_id: Option<String>,
     last_user_message: Option<String>,
@@ -906,8 +923,226 @@ struct ConversationActivity {
     last_turn_end_ms: Option<i64>,
 }
 
+/// Memoized [`extract_conversation_activity`] results for one thread.
+///
+/// The walk is O(items) and used to run from scratch on *every* metadata and
+/// item event, for both the raw item list (`app_session_summary`) and the
+/// overlay-merged list (`app_thread_snapshot_from_state`). Both are keyed on
+/// the globally-unique [`ThreadItems::revision`] values they were derived
+/// from, so any mutation of either list invalidates the matching entry and
+/// nothing else can go stale.
+#[derive(Default)]
+pub(crate) struct ThreadActivityCache {
+    inner: std::sync::Mutex<ThreadActivityCacheInner>,
+}
+
+#[derive(Default)]
+struct ThreadActivityCacheInner {
+    items_only: Option<(u64, Arc<ConversationActivity>)>,
+    merged: Option<((u64, u64), Arc<ConversationActivity>)>,
+}
+
+impl ThreadActivityCache {
+    pub(crate) fn items_only(&self, items: &ThreadItems) -> Arc<ConversationActivity> {
+        let key = items.revision();
+        if let Some((cached_key, cached)) = self
+            .inner
+            .lock()
+            .expect("thread activity cache poisoned")
+            .items_only
+            .as_ref()
+            && *cached_key == key
+        {
+            return Arc::clone(cached);
+        }
+        let value = Arc::new(extract_conversation_activity(items.as_slice()));
+        self.inner
+            .lock()
+            .expect("thread activity cache poisoned")
+            .items_only = Some((key, Arc::clone(&value)));
+        value
+    }
+
+    pub(crate) fn merged(
+        &self,
+        items: &ThreadItems,
+        local_overlay_items: &ThreadItems,
+        merged: &[&HydratedConversationItem],
+    ) -> Arc<ConversationActivity> {
+        let key = (items.revision(), local_overlay_items.revision());
+        if let Some((cached_key, cached)) = self
+            .inner
+            .lock()
+            .expect("thread activity cache poisoned")
+            .merged
+            .as_ref()
+            && *cached_key == key
+        {
+            return Arc::clone(cached);
+        }
+        let value = Arc::new(extract_conversation_activity(merged.iter().copied()));
+        self.inner
+            .lock()
+            .expect("thread activity cache poisoned")
+            .merged = Some((key, Arc::clone(&value)));
+        value
+    }
+}
+
+impl Clone for ThreadActivityCache {
+    fn clone(&self) -> Self {
+        let inner = self.inner.lock().expect("thread activity cache poisoned");
+        Self {
+            inner: std::sync::Mutex::new(ThreadActivityCacheInner {
+                items_only: inner.items_only.clone(),
+                merged: inner.merged.clone(),
+            }),
+        }
+    }
+}
+
+impl std::fmt::Debug for ThreadActivityCache {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ThreadActivityCache")
+    }
+}
+
+/// Tool-log entry in its unformatted form.
+///
+/// `extract_conversation_activity` used to `format!` an `AppToolLogEntry`
+/// for every tool item in the thread and then throw all but the last 8 away.
+/// These borrow from the items instead and only the surviving few get
+/// materialized.
+enum ToolLogSeed<'a> {
+    Bash {
+        command: &'a str,
+        status: crate::types::AppOperationStatus,
+    },
+    Edit {
+        path: &'a str,
+        status: crate::types::AppOperationStatus,
+    },
+    Mcp {
+        tool: &'a str,
+        status: crate::types::AppOperationStatus,
+    },
+    Tool {
+        tool: &'a str,
+        status: crate::types::AppOperationStatus,
+    },
+    WebSearch {
+        query: &'a str,
+        in_progress: bool,
+    },
+    Explore {
+        reads: u32,
+        searches: u32,
+        listings: u32,
+        fallback: u32,
+        count: u32,
+        in_progress: bool,
+    },
+}
+
+/// Number of tool-log entries the session summary keeps.
+const RECENT_TOOL_LOG_LIMIT: usize = 8;
+
+impl ToolLogSeed<'_> {
+    fn materialize(self) -> AppToolLogEntry {
+        match self {
+            Self::Bash { command, status } => AppToolLogEntry {
+                tool: "Bash".to_string(),
+                detail: command.to_string(),
+                status: format!("{status:?}").to_lowercase(),
+            },
+            Self::Edit { path, status } => AppToolLogEntry {
+                tool: "Edit".to_string(),
+                detail: path.to_string(),
+                status: format!("{status:?}").to_lowercase(),
+            },
+            Self::Mcp { tool, status } => AppToolLogEntry {
+                tool: "MCP".to_string(),
+                detail: tool.to_string(),
+                status: format!("{status:?}").to_lowercase(),
+            },
+            Self::Tool { tool, status } => AppToolLogEntry {
+                tool: "Tool".to_string(),
+                detail: tool.to_string(),
+                status: format!("{status:?}").to_lowercase(),
+            },
+            Self::WebSearch { query, in_progress } => AppToolLogEntry {
+                tool: "WebSearch".to_string(),
+                detail: query.to_string(),
+                status: if in_progress {
+                    "inprogress".to_string()
+                } else {
+                    "completed".to_string()
+                },
+            },
+            Self::Explore {
+                reads,
+                searches,
+                listings,
+                fallback,
+                count,
+                in_progress,
+            } => {
+                let prefix = if in_progress { "Exploring" } else { "Explored" };
+                let mut parts: Vec<String> = Vec::new();
+                if reads > 0 {
+                    parts.push(format!(
+                        "{} {}",
+                        reads,
+                        if reads == 1 { "file" } else { "files" }
+                    ));
+                }
+                if searches > 0 {
+                    parts.push(format!(
+                        "{} {}",
+                        searches,
+                        if searches == 1 { "search" } else { "searches" }
+                    ));
+                }
+                if listings > 0 {
+                    parts.push(format!(
+                        "{} {}",
+                        listings,
+                        if listings == 1 { "listing" } else { "listings" }
+                    ));
+                }
+                if fallback > 0 {
+                    parts.push(format!(
+                        "{} {}",
+                        fallback,
+                        if fallback == 1 { "step" } else { "steps" }
+                    ));
+                }
+                let detail = if parts.is_empty() {
+                    format!("{} {} step{}", prefix, count, if count == 1 { "" } else { "s" })
+                } else {
+                    format!("{} {}", prefix, parts.join(", "))
+                };
+                AppToolLogEntry {
+                    tool: "Explore".to_string(),
+                    detail,
+                    status: if in_progress {
+                        "inprogress".to_string()
+                    } else {
+                        "completed".to_string()
+                    },
+                }
+            }
+        }
+    }
+}
+
 /// Walk conversation items to extract full stats, last activity, and tool log.
-fn extract_conversation_activity(items: &[HydratedConversationItem]) -> ConversationActivity {
+fn extract_conversation_activity<'a, I>(items: I) -> ConversationActivity
+where
+    I: IntoIterator<Item = &'a HydratedConversationItem>,
+    I::IntoIter: DoubleEndedIterator + Clone,
+{
+    let items = items.into_iter();
     let mut last_response: Option<String> = None;
     let mut last_response_turn_id: Option<String> = None;
     let mut last_user_message: Option<String> = None;
@@ -934,14 +1169,16 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
     let mut image_count: u32 = 0;
     let mut code_review_count: u32 = 0;
     let mut widget_count: u32 = 0;
-    let mut seen_turn_ids = std::collections::HashSet::new();
+    let mut seen_turn_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut first_ts: Option<f64> = None;
     let mut last_ts: Option<f64> = None;
-    let mut log_entries: Vec<AppToolLogEntry> = Vec::new();
+    // Bounded to the last `RECENT_TOOL_LOG_LIMIT` seeds: everything older is
+    // discarded before it is ever formatted.
+    let mut log_entries: VecDeque<ToolLogSeed<'a>> = VecDeque::with_capacity(RECENT_TOOL_LOG_LIMIT);
 
     // Turn bounds: track the currently-accumulating turn so we end up with
     // the min/max timestamps of items in the *last* turn seen.
-    let mut current_turn_id: Option<String> = None;
+    let mut current_turn_id: Option<&str> = None;
     let mut current_turn_min: Option<f64> = None;
     let mut current_turn_max: Option<f64> = None;
 
@@ -956,8 +1193,15 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
     let mut exploration_count: u32 = 0;
     let mut exploration_in_progress = false;
 
-    fn flush_exploration(
-        log_entries: &mut Vec<AppToolLogEntry>,
+    fn push_log_seed<'s>(log_entries: &mut VecDeque<ToolLogSeed<'s>>, seed: ToolLogSeed<'s>) {
+        if log_entries.len() == RECENT_TOOL_LOG_LIMIT {
+            log_entries.pop_front();
+        }
+        log_entries.push_back(seed);
+    }
+
+    fn flush_exploration<'s>(
+        log_entries: &mut VecDeque<ToolLogSeed<'s>>,
         reads: &mut u32,
         searches: &mut u32,
         listings: &mut u32,
@@ -968,64 +1212,17 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         if *count == 0 {
             return;
         }
-        let prefix = if *in_progress {
-            "Exploring"
-        } else {
-            "Explored"
-        };
-        let mut parts: Vec<String> = Vec::new();
-        if *reads > 0 {
-            parts.push(format!(
-                "{} {}",
-                reads,
-                if *reads == 1 { "file" } else { "files" }
-            ));
-        }
-        if *searches > 0 {
-            parts.push(format!(
-                "{} {}",
-                searches,
-                if *searches == 1 { "search" } else { "searches" }
-            ));
-        }
-        if *listings > 0 {
-            parts.push(format!(
-                "{} {}",
-                listings,
-                if *listings == 1 {
-                    "listing"
-                } else {
-                    "listings"
-                }
-            ));
-        }
-        if *fallback > 0 {
-            parts.push(format!(
-                "{} {}",
-                fallback,
-                if *fallback == 1 { "step" } else { "steps" }
-            ));
-        }
-        let detail = if parts.is_empty() {
-            format!(
-                "{} {} step{}",
-                prefix,
-                count,
-                if *count == 1 { "" } else { "s" }
-            )
-        } else {
-            format!("{} {}", prefix, parts.join(", "))
-        };
-        let status = if *in_progress {
-            "inprogress"
-        } else {
-            "completed"
-        };
-        log_entries.push(AppToolLogEntry {
-            tool: "Explore".to_string(),
-            detail,
-            status: status.to_string(),
-        });
+        push_log_seed(
+            log_entries,
+            ToolLogSeed::Explore {
+                reads: *reads,
+                searches: *searches,
+                listings: *listings,
+                fallback: *fallback,
+                count: *count,
+                in_progress: *in_progress,
+            },
+        );
         *reads = 0;
         *searches = 0;
         *listings = 0;
@@ -1049,7 +1246,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
     }
 
     // Forward pass — collect everything
-    for item in items.iter() {
+    for item in items.clone() {
         // Track timestamps for session duration
         if let Some(ts) = item.timestamp {
             if first_ts.is_none() {
@@ -1060,12 +1257,12 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
 
         // Turn counting via distinct source_turn_id + per-turn timestamp
         // bounds. `current_turn_*` collapses to the last turn encountered.
-        if let Some(ref turn_id) = item.source_turn_id {
+        if let Some(turn_id) = item.source_turn_id.as_deref() {
             if matches!(&item.content, HydratedConversationItemContent::User(_)) {
-                seen_turn_ids.insert(turn_id.clone());
+                seen_turn_ids.insert(turn_id);
             }
-            if current_turn_id.as_ref() != Some(turn_id) {
-                current_turn_id = Some(turn_id.clone());
+            if current_turn_id != Some(turn_id) {
+                current_turn_id = Some(turn_id);
                 current_turn_min = item.timestamp;
                 current_turn_max = item.timestamp;
             } else if let Some(ts) = item.timestamp {
@@ -1140,13 +1337,13 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                         }
                     }
                 } else {
-                    let cmd = data.command.trim();
-                    let status = format!("{:?}", data.status).to_lowercase();
-                    log_entries.push(AppToolLogEntry {
-                        tool: "Bash".to_string(),
-                        detail: cmd.to_string(),
-                        status,
-                    });
+                    push_log_seed(
+                        &mut log_entries,
+                        ToolLogSeed::Bash {
+                            command: data.command.trim(),
+                            status: data.status,
+                        },
+                    );
                 }
             }
             HydratedConversationItemContent::FileChange(data) => {
@@ -1163,47 +1360,47 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                     } else {
                         files_modified += 1;
                     }
-                    let status = format!("{:?}", data.status).to_lowercase();
-                    log_entries.push(AppToolLogEntry {
-                        tool: "Edit".to_string(),
-                        detail: entry.path.clone(),
-                        status,
-                    });
+                    push_log_seed(
+                        &mut log_entries,
+                        ToolLogSeed::Edit {
+                            path: entry.path.as_str(),
+                            status: data.status,
+                        },
+                    );
                 }
             }
             HydratedConversationItemContent::McpToolCall(data) => {
                 mcp_tool_call_count += 1;
                 tool_call_count += 1;
-                let status = format!("{:?}", data.status).to_lowercase();
-                log_entries.push(AppToolLogEntry {
-                    tool: "MCP".to_string(),
-                    detail: data.tool.clone(),
-                    status,
-                });
+                push_log_seed(
+                    &mut log_entries,
+                    ToolLogSeed::Mcp {
+                        tool: data.tool.as_str(),
+                        status: data.status,
+                    },
+                );
             }
             HydratedConversationItemContent::DynamicToolCall(data) => {
                 dynamic_tool_call_count += 1;
                 tool_call_count += 1;
-                let status = format!("{:?}", data.status).to_lowercase();
-                log_entries.push(AppToolLogEntry {
-                    tool: "Tool".to_string(),
-                    detail: data.tool.clone(),
-                    status,
-                });
+                push_log_seed(
+                    &mut log_entries,
+                    ToolLogSeed::Tool {
+                        tool: data.tool.as_str(),
+                        status: data.status,
+                    },
+                );
             }
             HydratedConversationItemContent::WebSearch(data) => {
                 web_search_count += 1;
                 tool_call_count += 1;
-                let status = if data.is_in_progress {
-                    "inprogress"
-                } else {
-                    "completed"
-                };
-                log_entries.push(AppToolLogEntry {
-                    tool: "WebSearch".to_string(),
-                    detail: data.query.clone(),
-                    status: status.to_string(),
-                });
+                push_log_seed(
+                    &mut log_entries,
+                    ToolLogSeed::WebSearch {
+                        query: data.query.as_str(),
+                        in_progress: data.is_in_progress,
+                    },
+                );
             }
             HydratedConversationItemContent::ImageView(_) => {
                 image_count += 1;
@@ -1227,7 +1424,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
     );
 
     // Reverse pass for last assistant message, last user message, and last tool label
-    for item in items.iter().rev() {
+    for item in items.rev() {
         if last_response.is_some() && last_user_message.is_some() && last_tool.is_some() {
             break;
         }
@@ -1269,12 +1466,12 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         _ => None,
     };
 
-    // Keep only the last ~8 entries for the log
-    let log = if log_entries.len() > 8 {
-        log_entries.split_off(log_entries.len() - 8)
-    } else {
-        log_entries
-    };
+    // `log_entries` is already bounded to the last `RECENT_TOOL_LOG_LIMIT`
+    // seeds; only these get formatted.
+    let log = log_entries
+        .into_iter()
+        .map(ToolLogSeed::materialize)
+        .collect::<Vec<_>>();
 
     let last_turn_start_ms = current_turn_min.map(|ts| (ts * 1000.0) as i64);
     let last_turn_end_ms = current_turn_max.map(|ts| (ts * 1000.0) as i64);
@@ -1336,13 +1533,13 @@ pub(crate) fn project_thread_snapshot(
 pub(crate) fn project_thread_update(
     snapshot: &AppSnapshot,
     key: &ThreadKey,
+    agent_directory_version: u64,
 ) -> Result<Option<(AppThreadSnapshot, AppSessionSummary, u64)>, String> {
     let Some(thread) = snapshot.threads.get(key) else {
         return Ok(None);
     };
     let thread_snapshot = app_thread_snapshot_from_state(snapshot, thread)?;
     let session_summary = app_session_summary(thread, snapshot.servers.get(&key.server_id));
-    let agent_directory_version = current_agent_directory_version(snapshot);
     Ok(Some((
         thread_snapshot,
         session_summary,
@@ -1353,13 +1550,13 @@ pub(crate) fn project_thread_update(
 pub(crate) fn project_thread_state_update(
     snapshot: &AppSnapshot,
     key: &ThreadKey,
+    agent_directory_version: u64,
 ) -> Result<Option<(AppThreadStateRecord, AppSessionSummary, u64)>, String> {
     let Some(thread) = snapshot.threads.get(key) else {
         return Ok(None);
     };
     let thread_state = app_thread_state_record_from_state(snapshot, thread)?;
     let session_summary = app_session_summary(thread, snapshot.servers.get(&key.server_id));
-    let agent_directory_version = current_agent_directory_version(snapshot);
     Ok(Some((
         thread_state,
         session_summary,
@@ -1367,46 +1564,65 @@ pub(crate) fn project_thread_state_update(
     )))
 }
 
-pub(crate) fn current_agent_directory_version(snapshot: &AppSnapshot) -> u64 {
-    let mut threads = snapshot.threads.values().collect::<Vec<_>>();
-    threads.sort_by(|lhs, rhs| {
-        rhs.info
-            .updated_at
-            .cmp(&lhs.info.updated_at)
-            .then_with(|| lhs.key.server_id.cmp(&rhs.key.server_id))
-            .then_with(|| lhs.key.thread_id.cmp(&rhs.key.thread_id))
-    });
-
+/// Fold one agent-directory entry into a standalone `u64`.
+///
+/// Entry hashes are combined with `wrapping_add`, i.e. order-independently,
+/// so neither the snapshot path nor the incremental path has to sort the
+/// thread list first. Ordering in the directory is itself derived from
+/// `updated_at`, which is part of the hash, so an ordering change always
+/// comes with a value change.
+fn agent_directory_entry_version(
+    server_id: &str,
+    thread_id: &str,
+    parent_thread_id: Option<&str>,
+    agent_nickname: Option<&str>,
+    agent_role: Option<&str>,
+    agent_status: AppSubagentStatus,
+    updated_at: Option<i64>,
+    has_active_turn: bool,
+) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for thread in threads {
-        thread.key.server_id.hash(&mut hasher);
-        thread.key.thread_id.hash(&mut hasher);
-        thread
-            .info
-            .parent_thread_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .hash(&mut hasher);
-        thread.info.agent_nickname.hash(&mut hasher);
-        thread.info.agent_role.hash(&mut hasher);
-        agent_display_label(
-            thread.info.agent_nickname.as_deref(),
-            thread.info.agent_role.as_deref(),
-            None,
-        )
-        .hash(&mut hasher);
-        thread
-            .info
-            .agent_status
-            .as_deref()
-            .map(AppSubagentStatus::from_raw)
-            .unwrap_or(AppSubagentStatus::Unknown)
-            .hash(&mut hasher);
-        thread.info.updated_at.hash(&mut hasher);
-        thread_has_active_turn(thread).hash(&mut hasher);
-    }
+    server_id.hash(&mut hasher);
+    thread_id.hash(&mut hasher);
+    parent_thread_id.hash(&mut hasher);
+    agent_nickname.hash(&mut hasher);
+    agent_role.hash(&mut hasher);
+    // `agent_display_label` is a pure function of nickname + role, both of
+    // which are hashed above, so it carries no extra information. Leaving it
+    // out avoids a `format!` per thread on every emit.
+    agent_status.hash(&mut hasher);
+    updated_at.hash(&mut hasher);
+    has_active_turn.hash(&mut hasher);
     hasher.finish()
+}
+
+pub(crate) fn current_agent_directory_version(snapshot: &AppSnapshot) -> u64 {
+    snapshot
+        .threads
+        .values()
+        .map(|thread| {
+            agent_directory_entry_version(
+                &thread.key.server_id,
+                &thread.key.thread_id,
+                thread
+                    .info
+                    .parent_thread_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+                thread.info.agent_nickname.as_deref(),
+                thread.info.agent_role.as_deref(),
+                thread
+                    .info
+                    .agent_status
+                    .as_deref()
+                    .map(AppSubagentStatus::from_raw)
+                    .unwrap_or(AppSubagentStatus::Unknown),
+                thread.info.updated_at,
+                thread_has_active_turn(thread),
+            )
+        })
+        .fold(0u64, u64::wrapping_add)
 }
 
 fn thread_has_active_turn(thread: &ThreadSnapshot) -> bool {
@@ -1438,19 +1654,21 @@ impl From<ServerHealthSnapshot> for AppServerTransportState {
 }
 
 fn agent_directory_version(session_summaries: &[AppSessionSummary]) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for summary in session_summaries {
-        summary.key.server_id.hash(&mut hasher);
-        summary.key.thread_id.hash(&mut hasher);
-        summary.parent_thread_id.hash(&mut hasher);
-        summary.agent_nickname.hash(&mut hasher);
-        summary.agent_role.hash(&mut hasher);
-        summary.agent_display_label.hash(&mut hasher);
-        summary.agent_status.hash(&mut hasher);
-        summary.updated_at.hash(&mut hasher);
-        summary.has_active_turn.hash(&mut hasher);
-    }
-    hasher.finish()
+    session_summaries
+        .iter()
+        .map(|summary| {
+            agent_directory_entry_version(
+                &summary.key.server_id,
+                &summary.key.thread_id,
+                summary.parent_thread_id.as_deref(),
+                summary.agent_nickname.as_deref(),
+                summary.agent_role.as_deref(),
+                summary.agent_status,
+                summary.updated_at,
+                summary.has_active_turn,
+            )
+        })
+        .fold(0u64, u64::wrapping_add)
 }
 
 fn agent_display_label(
@@ -1546,8 +1764,9 @@ mod tests {
                 reasoning_effort: None,
                 effective_approval_policy: None,
                 effective_sandbox_policy: None,
-                items: Vec::new(),
-                local_overlay_items: Vec::new(),
+                items: Default::default(),
+                local_overlay_items: Default::default(),
+                activity_cache: Default::default(),
                 queued_follow_ups: Vec::new(),
                 queued_follow_up_drafts: Vec::new(),
                 active_turn_id: None,
