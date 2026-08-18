@@ -5,9 +5,15 @@ import SwiftUI
 /// visual style as the home page server/session cards.
 struct CrossServerToolResultView: View {
     let data: ConversationDynamicToolCallData
+    private let payload: DecodedPayload?
+
+    init(data: ConversationDynamicToolCallData) {
+        self.data = data
+        self.payload = Self.decode(data: data)
+    }
 
     var body: some View {
-        if let payload = decode() {
+        if let payload {
             VStack(alignment: .leading, spacing: 6) {
                 switch payload {
                 case .servers(let items):
@@ -98,7 +104,7 @@ struct CrossServerToolResultView: View {
         case sessions([SessionItem])
     }
 
-    private func decode() -> DecodedPayload? {
+    private static func decode(data: ConversationDynamicToolCallData) -> DecodedPayload? {
         guard let summary = data.contentSummary,
               let jsonData = summary.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],

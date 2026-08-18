@@ -429,7 +429,6 @@ struct StreamingAssistantBubble: View {
     let text: String
     var isStreaming: Bool = false
     var label: String? = nil
-    var themeVersion: Int = 0
     var onSnapshotRendered: (() -> Void)? = nil
     private let contentFontSize: CGFloat
 
@@ -444,7 +443,6 @@ struct StreamingAssistantBubble: View {
         text: String,
         isStreaming: Bool = false,
         label: String? = nil,
-        themeVersion: Int = 0,
         bodySize: CGFloat = LitterFont.conversationBodyPointSize,
         onSnapshotRendered: (() -> Void)? = nil
     ) {
@@ -452,7 +450,6 @@ struct StreamingAssistantBubble: View {
         self.text = text
         self.isStreaming = isStreaming
         self.label = label
-        self.themeVersion = themeVersion
         self.contentFontSize = bodySize
         self.onSnapshotRendered = onSnapshotRendered
 

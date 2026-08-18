@@ -125,6 +125,9 @@ final class WallpaperManager {
     private var imageCache: [String: UIImage] = [:]
 
     @ObservationIgnored
+    private var thumbnailCache: [String: UIImage] = [:]
+
+    @ObservationIgnored
     private static let prefsFileName = "wallpaper_prefs.json"
 
     @ObservationIgnored
@@ -358,6 +361,10 @@ final class WallpaperManager {
     }
 
     func generateThumbnail(for entry: ThemeIndexEntry) -> UIImage {
+        if let cached = thumbnailCache[entry.slug] {
+            return cached
+        }
+
         let bgColor = UIColor(Color(hex: entry.backgroundHex))
         let accentColor = UIColor(Color(hex: entry.accentHex))
         let patternIndex = abs(entry.slug.hashValue) % PatternType.allCases.count
@@ -366,7 +373,7 @@ final class WallpaperManager {
         let size = CGSize(width: 80, height: 120)
         let renderer = UIGraphicsImageRenderer(size: size)
 
-        return renderer.image { ctx in
+        let image = renderer.image { ctx in
             let rect = CGRect(origin: .zero, size: size)
             bgColor.setFill()
             ctx.fill(rect)
@@ -393,6 +400,9 @@ final class WallpaperManager {
                 drawWaveLines(in: context, size: size, color: patternColor)
             }
         }
+
+        thumbnailCache[entry.slug] = image
+        return image
     }
 
     func wallpaperImage(for config: WallpaperConfig?, scope: WallpaperScope?, themeManager: ThemeManager) -> UIImage? {

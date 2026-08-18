@@ -376,7 +376,6 @@ extension AnyTransition {
 }
 
 private struct ConversationTimelineItemRow: View, Equatable {
-    @Environment(ThemeManager.self) private var themeManager
 
     let item: ConversationItem
     let serverId: String
@@ -599,7 +598,6 @@ private struct ConversationTimelineItemRow: View, Equatable {
             text: data.text,
             isStreaming: isStreamingMessage,
             label: assistantLabel,
-            themeVersion: themeManager.themeVersion,
             onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
         )
     }
@@ -845,14 +843,18 @@ private struct ConversationExplorationGroupRow: View {
 
     var body: some View {
         let entries = explorationEntries
+        let active = entries.contains(where: \.isInProgress)
+        let scrollSignature = entries
+            .map { "\($0.id)|\($0.label)|\($0.isInProgress)" }
+            .joined(separator: "\n")
 
         VStack(alignment: .leading, spacing: 6) {
             Button(action: toggleExpanded) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .litterFont(size: 12, weight: .semibold)
-                        .foregroundColor(isActive ? LitterTheme.warning : LitterTheme.textSecondary)
-                    Text(verbatim: summaryText)
+                        .foregroundColor(active ? LitterTheme.warning : LitterTheme.textSecondary)
+                    Text(verbatim: explorationSummaryText(prefix: active ? "Exploring" : "Explored"))
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSystem)
                         .lineLimit(1)
@@ -922,7 +924,7 @@ private struct ConversationExplorationGroupRow: View {
                     .onAppear {
                         scrollToBottom(proxy)
                     }
-                    .onChange(of: collapsedPreviewScrollSignature) { _, _ in
+                    .onChange(of: scrollSignature) { _, _ in
                         scrollToBottom(proxy, animated: true)
                     }
                 }
@@ -939,11 +941,6 @@ private struct ConversationExplorationGroupRow: View {
         }
     }
 
-    private var summaryText: String {
-        let prefix = isActive ? "Exploring" : "Explored"
-        return explorationSummaryText(prefix: prefix)
-    }
-
     private var explorationBulletSize: CGFloat {
         6 * textScale
     }
@@ -958,16 +955,6 @@ private struct ConversationExplorationGroupRow: View {
 
     private var bottomAnchorId: String {
         "\(id)-exploration-bottom"
-    }
-
-    private var collapsedPreviewScrollSignature: String {
-        explorationEntries
-            .map { "\($0.id)|\($0.label)|\($0.isInProgress)" }
-            .joined(separator: "\n")
-    }
-
-    private var isActive: Bool {
-        explorationEntries.contains(where: \.isInProgress)
     }
 
     private func toggleExpanded() {
