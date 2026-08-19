@@ -907,6 +907,12 @@ struct ConversationActivity {
 }
 
 /// Walk conversation items to extract full stats, last activity, and tool log.
+/// Maximum number of tool-log entries retained in `ConversationActivity`.
+/// Only the most recent entries are shown in the session list; older entries
+/// are evicted during the forward pass to avoid O(n) string allocations for
+/// entries that would be discarded anyway.
+const MAX_TOOL_LOG_ENTRIES: usize = 8;
+
 fn extract_conversation_activity(items: &[HydratedConversationItem]) -> ConversationActivity {
     let mut last_response: Option<String> = None;
     let mut last_response_turn_id: Option<String> = None;
@@ -938,6 +944,16 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
     let mut first_ts: Option<f64> = None;
     let mut last_ts: Option<f64> = None;
     let mut log_entries: Vec<AppToolLogEntry> = Vec::new();
+
+    // Push a log entry, evicting the oldest when the cap is exceeded.
+    // This avoids allocating thousands of `AppToolLogEntry` strings on long
+    // threads only to discard them at the end.
+    fn push_capped(log: &mut Vec<AppToolLogEntry>, entry: AppToolLogEntry) {
+        log.push(entry);
+        if log.len() > MAX_TOOL_LOG_ENTRIES {
+            log.remove(0);
+        }
+    }
 
     // Turn bounds: track the currently-accumulating turn so we end up with
     // the min/max timestamps of items in the *last* turn seen.
@@ -1021,7 +1037,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         } else {
             "completed"
         };
-        log_entries.push(AppToolLogEntry {
+        push_capped(log_entries, AppToolLogEntry {
             tool: "Explore".to_string(),
             detail,
             status: status.to_string(),
@@ -1142,7 +1158,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                 } else {
                     let cmd = data.command.trim();
                     let status = format!("{:?}", data.status).to_lowercase();
-                    log_entries.push(AppToolLogEntry {
+                    push_capped(&mut log_entries, AppToolLogEntry {
                         tool: "Bash".to_string(),
                         detail: cmd.to_string(),
                         status,
@@ -1164,7 +1180,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                         files_modified += 1;
                     }
                     let status = format!("{:?}", data.status).to_lowercase();
-                    log_entries.push(AppToolLogEntry {
+                    push_capped(&mut log_entries, AppToolLogEntry {
                         tool: "Edit".to_string(),
                         detail: entry.path.clone(),
                         status,
@@ -1175,7 +1191,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                 mcp_tool_call_count += 1;
                 tool_call_count += 1;
                 let status = format!("{:?}", data.status).to_lowercase();
-                log_entries.push(AppToolLogEntry {
+                push_capped(&mut log_entries, AppToolLogEntry {
                     tool: "MCP".to_string(),
                     detail: data.tool.clone(),
                     status,
@@ -1185,7 +1201,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                 dynamic_tool_call_count += 1;
                 tool_call_count += 1;
                 let status = format!("{:?}", data.status).to_lowercase();
-                log_entries.push(AppToolLogEntry {
+                push_capped(&mut log_entries, AppToolLogEntry {
                     tool: "Tool".to_string(),
                     detail: data.tool.clone(),
                     status,
@@ -1199,7 +1215,7 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
                 } else {
                     "completed"
                 };
-                log_entries.push(AppToolLogEntry {
+                push_capped(&mut log_entries, AppToolLogEntry {
                     tool: "WebSearch".to_string(),
                     detail: data.query.clone(),
                     status: status.to_string(),
@@ -1269,12 +1285,9 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         _ => None,
     };
 
-    // Keep only the last ~8 entries for the log
-    let log = if log_entries.len() > 8 {
-        log_entries.split_off(log_entries.len() - 8)
-    } else {
-        log_entries
-    };
+    // `log_entries` was capped at `MAX_TOOL_LOG_ENTRIES` during the forward
+    // pass via `push_capped`, so no trim is needed here.
+    let log = log_entries;
 
     let last_turn_start_ms = current_turn_min.map(|ts| (ts * 1000.0) as i64);
     let last_turn_end_ms = current_turn_max.map(|ts| (ts * 1000.0) as i64);

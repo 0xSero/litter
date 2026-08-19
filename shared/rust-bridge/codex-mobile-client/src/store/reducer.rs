@@ -2552,49 +2552,6 @@ impl AppStoreReducer {
                 .filter(|existing| is_superseded_overlay_item(existing, &item, active_turn_id))
                 .map(|existing| existing.id.clone())
                 .collect::<Vec<_>>();
-            // Diagnostic for the duplicate-user-message bug (task #11):
-            // when an upstream UserMessage arrives, log the surrounding
-            // store state so we can see whether the local overlay was
-            // present-and-deduped, present-and-NOT-deduped, or absent —
-            // and whether `thread.items` already contains a sibling User
-            // item with matching content.
-            if is_user_message {
-                let other_user_items: Vec<_> = thread
-                    .items
-                    .iter()
-                    .filter(|existing| {
-                        existing.id != item.id
-                            && matches!(&existing.content, HydratedConversationItemContent::User(_))
-                    })
-                    .map(|existing| existing.id.clone())
-                    .collect();
-                let overlay_count = thread.local_overlay_items.len();
-                let user_overlay_ids: Vec<_> = thread
-                    .local_overlay_items
-                    .iter()
-                    .filter_map(|existing| {
-                        if matches!(&existing.content, HydratedConversationItemContent::User(_)) {
-                            Some(existing.id.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                tracing::warn!(
-                    target: "store",
-                    server_id = key.server_id,
-                    thread_id = key.thread_id,
-                    item_id = item.id,
-                    item_turn_id = item.source_turn_id.as_deref().unwrap_or(""),
-                    item_boundary = item.is_from_user_turn_boundary,
-                    existing_user_items = ?other_user_items,
-                    user_overlays = ?user_overlay_ids,
-                    overlay_count = overlay_count,
-                    will_remove_overlays = ?removed_overlay_ids,
-                    has_existing_with_id = existing.is_some(),
-                    "apply_item_update UserMessage diagnostic"
-                );
-            }
             thread
                 .local_overlay_items
                 .retain(|existing| !is_superseded_overlay_item(existing, &item, active_turn_id));

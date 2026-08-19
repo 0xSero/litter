@@ -1206,9 +1206,75 @@ fn note_notification_runtime(
     app_store.set_thread_agent_runtime(&key, runtime_kind);
 }
 
+/// Extract the thread id from a notification using typed field access instead
+/// of serializing the entire payload to JSON and recursively walking it.
+///
+/// During streaming, `note_notification_runtime` is called twice per
+/// notification (before and after `process_notification`). The old
+/// `serde_json::to_value` approach allocated a full `Value` tree of the
+/// payload — including 128 KiB command outputs and large diffs — on every
+/// call, just to find a `threadId` string that is a typed field on every
+/// thread-scoped variant.
 fn notification_thread_id(notification: &upstream::ServerNotification) -> Option<String> {
-    let value = serde_json::to_value(notification).ok()?;
-    find_thread_id_value(&value)
+    use upstream::ServerNotification as N;
+    // Thread-scoped variants whose payload has `thread_id: String`.
+    // Each returns the cloned field directly — no serialization.
+    let thread_id: Option<&str> = match notification {
+        N::ThreadStarted(n) => Some(&n.thread.id),
+        N::Warning(n) => n.thread_id.as_deref(),
+        N::Error(n) => Some(&n.thread_id),
+        N::ThreadStatusChanged(n) => Some(&n.thread_id),
+        N::ThreadArchived(n) => Some(&n.thread_id),
+        N::ThreadUnarchived(n) => Some(&n.thread_id),
+        N::ThreadClosed(n) => Some(&n.thread_id),
+        N::ThreadNameUpdated(n) => Some(&n.thread_id),
+        N::ThreadGoalUpdated(n) => Some(&n.thread_id),
+        N::ThreadGoalCleared(n) => Some(&n.thread_id),
+        N::ThreadTokenUsageUpdated(n) => Some(&n.thread_id),
+        N::TurnStarted(n) => Some(&n.thread_id),
+        N::HookStarted(n) => Some(&n.thread_id),
+        N::TurnCompleted(n) => Some(&n.thread_id),
+        N::HookCompleted(n) => Some(&n.thread_id),
+        N::TurnDiffUpdated(n) => Some(&n.thread_id),
+        N::TurnPlanUpdated(n) => Some(&n.thread_id),
+        N::ItemStarted(n) => Some(&n.thread_id),
+        N::ItemGuardianApprovalReviewStarted(n) => Some(&n.thread_id),
+        N::ItemGuardianApprovalReviewCompleted(n) => Some(&n.thread_id),
+        N::ItemCompleted(n) => Some(&n.thread_id),
+        N::RawResponseItemCompleted(n) => Some(&n.thread_id),
+        N::AgentMessageDelta(n) => Some(&n.thread_id),
+        N::DynamicToolCallArgumentsDelta(n) => Some(&n.thread_id),
+        N::PlanDelta(n) => Some(&n.thread_id),
+        N::CommandExecutionOutputDelta(n) => Some(&n.thread_id),
+        N::TerminalInteraction(n) => Some(&n.thread_id),
+        N::FileChangeOutputDelta(n) => Some(&n.thread_id),
+        N::FileChangePatchUpdated(n) => Some(&n.thread_id),
+        N::ServerRequestResolved(n) => Some(&n.thread_id),
+        N::McpToolCallProgress(n) => Some(&n.thread_id),
+        N::ReasoningSummaryTextDelta(n) => Some(&n.thread_id),
+        N::ReasoningSummaryPartAdded(n) => Some(&n.thread_id),
+        N::ReasoningTextDelta(n) => Some(&n.thread_id),
+        N::ContextCompacted(n) => Some(&n.thread_id),
+        N::ModelRerouted(n) => Some(&n.thread_id),
+        N::ModelVerification(n) => Some(&n.thread_id),
+        N::GuardianWarning(n) => Some(&n.thread_id),
+        N::ThreadRealtimeStarted(n) => Some(&n.thread_id),
+        N::ThreadRealtimeItemAdded(n) => Some(&n.thread_id),
+        N::ThreadRealtimeTranscriptDelta(n) => Some(&n.thread_id),
+        N::ThreadRealtimeTranscriptDone(n) => Some(&n.thread_id),
+        N::ThreadRealtimeOutputAudioDelta(n) => Some(&n.thread_id),
+        N::ThreadRealtimeSdp(n) => Some(&n.thread_id),
+        N::ThreadRealtimeError(n) => Some(&n.thread_id),
+        N::ThreadRealtimeClosed(n) => Some(&n.thread_id),
+        // Variants without a thread_id field (account/server/process/fs
+        // notifications). Forward-compatible fallback: serialize and walk
+        // only for these infrequent, non-streaming notifications.
+        _ => {
+            let value = serde_json::to_value(notification).ok()?;
+            return find_thread_id_value(&value);
+        }
+    };
+    thread_id.filter(|s| !s.trim().is_empty()).map(|s| s.to_string())
 }
 
 fn find_thread_id_value(value: &serde_json::Value) -> Option<String> {
