@@ -9,6 +9,7 @@ struct ComputerUseToolCallView: View {
     @State private var expanded: Bool
     @State private var a11yExpanded = false
     @State private var errorExpanded = false
+    @State private var cachedScreenshot: UIImage?
     /// Header row (icon + summary). A half-step smaller than body so tool
     /// calls read as secondary to assistant messages.
     private let summaryFontSize: CGFloat = 13
@@ -77,6 +78,16 @@ struct ComputerUseToolCallView: View {
                 }
             }
         }
+        .task(id: view.screenshotPng) {
+            // Decode the PNG off the main-thread render path. Without this,
+            // every body re-evaluation of an expanded computer-use tool call
+            // re-decodes the full-screen PNG from scratch via UIImage(data:).
+            if let png = view.screenshotPng {
+                cachedScreenshot = UIImage(data: png)
+            } else {
+                cachedScreenshot = nil
+            }
+        }
     }
 
     private var header: some View {
@@ -123,7 +134,7 @@ struct ComputerUseToolCallView: View {
 
     @ViewBuilder
     private func screenshotPreview(_ data: Data) -> some View {
-        if let image = UIImage(data: data) {
+        if let image = cachedScreenshot {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()

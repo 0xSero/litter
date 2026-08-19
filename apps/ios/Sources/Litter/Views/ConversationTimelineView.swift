@@ -7,6 +7,13 @@ struct ConversationTurnTimeline: View {
     @AppStorage(ConversationDisplayPreferenceKey.commands) private var commandDisplayModeRaw = ConversationDetailDisplayMode.collapsed.rawValue
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayModeRaw = ConversationDetailDisplayMode.collapsed.rawValue
 
+    /// Cached row descriptors — rebuilt only when `items` or display modes
+    /// actually change, not on every body evaluation. Without this, the
+    /// build + mergeConsecutiveExplorationRows + filter chain ran on every
+    /// token batch during streaming.
+    @State private var cachedRows: [ConversationTimelineRowDescriptor] = []
+    @State private var cachedRowsKey: String = ""
+
     let items: [ConversationItem]
     let isLive: Bool
     let serverId: String
@@ -48,8 +55,21 @@ struct ConversationTurnTimeline: View {
         }
     }
 
+    /// Build a cheap cache key from items identity + display modes. Only when
+    /// this key changes do we rebuild the row descriptors.
+    private var rowDescriptorsCacheKey: String {
+        // items.count + last item id is sufficient to detect streaming
+        // appends; Equatable comparison of the full array would be O(n).
+        let lastId = items.last?.id ?? ""
+        return "\(items.count)|\(lastId)|\(reasoningDisplayModeRaw)|\(commandDisplayModeRaw)|\(toolDisplayModeRaw)"
+    }
+
     private var rowDescriptors: [ConversationTimelineRowDescriptor] {
-        ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
+        let key = rowDescriptorsCacheKey
+        if key == cachedRowsKey {
+            return cachedRows
+        }
+        let rows = ConversationTimelineRowDescriptor.mergeConsecutiveExplorationRows(
             ConversationTimelineRowDescriptor.build(from: items)
         )
         .filter {
@@ -59,6 +79,9 @@ struct ConversationTurnTimeline: View {
                 toolDisplayMode: toolDisplayMode
             )
         }
+        cachedRows = rows
+        cachedRowsKey = key
+        return rows
     }
 
     private var streamingAssistantItemId: String? {
@@ -844,9 +867,10 @@ private struct ConversationExplorationGroupRow: View {
     var body: some View {
         let entries = explorationEntries
         let active = entries.contains(where: \.isInProgress)
-        let scrollSignature = entries
-            .map { "\($0.id)|\($0.label)|\($0.isInProgress)" }
-            .joined(separator: "\n")
+        // Cheap identity key for scroll-to-bottom detection: count + last id
+        // + any-in-progress. Avoids a full map+join string allocation on
+        // every body evaluation during streaming.
+        let scrollSignature = "\(entries.count)|\(entries.last?.id ?? "")|\(active)"
 
         VStack(alignment: .leading, spacing: 6) {
             Button(action: toggleExpanded) {

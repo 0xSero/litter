@@ -7,6 +7,9 @@ struct CrossServerToolResultView: View {
     let data: ConversationDynamicToolCallData
     private let payload: DecodedPayload?
 
+    // Hoisted to avoid allocating a new JSONDecoder on every construction.
+    private static let decoder = JSONDecoder()
+
     init(data: ConversationDynamicToolCallData) {
         self.data = data
         self.payload = Self.decode(data: data)
@@ -114,9 +117,9 @@ struct CrossServerToolResultView: View {
         }
         switch type {
         case "servers":
-            return (try? JSONDecoder().decode([ServerItem].self, from: itemsData)).map { .servers($0) }
+            return (try? Self.decoder.decode([ServerItem].self, from: itemsData)).map { .servers($0) }
         case "sessions":
-            return (try? JSONDecoder().decode([SessionItem].self, from: itemsData)).map { .sessions($0) }
+            return (try? Self.decoder.decode([SessionItem].self, from: itemsData)).map { .sessions($0) }
         default:
             return nil
         }

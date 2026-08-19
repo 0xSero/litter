@@ -188,7 +188,6 @@ targets:
           - Views/HomeVoiceOrbButton.swift
           - Views/InlineVoiceButton.swift
           - Views/InlineVoiceStatusStrip.swift
-          - Views/LiveActivityPreview.swift
           - Views/LockScreenCardView.swift
           - Views/RealtimeVoiceScreen.swift
           - "**/*.h"
