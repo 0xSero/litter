@@ -1883,14 +1883,27 @@ private struct ConversationDestinationScreen: View {
     @Environment(AppState.self) private var appState
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
     @State private var screenModel = ConversationScreenModel()
+    @State private var cachedThread: AppThreadSnapshot?
     let threadKey: ThreadKey
     let bottomInset: CGFloat
     let onResumeSessions: (String) -> Void
     let onOpenConversation: (ThreadKey) -> Void
     var onInfo: (() -> Void)?
 
+    /// Cached thread snapshot — refreshed via `.onAppear`/`.onChange` so the
+    /// body never reads `appModel.snapshot` directly (which would create a
+    /// per-snapshot observation edge and re-evaluate the body when ANY thread
+    /// on ANY server changes).
     private var conversationThread: AppThreadSnapshot? {
-        appModel.threadSnapshot(for: threadKey)
+        cachedThread
+    }
+
+    private func refreshThread() -> AppThreadSnapshot? {
+        let thread = appModel.threadSnapshot(for: threadKey)
+        if thread != cachedThread {
+            cachedThread = thread
+        }
+        return thread
     }
 
     private var resolvedThreadKey: ThreadKey {
@@ -1940,7 +1953,8 @@ private struct ConversationDestinationScreen: View {
                     }
                 )
                 .onAppear {
-                    bindScreenModel(for: conversationThread)
+                    let thread = refreshThread()
+                    if let thread { bindScreenModel(for: thread) }
                 }
                 // Single coalesced bind signal. `snapshotRevision` bumps at
                 // ~8 fps (Fix B) instead of per token, and the other
@@ -1949,10 +1963,12 @@ private struct ConversationDestinationScreen: View {
                 // Collapsing five onChanges into one eliminates the
                 // redundant triple-per-token re-binds.
                 .onChange(of: appModel.snapshotRevision) { _, _ in
-                    bindScreenModel(for: conversationThread)
+                    let thread = refreshThread()
+                    if let thread { bindScreenModel(for: thread) }
                 }
                 .onChange(of: appModel.composerPrefillRequest) { _, _ in
-                    bindScreenModel(for: conversationThread)
+                    let thread = refreshThread()
+                    if let thread { bindScreenModel(for: thread) }
                 }
             } else {
                 VStack(spacing: 16) {
@@ -2027,11 +2043,22 @@ private struct ReplayDestinationScreen: View {
     let bottomInset: CGFloat
     @State private var screenModel = ConversationScreenModel()
     @State private var replayThreadKey: ThreadKey?
+    @State private var cachedThread: AppThreadSnapshot?
     @State private var recorder = MessageRecorder.shared
 
+    /// Cached thread snapshot — refreshed via `.task`/`.onChange` so the
+    /// body never reads `appModel.snapshot` directly.
     private var conversationThread: AppThreadSnapshot? {
+        cachedThread
+    }
+
+    private func refreshThread() -> AppThreadSnapshot? {
         guard let key = replayThreadKey else { return nil }
-        return appModel.threadSnapshot(for: key)
+        let thread = appModel.threadSnapshot(for: key)
+        if thread != cachedThread {
+            cachedThread = thread
+        }
+        return thread
     }
 
     var body: some View {
@@ -2056,10 +2083,14 @@ private struct ReplayDestinationScreen: View {
                     onOpenConversation: nil,
                     onResumeSessions: { _ in }
                 )
-                .onAppear { bindScreenModel(for: thread) }
+                .onAppear {
+                    let t = refreshThread()
+                    if let t { bindScreenModel(for: t) }
+                }
                 .onChange(of: thread) { _, t in bindScreenModel(for: t) }
                 .onChange(of: appModel.snapshotRevision) { _, _ in
-                    if let t = conversationThread { bindScreenModel(for: t) }
+                    let t = refreshThread()
+                    if let t { bindScreenModel(for: t) }
                 }
             } else {
                 VStack(spacing: 16) {
