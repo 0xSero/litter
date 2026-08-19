@@ -49,9 +49,9 @@ struct HomeDashboardPersistence {
 final class HomeDashboardModel {
     /// Initial number of unpinned recent sessions rendered on the home list.
     /// Grows by this amount on each "load more" scroll.
-    static let defaultRecentLimit = 10
+    static let defaultRecentLimit = 20
     /// How many additional unpinned sessions to reveal on each "load more".
-    static let recentLimitStep = 10
+    static let recentLimitStep = 20
 
     private struct Snapshot {
         let connectedServers: [HomeDashboardServer]
