@@ -55,7 +55,16 @@ class AppLifecycleController {
         restoreLocalStateAfterReconnect(appModel, results)
         val retryResults = appModel.reconnectController.reconnectSavedServers()
         restoreLocalStateAfterReconnect(appModel, retryResults)
-        appModel.refreshSnapshot()
+        // Load the first page of sessions synchronously so the snapshot has
+        // real thread data and accurate `session_list_has_more` cursors.
+        // bare refreshSnapshot() captured a stale store before the
+        // fire-and-forget warmup could finish.
+        val connectedServerIds = results.map { it.serverId }
+        if (connectedServerIds.isNotEmpty()) {
+            appModel.loadSessionsPage(connectedServerIds, limit = 20u)
+        } else {
+            appModel.refreshSnapshot()
+        }
         // If reconnecting saved alleycat servers triggered the iroh
         // endpoint bind, persist any freshly-generated device key.
         appModel.persistAlleycatSecretKeyIfNeeded()
