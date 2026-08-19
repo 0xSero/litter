@@ -248,49 +248,6 @@ struct HeaderView: View {
         return "~"
     }
 
-    private var selectedModelBinding: Binding<String> {
-        Binding(
-            get: {
-                let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !pending.isEmpty { return pending }
-                return currentThreadModelSelectionId
-            },
-            set: { appState.selectedModel = $0 }
-        )
-    }
-
-    private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
-        Binding(
-            get: {
-                let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !pending.isEmpty { return appState.selectedAgentRuntimeKind }
-                return currentThreadAgentRuntimeKind
-            },
-            set: { appState.selectedAgentRuntimeKind = $0 }
-        )
-    }
-
-    private var currentThreadModelSelectionId: String {
-        let currentModel = (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !currentModel.isEmpty else { return "" }
-        return currentModel
-    }
-
-    private var currentThreadAgentRuntimeKind: AgentRuntimeKind? {
-        thread.agentRuntimeKind
-    }
-
-    private var reasoningEffortBinding: Binding<String> {
-        Binding(
-            get: {
-                let pending = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !pending.isEmpty { return pending }
-                return thread.reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            },
-            set: { appState.reasoningEffort = $0 }
-        )
-    }
-
     private func loadModelsIfNeeded() async {
         await appModel.loadConversationMetadataIfNeeded(serverId: thread.key.serverId)
     }
