@@ -135,6 +135,15 @@ struct ConversationDisplayUITestHarnessView: View {
             ))
         ),
         ConversationItem(
+            id: "ui-test-assistant-link",
+            content: .assistant(ConversationAssistantMessageData(
+                text: "Deployed the preview build. Check it at https://example.com/releases/latest and the docs at https://docs.example.com/setup",
+                agentNickname: nil,
+                agentRole: nil,
+                phase: nil
+            ))
+        ),
+        ConversationItem(
             id: "ui-test-reasoning",
             content: .reasoning(ConversationReasoningData(
                 summary: ["UITEST_REASONING_DETAIL"],
