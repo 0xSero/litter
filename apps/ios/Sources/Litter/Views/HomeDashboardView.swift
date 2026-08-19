@@ -591,7 +591,7 @@ struct HomeDashboardView: View {
                     openingKey: openingRecentSessionKey,
                     zoomLevel: $zoomLevel,
                     showCatFooter: chrome == .full,
-                    topInset: 56,
+                    topInset: 52,
                     bottomInset: chrome == .full ? 140 : 24,
                     hasMoreSessions: hasMoreSessions,
                     isLoadingMoreSessions: isLoadingMoreSessions,

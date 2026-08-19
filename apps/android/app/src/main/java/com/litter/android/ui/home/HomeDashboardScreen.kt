@@ -484,9 +484,9 @@ fun HomeDashboardScreen(
                 val sysInsets = WindowInsets.systemBars.asPaddingValues()
                 androidx.compose.foundation.layout.PaddingValues(
                     top = if (topChromeHeight > 0.dp) {
-                        topChromeHeight + 8.dp
+                        topChromeHeight + 4.dp
                     } else {
-                        72.dp + sysInsets.calculateTopPadding() + 8.dp
+                        72.dp + sysInsets.calculateTopPadding() + 4.dp
                     },
                     bottom = 72.dp + sysInsets.calculateBottomPadding(),
                 )
