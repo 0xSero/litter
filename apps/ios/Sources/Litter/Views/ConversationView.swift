@@ -60,6 +60,7 @@ struct ConversationView: View {
     @State private var messageActionError: String?
     @State private var hasLoggedFirstRender = false
     @State private var localSendScrollToken = 0
+    @State private var skillMentionCatalog = SkillMentionCatalog()
 
     private var items: [ConversationItem] {
         transcript.items
@@ -146,6 +147,10 @@ struct ConversationView: View {
         // `appModel.threadSnapshot(for:)` in its own body path, which registered
         // one snapshot observation edge *per inline image* in the transcript.
         .activeThreadCwd(thread.info.cwd)
+        .skillMentionCatalog(skillMentionCatalog)
+        .task(id: activeThreadKey) {
+            configureSkillMentionLoader()
+        }
         .background { ChatWallpaperBackground(threadKey: activeThreadKey) }
         .overlay(alignment: .top) {
             if thread.isSubagent {
@@ -412,6 +417,24 @@ struct ConversationView: View {
             developerInstructions: nil,
             persistExtendedHistory: true
         )
+    }
+
+    private func configureSkillMentionLoader() {
+        let catalog = SkillMentionCatalog()
+        let client = appModel.client
+        let serverId = activeThreadKey.serverId
+        let cwd = thread.info.cwd ?? workDir
+        catalog.configureLoader { [weak appModel] in
+            guard appModel?.snapshot?.servers
+                .first(where: { $0.serverId == serverId })?
+                .canUseTransportActions == true else { return [] }
+            let skills = (try? await client.listSkills(
+                serverId: serverId,
+                params: AppListSkillsRequest(cwds: [cwd], forceReload: false)
+            )) ?? []
+            return skills
+        }
+        skillMentionCatalog = catalog
     }
 }
 
