@@ -32,6 +32,7 @@ struct ResolvedChatImageView: View {
     @State private var imageData: Data?
     @State private var loadError: String?
     @State private var isLoading = false
+    @State private var cachedCwd: String?
 
     private static let dataCache = NSCache<NSString, NSData>()
 
@@ -68,6 +69,12 @@ struct ResolvedChatImageView: View {
         .task(id: taskKey) {
             await loadImage()
         }
+        .onAppear {
+            refreshCwd()
+        }
+        .onChange(of: appModel.snapshotRevision) { _, _ in
+            refreshCwd()
+        }
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -79,8 +86,16 @@ struct ResolvedChatImageView: View {
         if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return cwd
         }
-        guard let activeThreadKey else { return nil }
-        return appModel.threadSnapshot(for: activeThreadKey)?.info.cwd
+        return cachedCwd
+    }
+
+    /// Refresh the cached cwd from the store. Called from `.onAppear`/
+    /// `.onChange` so the body never reads `appModel.threadSnapshot` (which
+    /// would create a per-snapshot observation edge).
+    private func refreshCwd() {
+        guard cwd == nil || cwd?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true else { return }
+        guard let activeThreadKey else { cachedCwd = nil; return }
+        cachedCwd = appModel.threadSnapshot(for: activeThreadKey)?.info.cwd
     }
 
     private var taskKey: String {
