@@ -593,6 +593,7 @@
 		E129D3CADE431D97BE90BF70 /* ServerPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D220AD4FC96E2D24A533485 /* ServerPill.swift */; };
 		E1C1DBC137D5562B08F5E88D /* kanagawa-lotus.json in Resources */ = {isa = PBXBuildFile; fileRef = D2608C1F271D28BFEFBA5EFB /* kanagawa-lotus.json */; };
 		E1EEBECB89F39C947D704B6F /* InlineHandoffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 832D667C7B0B93EFED3577EE /* InlineHandoffView.swift */; };
+		E21627B0742DBE674DC230C4 /* MessageLinkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E724333261AD4653114210E9 /* MessageLinkUITests.swift */; };
 		E2D03F494483EBB561B47785 /* RollingMetricText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D8203E9494F06515FC30E3D /* RollingMetricText.swift */; };
 		E34A60A9F5EC77C53120D390 /* LitterPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1388480E7FFD4489CE617C6 /* LitterPlatform.swift */; };
 		E376969CF8444E7949C3F673 /* night-owl.json in Resources */ = {isa = PBXBuildFile; fileRef = 14B7D7A9258301037FB7DBC0 /* night-owl.json */; };
@@ -1102,6 +1103,7 @@
 		E518CD2A67CEB8B41545D0D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E603FBE2AAD5D7C19649F986 /* NewThreadHeroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewThreadHeroView.swift; sourceTree = "<group>"; };
 		E6E494F6BC6E1280CD7E4DD4 /* LitterUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LitterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E724333261AD4653114210E9 /* MessageLinkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageLinkUITests.swift; sourceTree = "<group>"; };
 		E744000053715A5866060B15 /* PreviewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSupport.swift; sourceTree = "<group>"; };
 		E7B233BBDF2CFAC604E4A1DD /* AppSnapshotRecord+Runtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppSnapshotRecord+Runtime.swift"; sourceTree = "<group>"; };
 		E7B2873F09522FAE2FFFFC9B /* ThreadSearchResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSearchResultsView.swift; sourceTree = "<group>"; };
@@ -1179,6 +1181,7 @@
 			isa = PBXGroup;
 			children = (
 				46D841AF0FFB0241834F88D0 /* LitterUITests.swift */,
+				E724333261AD4653114210E9 /* MessageLinkUITests.swift */,
 			);
 			name = LitterUITests;
 			path = Tests/LitterUITests;
@@ -2661,6 +2664,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7F7580E318B61556359A4EC1 /* LitterUITests.swift in Sources */,
+				E21627B0742DBE674DC230C4 /* MessageLinkUITests.swift in Sources */,
 				05A1BF5FB8220D9D48C611D0 /* SnapshotHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
