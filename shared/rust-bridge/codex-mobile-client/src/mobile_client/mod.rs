@@ -2655,11 +2655,6 @@ impl MobileClient {
                 all_thread_ids.extend(ids);
             }
             self.finalize_thread_list_sync(server_id, all_thread_ids);
-            // A full drain has reconciled the entire thread set, so paged
-            // session-list loading is complete for this server: clear the
-            // retained page cursors so `session_list_has_more` reads false
-            // and the home list stops offering "load more".
-            self.app_store.clear_thread_page_state(server_id);
         } else if !all_completed {
             warn!(
                 "refresh_thread_list: skipping finalize prune — partial fan-out result on server {}",
