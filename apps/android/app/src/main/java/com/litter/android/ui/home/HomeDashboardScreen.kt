@@ -1514,8 +1514,8 @@ internal fun mergeHomeSessions(
     return candidates.take(recentLimit)
 }
 
-private const val DefaultRecentLimit = 10
-private const val RecentLimitStep = 10
+private const val DefaultRecentLimit = 20
+private const val RecentLimitStep = 20
 
 private fun placeholderPinnedSession(
     pinned: PinnedThreadKey,
