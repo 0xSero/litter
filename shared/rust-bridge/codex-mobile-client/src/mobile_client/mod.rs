@@ -2629,7 +2629,19 @@ impl MobileClient {
                         &response.data,
                     );
                     ids.extend(page.into_iter().map(|thread| thread.id));
-                    let Some(next_cursor) = response.next_cursor else {
+                    let next_cursor = response.next_cursor;
+                    let has_more = next_cursor.is_some();
+                    // Persist cursor state so the snapshot's
+                    // `session_list_has_more` reflects the server's actual
+                    // pagination.  On a full drain this is overwritten with
+                    // (None, false) after the loop.
+                    client.app_store.set_thread_page_state(
+                        &server_id,
+                        &runtime_kind,
+                        next_cursor.clone(),
+                        has_more,
+                    );
+                    let Some(next_cursor) = next_cursor else {
                         break;
                     };
                     if !drain_all_pages {
@@ -2645,14 +2657,13 @@ impl MobileClient {
         if results.iter().all(|(_, _, completed)| !completed) {
             return Err("thread list failed for every runtime".to_string());
         }
-        // Only prune when every runtime finished cleanly; a partial result
-        // means we don't know the true thread set and would wipe unseen
-        // threads from healthy runtimes.
         let all_completed = results.iter().all(|(_, _, ok)| *ok);
+        // Only prune on a full drain — a limited page load is additive and
+        // must not evict threads the server didn't return in this page.
         if all_completed && drain_all_pages {
             let mut all_thread_ids = Vec::new();
-            for (_, ids, _) in results {
-                all_thread_ids.extend(ids);
+            for (_, ids, _) in &results {
+                all_thread_ids.extend(ids.iter().cloned());
             }
             self.finalize_thread_list_sync(server_id, all_thread_ids);
         } else if !all_completed {
@@ -2660,6 +2671,23 @@ impl MobileClient {
                 "refresh_thread_list: skipping finalize prune — partial fan-out result on server {}",
                 server_id
             );
+        }
+        // Persist per-runtime cursor state so the snapshot's
+        // `session_list_has_more` reflects the server's actual pagination.
+        for (runtime_kind, _, completed) in &results {
+            if !completed {
+                continue;
+            }
+            // For a limited page load, the last page's `next_cursor` drives
+            // `has_more`.  For a full drain the cursor is exhausted (None,
+            // has_more: false) — correct because all pages are loaded.
+            if drain_all_pages {
+                self.app_store
+                    .set_thread_page_state(server_id, runtime_kind, None, false);
+            }
+            // On a limited load, `load_threads_page` already called
+            // `set_thread_page_state` with the actual cursor/has_more from
+            // the server response — nothing to do here.
         }
         Ok(())
     }
@@ -4226,7 +4254,7 @@ pub(super) fn run_connect_warmup(
         if let Some(client) = crate::ffi::shared::shared_mobile_client_if_initialized() {
             let params = upstream::ThreadListParams {
                 cursor: None,
-                limit: None,
+                limit: Some(20),
                 sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
                 sort_direction: Some(upstream::SortDirection::Desc),
                 model_providers: None,
