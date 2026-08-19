@@ -796,6 +796,7 @@ struct SessionCanvasLine: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+.padding(.bottom, 4)
 
                 // Detail below — gets full width. As zoom grows, additional
                 // rows are revealed by the container's layout animation.
