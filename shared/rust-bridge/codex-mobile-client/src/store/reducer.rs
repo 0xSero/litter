@@ -3129,12 +3129,19 @@ fn merge_reasoning_item_with_existing(
 }
 
 fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &str) -> bool {
-    let mut inserted_placeholder = false;
-    if !thread.items.iter().any(|item| item.id == item_id) {
+    // Single O(n) pass instead of two: find the item and append in one
+    // scan. If not found, push a placeholder and append to it. The
+    // previous code scanned twice (once to check existence, once to find).
+    if let Some(item) = thread.items.iter_mut().find(|item| item.id == item_id) {
+        if let HydratedConversationItemContent::Assistant(message) = &mut item.content {
+            message.text.push_str(delta);
+        }
+        false
+    } else {
         thread.items.push(HydratedConversationItem {
             id: item_id.to_string(),
             content: HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
-                text: String::new(),
+                text: delta.to_string(),
                 agent_nickname: None,
                 agent_role: None,
                 phase: None,
@@ -3144,16 +3151,8 @@ fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &st
             timestamp: None,
             is_from_user_turn_boundary: false,
         });
-        inserted_placeholder = true;
+        true
     }
-
-    let Some(item) = thread.items.iter_mut().find(|item| item.id == item_id) else {
-        return inserted_placeholder;
-    };
-    if let HydratedConversationItemContent::Assistant(message) = &mut item.content {
-        message.text.push_str(delta);
-    }
-    inserted_placeholder
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
