@@ -2224,10 +2224,25 @@ final class AppModel {
             snapshot.threads[index] = mergedThreadSnapshotPreservingHydratedItems(thread)
         }
 
+        // Build a set of thread keys already in the snapshot so the cached-
+        // thread scan is O(cachedThreads) instead of O(cachedThreads ×
+        // threads). During streaming, applySnapshot fires ~8fps and the
+        // contains(where:) was a nested linear scan per cached thread.
+        var existingKeys = Set<ThreadKey>()
+        existingKeys.reserveCapacity(snapshot.threads.count)
+        for thread in snapshot.threads {
+            existingKeys.insert(thread.key)
+        }
+
+        var summaryKeys = Set<ThreadKey>()
+        summaryKeys.reserveCapacity(snapshot.sessionSummaries.count)
+        for summary in snapshot.sessionSummaries {
+            summaryKeys.insert(summary.key)
+        }
+
         for (key, cached) in cachedThreadSnapshots {
-            guard snapshot.threads.contains(where: { $0.key == key }) == false else { continue }
-            guard snapshot.activeThread == key ||
-                  snapshot.sessionSummaries.contains(where: { $0.key == key }) else {
+            guard !existingKeys.contains(key) else { continue }
+            guard snapshot.activeThread == key || summaryKeys.contains(key) else {
                 continue
             }
             snapshot.threads.append(cached)
