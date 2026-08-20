@@ -856,16 +856,20 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
 private struct ConversationExplorationGroupRow: View {
     @Environment(\.textScale) private var textScale
-
     let id: String
     let items: [ConversationItem]
     let showsCollapsedPreview: Bool
     let displayMode: ConversationDetailDisplayMode
 
     @State private var expanded = false
+    /// Cached exploration entries + their cheap signature. `explorationEntries`
+    /// is O(n) with per-entry string interpolation; without caching it ran
+    /// 2-3× per body eval during streaming (body + summaryText + count).
+    @State private var cachedEntries: [ExplorationDisplayEntry] = []
+    @State private var cachedEntriesSignature: String = ""
 
     var body: some View {
-        let entries = explorationEntries
+        let entries = cachedExplorationEntries
         let active = entries.contains(where: \.isInProgress)
         // Cheap identity key for scroll-to-bottom detection: count + last id
         // + any-in-progress. Avoids a full map+join string allocation on
@@ -999,6 +1003,22 @@ private struct ConversationExplorationGroupRow: View {
         return "\(collapsed[..<cutoff])..."
     }
 
+    /// O(1)-check cached version of `explorationEntries`. The signature is
+    /// count + last item id + last item's progress bit — cheap to compute
+    /// and sufficient to detect streaming changes. When the signature
+    /// matches, we reuse the cached array instead of re-running the O(n)
+    /// flatMap + map + string interpolation.
+    private var cachedExplorationEntries: [ExplorationDisplayEntry] {
+        let signature = "\(items.count)|\(items.last?.id ?? "")"
+        if signature == cachedEntriesSignature {
+            return cachedEntries
+        }
+        let computed = explorationEntries
+        cachedEntries = computed
+        cachedEntriesSignature = signature
+        return computed
+    }
+
     private var explorationEntries: [ExplorationDisplayEntry] {
         items.flatMap { item -> [ExplorationDisplayEntry] in
             guard case .commandExecution(let data) = item.content else { return [] }
@@ -1061,7 +1081,7 @@ private struct ConversationExplorationGroupRow: View {
             parts.append("\(fallbackCount) \(fallbackCount == 1 ? "step" : "steps")")
         }
         if parts.isEmpty {
-            let count = explorationEntries.count
+            let count = cachedExplorationEntries.count
             return count == 1 ? "\(prefix) 1 exploration step" : "\(prefix) \(count) exploration steps"
         }
         return "\(prefix) \(parts.joined(separator: ", "))"
