@@ -1069,6 +1069,13 @@ final class AppModel {
     }
 
     private func canApplyStreamingDelta(key: ThreadKey, itemId: String) -> Bool {
+        // Use the O(1) cachedThreadSnapshots dictionary first to avoid a
+        // linear scan over snapshot.threads per streaming token. Falls back
+        // to the snapshot scan only if the cache misses (e.g. thread not
+        // yet cached after a full snapshot refresh).
+        if let thread = cachedThreadSnapshots[key] {
+            return thread.hydratedConversationItems.contains(where: { $0.id == itemId })
+        }
         guard let snapshot else { return false }
         guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == key }) else {
             return false
