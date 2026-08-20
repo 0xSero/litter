@@ -595,3 +595,49 @@ extension View {
         }
     }
 }
+
+extension URL {
+    var isWebLink: Bool {
+        let scheme = scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
+    }
+}
+
+extension OpenURLAction {
+    static var externalBrowser: OpenURLAction {
+        OpenURLAction { url in
+            guard url.isWebLink else { return .systemAction }
+            UIApplication.shared.open(url)
+            return .handled
+        }
+    }
+}
+
+enum MessageLinks {
+    static let detector: NSDataDetector? =
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    static func links(in text: String, limit: Int = 5) -> [URL] {
+        guard text.contains("://") || text.lowercased().contains("www."),
+              let detector else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var seen = Set<String>()
+        var links: [URL] = []
+        for match in detector.matches(in: text, options: [], range: range) {
+            guard let url = match.url,
+                  url.isWebLink,
+                  seen.insert(url.absoluteString).inserted else { continue }
+            links.append(url)
+            if links.count >= limit { break }
+        }
+        return links
+    }
+
+    static func copyTitle(for url: URL) -> String {
+        let display = url.host.map { host in
+            url.path.count > 1 ? "\(host)\(url.path)" : host
+        } ?? url.absoluteString
+        let trimmed = display.count > 40 ? String(display.prefix(40)) + "…" : display
+        return "Copy \(trimmed)"
+    }
+}

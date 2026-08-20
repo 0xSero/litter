@@ -73,24 +73,13 @@ struct LitterMarkdownView: View {
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
-            .environment(\.openURL, externalBrowserAction)
+            .environment(\.openURL, .externalBrowser)
         case .system:
             view.litterSystemMarkdown(
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
-            .environment(\.openURL, externalBrowserAction)
-        }
-    }
-
-    private var externalBrowserAction: OpenURLAction {
-        OpenURLAction { url in
-            guard let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return .systemAction
-            }
-            UIApplication.shared.open(url)
-            return .handled
+            .environment(\.openURL, .externalBrowser)
         }
     }
 }
@@ -963,44 +952,16 @@ private struct MessageTextContextMenu: ViewModifier {
                 } label: {
                     Label("Select Text", systemImage: "character.cursor.ibeam")
                 }
-                ForEach(messageLinks(in: text), id: \.absoluteString) { url in
+                ForEach(MessageLinks.links(in: text), id: \.absoluteString) { url in
                     Button {
                         UIPasteboard.general.string = url.absoluteString
                     } label: {
-                        Label(copyLinkTitle(for: url), systemImage: "link")
+                        Label(MessageLinks.copyTitle(for: url), systemImage: "link")
                     }
                 }
             }
         }
     }
-}
-
-private let messageLinkDetector: NSDataDetector? =
-    try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-
-private func messageLinks(in text: String, limit: Int = 5) -> [URL] {
-    guard text.contains("://") || text.lowercased().contains("www."),
-          let detector = messageLinkDetector else { return [] }
-    let range = NSRange(text.startIndex..<text.endIndex, in: text)
-    var seen = Set<String>()
-    var links: [URL] = []
-    for match in detector.matches(in: text, options: [], range: range) {
-        guard let url = match.url,
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              seen.insert(url.absoluteString).inserted else { continue }
-        links.append(url)
-        if links.count >= limit { break }
-    }
-    return links
-}
-
-private func copyLinkTitle(for url: URL) -> String {
-    let display = url.host.map { host in
-        url.path.count > 1 ? "\(host)\(url.path)" : host
-    } ?? url.absoluteString
-    let trimmed = display.count > 40 ? String(display.prefix(40)) + "…" : display
-    return "Copy \(trimmed)"
 }
 
 /// Presents `MessageTextSelectionView` without attaching a `.sheet` modifier to
