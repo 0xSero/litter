@@ -49,6 +49,12 @@ struct LitterMarkdownView: View {
     var codeSize: CGFloat = LitterFont.conversationBodyPointSize
     var selectionEnabled = true
 
+    /// Shared processor array so we don't allocate a fresh
+    /// `[LatexTransformer()]` on every `body` evaluation. Each assistant
+    /// message bubble calls `renderedMarkdown` which previously allocated
+    /// a new transformer + array per render.
+    private static let sharedProcessors: [any MarkdownProcessor] = [LatexTransformer()]
+
     @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
 
     var body: some View {
@@ -65,7 +71,7 @@ struct LitterMarkdownView: View {
 
     @ViewBuilder
     private func renderedMarkdown(selectionEnabled: Bool) -> some View {
-        let view = MarkdownView(markdown, processors: [LatexTransformer()])
+        let view = MarkdownView(markdown, processors: Self.sharedProcessors)
         switch style {
         case .content:
             view.litterContentMarkdown(

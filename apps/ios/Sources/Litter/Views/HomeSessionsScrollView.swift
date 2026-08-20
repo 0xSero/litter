@@ -175,6 +175,14 @@ final class HomeSessionsScrollUIView: UIView {
     /// Prevents stacking multiple async measurement passes when
     /// `apply()` fires rapidly (e.g. during initial session load).
     private var deferredMeasureScheduled = false
+    /// Cheap signature of the last `apply()` inputs. When the next
+    /// `apply()` has the same signature, we skip the entire row
+    /// reconfiguration loop. `updateUIView` is called on every
+    /// `HomeDashboardView.body` eval (~8fps during streaming), but the
+    /// session list, pin state, zoom, insets, and text scale rarely
+    /// change during streaming — so this avoids ~8fps of Set construction
+    /// + per-row `configure()` calls for the no-op case.
+    private var lastApplySignature: Int = 0
 
     var zoomCommit: ((Int) -> Void)?
 
@@ -293,6 +301,30 @@ final class HomeSessionsScrollUIView: UIView {
         wallpaperManager: WallpaperManager,
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
+        // O(1) early-exit: hash the cheap inputs and skip the full
+        // reconfiguration loop when nothing changed. During streaming,
+        // updateUIView fires ~8fps but the session list / pin state /
+        // zoom / insets / text scale are usually unchanged.
+        var hasher = Hasher()
+        hasher.combine(sessions.count)
+        for session in sessions {
+            hasher.combine(session.key)
+        }
+        hasher.combine(pinnedThreadKeys)
+        hasher.combine(hydratingKeys)
+        hasher.combine(cancellingKeys)
+        hasher.combine(openingKey)
+        hasher.combine(zoomLevel)
+        hasher.combine(showCatFooter)
+        hasher.combine(topInset)
+        hasher.combine(bottomInset)
+        hasher.combine(textScale)
+        let signature = hasher.finalize()
+        if signature == lastApplySignature && !isPinching {
+            return
+        }
+        lastApplySignature = signature
+
         let zoomChanged = self.zoomLevel != zoomLevel && !isPinching
         let enteredPageFit = zoomChanged && zoomLevel == 4
         self.zoomLevel = zoomLevel
