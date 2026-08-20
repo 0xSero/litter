@@ -680,7 +680,7 @@ impl AppStore {
 
     /// Return the currently-focused terminal session id, if any.
     pub fn active_terminal_id(&self) -> Option<String> {
-        self.inner.app_store.snapshot().active_terminal_id
+        self.inner.app_store.active_terminal_id()
     }
 
     /// Set the focused terminal session id. Pass `None` to clear focus.

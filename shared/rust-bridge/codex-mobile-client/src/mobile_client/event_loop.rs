@@ -277,10 +277,7 @@ impl MobileClient {
 
     pub(crate) fn snapshot_thread(&self, key: &ThreadKey) -> Result<ThreadSnapshot, RpcError> {
         self.app_store
-            .snapshot()
-            .threads
-            .get(key)
-            .cloned()
+            .thread_snapshot(key)
             .ok_or_else(|| RpcError::Deserialization(format!("unknown thread {}", key.thread_id)))
     }
 
@@ -406,13 +403,7 @@ impl MobileClient {
                 // correct runtime.
                 if self
                     .app_store
-                    .snapshot()
-                    .servers
-                    .get(server_id)
-                    .is_some_and(|server| {
-                        server.agent_runtimes.len() == 1
-                            && server.agent_runtimes[0].kind == "local-studio"
-                    })
+                    .server_has_single_runtime(server_id, "local-studio")
                 {
                     "local-studio".to_string()
                 } else {
@@ -423,10 +414,7 @@ impl MobileClient {
 
     pub(super) fn pending_approval(&self, request_id: &str) -> Result<PendingApproval, RpcError> {
         self.app_store
-            .snapshot()
-            .pending_approvals
-            .into_iter()
-            .find(|approval| approval.id == request_id)
+            .pending_approval(request_id)
             .ok_or_else(|| {
                 RpcError::Deserialization(format!("unknown approval request {request_id}"))
             })
@@ -437,10 +425,7 @@ impl MobileClient {
         request_id: &str,
     ) -> Result<PendingUserInputRequest, RpcError> {
         self.app_store
-            .snapshot()
-            .pending_user_inputs
-            .into_iter()
-            .find(|request| request.id == request_id)
+            .pending_user_input(request_id)
             .ok_or_else(|| {
                 RpcError::Deserialization(format!("unknown user input request {request_id}"))
             })

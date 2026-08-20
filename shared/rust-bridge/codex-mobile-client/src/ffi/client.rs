@@ -2925,12 +2925,11 @@ fn inherited_settings_for_origin(
         return (None, None);
     };
 
-    let snapshot = client.app_store.snapshot();
     let key = crate::types::ThreadKey {
         server_id: server_id.to_string(),
         thread_id,
     };
-    let Some(thread) = snapshot.threads.get(&key) else {
+    let Some(thread) = client.app_store.thread_snapshot(&key) else {
         return (None, None);
     };
 

@@ -45,12 +45,7 @@ pub(crate) fn splice_local_runtime_developer_instructions(
 
 #[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
 fn should_apply_local_runtime_instructions(client: &MobileClient, server_id: &str) -> bool {
-    client
-        .app_store
-        .snapshot()
-        .servers
-        .get(server_id)
-        .is_some_and(|server| server.is_local)
+    client.app_store.server_is_local(server_id)
 }
 
 #[cfg(not(any(all(target_os = "ios", not(target_abi = "macabi")), test)))]

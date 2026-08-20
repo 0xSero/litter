@@ -215,6 +215,58 @@ impl AppStoreReducer {
             .clone()
     }
 
+    /// Find a pending approval by id without deep-cloning the entire
+    /// snapshot. The previous code called `snapshot()` (deep-clone of all
+    /// threads + servers) then did a linear scan over a small Vec.
+    pub(crate) fn pending_approval(&self, request_id: &str) -> Option<PendingApproval> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .pending_approvals
+            .iter()
+            .find(|approval| approval.id == request_id)
+            .cloned()
+    }
+
+    /// Find a pending user input request by id without deep-cloning the
+    /// entire snapshot.
+    pub(crate) fn pending_user_input(
+        &self,
+        request_id: &str,
+    ) -> Option<PendingUserInputRequest> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .pending_user_inputs
+            .iter()
+            .find(|request| request.id == request_id)
+            .cloned()
+    }
+
+    /// Whether a server is local, without deep-cloning the entire snapshot.
+    #[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
+    pub(crate) fn server_is_local(&self, server_id: &str) -> bool {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .servers
+            .get(server_id)
+            .is_some_and(|server| server.is_local)
+    }
+
+    /// Whether a server has exactly one runtime of the given kind, without
+    /// deep-cloning the entire snapshot.
+    pub(crate) fn server_has_single_runtime(&self, server_id: &str, kind: &str) -> bool {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .servers
+            .get(server_id)
+            .is_some_and(|server| {
+                server.agent_runtimes.len() == 1 && server.agent_runtimes[0].kind == kind
+            })
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.updates_tx.subscribe()
     }
