@@ -164,12 +164,11 @@ fn normalized_thread_ids<'a>(thread_ids: impl IntoIterator<Item = &'a str>) -> V
 }
 
 fn subagent_label_missing(app_store: &AppStoreReducer, server_id: &str, thread_id: &str) -> bool {
-    let snapshot = app_store.snapshot();
     let key = ThreadKey {
         server_id: server_id.to_string(),
         thread_id: thread_id.to_string(),
     };
-    snapshot.threads.get(&key).is_none_or(|thread| {
+    app_store.thread_snapshot(&key).is_none_or(|thread| {
         thread
             .info
             .agent_nickname
@@ -192,8 +191,7 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
     sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
     key: ThreadKey,
 ) {
-    let snapshot = app_store.snapshot();
-    let Some(thread) = snapshot.threads.get(&key).cloned() else {
+    let Some(thread) = app_store.thread_snapshot(&key) else {
         return;
     };
     if thread.active_turn_id.is_some() || thread.queued_follow_up_drafts.is_empty() {

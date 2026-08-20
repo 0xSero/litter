@@ -1065,8 +1065,8 @@ impl MobileClient {
         model: &str,
     ) -> Option<ResolvedModelSelection> {
         let selected_model = non_empty_trimmed(model)?;
-        let snapshot = self.app_store.snapshot();
-        let models = snapshot.servers.get(server_id)?.available_models.as_ref()?;
+        let server = self.app_store.server_snapshot(server_id)?;
+        let models = server.available_models.as_ref()?;
 
         let exact = models
             .iter()
@@ -1103,8 +1103,8 @@ impl MobileClient {
         model: &str,
     ) -> Option<String> {
         let selected_model = non_empty_trimmed(model)?;
-        let snapshot = self.app_store.snapshot();
-        let models = snapshot.servers.get(server_id)?.available_models.as_ref()?;
+        let server = self.app_store.server_snapshot(server_id)?;
+        let models = server.available_models.as_ref()?;
         models
             .iter()
             .find(|candidate| {
@@ -3953,7 +3953,7 @@ impl MobileClient {
         &self,
         bytes: Vec<u8>,
     ) -> Result<bool, crate::terminal::TerminalError> {
-        let active_id = self.app_store.snapshot().active_terminal_id.clone();
+        let active_id = self.app_store.active_terminal_id();
         let Some(id) = active_id else {
             return Ok(false);
         };

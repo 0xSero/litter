@@ -562,14 +562,10 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
 ) -> Result<(), RpcError> {
     let turns = response.thread.turns.clone();
     let thread_id = response.thread.id.clone();
-    let existing = app_store
-        .snapshot()
-        .threads
-        .get(&ThreadKey {
-            server_id: server_id.to_string(),
-            thread_id: thread_id.to_string(),
-        })
-        .cloned();
+    let existing = app_store.thread_snapshot(&ThreadKey {
+        server_id: server_id.to_string(),
+        thread_id: thread_id.clone(),
+    });
     let mut snapshot = thread_snapshot_from_upstream_thread_with_overrides(
         server_id,
         response.thread,

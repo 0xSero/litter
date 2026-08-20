@@ -192,6 +192,29 @@ impl AppStoreReducer {
             .cloned()
     }
 
+    /// Clone a single server's snapshot without deep-cloning every thread
+    /// in the store. Callers that only need one server's data (e.g. model
+    /// resolution) should use this instead of `snapshot()`.
+    pub(crate) fn server_snapshot(&self, server_id: &str) -> Option<ServerSnapshot> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .servers
+            .get(server_id)
+            .cloned()
+    }
+
+    /// Read the active terminal session id without cloning the entire
+    /// snapshot. The previous code called `snapshot()` (deep-clone of all
+    /// threads + servers) just to extract a single `Option<String>`.
+    pub(crate) fn active_terminal_id(&self) -> Option<String> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .active_terminal_id
+            .clone()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.updates_tx.subscribe()
     }
