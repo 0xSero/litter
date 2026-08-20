@@ -14,7 +14,13 @@ enum MessageContentBridge {
     }
 
     static func containsMath(_ text: String) -> Bool {
-        store.extractSegmentsTyped(text: text).contains { segment in
+        // Cheap pre-check: if none of the characters that can start a math
+        // delimiter are present, there is no math. This avoids a Rust FFI
+        // parse on every streaming token for plain-text responses.
+        guard text.contains("$") || text.contains("\\(") || text.contains("\\[") else {
+            return false
+        }
+        return store.extractSegmentsTyped(text: text).contains { segment in
             switch segment {
             case .inlineMath, .displayMath:
                 return true

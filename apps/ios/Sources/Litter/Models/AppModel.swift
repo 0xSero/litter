@@ -1665,6 +1665,13 @@ final class AppModel {
         }
 
         if let index = snapshot.sessionSummaries.firstIndex(where: { $0.key == sessionSummary.key }) {
+            guard snapshot.sessionSummaries[index] != sessionSummary else {
+                snapshot.agentDirectoryVersion = agentDirectoryVersion
+                self.snapshot = snapshot
+                cacheThreadSnapshot(thread)
+                lastError = nil
+                return
+            }
             snapshot.sessionSummaries[index] = sessionSummary
         } else {
             snapshot.sessionSummaries.append(sessionSummary)
