@@ -1730,6 +1730,11 @@ final class AppModel {
     private func applySessionSummary(_ summary: AppSessionSummary) {
         guard var snapshot else { return }
         if let idx = snapshot.sessionSummaries.firstIndex(where: { $0.key == summary.key }) {
+            // Skip the write (and the snapshotRevision bump it triggers)
+            // when the summary hasn't actually changed. During streaming,
+            // threadItemChanged fires ~8fps and previously each call bumped
+            // snapshotRevision via this unconditional write.
+            guard snapshot.sessionSummaries[idx] != summary else { return }
             snapshot.sessionSummaries[idx] = summary
         } else {
             snapshot.sessionSummaries.append(summary)

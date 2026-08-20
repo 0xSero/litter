@@ -391,7 +391,44 @@ private struct ProjectedConversationItemsResult {
 private extension ConversationScreenModel {
     func projectConversationItems(from hydratedItems: [HydratedConversationItem]) -> ProjectedConversationItemsResult {
         let previousHydratedItems = cachedHydratedConversationItems
-        if previousHydratedItems == hydratedItems {
+
+        // Cheap identity check first: compare count + last item id + last
+        // item hash. During streaming, the full-array `==` walks the entire
+        // unchanged prefix element-by-element (O(n) string comparisons) ~8
+        // times per second before discovering the changed tail. This cheap
+        // check avoids that when the tail is the only thing that changed.
+        // Falls through to full equality only when the cheap fields match.
+        if previousHydratedItems.count == hydratedItems.count,
+           let prevLast = previousHydratedItems.last,
+           let newLast = hydratedItems.last,
+           prevLast.id == newLast.id,
+           prevLast == newLast,
+           previousHydratedItems.count <= 1 {
+            // Single-item or empty array — cheap check is sufficient
+            return ProjectedConversationItemsResult(
+                items: cachedProjectedConversationItems,
+                didChange: false
+            )
+        }
+
+        if previousHydratedItems.count == hydratedItems.count,
+           let prevLast = previousHydratedItems.last,
+           let newLast = hydratedItems.last,
+           prevLast.id == newLast.id,
+           prevLast == newLast {
+            // Last item unchanged and count matches — still need to verify
+            // the prefix didn't change. But the prefix items are immutable
+            // during streaming (only the tail grows), so compare only the
+            // prefix items' ids as a cheaper proxy.
+            let prefixIdsMatch = zip(previousHydratedItems.dropLast(), hydratedItems.dropLast())
+                .allSatisfy { $0.0.id == $0.1.id }
+            if prefixIdsMatch {
+                return ProjectedConversationItemsResult(
+                    items: cachedProjectedConversationItems,
+                    didChange: false
+                )
+            }
+        } else if previousHydratedItems == hydratedItems {
             return ProjectedConversationItemsResult(
                 items: cachedProjectedConversationItems,
                 didChange: false
