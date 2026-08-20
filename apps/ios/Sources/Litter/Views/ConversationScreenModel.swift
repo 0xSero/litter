@@ -234,7 +234,13 @@ final class ConversationScreenModel {
             activeTurnId = nil
         }
         let hasTurnInFlight = activeTurnId != nil || thread.info.status == .active
-        let pendingUserInputRequest = appModel.snapshot?.pendingUserInputs.first {
+
+        // Read `appModel.snapshot` once and extract all needed fields from
+        // the single local. The previous code read `appModel.snapshot` 5
+        // separate times and did 3 linear scans over `servers` to find the
+        // same server (via `serverSnapshot(for:)` → `servers.first { ... }`).
+        let appSnap = appModel.snapshot
+        let pendingUserInputRequest = appSnap?.pendingUserInputs.first {
             $0.isRelevant(to: thread.key)
         }
         let activeTaskSummary = items.latestActiveTaskSummary
@@ -248,7 +254,7 @@ final class ConversationScreenModel {
         // `appModel.snapshot` in `body` registers an observation edge that
         // re-renders the view on every coalesced snapshot mutation (~8 fps
         // during streaming).
-        let serverSnap = appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+        let serverSnap = appSnap?.serverSnapshot(for: thread.key.serverId)
         serverSnapshot = serverSnap
         let supportsTurnPagination = serverSnap?.capabilities.supportsTurnPagination ?? false
         let hasFixedFullAccess = String.hasFixedFullAccess(thread.agentRuntimeKind)
@@ -257,7 +263,7 @@ final class ConversationScreenModel {
         // sessionSummaries. This avoids reading `appModel.snapshot` inside
         // ConversationView.body (the old private func created an observation
         // edge that re-rendered the entire conversation on every snapshot bump).
-        let capturedSummaries = appModel.snapshot?.sessionSummaries ?? []
+        let capturedSummaries = appSnap?.sessionSummaries ?? []
         let serverId = thread.key.serverId
         resolveTargetLabel = { target in
             if AgentLabelFormatter.looksLikeDisplayLabel(target) {
@@ -312,11 +318,10 @@ final class ConversationScreenModel {
             threadReasoningEffort: thread.reasoningEffort,
             modelContextWindow: thread.modelContextWindow.map(Int64.init),
             contextTokensUsed: thread.contextTokensUsed.map(Int64.init),
-            rateLimits: appModel.rateLimits(
-                forServer: thread.key.serverId,
-                runtime: thread.agentRuntimeKind
-            ),
-            availableModels: appModel.availableModels(for: thread.key.serverId),
+            rateLimits: serverSnap?.rateLimitsByRuntime
+                .first(where: { $0.runtimeKind == thread.agentRuntimeKind })?
+                .rateLimits,
+            availableModels: serverSnap?.availableModels ?? [],
             isConnected: serverSnap?.isConnected ?? false,
             supportsTurnPagination: supportsTurnPagination,
             hasFixedFullAccess: hasFixedFullAccess
