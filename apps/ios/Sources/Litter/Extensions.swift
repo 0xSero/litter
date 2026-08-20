@@ -50,6 +50,24 @@ enum LitterTheme {
 
     static var accent: Color        { adaptive(light: light.accent, dark: dark.accent) }
     static var accentStrong: Color   { adaptive(light: light.accentStrong, dark: dark.accentStrong) }
+    static var linkColor: Color {
+        adaptive(
+            light: chromaticHex(light.accent, fallback: "#0A66C2"),
+            dark: chromaticHex(dark.accent, fallback: "#6CB2FF")
+        )
+    }
+
+    private static func chromaticHex(_ hexColor: String, fallback: String) -> String {
+        let hex = hexColor.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = Double((int >> 16) & 0xFF)
+        let g = Double((int >> 8) & 0xFF)
+        let b = Double(int & 0xFF)
+        let maxChannel = max(r, g, b)
+        let saturation = maxChannel == 0 ? 0 : (maxChannel - min(r, g, b)) / maxChannel
+        return saturation < 0.15 ? fallback : hexColor
+    }
     static var textPrimary: Color    { adaptive(light: light.textPrimary, dark: dark.textPrimary) }
     static var textSecondary: Color  { adaptive(light: light.textSecondary, dark: dark.textSecondary) }
     static var textMuted: Color      { adaptive(light: light.textMuted, dark: dark.textMuted) }

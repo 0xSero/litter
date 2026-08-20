@@ -104,6 +104,8 @@ struct FormattedText: View {
                 continue
             }
             attributed[lowerBound..<upperBound].link = url
+            attributed[lowerBound..<upperBound].foregroundColor = LitterTheme.linkColor
+            attributed[lowerBound..<upperBound].underlineStyle = .single
         }
         return attributed
     }

@@ -709,7 +709,7 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
         tightItemSpacing: 4
     )
 
-    theme.link = LinkStyle(color: LitterTheme.accent, underline: false)
+    theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
         color: LitterTheme.border,
@@ -783,7 +783,7 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
         tightItemSpacing: 3
     )
 
-    theme.link = LinkStyle(color: LitterTheme.accent, underline: false)
+    theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
         color: LitterTheme.border,
