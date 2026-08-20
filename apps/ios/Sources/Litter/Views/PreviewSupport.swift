@@ -33,16 +33,6 @@ enum LitterPreviewData {
         preferredConnectionMode: .ssh
     )
 
-    static let sampleBonjourServer = DiscoveredServer(
-        id: "preview-bonjour",
-        name: "Kitchen iMac",
-        hostname: "imac.local",
-        port: 8390,
-        codexPorts: [8390],
-        source: .bonjour,
-        hasCodexServer: true
-    )
-
     static let sampleModels: [ModelInfo] = [
         ModelInfo(
             id: "gpt-5.4",
@@ -186,10 +176,6 @@ enum LitterPreviewData {
             ))
         }
         return msgs
-    }
-
-    static var sampleDiscoveryServers: [DiscoveredServer] {
-        [sampleBonjourServer, sampleSSHServer, sampleServer]
     }
 
     @MainActor

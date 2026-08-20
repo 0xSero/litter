@@ -703,18 +703,6 @@ struct SessionCanvasLine: View {
     private var toolCallCount: UInt32 { s?.toolCallCount ?? 0 }
     private var turnCount: UInt32 { s?.turnCount ?? 0 }
 
-    /// True when the most recent tool-capable item is still running.
-    /// Derived from the Rust-side `recent_tool_log`, which records tool
-    /// entries in chronological order — the last entry's status reflects
-    /// the most recent tool. Tool-call activity is only updated on item
-    /// upserts (not streaming deltas), so the log is always fresh for this
-    /// check.
-    private var isToolCallRunning: Bool {
-        guard let last = session.recentToolLog.last else { return false }
-        let s = last.status.lowercased()
-        return s == "pending" || s == "inprogress"
-    }
-
     /// Keep home-screen tool activity subordinate to assistant/user text.
     /// The home card's response preview uses conversation-body sizing, so
     /// the tool log should step down a tier rather than compete with it.
@@ -875,55 +863,6 @@ struct SessionCanvasLine: View {
     }
 
     // MARK: - Zoom 2: meta line
-
-    /// Inline stat chips: tool calls, turns, context %
-    @ViewBuilder
-    private var statChips: some View {
-        if toolCallCount > 0 || turnCount > 0 {
-            Text("\u{00b7}")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-        }
-        if toolCallCount > 0 {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .litterFont(size: 8)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
-            RollingMetricText("\(toolCallCount)")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-        }
-        if turnCount > 0 {
-            Image(systemName: "arrow.turn.down.right")
-                .litterFont(size: 8)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
-            RollingMetricText("\(turnCount)")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-        }
-        if let tu = session.tokenUsage, let window = tu.contextWindow, window > 0 {
-            let pct = Int((Double(tu.totalTokens) / Double(window)) * 100)
-            Text("\u{00b7}")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-            RollingMetricText("\(pct)%")
-                .foregroundStyle(pct > 80 ? LitterTheme.warning.opacity(0.8) : LitterTheme.textMuted.opacity(0.8))
-        }
-    }
-
-    @ViewBuilder
-    private var toolActivityLabel: some View {
-        if let toolLabel = session.lastToolLabel {
-            let parts = toolLabel.split(separator: " ", maxSplits: 1)
-            let name = String(parts.first ?? "")
-            toolIconView(for: name)
-                .foregroundStyle(LitterTheme.accent)
-            if parts.count > 1 {
-                Text(String(parts.last ?? ""))
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.8))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else {
-            Text("thinking")
-                .foregroundStyle(LitterTheme.accent)
-        }
-    }
 
     // MARK: - Zoom 2+: identity strip (time · server · model · branch)
     //
