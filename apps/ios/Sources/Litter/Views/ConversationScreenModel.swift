@@ -137,6 +137,25 @@ final class ConversationScreenModel {
     @ObservationIgnored private var cachedProjectedConversationItems: [ConversationItem] = []
     @ObservationIgnored private var transcriptRevision: Int = 0
     @ObservationIgnored private var minigameTask: Task<Void, Never>?
+    /// Cheap O(1) signature of the thread + appModel inputs at the last
+    /// `bind`. When this signature matches the incoming bind, `refreshState()`
+    /// would produce identical output, so we skip it entirely. During
+    /// streaming, snapshotRevision bumps ~8fps but the thread being viewed
+    /// often hasn't changed (e.g. another server's thread updated) — this
+    /// avoids ~8fps of projection + linear scans over `pendingUserInputs`,
+    /// `servers`, and `sessionSummaries` for the no-op case.
+    @ObservationIgnored private var lastBindSignature: BindSignature?
+
+    private struct BindSignature: Equatable {
+        let threadKey: ThreadKey
+        let itemCount: Int
+        let lastItemId: String
+        let threadStatus: ThreadSummaryStatus
+        let activeTurnId: String?
+        let snapshotRevision: UInt64
+        let prefillRequestId: UUID?
+        let agentDirectoryVersion: UInt64
+    }
 
     func bind(
         thread: AppThreadSnapshot,
@@ -147,9 +166,30 @@ final class ConversationScreenModel {
             self.thread?.key != thread.key ||
             self.appModel !== appModel
 
+        let currentSnapshotRevision = appModel.snapshotRevision
+        let currentPrefillRequestId = appModel.composerPrefillRequest?.id
+
+        // O(1) early-exit: if the thread's cheap signature and the appModel
+        // inputs are unchanged since the last bind, refreshState() would
+        // produce identical output. Skip the entire pass.
+        let signature = BindSignature(
+            threadKey: thread.key,
+            itemCount: thread.hydratedConversationItems.count,
+            lastItemId: thread.hydratedConversationItems.last?.id ?? "",
+            threadStatus: thread.info.status,
+            activeTurnId: thread.activeTurnId,
+            snapshotRevision: currentSnapshotRevision,
+            prefillRequestId: currentPrefillRequestId,
+            agentDirectoryVersion: agentDirectoryVersion
+        )
+        if !threadChanged, lastBindSignature == signature {
+            return
+        }
+
         self.thread = thread
         self.appModel = appModel
         self.agentDirectoryVersion = agentDirectoryVersion
+        lastBindSignature = signature
 
         if threadChanged {
             followScrollToken = 0
