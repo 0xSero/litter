@@ -1381,17 +1381,13 @@ pub(crate) fn project_thread_state_update(
 }
 
 pub(crate) fn current_agent_directory_version(snapshot: &AppSnapshot) -> u64 {
-    let mut threads = snapshot.threads.values().collect::<Vec<_>>();
-    threads.sort_by(|lhs, rhs| {
-        rhs.info
-            .updated_at
-            .cmp(&lhs.info.updated_at)
-            .then_with(|| lhs.key.server_id.cmp(&rhs.key.server_id))
-            .then_with(|| lhs.key.thread_id.cmp(&rhs.key.thread_id))
-    });
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for thread in threads {
+    // Order-independent hash: XOR per-thread hashes so we avoid the
+    // O(T log T) sort that the previous implementation needed for a
+    // deterministic fold. XOR is commutative and associative, so
+    // iteration order doesn't matter.
+    let mut combined: u64 = 0;
+    for thread in snapshot.threads.values() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
         thread.key.server_id.hash(&mut hasher);
         thread.key.thread_id.hash(&mut hasher);
         thread
@@ -1418,8 +1414,9 @@ pub(crate) fn current_agent_directory_version(snapshot: &AppSnapshot) -> u64 {
             .hash(&mut hasher);
         thread.info.updated_at.hash(&mut hasher);
         thread_has_active_turn(thread).hash(&mut hasher);
+        combined ^= hasher.finish();
     }
-    hasher.finish()
+    combined
 }
 
 fn thread_has_active_turn(thread: &ThreadSnapshot) -> bool {
@@ -1451,8 +1448,11 @@ impl From<ServerHealthSnapshot> for AppServerTransportState {
 }
 
 fn agent_directory_version(session_summaries: &[AppSessionSummary]) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // Order-independent: XOR per-summary hashes so the result is the same
+    // regardless of iteration order (matching `current_agent_directory_version`).
+    let mut combined: u64 = 0;
     for summary in session_summaries {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
         summary.key.server_id.hash(&mut hasher);
         summary.key.thread_id.hash(&mut hasher);
         summary.parent_thread_id.hash(&mut hasher);
@@ -1462,8 +1462,9 @@ fn agent_directory_version(session_summaries: &[AppSessionSummary]) -> u64 {
         summary.agent_status.hash(&mut hasher);
         summary.updated_at.hash(&mut hasher);
         summary.has_active_turn.hash(&mut hasher);
+        combined ^= hasher.finish();
     }
-    hasher.finish()
+    combined
 }
 
 fn agent_display_label(

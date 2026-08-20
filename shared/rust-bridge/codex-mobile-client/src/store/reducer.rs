@@ -126,6 +126,22 @@ pub struct AppStoreReducer {
     dynamic_tool_arg_buffers: RwLock<HashMap<(ThreadKey, String), DynamicToolCallArgBuffer>>,
     updates_tx: broadcast::Sender<AppStoreUpdateRecord>,
     voice_state: VoiceRealtimeState,
+    /// Cached `AppSessionSummary` per thread, keyed by a cheap signature
+    /// `(item_count, last_item_id, last_item_fingerprint, updated_at)`.
+    /// During streaming, `emit_thread_item_changed` fires ~8fps and each
+    /// call would otherwise trigger `extract_conversation_activity` — an
+    /// O(n) walk of the entire thread. When the signature matches the
+    /// previous computation, we return the cached summary instead.
+    session_summary_cache: RwLock<HashMap<ThreadKey, SessionSummaryCacheEntry>>,
+}
+
+#[derive(Clone)]
+struct SessionSummaryCacheEntry {
+    item_count: usize,
+    last_item_id: String,
+    last_item_fingerprint: u64,
+    updated_at: Option<i64>,
+    summary: crate::store::boundary::AppSessionSummary,
 }
 
 /// State we carry per (thread, call_id) while streaming argument deltas.
@@ -156,6 +172,7 @@ impl AppStoreReducer {
             dynamic_tool_arg_buffers: RwLock::new(HashMap::new()),
             updates_tx,
             voice_state: VoiceRealtimeState::default(),
+            session_summary_cache: RwLock::new(HashMap::new()),
         }
     }
 
@@ -2427,6 +2444,10 @@ impl AppStoreReducer {
             .write()
             .expect("thread item cache lock poisoned")
             .retain(|(thread_key, _), _| thread_key != key);
+        self.session_summary_cache
+            .write()
+            .expect("session summary cache lock poisoned")
+            .remove(key);
     }
 
     pub(crate) fn emit_thread_upsert(&self, key: &ThreadKey) {
@@ -2496,6 +2517,14 @@ impl AppStoreReducer {
     /// per-item events. Falls back to a minimal summary if the thread is
     /// gone by the time this runs (shouldn't happen in practice — emit
     /// sites hold the snapshot lock while deciding to emit).
+    ///
+    /// Caches the result keyed by a cheap signature `(item_count, last_item_id,
+    /// last_item_fingerprint, updated_at)`. During streaming, `emit_thread_item_changed`
+    /// fires ~8fps; without the cache each call triggers `extract_conversation_activity`,
+    /// an O(n) walk of the entire thread. The signature changes when the last
+    /// item grows (the common streaming case), so the cache only short-circuits
+    /// when the thread genuinely hasn't changed (e.g. another thread's item
+    /// event triggers a metadata emit that re-derives this thread's summary).
     fn compute_session_summary(&self, key: &ThreadKey) -> AppSessionSummary {
         let snapshot = self.snapshot.read().expect("app store lock poisoned");
         let Some(thread) = snapshot.threads.get(key) else {
@@ -2504,7 +2533,56 @@ impl AppStoreReducer {
             // will get a ThreadRemoved event next and discard anyway.
             return empty_session_summary(key.clone());
         };
-        app_session_summary(thread, snapshot.servers.get(&key.server_id))
+        let server = snapshot.servers.get(&key.server_id);
+
+        // Build a cheap signature from the thread's item state. During
+        // streaming the last item's fingerprint changes every token, so this
+        // cache only helps when the thread hasn't changed since the last
+        // compute (e.g. a metadata event for a *different* thread triggers
+        // a re-derivation via `emit_thread_metadata_changed`).
+        let item_count = thread.items.len();
+        let last_item_id = thread.items.last().map(|i| i.id.clone()).unwrap_or_default();
+        let last_item_fingerprint = thread
+            .items
+            .last()
+            .map(|i| item_fingerprint(i))
+            .unwrap_or(0);
+        let updated_at = thread.info.updated_at;
+
+        {
+            let cache = self
+                .session_summary_cache
+                .read()
+                .expect("session summary cache lock poisoned");
+            if let Some(entry) = cache.get(key) {
+                if entry.item_count == item_count
+                    && entry.last_item_id == last_item_id
+                    && entry.last_item_fingerprint == last_item_fingerprint
+                    && entry.updated_at == updated_at
+                {
+                    return entry.summary.clone();
+                }
+            }
+        }
+
+        let summary = app_session_summary(thread, server);
+        {
+            let mut cache = self
+                .session_summary_cache
+                .write()
+                .expect("session summary cache lock poisoned");
+            cache.insert(
+                key.clone(),
+                SessionSummaryCacheEntry {
+                    item_count,
+                    last_item_id,
+                    last_item_fingerprint,
+                    updated_at,
+                    summary: summary.clone(),
+                },
+            );
+        }
+        summary
     }
 
     pub(crate) fn emit_thread_item_changed_by_id(&self, key: &ThreadKey, item_id: &str) {
