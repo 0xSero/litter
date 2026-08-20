@@ -16,7 +16,7 @@ struct FormattedText: View {
 
     var body: some View {
         content
-            .environment(\.openURL, externalBrowserAction)
+            .environment(\.openURL, .externalBrowser)
     }
 
     @ViewBuilder
@@ -93,12 +93,11 @@ struct FormattedText: View {
 
     private func linkifiedText(_ value: String) -> AttributedString {
         var attributed = AttributedString(value)
-        guard let linkDetector = Self.linkDetector else { return attributed }
+        guard let linkDetector = MessageLinks.detector else { return attributed }
         let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
         for match in linkDetector.matches(in: value, options: [], range: fullRange) {
             guard let url = match.url,
-                  let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https",
+                  url.isWebLink,
                   let stringRange = Range(match.range, in: value),
                   let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributed),
                   let upperBound = AttributedString.Index(stringRange.upperBound, within: attributed) else {
@@ -109,22 +108,6 @@ struct FormattedText: View {
         return attributed
     }
 
-    private var externalBrowserAction: OpenURLAction {
-        OpenURLAction { url in
-            guard let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return .systemAction
-            }
-            UIApplication.shared.open(url)
-            return .handled
-        }
-    }
-
-    private static let linkDetector: NSDataDetector? = {
-        // The detector is immutable after construction and reused across
-        // message rows so long transcripts don't repeatedly compile URL rules.
-        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-    }()
 }
 
 struct PluginPill: View {
