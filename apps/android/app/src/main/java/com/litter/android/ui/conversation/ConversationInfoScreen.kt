@@ -375,8 +375,8 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
                 val abbreviated = if (isLocal) {
                     com.litter.android.state.PathDisplay.display(cwd, true, context)
                 } else {
-                    cwd.replace(Regex("^/home/[^/]+"), "~")
-                        .replace(Regex("^/Users/[^/]+"), "~")
+                    cwd.replace(HOME_PATH_REGEX, "~")
+                        .replace(USERS_PATH_REGEX, "~")
                 }
                 Text(
                     text = abbreviated,
@@ -978,6 +978,9 @@ private fun ActionCircleButton(
 }
 
 // --- Utilities ---
+
+private val HOME_PATH_REGEX = Regex("^/home/[^/]+")
+private val USERS_PATH_REGEX = Regex("^/Users/[^/]+")
 
 private fun formatTimestamp(epochSeconds: Long): String {
     val now = System.currentTimeMillis()

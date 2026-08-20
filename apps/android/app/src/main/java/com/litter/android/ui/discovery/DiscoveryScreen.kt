@@ -1604,8 +1604,10 @@ private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (
     AgentAvailabilityStatus.WINDOWS_NOT_YET_SUPPORTED -> "Windows not supported"
 }
 
+private val SAFE_HOST_CHARS_REGEX = Regex("[^A-Za-z0-9._-]")
+
 private fun sshBridgeStateRoot(context: Context, host: String): String {
-    val safeHost = host.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val safeHost = host.replace(SAFE_HOST_CHARS_REGEX, "_")
     val dir = File(File(context.filesDir, "alleycat-bridges"), safeHost)
     dir.mkdirs()
     return dir.absolutePath

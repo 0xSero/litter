@@ -181,6 +181,11 @@ class AppModel private constructor(context: android.content.Context) {
     private val modelCatalogErrorsByServer = mutableMapOf<String, String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
+    /// Cached saved-server-name map. `loadSavedServerNames()` reads
+    /// SharedPreferences + parses JSON on every call; without this cache it
+    /// ran per streaming token via `applySessionSummary` →
+    /// `applySavedServerName`. Invalidated when SavedServerStore is mutated.
+    private var cachedSavedServerNames: Map<String, String>? = null
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
     private var pendingActiveThreadHydrationJob: Job? = null
@@ -345,6 +350,12 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun applySnapshot(snapshot: AppSnapshotRecord?) {
+        // Invalidate the saved-server-name cache so a full snapshot apply
+        // (which may follow a user rename/remove/remember action) picks up
+        // the latest persisted names. During streaming, applySessionSummary/
+        // applyThreadStateUpdated call applySavedServerName without going
+        // through applySnapshot, so the cache stays warm across tokens.
+        cachedSavedServerNames = null
         val merged = snapshot
             ?.let(::applySavedServerNames)
             ?.let(::mergeCachedThreadSnapshots)
@@ -367,13 +378,17 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
-    private fun loadSavedServerNames(): Map<String, String> =
-        SavedServerStore.load(appContext)
+    private fun loadSavedServerNames(): Map<String, String> {
+        cachedSavedServerNames?.let { return it }
+        val loaded = SavedServerStore.load(appContext)
             .mapNotNull { server ->
                 val trimmed = server.name.trim()
                 if (trimmed.isEmpty()) null else server.id to trimmed
             }
             .toMap()
+        cachedSavedServerNames = loaded
+        return loaded
+    }
 
     private fun applySavedServerNames(snapshot: AppSnapshotRecord): AppSnapshotRecord {
         val nameByServerId = loadSavedServerNames()

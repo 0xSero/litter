@@ -219,8 +219,8 @@ fun HeaderBar(
                 }
                 val cwd = thread?.info?.cwd
                 if (cwd != null) {
-                    val abbreviated = cwd.replace(Regex("^/home/[^/]+"), "~")
-                        .replace(Regex("^/Users/[^/]+"), "~")
+                    val abbreviated = cwd.replace(HOME_PATH_REGEX, "~")
+                        .replace(USERS_PATH_REGEX, "~")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = abbreviated,
@@ -377,6 +377,9 @@ fun HeaderBar(
 object HeaderOverrides {
     var pendingFastMode by mutableStateOf(false)
 }
+
+private val HOME_PATH_REGEX = Regex("^/home/[^/]+")
+private val USERS_PATH_REGEX = Regex("^/Users/[^/]+")
 
 private fun effortLabelLocal(value: uniffi.codex_mobile_client.ReasoningEffort): String =
     when (value) {

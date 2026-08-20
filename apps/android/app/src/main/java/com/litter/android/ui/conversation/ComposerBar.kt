@@ -180,10 +180,12 @@ fun ComposerBar(
 ) {
     val appModel = LocalAppModel.current
     val appSnapshot by appModel.snapshot.collectAsState()
-    val hasFixedFullAccess = appSnapshot?.threads
-        ?.firstOrNull { it.key == threadKey }
-        ?.agentRuntimeKind
-        ?.hasFixedFullAccess == true
+    val hasFixedFullAccess = remember(appSnapshot, threadKey) {
+        appSnapshot?.threads
+            ?.firstOrNull { it.key == threadKey }
+            ?.agentRuntimeKind
+            ?.hasFixedFullAccess == true
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val composerPrefillRequest by appModel.composerPrefillRequest.collectAsState()

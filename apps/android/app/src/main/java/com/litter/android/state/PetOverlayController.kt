@@ -323,9 +323,11 @@ object PetOverlayController {
         return if (connected) null else "Waiting for server"
     }
 
+    private val SAFE_FILE_CHARS_REGEX = Regex("[^A-Za-z0-9_.-]")
+
     private fun cacheFile(context: Context, serverId: String, petId: String): File {
-        val safeServer = serverId.replace(Regex("[^A-Za-z0-9_.-]"), "_")
-        val safePet = petId.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        val safeServer = serverId.replace(SAFE_FILE_CHARS_REGEX, "_")
+        val safePet = petId.replace(SAFE_FILE_CHARS_REGEX, "_")
         return File(File(context.filesDir, CACHE_DIR), "${safeServer}_${safePet}.webp")
     }
 }

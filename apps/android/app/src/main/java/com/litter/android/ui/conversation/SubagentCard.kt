@@ -38,6 +38,7 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.scaled
 import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppSubagentStatus
 import uniffi.codex_mobile_client.HydratedMultiAgentActionData
@@ -124,15 +125,32 @@ fun SubagentCard(
                 )
             }
 
+            // Precompute a summary lookup map so per-row resolution is O(1)
+            // instead of O(M) per row × 3 lookups per row. Without this, each
+            // row did 3 separate sessionSummaries.firstOrNull scans on every
+            // snapshot emission (per streaming token).
+            val summaryByKey = remember(snapshot) {
+                snapshot?.sessionSummaries?.associateBy { it.key } ?: emptyMap()
+            }
+            val summariesByThread = remember(snapshot, serverId) {
+                snapshot?.sessionSummaries
+                    ?.filter { it.key.serverId == serverId }
+                    ?.associateBy { it.key.threadId }
+                    ?: emptyMap()
+            }
+
             for (row in agentRows) {
                 val threadKey = row.threadId?.let { threadId ->
-                    snapshot?.resolvedThreadKey(threadId, serverId)
-                        ?: AgentLabelFormatter.sanitized(threadId)?.let { normalized ->
-                            ThreadKey(serverId = serverId, threadId = normalized)
-                        }
+                    val normalized = AgentLabelFormatter.sanitized(threadId)
+                    if (normalized != null) {
+                        summariesByThread[normalized]?.key
+                            ?: ThreadKey(serverId = serverId, threadId = normalized)
+                    } else {
+                        null
+                    }
                 }
-                val displayLabel = resolvedLabel(snapshot, row, serverId)
-                val liveStatus = liveStatus(snapshot, row, serverId)
+                val displayLabel = resolvedLabelFromMap(summariesByThread, row, serverId)
+                val liveStatus = liveStatusFromMap(summaryByKey, threadKey)
                 val statusText = readableStatus(liveStatus)
                 val statusColor = statusColor(liveStatus)
 
@@ -245,6 +263,48 @@ private fun liveStatus(
         summary?.hasActiveTurn == true -> AppSubagentStatus.RUNNING
         summary != null && summary.agentStatus != AppSubagentStatus.UNKNOWN -> summary.agentStatus
         else -> row.status
+    }
+}
+
+/// Map-based variants for use inside `remember`-ed composable blocks.
+/// These avoid the per-row O(M) sessionSummaries scans by using a
+/// precomputed lookup map.
+private fun resolvedLabelFromMap(
+    summariesByThread: Map<String, AppSessionSummary>,
+    row: AgentRowData,
+    serverId: String,
+): String {
+    if (row.label.isNotBlank() && !looksLikeRawId(row.label)) {
+        return row.label
+    }
+    val fromLabel = resolveAgentLabelFromMap(summariesByThread, row.label, serverId)
+    if (fromLabel != null) return fromLabel
+    val fromThreadId = row.threadId?.let { resolveAgentLabelFromMap(summariesByThread, it, serverId) }
+    return fromThreadId ?: row.label
+}
+
+private fun resolveAgentLabelFromMap(
+    summariesByThread: Map<String, AppSessionSummary>,
+    target: String,
+    serverId: String,
+): String? {
+    if (AgentLabelFormatter.looksLikeDisplayLabel(target)) {
+        return AgentLabelFormatter.sanitized(target)
+    }
+    val normalized = AgentLabelFormatter.sanitized(target) ?: return null
+    val summary = summariesByThread[normalized]
+    return summary?.agentDisplayLabel ?: AgentLabelFormatter.sanitized(target)
+}
+
+private fun liveStatusFromMap(
+    summaryByKey: Map<ThreadKey, AppSessionSummary>,
+    threadKey: ThreadKey?,
+): AppSubagentStatus? {
+    val summary = threadKey?.let { summaryByKey[it] }
+    return when {
+        summary?.hasActiveTurn == true -> AppSubagentStatus.RUNNING
+        summary != null && summary.agentStatus != AppSubagentStatus.UNKNOWN -> summary.agentStatus
+        else -> null
     }
 }
 

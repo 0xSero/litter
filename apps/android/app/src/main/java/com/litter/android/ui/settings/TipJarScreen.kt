@@ -111,6 +111,8 @@ private sealed class TipJarState {
     data class Error(val message: String) : TipJarState()
 }
 
+private val TIP_TITLE_SUFFIX_REGEX = Regex("\\s*\\(.*\\)$")
+
 @Composable
 fun TipJarScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -423,7 +425,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Text(
-                                    tip.details?.title?.replace(Regex("\\s*\\(.*\\)$"), "") ?: tip.displayName,
+                                    tip.details?.title?.replace(TIP_TITLE_SUFFIX_REGEX, "") ?: tip.displayName,
                                     color = LitterTheme.textPrimary,
                                     fontSize = 14.sp,
                                     modifier = Modifier.weight(1f),
