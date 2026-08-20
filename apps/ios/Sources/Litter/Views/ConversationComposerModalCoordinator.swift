@@ -36,6 +36,13 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     let onRenameThread: (String) async -> Void
     @ViewBuilder let content: Content
     @State private var modelSelectorDetent: PresentationDetent = .large
+    /// Cached thread snapshot + catalog-loaded flag, refreshed from closures
+    /// (`.onChange`/`.onAppear`) so the body never reads `appModel.snapshot`
+    /// directly. Without this, `currentThread` and the `catalogLoaded` check
+    /// in the model-selector sheet created observation edges that re-rendered
+    /// the entire coordinator on every snapshotRevision bump.
+    @State private var cachedThread: AppThreadSnapshot?
+    @State private var cachedCatalogLoaded: Bool = false
 
     /// Bridge binding for `CameraView` which expects a single `UIImage?`.
     /// Appends the captured photo to the `attachedImages` array (capped at 4)
@@ -115,8 +122,11 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
         ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.description ?? "This sandbox setting is managed by the server."
     }
 
-    private var currentThread: AppThreadSnapshot? {
-        appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey })
+    private var currentThread: AppThreadSnapshot? { cachedThread }
+
+    private func refreshCachedState() {
+        cachedThread = appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey })
+        cachedCatalogLoaded = appModel.snapshot?.serverSnapshot(for: snapshot.threadKey.serverId)?.availableModels != nil
     }
 
     private var currentRuntimeSupportsPermissionOverrides: Bool {
@@ -194,7 +204,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             .sheet(isPresented: $showModelSelector) {
                 ModelSelectorSheet(
                     models: snapshot.availableModels,
-                    catalogLoaded: appModel.snapshot?.serverSnapshot(for: snapshot.threadKey.serverId)?.availableModels != nil,
+                    catalogLoaded: cachedCatalogLoaded,
                     catalogError: appModel.modelCatalogError(for: snapshot.threadKey.serverId),
                     onRetryModels: {
                         Task {
@@ -267,6 +277,8 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             } message: {
                 Text("Microphone permission is required for voice input. Enable it in Settings.")
             }
+            .onAppear { refreshCachedState() }
+            .onChange(of: appModel.snapshotRevision) { _, _ in refreshCachedState() }
     }
 
     @ViewBuilder
