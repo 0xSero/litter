@@ -721,10 +721,6 @@ private struct ConversationMessageList: View {
                                     canCollapse: turn.isCollapsedByDefault,
                                     isLastTurn: isLastTurn,
                                     viewportHeight: viewport.size.height,
-                                    showTypingIndicator: isLastTurn && {
-                                        if case .thinking = threadStatus { return true }
-                                        return false
-                                    }(),
                                     serverId: activeThreadKey.serverId,
                                     originThreadId: activeThreadKey.threadId,
                                     agentDirectoryVersion: agentDirectoryVersion,
@@ -749,6 +745,11 @@ private struct ConversationMessageList: View {
                                 .equatable()
                                 .turnDebugOverlay(turnId: turn.id)
                             }
+
+                            TypingIndicator()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .opacity(isStreaming ? 1 : 0)
+                                .animation(nil, value: isStreaming)
                         }
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -1146,7 +1147,6 @@ private struct ConversationTurnRow: View, Equatable {
     let canCollapse: Bool
     let isLastTurn: Bool
     let viewportHeight: CGFloat
-    let showTypingIndicator: Bool
     let serverId: String
     let originThreadId: String?
     let agentDirectoryVersion: UInt64
@@ -1171,7 +1171,6 @@ private struct ConversationTurnRow: View, Equatable {
             lhs.canCollapse == rhs.canCollapse &&
             lhs.isLastTurn == rhs.isLastTurn &&
             lhs.viewportHeight == rhs.viewportHeight &&
-            lhs.showTypingIndicator == rhs.showTypingIndicator &&
             lhs.serverId == rhs.serverId &&
             lhs.originThreadId == rhs.originThreadId &&
             lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
@@ -1205,10 +1204,6 @@ private struct ConversationTurnRow: View, Equatable {
                 onForkFromUserItem: onForkFromUserItem,
                 onOpenConversation: onOpenConversation
             )
-
-            TypingIndicator()
-                .opacity(showTypingIndicator ? 1 : 0)
-                .animation(nil, value: showTypingIndicator)
 
             if canCollapse {
                 Button("Show Less", systemImage: "chevron.up", action: onToggleExpansion)
