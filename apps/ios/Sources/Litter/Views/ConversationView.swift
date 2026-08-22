@@ -9,35 +9,12 @@ private let conversationViewSignpostLog = OSLog(
     category: "ConversationView"
 )
 
-enum ConversationStreamingViewportPolicy {
-    static func shouldMaintainBottomAnchor(
-        isStreaming: Bool,
-        isNearBottom: Bool,
-        autoFollowStreaming: Bool,
-        userIsDraggingScroll: Bool
-    ) -> Bool {
-        guard !userIsDraggingScroll else { return false }
-        if isStreaming {
-            return autoFollowStreaming
-        }
-        return isNearBottom
-    }
-
-    static func isStreaming(_ threadStatus: ConversationStatus) -> Bool {
-        if case .thinking = threadStatus {
-            return true
-        }
-        return false
-    }
-}
-
 struct ConversationView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppModel.self) private var appModel
     let thread: AppThreadSnapshot
     let activeThreadKey: ThreadKey
     let transcript: ConversationTranscriptSnapshot
-    let followScrollToken: Int
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
     var supportsTurnPagination: Bool
@@ -111,7 +88,6 @@ struct ConversationView: View {
             threadStatus: threadStatus,
             threadHasServerData: thread.hasPreviewOrTitle,
             transcriptRenderDigest: transcript.renderDigest,
-            followScrollToken: followScrollToken,
             sendScrollToken: localSendScrollToken,
             activeThreadKey: activeThreadKey,
             agentDirectoryVersion: agentDirectoryVersion,
@@ -591,7 +567,6 @@ private struct ConversationMessageList: View {
     let threadStatus: ConversationStatus
     let threadHasServerData: Bool
     let transcriptRenderDigest: Int
-    let followScrollToken: Int
     let sendScrollToken: Int
     let activeThreadKey: ThreadKey
     let agentDirectoryVersion: UInt64
@@ -608,8 +583,8 @@ private struct ConversationMessageList: View {
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
     let onLoadOlderTurns: (ThreadKey) -> Void
     @State private var isNearBottom = true
-    @State private var autoFollowStreaming = true
-    @State private var userIsDraggingScroll = false
+    @State private var isFollowingBottom = true
+    @State private var scrollPosition = ScrollPosition()
     @State private var showScrollToBottomButton = false
     @State private var waitingForDataExpired = false
     @State private var pinchBaseStep: Int?
@@ -621,16 +596,9 @@ private struct ConversationMessageList: View {
     @State private var expandedTurnIDs: Set<String> = []
     @State private var pendingAnimatedTurns: [TranscriptTurn]?
     @State private var turnInsertionAnimationInFlight = false
-    @State private var followLayoutScrollScheduled = false
-    @State private var initialBottomScrollThreadScopeID: String?
-    @State private var programmaticBottomScrollSettling = false
-    @State private var programmaticBottomScrollGeneration = 0
     @AppStorage("collapseTurns") private var collapseTurns = false
     private static let latestButtonShowDistance: CGFloat = 48
     private static let nearBottomRestoreDistance: CGFloat = 12
-    private static let bottomScrollSettleDuration: TimeInterval = 0.3
-    private static let bottomAnchorID = "conversation-message-list-bottom"
-    private static let scrollCoordinateSpaceName = "conversation-message-list-scroll"
 
     private var expandedRecentTurnCount: Int {
         return collapseTurns ? 1 : .max
@@ -691,8 +659,7 @@ private struct ConversationMessageList: View {
         let _ = PerfTracker.event("ConversationMessageList.body")
         let turns = mergedRenderableTurns
         let lastTurnID = turns.last?.id
-        ScrollViewReader { proxy in
-            GeometryReader { viewport in
+        GeometryReader { viewport in
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -732,12 +699,6 @@ private struct ConversationMessageList: View {
                                     onToggleExpansion: {
                                         toggleTurnExpansion(turn)
                                     },
-                                    onStreamingSnapshotRendered: {
-                                        requestFollowScrollAfterLayout(proxy)
-                                    },
-                                    onLiveContentLayoutChanged: {
-                                        requestFollowScrollAfterLayout(proxy)
-                                    },
                                     resolveTargetLabel: resolveTargetLabel,
                                     resolveThreadKey: resolveThreadKey,
                                     resolveLiveStatus: resolveLiveStatus,
@@ -765,26 +726,25 @@ private struct ConversationMessageList: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 40)
                         }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .id(Self.bottomAnchorID)
-                            .padding(.horizontal, 16)
                     }
                     .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
                 }
                 .id(activeThreadScopeID)
                 .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
-                .coordinateSpace(name: Self.scrollCoordinateSpaceName)
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
                 } action: { _, distance in
                     updateDistanceFromBottom(distance)
                 }
-                // Keep the chat initially bottom-aligned, but don't let keyboard-driven
-                // viewport size changes force a fresh bottom jump with stale lazy heights.
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentSize.height
+                } action: { oldHeight, newHeight in
+                    guard newHeight != oldHeight, isFollowingBottom else { return }
+                    followBottom()
+                }
                 .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .scrollPosition($scrollPosition)
                 .simultaneousGesture(
                     MagnificationGesture(minimumScaleDelta: 0.03)
                         .onChanged { scale in handlePinchChanged(scale: scale) }
@@ -793,29 +753,23 @@ private struct ConversationMessageList: View {
                 .onScrollPhaseChange { _, newPhase in
                     switch newPhase {
                     case .tracking, .interacting:
-                        programmaticBottomScrollSettling = false
-                        userIsDraggingScroll = true
-                        if isStreaming { autoFollowStreaming = false }
+                        isFollowingBottom = false
                     case .decelerating:
-                        userIsDraggingScroll = true
+                        break
                     default:
-                        userIsDraggingScroll = false
-                        if isNearBottom { autoFollowStreaming = true }
+                        if isNearBottom { isFollowingBottom = true }
                     }
                 }
                 .onAppear {
-                    autoFollowStreaming = true
+                    isFollowingBottom = true
                     syncTranscriptTurns()
-                    requestInitialBottomScrollIfNeeded(proxy)
                 }
                 .onChange(of: activeThreadKey) {
-                    autoFollowStreaming = true
+                    isFollowingBottom = true
                     isNearBottom = true
-                    initialBottomScrollThreadScopeID = nil
                     waitingForDataExpired = false
                     syncTranscriptTurns(resetExpansion: true)
                     StreamingRendererCoordinator.shared.reset()
-                    requestInitialBottomScrollIfNeeded(proxy)
                 }
                 .task(id: activeThreadKey) {
                     try? await Task.sleep(for: .seconds(1))
@@ -823,24 +777,14 @@ private struct ConversationMessageList: View {
                 }
                 .onChange(of: items) { _, _ in
                     syncTranscriptTurns()
-                    requestInitialBottomScrollIfNeeded(proxy)
                 }
                 .onChange(of: collapseTurns) {
                     syncTranscriptTurns(resetExpansion: true)
                 }
-                .onChange(of: followScrollToken) {
-                    guard isStreaming, autoFollowStreaming, !userIsDraggingScroll else { return }
-                    scrollToBottom(proxy)
-                }
                 .onChange(of: sendScrollToken) {
-                    autoFollowStreaming = true
+                    isFollowingBottom = true
                     isNearBottom = true
-                    scrollToBottom(proxy)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
-                            scrollToBottom(proxy)
-                        }
-                    }
+                    followBottom()
                 }
                 .onChange(of: threadStatus) { oldStatus, _ in
                     syncTranscriptTurns()
@@ -850,34 +794,18 @@ private struct ConversationMessageList: View {
                     if wasStreaming && !isStreaming {
                         StreamingRendererCoordinator.shared.finishActive()
                     }
-                    if wasStreaming && !isStreaming && autoFollowStreaming {
-                        scrollToBottom(proxy)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            scrollToBottom(proxy)
-                        }
-                    }
                 }
 
                 if shouldShowScrollToBottom {
                     ScrollToBottomIndicator {
-                        autoFollowStreaming = true
+                        isFollowingBottom = true
                         isNearBottom = true
-                        // Jump without animation first so LazyVStack realizes
-                        // content near the bottom, then do an animated corrective
-                        // scroll once layout has settled.  This avoids the
-                        // overshoot caused by stale estimated heights.
-                        scrollToBottom(proxy)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
-                                scrollToBottom(proxy)
-                            }
-                        }
+                        followBottom()
                     }
                     .padding(.trailing, 14)
                     .padding(.bottom, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-            }
             }
         }
     }
@@ -897,69 +825,22 @@ private struct ConversationMessageList: View {
         }
     }
 
-    private func requestFollowScrollAfterLayout(_ proxy: ScrollViewProxy) {
-        guard !followLayoutScrollScheduled else { return }
-        followLayoutScrollScheduled = true
-        DispatchQueue.main.async {
-            followLayoutScrollScheduled = false
-            guard isStreaming, autoFollowStreaming, !userIsDraggingScroll else { return }
-            scrollToBottom(proxy)
-        }
-    }
-
-    private func requestInitialBottomScrollIfNeeded(_ proxy: ScrollViewProxy) {
-        guard !items.isEmpty else { return }
-        let threadScopeID = activeThreadScopeID
-        guard initialBottomScrollThreadScopeID != threadScopeID else { return }
-        initialBottomScrollThreadScopeID = threadScopeID
-        // Wait for the hydrated markdown's first layout before anchoring the
-        // restored session at its newest reply. A second pass catches rich
-        // blocks whose measured height arrives on the following frame.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            guard activeThreadScopeID == threadScopeID else { return }
-            scrollToBottom(proxy)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                guard activeThreadScopeID == threadScopeID else { return }
-                scrollToBottom(proxy)
-            }
-        }
-    }
-
     private func updateDistanceFromBottom(_ distance: CGFloat) {
-        let clampedDistance = max(0, distance)
-        if programmaticBottomScrollSettling {
-            if clampedDistance <= Self.nearBottomRestoreDistance {
-                programmaticBottomScrollSettling = false
-            } else {
-                return
-            }
-        }
-
         // `clampedDistance` is intentionally not stored: it changed on every
         // scroll frame, keyboard move and composer-height change, and the only
         // consumers are the two guarded booleans below. Writing it to @State
         // invalidated `ConversationMessageList.body` (rebuilding the whole turn
         // `ForEach`) for a value nothing read.
+        let clampedDistance = max(0, distance)
         let nextShowButton = clampedDistance > Self.latestButtonShowDistance
         if nextShowButton != showScrollToBottomButton { showScrollToBottomButton = nextShowButton }
         let nextIsNearBottom = clampedDistance <= Self.nearBottomRestoreDistance
         if nextIsNearBottom != isNearBottom { isNearBottom = nextIsNearBottom }
-        if nextIsNearBottom {
-            autoFollowStreaming = true
-        } else if isStreaming && userIsDraggingScroll {
-            autoFollowStreaming = false
-        }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        isNearBottom = true
-        programmaticBottomScrollGeneration &+= 1
-        let generation = programmaticBottomScrollGeneration
-        programmaticBottomScrollSettling = true
-        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bottomScrollSettleDuration) {
-            guard programmaticBottomScrollGeneration == generation else { return }
-            programmaticBottomScrollSettling = false
+    private func followBottom() {
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
+            scrollPosition.scrollTo(edge: .bottom)
         }
     }
 
@@ -1153,8 +1034,6 @@ private struct ConversationTurnRow: View, Equatable {
     @Environment(\.textScale) private var textScale
     let messageActionsDisabled: Bool
     let onToggleExpansion: () -> Void
-    let onStreamingSnapshotRendered: (() -> Void)?
-    let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
     let resolveThreadKey: (String) -> ThreadKey?
     let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
@@ -1195,8 +1074,6 @@ private struct ConversationTurnRow: View, Equatable {
                 originThreadId: originThreadId,
                 agentDirectoryVersion: agentDirectoryVersion,
                 messageActionsDisabled: messageActionsDisabled,
-                onStreamingSnapshotRendered: onStreamingSnapshotRendered,
-                onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                 resolveTargetLabel: resolveTargetLabel,
                 resolveThreadKey: resolveThreadKey,
                 resolveLiveStatus: resolveLiveStatus,
