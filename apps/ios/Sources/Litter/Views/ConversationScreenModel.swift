@@ -96,7 +96,6 @@ final class ConversationScreenModel {
     private(set) var transcript: ConversationTranscriptSnapshot = .empty
     private(set) var pinnedContextItems: [ConversationItem] = []
     private(set) var composer: ConversationComposerSnapshot = .empty
-    private(set) var followScrollToken = 0
     private(set) var minigameOverlay: MinigameOverlayState = .idle
     /// Precomputed server snapshot for the current thread's server. Read by
     /// HeaderView and ConversationToolbarControls via param instead of
@@ -152,7 +151,6 @@ final class ConversationScreenModel {
         self.agentDirectoryVersion = agentDirectoryVersion
 
         if threadChanged {
-            followScrollToken = 0
             cachedHydratedConversationItems = []
             cachedConversationItemProjections = [:]
             cachedProjectedConversationItems = []
@@ -173,7 +171,6 @@ final class ConversationScreenModel {
             transcript = .empty
             pinnedContextItems = []
             composer = .empty
-            followScrollToken = 0
             resolveTargetLabel = { _ in nil }
             resolveThreadKey = { _ in nil }
             resolveLiveStatus = { _ in nil }
@@ -303,20 +300,12 @@ final class ConversationScreenModel {
             agentDirectoryVersion: agentDirectoryVersion,
             renderDigest: transcriptChanged ? transcriptRevision : currentTranscript.renderDigest
         )
-        var nextFollowScrollToken = followScrollToken
-        if hasTurnInFlight,
-           projection.didChange {
-            nextFollowScrollToken &+= 1
-        }
         if transcript != nextTranscript {
             transcript = nextTranscript
             pinnedContextItems = items
         }
         if composer != composerSnapshot {
             composer = composerSnapshot
-        }
-        if followScrollToken != nextFollowScrollToken {
-            followScrollToken = nextFollowScrollToken
         }
     }
 }

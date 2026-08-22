@@ -398,8 +398,6 @@ private struct SubagentDetailSheet: View {
                                 originThreadId: threadKey.threadId,
                                 agentDirectoryVersion: 0,
                                 messageActionsDisabled: true,
-                                onStreamingSnapshotRendered: nil,
-                                onLiveContentLayoutChanged: nil,
                                 resolveTargetLabel: { _ in nil },
                                 resolveThreadKey: { _ in nil },
                                 resolveLiveStatus: { _ in nil },

@@ -402,7 +402,6 @@ struct StreamingAssistantBubble: View {
     let text: String
     var isStreaming: Bool = false
     var label: String? = nil
-    var onSnapshotRendered: (() -> Void)? = nil
     private let contentFontSize: CGFloat
 
     /// Renderer is resolved once during init. For streaming items, this
@@ -416,15 +415,13 @@ struct StreamingAssistantBubble: View {
         text: String,
         isStreaming: Bool = false,
         label: String? = nil,
-        bodySize: CGFloat = LitterFont.conversationBodyPointSize,
-        onSnapshotRendered: (() -> Void)? = nil
+        bodySize: CGFloat = LitterFont.conversationBodyPointSize
     ) {
         self.itemId = itemId
         self.text = text
         self.isStreaming = isStreaming
         self.label = label
         self.contentFontSize = bodySize
-        self.onSnapshotRendered = onSnapshotRendered
 
         let coord = StreamingRendererCoordinator.shared
         if isStreaming {
@@ -448,9 +445,6 @@ struct StreamingAssistantBubble: View {
             } else {
                 streamingMarkdownBody
             }
-        }
-        .onChange(of: text) {
-            onSnapshotRendered?()
         }
     }
 
