@@ -1639,6 +1639,7 @@ private struct ConversationInputBar: View {
                 isComposerFocused: $isComposerFocused,
                 composerSelectionRange: composerSelection.binding
             )
+            .environment(\.skillMentionHighlightNames, recognizedSkillNames)
             .overlay(alignment: .bottom) {
                 ConversationComposerPopupOverlayView(
                     state: popupState,
@@ -2595,6 +2596,10 @@ private struct ConversationInputBar: View {
         }
     }
 
+    private var recognizedSkillNames: Set<String> {
+        Set(skills.map { $0.name.lowercased() })
+    }
+
     private var skillSuggestions: [SkillMetadata] {
         guard let token = activeDollarToken else { return [] }
         return filterSkillSuggestions(token.value)
@@ -2936,17 +2941,13 @@ private func fuzzyScore(candidate: String, query: String) -> Int? {
     return queryIndex == normalizedQuery.endIndex ? score : nil
 }
 
-private let kDollarSign: UInt8 = 0x24
-private let kUnderscore: UInt8 = 0x5F
-private let kHyphen: UInt8 = 0x2D
-
 private func isMentionNameByte(_ byte: UInt8) -> Bool {
     switch byte {
     case 0x61...0x7A, // a-z
         0x41...0x5A,  // A-Z
         0x30...0x39,  // 0-9
-        kUnderscore,
-        kHyphen:
+        0x5F,         // _
+        0x2D:         // -
         return true
     default:
         return false
@@ -2959,40 +2960,7 @@ private func isMentionQueryValid(_ query: String) -> Bool {
 }
 
 private func extractMentionNames(_ text: String) -> [String] {
-    let bytes = Array(text.utf8)
-    guard !bytes.isEmpty else { return [] }
-
-    var mentions: [String] = []
-    var index = 0
-    while index < bytes.count {
-        guard bytes[index] == kDollarSign else {
-            index += 1
-            continue
-        }
-
-        if index > 0, isMentionNameByte(bytes[index - 1]) {
-            index += 1
-            continue
-        }
-
-        let nameStart = index + 1
-        guard nameStart < bytes.count, isMentionNameByte(bytes[nameStart]) else {
-            index += 1
-            continue
-        }
-
-        var nameEnd = nameStart + 1
-        while nameEnd < bytes.count, isMentionNameByte(bytes[nameEnd]) {
-            nameEnd += 1
-        }
-
-        if let name = String(bytes: bytes[nameStart..<nameEnd], encoding: .utf8) {
-            mentions.append(name)
-        }
-        index = nameEnd
-    }
-
-    return mentions
+    SkillMentionTokens.names(in: text)
 }
 
 func currentPrefixedToken(
