@@ -43,6 +43,7 @@ struct HomeDashboardView: View {
     /// hosting navigation when a "Saved Apps" launcher should be exposed.
     var onShowApps: (() -> Void)? = nil
     var onShowTerminal: (() -> Void)? = nil
+    var onBrowseSessions: (() -> Void)? = nil
     let onPinThread: (ThreadKey) -> Void
     let onUnpinThread: (ThreadKey) -> Void
     let onHideThread: (ThreadKey) -> Void
@@ -318,6 +319,14 @@ struct HomeDashboardView: View {
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     .accessibilityLabel("Terminal")
+                }
+                if let onBrowseSessions {
+                    Button(action: onBrowseSessions) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundColor(LitterTheme.textSecondary)
+                    }
+                    .accessibilityLabel("All Sessions")
+                    .accessibilityIdentifier("home.allSessionsButton")
                 }
             }
         }
