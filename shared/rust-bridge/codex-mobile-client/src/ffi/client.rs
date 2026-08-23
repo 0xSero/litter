@@ -53,6 +53,36 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
+const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool, types::ReasoningEffort); 4] = [
+    (
+        "fable",
+        "Fable",
+        "Anthropic's most capable model. Resolved by the claude CLI to the latest Fable revision.",
+        false,
+        types::ReasoningEffort::High,
+    ),
+    (
+        "opus",
+        "Opus",
+        "Deep reasoning, hard refactors, multi-step planning. Resolved by the claude CLI to the latest Opus revision.",
+        false,
+        types::ReasoningEffort::High,
+    ),
+    (
+        "sonnet",
+        "Sonnet",
+        "Balanced model for everyday coding work. Resolved by the claude CLI to the latest Sonnet revision.",
+        true,
+        types::ReasoningEffort::Medium,
+    ),
+    (
+        "haiku",
+        "Haiku",
+        "Lightest, fastest model for quick edits. Resolved by the claude CLI to the latest Haiku revision.",
+        false,
+        types::ReasoningEffort::Minimal,
+    ),
+];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn normalize_amp_mode_name(value: &str) -> String {
@@ -135,6 +165,74 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
         .collect()
 }
 
+fn claude_reasoning_efforts() -> Vec<types::ReasoningEffortOption> {
+    [
+        (
+            types::ReasoningEffort::Minimal,
+            "Lowest latency, no extended thinking",
+        ),
+        (types::ReasoningEffort::Low, "Brief reasoning"),
+        (types::ReasoningEffort::Medium, "Default depth of reasoning"),
+        (types::ReasoningEffort::High, "Maximum reasoning effort"),
+    ]
+    .into_iter()
+    .map(
+        |(reasoning_effort, description)| types::ReasoningEffortOption {
+            reasoning_effort,
+            description: description.to_string(),
+        },
+    )
+    .collect()
+}
+
+fn claude_family_models() -> Vec<types::ModelInfo> {
+    CLAUDE_FAMILY_ALIASES
+        .into_iter()
+        .map(
+            |(alias, display_name, description, is_default, default_reasoning_effort)| {
+                types::ModelInfo {
+                    id: alias.to_string(),
+                    model: alias.to_string(),
+                    upgrade: None,
+                    upgrade_model: None,
+                    upgrade_copy: None,
+                    model_link: None,
+                    migration_markdown: None,
+                    availability_nux_message: None,
+                    display_name: display_name.to_string(),
+                    description: description.to_string(),
+                    hidden: false,
+                    supported_reasoning_efforts: claude_reasoning_efforts(),
+                    default_reasoning_effort,
+                    input_modalities: vec![types::InputModality::Text, types::InputModality::Image],
+                    supports_personality: false,
+                    is_default,
+                    agent_runtime_kind: "claude".to_string(),
+                    provider_id: None,
+                }
+            },
+        )
+        .collect()
+}
+
+fn append_missing_claude_family_models(models: &mut Vec<types::ModelInfo>) {
+    for family_model in claude_family_models() {
+        let alias = family_model.id.clone();
+        let prefixed_alias = format!("anthropic/{alias}");
+        let exists = models.iter().any(|existing| {
+            if existing.agent_runtime_kind != "claude" {
+                return false;
+            }
+            let id = existing.id.trim().to_ascii_lowercase();
+            let model = existing.model.trim().to_ascii_lowercase();
+            id == alias || id == prefixed_alias || model == alias || model == prefixed_alias
+        });
+        if !exists {
+            models.push(family_model);
+        }
+    }
+}
+
 fn append_missing_amp_mode_models(models: &mut Vec<types::ModelInfo>) {
     for mode in amp_mode_models() {
         let mode_name = mode.id.clone();
@@ -157,6 +255,9 @@ fn normalize_model_info_for_runtime(
     model_info: &mut types::ModelInfo,
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
+    if runtime_kind == "claude" {
+        return false;
+    }
     let is_amp = runtime_kind == "amp";
     let is_pi = matches!(runtime_kind.as_str(), "pi" | "local-studio");
     let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
@@ -1086,8 +1187,14 @@ impl AppClient {
                         if runtime_kind == "amp" {
                             append_missing_amp_mode_models(&mut models);
                         }
+                        if runtime_kind == "claude" {
+                            append_missing_claude_family_models(&mut models);
+                        }
                     }
                     _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
+                    _ if runtime_kind == "claude" => {
+                        append_missing_claude_family_models(&mut models)
+                    }
                     Ok(Err(error)) => {
                         failed_runtime_kinds.insert(runtime_kind.clone());
                         failures.push(format!("{runtime_kind}: {error}"));
@@ -2987,10 +3094,9 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
-        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        list_runtime_kinds,
-        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
-        splice_generative_ui_preamble,
+        append_missing_claude_family_models, choose_saved_app_update_server_id, image_read_command,
+        is_mobile_hidden_skill, list_runtime_kinds, normalize_model_info_for_runtime,
+        normalized_image_path, runtime_exposes_model_choices, splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
@@ -3120,6 +3226,41 @@ mod tests {
         let local_studio = vec!["local-studio".to_string()];
         assert_eq!(list_runtime_kinds(None, &local_studio), local_studio);
         assert!(list_runtime_kinds(Some(vec!["codex".to_string()]), &local_studio).is_empty());
+    }
+
+    #[test]
+    fn claude_wire_models_are_replaced_by_family_aliases() {
+        let mut stale = test_model("claude-opus-4-7", "claude".to_string());
+        assert!(!normalize_model_info_for_runtime(
+            &mut stale,
+            "claude".to_string()
+        ));
+
+        let mut models = Vec::new();
+        append_missing_claude_family_models(&mut models);
+        append_missing_claude_family_models(&mut models);
+
+        let claude_ids = models
+            .iter()
+            .filter(|model| model.agent_runtime_kind == "claude")
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(claude_ids, vec!["fable", "opus", "sonnet", "haiku"]);
+
+        let defaults = models
+            .iter()
+            .filter(|model| model.is_default)
+            .collect::<Vec<_>>();
+        assert_eq!(defaults.len(), 1);
+        assert_eq!(defaults[0].id, "sonnet");
+
+        let fable = models
+            .iter()
+            .find(|model| model.id == "fable")
+            .expect("fable listed");
+        assert_eq!(fable.display_name, "Fable");
+        assert_eq!(fable.default_reasoning_effort, ReasoningEffort::High);
+        assert_eq!(fable.supported_reasoning_efforts.len(), 4);
     }
 
     #[test]
