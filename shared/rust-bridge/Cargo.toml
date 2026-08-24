@@ -26,10 +26,10 @@ codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # and host share one immutable Alleycat release revision. All crates come from
 # the same source so the `Bridge` trait identity is consistent; forked until
 # the project-aware opencode session enumeration lands upstream (dnakov/alleycat).
-alleycat-bridge-core = { git = "https://github.com/DatScreamer/alleycat.git", rev = "179a56a0eb7e0b43eb81ace8fb67340eefe7c832" }
-alleycat-pi-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "179a56a0eb7e0b43eb81ace8fb67340eefe7c832" }
-alleycat-claude-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "179a56a0eb7e0b43eb81ace8fb67340eefe7c832" }
-alleycat-opencode-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "179a56a0eb7e0b43eb81ace8fb67340eefe7c832" }
+alleycat-bridge-core = { git = "https://github.com/DatScreamer/alleycat.git", rev = "d503bfc6da65dd979ada72723f62f753663f460c" }
+alleycat-pi-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "d503bfc6da65dd979ada72723f62f753663f460c" }
+alleycat-claude-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "d503bfc6da65dd979ada72723f62f753663f460c" }
+alleycat-opencode-bridge = { git = "https://github.com/DatScreamer/alleycat.git", rev = "d503bfc6da65dd979ada72723f62f753663f460c" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
