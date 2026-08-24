@@ -153,6 +153,7 @@ enum HomeDashboardSupport {
         let lineageByKey = ThreadLineageMap.compute(sessions: sessions)
         let sorted = sessions
             .filter { serversById[$0.key.serverId] != nil }
+            .filter { !$0.isSubagent }
             .sorted { ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0) }
             .compactMap { session -> HomeDashboardRecentSession? in
                 guard let server = serversById[session.key.serverId] else { return nil }
