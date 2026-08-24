@@ -12,7 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
@@ -194,6 +196,7 @@ fun HomeDashboardScreen(
     // unpinned recent window grows via infinite scroll.
     var recentLimit by remember { mutableIntStateOf(DefaultRecentLimit) }
     var isRefreshingSessions by remember { mutableStateOf(false) }
+    var isLoadingMoreSessions by remember { mutableStateOf(false) }
     val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions, recentLimit) {
         mergeHomeSessions(pinnedKeys, hiddenKeys, servers, allSessions, recentLimit)
     }
@@ -205,11 +208,17 @@ fun HomeDashboardScreen(
     }
 
     // --- Infinite scroll + pull-to-refresh --------------------------------
-    val hasMoreSessions = remember(snapshot, scopedServerId) {
+    val hasMoreSessions = remember(snapshot, scopedServerId, allSessions.size, recentLimit) {
         val scoped = scopedServerId
-        snapshot?.servers?.any { server ->
+        // Server still has remote pages to fetch.
+        val serverHasMore = snapshot?.servers?.any { server ->
             (scoped.isNullOrEmpty() || server.serverId == scoped) && server.sessionListHasMore
         } ?: false
+        // OR: the Rust store already holds more sessions than the current
+        // display window (e.g. user scrolled before navigating away and
+        // `recentLimit` reset on re-entry).
+        val localHasMore = allSessions.size > recentLimit
+        serverHasMore || localHasMore
     }
     val listState = rememberLazyListState()
     val isLoadingMore by remember {
@@ -222,7 +231,7 @@ fun HomeDashboardScreen(
     }
 
     fun loadMoreSessions() {
-        if (isRefreshingSessions) return
+        if (isRefreshingSessions || isLoadingMoreSessions) return
         val targetServers = snapshot?.servers
             ?.filter { server ->
                 (scopedServerId.isNullOrEmpty() || server.serverId == scopedServerId) &&
@@ -230,16 +239,37 @@ fun HomeDashboardScreen(
             }
             ?.map { it.serverId }
             .orEmpty()
-        if (targetServers.isEmpty()) return
+        if (targetServers.isEmpty()) {
+            // Server cursors exhausted but local store may hold more
+            // sessions than the current display window (e.g. previously
+            // loaded pages after re-entry).
+            if (allSessions.size > recentLimit) {
+                isLoadingMoreSessions = true
+                scope.launch {
+                    try {
+                        recentLimit += RecentLimitStep
+                    } finally {
+                        isLoadingMoreSessions = false
+                    }
+                }
+            }
+            return
+        }
+        isLoadingMoreSessions = true
         scope.launch {
-            appModel.loadSessionsPage(targetServers, limit = RecentLimitStep.toUInt())
-            recentLimit += RecentLimitStep
+            try {
+                appModel.loadSessionsPage(targetServers, limit = RecentLimitStep.toUInt())
+                recentLimit += RecentLimitStep
+            } finally {
+                isLoadingMoreSessions = false
+            }
         }
     }
 
     fun refreshAllSessions() {
         if (isRefreshingSessions) return
         isRefreshingSessions = true
+        isLoadingMoreSessions = false
         val targetServers = snapshot?.servers
             ?.filter { it.isConnected }
             ?.map { it.serverId }
@@ -255,7 +285,7 @@ fun HomeDashboardScreen(
     }
 
     @OptIn(FlowPreview::class)
-    LaunchedEffect(recentSessions.size, hasMoreSessions, scopedServerId) {
+    LaunchedEffect(recentSessions.size, hasMoreSessions, scopedServerId, isLoadingMoreSessions) {
         snapshotFlow { listState.isScrollInProgress }
             .collect { scrolling ->
                 if (!scrolling && isLoadingMore && hasMoreSessions) {
@@ -441,40 +471,9 @@ fun HomeDashboardScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    // Pinch-to-zoom. `detectTransformGestures(panZoomLock = true)`
-                    // lets single-finger vertical drags still reach the
-                    // LazyColumn scroll, and only begins consuming when a
-                    // true pinch is in progress. We accumulate the
-                    // multiplicative zoom factor across the gesture so a
-                    // slow pinch composes the same as a fast one, then
-                    // round to a discrete level delta (same 0.4 threshold
-                    // iOS uses at HomeDashboardView.swift:334-363). The
-                    // outer while-loop resets accumulator state when the
-                    // gesture ends and detectTransformGestures returns.
-                    while (true) {
-                        pinchBaseZoom = null
-                        pinchAccumulator = 1f
-                        detectTransformGestures(panZoomLock = true) { _, _, zoom, _ ->
-                            if (zoom == 1f) return@detectTransformGestures
-                            val base = pinchBaseZoom ?: zoomLevel.also { pinchBaseZoom = it }
-                            pinchAccumulator *= zoom
-                            val delta = ((pinchAccumulator - 1f) / 0.4f).roundToInt()
-                            val next = (base + delta).coerceIn(
-                                DashboardZoomPrefs.MIN_LEVEL,
-                                DashboardZoomPrefs.MAX_LEVEL,
-                            )
-                            if (next != zoomLevel) {
-                                DashboardZoomPrefs.setLevel(context, next)
-                                haptics.performHapticFeedback(
-                                    HapticFeedbackType.TextHandleMove,
-                                )
-                            }
-                        }
-                    }
-                },
+                .fillMaxSize(),
             contentPadding = run {
                 // Respect system bars so list content can scroll under the
                 // translucent top/bottom chrome *and* past the status/nav bar
@@ -614,22 +613,22 @@ fun HomeDashboardScreen(
                 }
                 if (hasMoreSessions) {
                     item(key = "home-load-more") {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 12.dp),
                         ) {
-                            if (isLoadingMore) {
+                            if (isLoadingMoreSessions) {
                                 CircularProgressIndicator(
                                     color = LitterTheme.accent,
                                     strokeWidth = 2.dp,
                                     modifier = Modifier.size(14.dp),
                                 )
+                                Spacer(Modifier.height(4.dp))
                             }
                             Text(
-                                text = if (isLoadingMore) "Loading more sessions..." else "Pull up for more",
+                                text = if (isLoadingMoreSessions) "Loading more sessions..." else "Pull up for more",
                                 color = LitterTheme.textMuted,
                                 fontSize = 12.sp,
                             )

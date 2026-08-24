@@ -337,7 +337,7 @@ final class HomeSessionsScrollUIView: UIView {
         self.isLoadingMoreSessions = isLoadingMoreSessions
         self.onLoadMore = onLoadMore
         self.refreshControlAction = onRefreshSessions
-        self.loadMoreFired = isLoadingMoreSessions ? true : loadMoreFired
+        self.loadMoreFired = isLoadingMoreSessions
         let zoomChanged = self.zoomLevel != zoomLevel && !isPinching
         let enteredPageFit = zoomChanged && zoomLevel == 4
         self.zoomLevel = zoomLevel
@@ -604,11 +604,12 @@ final class HomeSessionsScrollUIView: UIView {
     /// Debounced near-bottom load-more. Fires at most once per "page" (the
     /// guard resets after `apply` observes `isLoadingMoreSessions` flip).
     private func maybeTriggerLoadMore() {
-        guard hasMoreSessions, !isLoadingMoreSessions, !loadMoreFired else { return }
         let threshold = bounds.height * 0.6
         let bottom = scrollView.contentOffset.y + bounds.height
         let contentBottom = scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
-        if bottom >= contentBottom - threshold {
+        let nearBottom = bottom >= contentBottom - threshold
+        guard hasMoreSessions, !isLoadingMoreSessions, !loadMoreFired else { return }
+        if nearBottom {
             loadMoreFired = true
             onLoadMore?()
         }

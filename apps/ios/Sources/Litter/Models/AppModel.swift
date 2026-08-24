@@ -2254,7 +2254,7 @@ final class AppModel {
     private static let olderTurnPageSize: UInt32 = 20
     /// Home sessions-list page size. Kept small so the first screen of the
     /// dashboard loads quickly and scrolling reveals more sessions in chunks.
-    static let homeSessionPageSize: UInt32 = 10
+    static let homeSessionPageSize: UInt32 = 20
 
     /// Fetch the first page of turns for a thread whose `initialTurnsLoaded`
     /// is still false. Called after a resume that sent `exclude_turns: true`
@@ -2304,7 +2304,7 @@ final class AppModel {
     /// Used by the home dashboard's infinite scroll. On failure for a server,
     /// falls back to a full `listThreads` drain so the home list still
     /// populates (the retained Rust cursor state is cleared by that drain).
-    func loadThreadsPage(serverIds: [String], limit: UInt32 = Self.homeSessionPageSize) async {
+    func loadThreadsPage(serverIds: [String], limit: UInt32 = AppModel.homeSessionPageSize) async {
         let pageable = serverIds.filter { !loadingThreadPageServerIds.contains($0) }
         guard !pageable.isEmpty else { return }
         pageable.forEach { loadingThreadPageServerIds.insert($0) }
