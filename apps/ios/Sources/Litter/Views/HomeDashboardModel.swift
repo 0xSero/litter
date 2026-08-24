@@ -131,6 +131,14 @@ final class HomeDashboardModel {
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private(set) var rebuildCount = 0
     @ObservationIgnored private var isActive = false
+    /// Set to true after the first successful `loadFirstPageIfNeeded` call.
+    /// Guards against re-triggering from `refreshState` observation callbacks
+    /// once pages are already loaded.
+    @ObservationIgnored private var firstPageLoaded = false
+    /// Tracks whether we previously had visible servers, so we can detect
+    /// the transition from 0 → N visible servers and trigger the first-page
+    /// load at the right time (after the server health is marked connected).
+    @ObservationIgnored private var hadVisibleServers = false
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var lastSessionSummaries: [AppSessionSummary] = []
     /// Debounces rapid snapshot changes (e.g. the flood of store events
@@ -242,6 +250,8 @@ final class HomeDashboardModel {
     func activate() {
         guard !isActive else { return }
         isActive = true
+        firstPageLoaded = false
+        hadVisibleServers = false
         refreshState()
         loadFirstPageIfNeeded()
     }
@@ -249,6 +259,8 @@ final class HomeDashboardModel {
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        firstPageLoaded = false
+        hadVisibleServers = false
         observationGeneration &+= 1
         debouncedRefreshTask?.cancel()
         debouncedRefreshTask = nil
@@ -313,9 +325,11 @@ final class HomeDashboardModel {
         connectedServers = snapshot.connectedServers
         allSessions = snapshot.recentSessions
         let visibleServerIds = Set(visibleServerIDs(from: snapshot.connectedServers))
-        hasMoreSessions = snapshot.connectedServers.contains { server in
+        let serverHasMore = snapshot.connectedServers.contains { server in
             visibleServerIds.contains(server.id) && server.sessionListHasMore
         }
+        let localHasMore = snapshot.recentSessions.count > recentLimit
+        hasMoreSessions = serverHasMore || localHasMore
         recentSessions = Self.mergedHomeSessions(
             pinned: pinnedKeys,
             hidden: hiddenKeys,
@@ -378,6 +392,18 @@ final class HomeDashboardModel {
         }
 
         reconcileSelectedProject()
+
+        // Detect the first time sessions appear (from the Rust initial
+        // sync) and retry the first-page load. On iOS, `loadFirstPage`
+        // often fires before runtime kinds are available and returns 0.
+        // When sessions later populate from the sync, we retry once to
+        // establish a proper paged cursor with `has_more=true`.
+        if !firstPageLoaded && !allSessions.isEmpty && !hadVisibleServers {
+            hadVisibleServers = true
+            DispatchQueue.main.async { [weak self] in
+                self?.loadFirstPageIfNeeded()
+            }
+        }
     }
 
     private func reloadThreadPreferences() {
@@ -401,12 +427,26 @@ final class HomeDashboardModel {
         guard let appModel, isActive, hasMoreSessions, !isLoadingMoreSessions else { return }
         let serverIds = visibleServerIDs(from: connectedServers)
         guard !serverIds.isEmpty else { return }
+        let targetServerIds = connectedServers
+            .filter { serverIds.contains($0.id) && $0.sessionListHasMore }
+            .map(\.id)
+        if targetServerIds.isEmpty {
+            guard allSessions.count > recentLimit else {
+                return
+            }
+            isLoadingMoreSessions = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.recentLimit += Self.recentLimitStep
+                self.refreshState()
+                self.isLoadingMoreSessions = false
+            }
+            return
+        }
         isLoadingMoreSessions = true
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await appModel.loadThreadsPage(serverIds: serverIds, limit: UInt32(Self.recentLimitStep))
-            // Reveal whatever is now in the store (a page was merged), then
-            // refresh `hasMoreSessions` from the updated snapshot.
+            await appModel.loadThreadsPage(serverIds: targetServerIds, limit: UInt32(Self.recentLimitStep))
             self.recentLimit += Self.recentLimitStep
             self.refreshState()
             self.isLoadingMoreSessions = false
@@ -417,13 +457,25 @@ final class HomeDashboardModel {
     /// active. Cheap no-op when a previous page (or a full drain from another
     /// surface) already populated the list.
     func loadFirstPageIfNeeded() {
-        guard let appModel, isActive else { return }
+        guard let appModel, isActive else {
+            return
+        }
         let serverIds = visibleServerIDs(from: connectedServers)
-        guard !serverIds.isEmpty else { return }
+        guard !serverIds.isEmpty else {
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self, self.isActive else { return }
-            await appModel.loadThreadsPage(serverIds: serverIds, limit: UInt32(Self.recentLimit))
+            let before = self.allSessions.count
+            await appModel.loadThreadsPage(serverIds: serverIds, limit: UInt32(self.recentLimit))
+            let after = self.allSessions.count
             self.refreshState()
+            // Only mark as loaded when we actually got sessions back.
+            // If runtime kinds weren't ready yet (0 loaded), the observation
+            // callback will retry on the next snapshot update.
+            if after > before || after > 0 {
+                self.firstPageLoaded = true
+            }
         }
     }
 
