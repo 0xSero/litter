@@ -1,6 +1,7 @@
-Local Studio sessions now stay visible, correctly labeled, and connected to the right runtime.
+Litter 2.1 is much faster and more dependable during long-running sessions.
 
-- Start every new Local Studio conversation through its built-in Pi runtime.
-- Keep newly synchronized sessions visible even when older sessions are pinned.
-- Resume and reconnect without sessions disappearing or changing into Codex sessions.
-- Show the correct connected status without asking Local Studio users to sign in to OpenAI.
+- Keep Local Studio, the composer, and the project and model pickers responsive while sessions load and turns stream.
+- Send up to four images in one message and select or copy assistant text.
+- Connect to Claude Code and opencode over SSH with the correct agent name and icon.
+- Load more conversation history at once and move through new and existing threads more reliably.
+- Fix conversation navigation, Android session-row taps, and timestamp layout.
