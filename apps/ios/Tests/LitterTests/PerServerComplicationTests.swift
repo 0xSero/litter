@@ -191,7 +191,8 @@ final class PerServerComplicationTests: XCTestCase {
             availableModels: nil,
             agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)],
             connectionProgress: nil,
-            usageStats: nil
+            usageStats: nil,
+            sessionListHasMore: false
         )
     }
 
