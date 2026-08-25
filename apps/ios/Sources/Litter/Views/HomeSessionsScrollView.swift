@@ -1027,6 +1027,150 @@ private struct HomeCatFooterView: View {
     }
 }
 
+/// Immutable, fully decoded frames that are safe to hand from the decoder
+/// task to the main actor. `CGImage` is immutable, and every frame has been
+/// rendered into its own bitmap before it enters this value.
+private struct AlphaAnimation: @unchecked Sendable {
+    let frames: [CGImage]
+    /// Cumulative end-time for each frame (frameEndTimes[i] is the
+    /// timestamp at which frame i finishes / frame i+1 begins).
+    let frameEndTimes: [TimeInterval]
+    let duration: TimeInterval
+
+    var cacheCost: Int {
+        frames.reduce(into: 0) { cost, frame in
+            cost += frame.bytesPerRow * frame.height
+        }
+    }
+}
+
+private final class AlphaAnimationBox: NSObject {
+    let animation: AlphaAnimation
+
+    init(_ animation: AlphaAnimation) {
+        self.animation = animation
+    }
+}
+
+private final class AlphaAnimationLoad {
+    let task: Task<AlphaAnimation, Never>
+
+    init(task: Task<AlphaAnimation, Never>) {
+        self.task = task
+    }
+}
+
+/// Keeps at most the two home-cat animations warm while allowing `NSCache`
+/// to discard them under memory pressure. The actor also ensures simultaneous
+/// views requesting the same URL share a single background decode.
+private actor AlphaAnimationCache {
+    static let shared = AlphaAnimationCache()
+
+    private let cache: NSCache<NSURL, AlphaAnimationBox> = {
+        let cache = NSCache<NSURL, AlphaAnimationBox>()
+        cache.countLimit = 2
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+    private var inFlight: [URL: AlphaAnimationLoad] = [:]
+
+    func animation(for url: URL) async -> AlphaAnimation {
+        let key = url as NSURL
+        if let cached = cache.object(forKey: key) {
+            return cached.animation
+        }
+
+        let load: AlphaAnimationLoad
+        if let existing = inFlight[url] {
+            load = existing
+        } else {
+            load = AlphaAnimationLoad(
+                task: Task.detached(priority: .userInitiated) {
+                    decodeAlphaAnimation(from: url)
+                }
+            )
+            inFlight[url] = load
+        }
+
+        let animation = await load.task.value
+        if inFlight[url] === load {
+            inFlight[url] = nil
+        }
+        if !animation.frames.isEmpty {
+            cache.setObject(
+                AlphaAnimationBox(animation),
+                forKey: key,
+                cost: animation.cacheCost
+            )
+        }
+        return animation
+    }
+}
+
+/// Forces ImageIO's lazily-created frame into a standalone bitmap. This runs
+/// only in `AlphaAnimationCache`'s detached task, never on the main actor.
+private func decodeAlphaAnimation(from url: URL) -> AlphaAnimation {
+    autoreleasepool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return AlphaAnimation(frames: [], frameEndTimes: [], duration: 0)
+        }
+
+        let count = CGImageSourceGetCount(source)
+        let imageOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        var frames: [CGImage] = []
+        var ends: [TimeInterval] = []
+        frames.reserveCapacity(count)
+        ends.reserveCapacity(count)
+        var cumulative: TimeInterval = 0
+
+        for index in 0..<count {
+            autoreleasepool {
+                guard let sourceImage = CGImageSourceCreateImageAtIndex(source, index, imageOptions),
+                      let decodedImage = forceDecodedAlphaFrame(sourceImage)
+                else { return }
+
+                frames.append(decodedImage)
+                cumulative += alphaAnimationPlaybackFrameDuration
+                ends.append(cumulative)
+            }
+        }
+
+        return AlphaAnimation(
+            frames: frames,
+            frameEndTimes: ends,
+            duration: max(cumulative, 0.1)
+        )
+    }
+}
+
+private func forceDecodedAlphaFrame(_ image: CGImage) -> CGImage? {
+    let width = image.width
+    let height = image.height
+    guard width > 0, height > 0 else { return nil }
+
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage()
+}
+
+/// Our iOS APNGs were authored at 10fps (100ms per frame), but the
+/// equivalent Android WebPs render at 15fps (67ms per frame) — so
+/// the same 165-frame entrance runs 16.5s on iOS vs 11.055s on
+/// Android. Force playback at the Android cadence by overriding
+/// the encoded delays. The source frames are uniform in both
+/// files, so a flat per-frame duration here is exact, not a
+/// resampling approximation.
+private let alphaAnimationPlaybackFrameDuration: TimeInterval = 1.0 / 15.0
+
 struct AlphaAnimatedImageView: UIViewRepresentable {
     let fileURL: URL
     var repeatCount: Int = 0
@@ -1065,12 +1209,16 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         Coordinator()
     }
 
+    @MainActor
     final class Coordinator: NSObject, CAAnimationDelegate {
         private var configuredURL: URL?
         private var configuredRepeatCount: Int?
         private var onFinished: (() -> Void)?
         private weak var imageView: UIImageView?
         private var finishedFired = false
+        private var configurationGeneration: UInt64 = 0
+        private var isStopped = false
+        private var loadTask: Task<Void, Never>?
 
         // Frames are swapped via `CAKeyframeAnimation` on
         // `layer.contents` in `.discrete` mode. Core Animation runs
@@ -1079,6 +1227,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         // per-frame delays — no main-thread/display-link aliasing,
         // and no flat tempo from UIImageView's animationImages.
         private static let animationKey = "alphaFrames"
+        private static let animationGenerationKey = "alphaFrames.generation"
 
         func configure(
             _ imageView: UIImageView,
@@ -1088,16 +1237,50 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         ) {
             self.onFinished = onFinished
             self.imageView = imageView
-            guard configuredURL != fileURL || configuredRepeatCount != repeatCount else { return }
+            let needsLoad = configuredURL != fileURL
+                || configuredRepeatCount != repeatCount
+                || isStopped
+            guard needsLoad else { return }
+
             configuredURL = fileURL
             configuredRepeatCount = repeatCount
             finishedFired = false
+            isStopped = false
+            configurationGeneration &+= 1
+            let generation = configurationGeneration
+            loadTask?.cancel()
+            loadTask = nil
 
             imageView.animationImages = nil
             imageView.stopAnimating()
             imageView.layer.removeAnimation(forKey: Coordinator.animationKey)
 
-            let animation = AlphaAnimatedImageView.animation(from: fileURL)
+            loadTask = Task { @MainActor [weak self] in
+                let animation = await AlphaAnimationCache.shared.animation(for: fileURL)
+                guard !Task.isCancelled, let self else { return }
+                self.install(
+                    animation,
+                    fileURL: fileURL,
+                    repeatCount: repeatCount,
+                    generation: generation
+                )
+            }
+        }
+
+        private func install(
+            _ animation: AlphaAnimation,
+            fileURL: URL,
+            repeatCount: Int,
+            generation: UInt64
+        ) {
+            guard !isStopped,
+                  generation == configurationGeneration,
+                  configuredURL == fileURL,
+                  configuredRepeatCount == repeatCount,
+                  let imageView
+            else { return }
+
+            loadTask = nil
             guard let first = animation.frames.first else {
                 imageView.image = nil
                 return
@@ -1131,60 +1314,41 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             keyAnim.fillMode = .forwards
             keyAnim.isRemovedOnCompletion = false
             keyAnim.delegate = self
+            keyAnim.setValue(
+                NSNumber(value: generation),
+                forKey: Coordinator.animationGenerationKey
+            )
 
             imageView.layer.add(keyAnim, forKey: Coordinator.animationKey)
         }
 
         func stop() {
+            configurationGeneration &+= 1
+            isStopped = true
+            loadTask?.cancel()
+            loadTask = nil
             imageView?.layer.removeAnimation(forKey: Coordinator.animationKey)
         }
 
-        func animationDidStop(_ anim: CAAnimation, finished: Bool) {
-            guard finished, !finishedFired else { return }
+        nonisolated func animationDidStop(_ anim: CAAnimation, finished: Bool) {
+            guard finished,
+                  let generation = (anim.value(forKey: "alphaFrames.generation") as? NSNumber)?.uint64Value
+            else { return }
+
+            Task { @MainActor [weak self] in
+                self?.finishAnimation(generation: generation)
+            }
+        }
+
+        private func finishAnimation(generation: UInt64) {
+            guard !finishedFired,
+                  generation == configurationGeneration,
+                  !isStopped
+            else { return }
             guard let repeats = configuredRepeatCount, repeats > 0 else { return }
             finishedFired = true
             onFinished?()
         }
-    }
-
-    private struct Animation {
-        let frames: [CGImage]
-        /// Cumulative end-time for each frame (frameEndTimes[i] is the
-        /// timestamp at which frame i finishes / frame i+1 begins).
-        let frameEndTimes: [TimeInterval]
-        let duration: TimeInterval
-    }
-
-    /// Our iOS APNGs were authored at 10fps (100ms per frame), but the
-    /// equivalent Android WebPs render at 15fps (67ms per frame) — so
-    /// the same 165-frame entrance runs 16.5s on iOS vs 11.055s on
-    /// Android. Force playback at the Android cadence by overriding
-    /// the encoded delays. The source frames are uniform in both
-    /// files, so a flat per-frame duration here is exact, not a
-    /// resampling approximation.
-    private static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
-
-    private static func animation(from url: URL) -> Animation {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            return Animation(frames: [], frameEndTimes: [], duration: 0)
-        }
-        let count = CGImageSourceGetCount(source)
-        var frames: [CGImage] = []
-        var ends: [TimeInterval] = []
-        frames.reserveCapacity(count)
-        ends.reserveCapacity(count)
-        var cumulative: TimeInterval = 0
-        for index in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
-            frames.append(cgImage)
-            cumulative += playbackFrameDuration
-            ends.append(cumulative)
-        }
-        return Animation(
-            frames: frames,
-            frameEndTimes: ends,
-            duration: max(cumulative, 0.1)
-        )
     }
 
 }
