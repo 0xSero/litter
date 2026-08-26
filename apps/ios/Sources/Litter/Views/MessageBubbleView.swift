@@ -66,31 +66,20 @@ struct LitterMarkdownView: View {
 
     @ViewBuilder
     private func renderedMarkdown(selectionEnabled: Bool) -> some View {
-        let view = MarkdownView(markdown, processors: [LatexTransformer()])
+        let view = MarkdownView(markdown, processors: [LatexTransformer(), AutoLinkTransformer()])
         switch style {
         case .content:
             view.litterContentMarkdown(
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
-            .environment(\.openURL, externalBrowserAction)
+            .environment(\.openURL, .externalBrowser)
         case .system:
             view.litterSystemMarkdown(
                 bodySize: bodySize, codeSize: codeSize,
                 selectionEnabled: selectionEnabled
             )
-            .environment(\.openURL, externalBrowserAction)
-        }
-    }
-
-    private var externalBrowserAction: OpenURLAction {
-        OpenURLAction { url in
-            guard let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return .systemAction
-            }
-            UIApplication.shared.open(url)
-            return .handled
+            .environment(\.openURL, .externalBrowser)
         }
     }
 }
@@ -720,7 +709,7 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
         tightItemSpacing: 4
     )
 
-    theme.link = LinkStyle(color: LitterTheme.accent, underline: false)
+    theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
         color: LitterTheme.border,
@@ -794,7 +783,7 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
         tightItemSpacing: 3
     )
 
-    theme.link = LinkStyle(color: LitterTheme.accent, underline: false)
+    theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
         color: LitterTheme.border,
@@ -962,6 +951,13 @@ private struct MessageTextContextMenu: ViewModifier {
                     MessageTextSelectionPresenter.present(text: text)
                 } label: {
                     Label("Select Text", systemImage: "character.cursor.ibeam")
+                }
+                ForEach(MessageLinks.links(in: text), id: \.absoluteString) { url in
+                    Button {
+                        UIPasteboard.general.string = url.absoluteString
+                    } label: {
+                        Label(MessageLinks.copyTitle(for: url), systemImage: "link")
+                    }
                 }
             }
         }
