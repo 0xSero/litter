@@ -175,7 +175,7 @@ struct ConversationComposerEntryRowView: View {
 
     private var actionRow: some View {
         HStack(spacing: 6) {
-            if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
+            if !voiceManager.isRecording && !voiceManager.isTranscribing {
                 composerCircleButton(systemName: "plus", label: "Attach") {
                     showAttachMenu = true
                 }
