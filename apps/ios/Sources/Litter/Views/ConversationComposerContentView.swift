@@ -5,7 +5,7 @@ import UIKit
 /// in-conversation composer and the photo pickers cannot drift apart.
 enum ComposerAttachmentLimits {
     /// Maximum number of images that can ride along with a single turn.
-    static let maxImages = 4
+    static let maxImages = 10
 }
 
 struct ConversationComposerContentView: View {
