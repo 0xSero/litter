@@ -659,6 +659,7 @@ private fun ServerEditSheet(
                     sshPortForwardingEnabled = null,
                     websocketURL = null,
                     rememberedByUser = true,
+                    detachedTransport = false,
                 )
             }
             ServerConnectionMode.SSH -> {
@@ -693,6 +694,7 @@ private fun ServerEditSheet(
                     sshPortForwardingEnabled = null,
                     websocketURL = null,
                     rememberedByUser = true,
+                    detachedTransport = false,
                 )
             }
             ServerConnectionMode.DIRECT_CODEX -> {
@@ -721,6 +723,7 @@ private fun ServerEditSheet(
                     sshPortForwardingEnabled = null,
                     websocketURL = null,
                     rememberedByUser = true,
+                    detachedTransport = false,
                 )
             }
             ServerConnectionMode.WEBSOCKET -> {
@@ -750,6 +753,7 @@ private fun ServerEditSheet(
                     sshPortForwardingEnabled = null,
                     websocketURL = rawURL,
                     rememberedByUser = true,
+                    detachedTransport = false,
                 )
             }
             ServerConnectionMode.SLINGSHOT -> {
@@ -760,6 +764,7 @@ private fun ServerEditSheet(
                 saved.copy(
                     name = name,
                     rememberedByUser = true,
+                    detachedTransport = false,
                 )
             }
         }
