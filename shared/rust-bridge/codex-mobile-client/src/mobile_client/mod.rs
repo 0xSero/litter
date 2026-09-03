@@ -2549,6 +2549,149 @@ impl MobileClient {
         );
     }
 
+    /// Fetch the thread list for a server, fanning out to each available
+    /// runtime (including opencode) and reconciling every page into the
+    /// store. Also runs on connect (via the post-connect warmup) so a freshly
+    /// connected server populates its sessions without the user needing to
+    /// open a sessions view first.
+    pub async fn refresh_thread_list(
+        self: &Arc<Self>,
+        server_id: &str,
+        requested_runtime_kinds: Option<Vec<AgentRuntimeKind>>,
+        params: upstream::ThreadListParams,
+    ) -> Result<(), String> {
+        let drain_all_pages = params.cursor.is_none()
+            && params.limit.is_none()
+            && params
+                .search_term
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+            && !params.use_state_db_only;
+        let session = self.get_session(server_id).map_err(|error| error.to_string())?;
+        let available_runtime_kinds = session.runtime_kinds();
+        let runtime_kinds =
+            crate::types::list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
+        if runtime_kinds.is_empty() {
+            return Err(
+                "none of the requested agent runtimes are available on this controller".to_string(),
+            );
+        }
+        info!(
+            "refresh_thread_list: fanout start server_id={} runtime_kinds={:?}",
+            server_id, runtime_kinds
+        );
+
+        // Fan out per-runtime concurrently so a slow runtime (e.g. a codex
+        // inbox with many threads) doesn't starve the others' first page.
+        let mut codex_visited = false;
+        let mut tasks = Vec::new();
+        for runtime_kind in runtime_kinds {
+            if runtime_kind == "codex" {
+                if codex_visited {
+                    continue;
+                }
+                codex_visited = true;
+            }
+            let client = Arc::clone(self);
+            let server_id = server_id.to_string();
+            let initial_params = params.clone();
+            tasks.push(async move {
+                let mut request_params = initial_params;
+                let mut ids = Vec::new();
+                let mut completed = true;
+                loop {
+                    let response: upstream::ThreadListResponse = match client
+                        .request_typed_for_server_runtime(
+                            &server_id,
+                            runtime_kind.clone(),
+                            upstream::ClientRequest::ThreadList {
+                                request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                                params: request_params.clone(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(response) => response,
+                        Err(error) => {
+                            warn!(
+                                "refresh_thread_list: thread/list failed for runtime {:?} on server {}: {}",
+                                runtime_kind, server_id, error
+                            );
+                            completed = false;
+                            break;
+                        }
+                    };
+                    let page = client.upsert_thread_list_page_for_runtime(
+                        &server_id,
+                        runtime_kind.clone(),
+                        &response.data,
+                    );
+                    ids.extend(page.into_iter().map(|thread| thread.id));
+                    let next_cursor = response.next_cursor;
+                    let has_more = next_cursor.is_some();
+                    // Persist cursor state so the snapshot's
+                    // `session_list_has_more` reflects the server's actual
+                    // pagination.  On a full drain this is overwritten with
+                    // (None, false) after the loop.
+                    client.app_store.set_thread_page_state(
+                        &server_id,
+                        &runtime_kind,
+                        next_cursor.clone(),
+                        has_more,
+                    );
+                    let Some(next_cursor) = next_cursor else {
+                        break;
+                    };
+                    if !drain_all_pages {
+                        break;
+                    }
+                    request_params.cursor = Some(next_cursor);
+                }
+                (runtime_kind, ids, completed)
+            });
+        }
+
+        let results = futures::future::join_all(tasks).await;
+        if results.iter().all(|(_, _, completed)| !completed) {
+            return Err("thread list failed for every runtime".to_string());
+        }
+        let all_completed = results.iter().all(|(_, _, ok)| *ok);
+        // Only prune on a full drain — a limited page load is additive and
+        // must not evict threads the server didn't return in this page.
+        if all_completed && drain_all_pages {
+            let mut all_thread_ids = Vec::new();
+            for (_, ids, _) in &results {
+                all_thread_ids.extend(ids.iter().cloned());
+            }
+            self.finalize_thread_list_sync(server_id, all_thread_ids);
+        } else if !all_completed {
+            warn!(
+                "refresh_thread_list: skipping finalize prune — partial fan-out result on server {}",
+                server_id
+            );
+        }
+        // Persist per-runtime cursor state so the snapshot's
+        // `session_list_has_more` reflects the server's actual pagination.
+        for (runtime_kind, _, completed) in &results {
+            if !completed {
+                continue;
+            }
+            // For a limited page load, the last page's `next_cursor` drives
+            // `has_more`.  For a full drain the cursor is exhausted (None,
+            // has_more: false) — correct because all pages are loaded.
+            if drain_all_pages {
+                self.app_store
+                    .set_thread_page_state(server_id, runtime_kind, None, false);
+            }
+            // On a limited load, `load_threads_page` already called
+            // `set_thread_page_state` with the actual cursor/has_more from
+            // the server response — nothing to do here.
+        }
+        Ok(())
+    }
+
     pub async fn start_remote_ssh_oauth_login(&self, server_id: &str) -> Result<String, RpcError> {
         let session = self.get_session(server_id)?;
         if session.config().is_local {
@@ -3139,6 +3282,116 @@ impl MobileClient {
             }
             Err(error) => Err(RpcError::Deserialization(error)),
         }
+    }
+
+    /// Composite action: fetch the next page of the session list for a server
+    /// via `thread/list` and merge it additively into the canonical store.
+    ///
+    /// - Fetches exactly ONE page per agent runtime (never drain-all), using
+    ///   the retained per-(server, runtime) cursors from `AppStore`.
+    /// - Merges each page through `upsert_thread_list_page_for_runtime`
+    ///   (additive — never prunes, so a single-page load cannot evict unseen
+    ///   sessions the way `finalize_thread_list_sync` would).
+    /// - Advances the retained cursor to the page's `next_cursor` and records
+    ///   `has_more` per runtime; the aggregate `has_more` is true when any
+    ///   runtime still has more pages.
+    /// - A per-runtime RPC failure marks that runtime exhausted and continues
+    ///   with the others rather than failing the whole load; the caller can
+    ///   fall back to a full `list_threads` drain if desired.
+    pub async fn load_threads_page(
+        &self,
+        server_id: &str,
+        limit: Option<u32>,
+    ) -> Result<crate::types::AppLoadThreadsOutcome, RpcError> {
+        let session = self.get_session(server_id)?;
+        let mut runtime_kinds = session.runtime_kinds();
+        runtime_kinds.sort();
+        runtime_kinds.dedup();
+        if runtime_kinds.is_empty() {
+            return Ok(crate::types::AppLoadThreadsOutcome {
+                loaded: false,
+                has_more: false,
+            });
+        }
+        tracing::info!(
+            "load_threads_page: server_id={} runtimes={:?} limit={:?}",
+            server_id,
+            runtime_kinds,
+            limit
+        );
+
+        let mut codex_visited = false;
+        let mut any_loaded = false;
+        let mut any_has_more = false;
+        for runtime_kind in runtime_kinds {
+            if runtime_kind == "codex" {
+                if codex_visited {
+                    continue;
+                }
+                codex_visited = true;
+            }
+            let cursor = self.app_store.thread_page_cursor(server_id, &runtime_kind);
+            let params = upstream::ThreadListParams {
+                cursor,
+                limit,
+                sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
+                sort_direction: Some(upstream::SortDirection::Desc),
+                model_providers: None,
+                source_kinds: None,
+                archived: None,
+                cwd: None,
+                search_term: None,
+                use_state_db_only: false,
+            };
+            let request = upstream::ClientRequest::ThreadList {
+                request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                params,
+            };
+            match self
+                .request_typed_for_server_runtime::<upstream::ThreadListResponse>(
+                    server_id,
+                    runtime_kind.clone(),
+                    request,
+                )
+                .await
+            {
+                Ok(response) => {
+                    let page = self.upsert_thread_list_page_for_runtime(
+                        server_id,
+                        runtime_kind.clone(),
+                        &response.data,
+                    );
+                    let next_cursor = response.next_cursor;
+                    let has_more = next_cursor.is_some();
+                    self.app_store.set_thread_page_state(
+                        server_id,
+                        &runtime_kind,
+                        next_cursor,
+                        has_more,
+                    );
+                    if !page.is_empty() {
+                        any_loaded = true;
+                    }
+                    if has_more {
+                        any_has_more = true;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "load_threads_page: thread/list failed for runtime {:?} on server {}: {}",
+                        runtime_kind,
+                        server_id,
+                        error
+                    );
+                    self.app_store
+                        .set_thread_page_state(server_id, &runtime_kind, None, false);
+                }
+            }
+        }
+        Ok(crate::types::AppLoadThreadsOutcome {
+            loaded: any_loaded,
+            has_more: any_has_more,
+        })
     }
 
     async fn read_thread_metadata_only_for_runtime(
@@ -3975,23 +4228,49 @@ pub(super) fn run_connect_warmup(
 ) {
     MobileClient::spawn_detached(async move {
         let runtime_kinds = session.runtime_kinds();
-        if !runtime_kinds_support_account_sync(&runtime_kinds) {
+        if runtime_kinds_support_account_sync(&runtime_kinds) {
+            match refresh_account_from_app_server(
+                session,
+                Arc::clone(&app_store),
+                Arc::clone(&sessions),
+                server_id.as_str(),
+            )
+            .await
+            {
+                Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
+                Err(error) => {
+                    warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+                }
+            }
+        } else {
             trace!(
                 "MobileClient: {label} account sync skipped server_id={server_id} runtime_kinds={runtime_kinds:?}"
             );
-            return;
         }
-        match refresh_account_from_app_server(
-            session,
-            Arc::clone(&app_store),
-            Arc::clone(&sessions),
-            server_id.as_str(),
-        )
-        .await
-        {
-            Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
-            Err(error) => {
-                warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+
+        // Populate the session list right after connect so the user sees the
+        // server's threads (including opencode sessions) without opening a
+        // sessions view first.
+        if let Some(client) = crate::ffi::shared::shared_mobile_client_if_initialized() {
+            let params = upstream::ThreadListParams {
+                cursor: None,
+                limit: Some(20),
+                sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
+                sort_direction: Some(upstream::SortDirection::Desc),
+                model_providers: None,
+                source_kinds: None,
+                archived: Some(false),
+                cwd: None,
+                use_state_db_only: false,
+                search_term: None,
+            };
+            match client.refresh_thread_list(&server_id, None, params).await {
+                Ok(()) => {
+                    trace!("MobileClient: {label} thread list refreshed server_id={server_id}")
+                }
+                Err(error) => warn!(
+                    "MobileClient: {label} thread list refresh failed server_id={server_id}: {error}"
+                ),
             }
         }
     });

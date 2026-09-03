@@ -47,6 +47,12 @@ struct HomeDashboardPersistence {
 @MainActor
 @Observable
 final class HomeDashboardModel {
+    /// Initial number of unpinned recent sessions rendered on the home list.
+    /// Grows by this amount on each "load more" scroll.
+    static let defaultRecentLimit = 20
+    /// How many additional unpinned sessions to reveal on each "load more".
+    static let recentLimitStep = 20
+
     private struct Snapshot {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
@@ -63,6 +69,15 @@ final class HomeDashboardModel {
     /// Every session we know about across connected servers, newest first —
     /// used by the search view so the user can pick any thread.
     private(set) var allSessions: [HomeDashboardRecentSession] = []
+    /// Whether more sessions exist on the visible servers that haven't been
+    /// loaded into the home list yet (driven by Rust `sessionListHasMore`).
+    private(set) var hasMoreSessions = false
+    /// True while a "load more" page fetch is in flight for the visible
+    /// servers. Drives the loading row at the bottom of the home list.
+    private(set) var isLoadingMoreSessions = false
+    /// How many unpinned recent sessions the home list should render. Starts
+    /// at the page size (10) and grows as the user scrolls to load more.
+    private(set) var recentLimit = HomeDashboardModel.defaultRecentLimit
     private(set) var pinnedKeys: [SavedThreadsStore.PinnedKey] = []
     private(set) var hiddenKeys: [SavedThreadsStore.PinnedKey] = []
     private(set) var projects: [AppProject] = []
@@ -116,6 +131,14 @@ final class HomeDashboardModel {
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private(set) var rebuildCount = 0
     @ObservationIgnored private var isActive = false
+    /// Set to true after the first successful `loadFirstPageIfNeeded` call.
+    /// Guards against re-triggering from `refreshState` observation callbacks
+    /// once pages are already loaded.
+    @ObservationIgnored private var firstPageLoaded = false
+    /// Tracks whether we previously had visible servers, so we can detect
+    /// the transition from 0 → N visible servers and trigger the first-page
+    /// load at the right time (after the server health is marked connected).
+    @ObservationIgnored private var hadVisibleServers = false
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var lastSessionSummaries: [AppSessionSummary] = []
     /// Debounces rapid snapshot changes (e.g. the flood of store events
@@ -227,12 +250,17 @@ final class HomeDashboardModel {
     func activate() {
         guard !isActive else { return }
         isActive = true
+        firstPageLoaded = false
+        hadVisibleServers = false
         refreshState()
+        loadFirstPageIfNeeded()
     }
 
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        firstPageLoaded = false
+        hadVisibleServers = false
         observationGeneration &+= 1
         debouncedRefreshTask?.cancel()
         debouncedRefreshTask = nil
@@ -296,11 +324,18 @@ final class HomeDashboardModel {
         rebuildCount += 1
         connectedServers = snapshot.connectedServers
         allSessions = snapshot.recentSessions
+        let visibleServerIds = Set(visibleServerIDs(from: snapshot.connectedServers))
+        let serverHasMore = snapshot.connectedServers.contains { server in
+            visibleServerIds.contains(server.id) && server.sessionListHasMore
+        }
+        let localHasMore = snapshot.recentSessions.count > recentLimit
+        hasMoreSessions = serverHasMore || localHasMore
         recentSessions = Self.mergedHomeSessions(
             pinned: pinnedKeys,
             hidden: hiddenKeys,
             allSessions: snapshot.recentSessions,
-            servers: snapshot.connectedServers
+            servers: snapshot.connectedServers,
+            recentLimit: recentLimit
         )
         lastSessionSummaries = snapshot.sessionSummaries
         projects = deriveProjects(sessions: snapshot.sessionSummaries)
@@ -357,11 +392,117 @@ final class HomeDashboardModel {
         }
 
         reconcileSelectedProject()
+
+        // Detect the first time sessions appear (from the Rust initial
+        // sync) and retry the first-page load. On iOS, `loadFirstPage`
+        // often fires before runtime kinds are available and returns 0.
+        // When sessions later populate from the sync, we retry once to
+        // establish a proper paged cursor with `has_more=true`.
+        if !firstPageLoaded && !allSessions.isEmpty && !hadVisibleServers {
+            hadVisibleServers = true
+            DispatchQueue.main.async { [weak self] in
+                self?.loadFirstPageIfNeeded()
+            }
+        }
     }
 
     private func reloadThreadPreferences() {
         pinnedKeys = persistence.pinnedKeys()
         hiddenKeys = persistence.hiddenKeys()
+    }
+
+    /// The servers whose sessions the home list currently surfaces — either
+    /// all launchable servers or the single selected server scope.
+    private func visibleServerIDs(from servers: [HomeDashboardServer]) -> [String] {
+        let launchable = servers.filter(\.canLaunchSessions)
+        guard let selected = selectedServerId, !selected.isEmpty else {
+            return launchable.map(\.id)
+        }
+        return launchable.filter { $0.id == selected }.map(\.id)
+    }
+
+    /// Fetch the next page of sessions for the visible servers and reveal it
+    /// in the home list. Called when the user scrolls near the bottom.
+    func loadMore() {
+        guard let appModel, isActive, hasMoreSessions, !isLoadingMoreSessions else { return }
+        let serverIds = visibleServerIDs(from: connectedServers)
+        guard !serverIds.isEmpty else { return }
+        let targetServerIds = connectedServers
+            .filter { serverIds.contains($0.id) && $0.sessionListHasMore }
+            .map(\.id)
+        if targetServerIds.isEmpty {
+            guard allSessions.count > recentLimit else {
+                return
+            }
+            isLoadingMoreSessions = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.recentLimit += Self.recentLimitStep
+                self.refreshState()
+                self.isLoadingMoreSessions = false
+            }
+            return
+        }
+        isLoadingMoreSessions = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await appModel.loadThreadsPage(serverIds: targetServerIds, limit: UInt32(Self.recentLimitStep))
+            self.recentLimit += Self.recentLimitStep
+            self.refreshState()
+            self.isLoadingMoreSessions = false
+        }
+    }
+
+    /// First-page load for the visible servers, called when the home becomes
+    /// active. Cheap no-op when a previous page (or a full drain from another
+    /// surface) already populated the list.
+    func loadFirstPageIfNeeded() {
+        guard let appModel, isActive else {
+            return
+        }
+        let serverIds = visibleServerIDs(from: connectedServers)
+        guard !serverIds.isEmpty else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self, self.isActive else { return }
+            let before = self.allSessions.count
+            await appModel.loadThreadsPage(serverIds: serverIds, limit: UInt32(self.recentLimit))
+            let after = self.allSessions.count
+            self.refreshState()
+            // Only mark as loaded when we actually got sessions back.
+            // If runtime kinds weren't ready yet (0 loaded), the observation
+            // callback will retry on the next snapshot update.
+            if after > before || after > 0 {
+                self.firstPageLoaded = true
+            }
+        }
+    }
+
+    /// Full reload of every session across the visible servers (pull-to-
+    /// refresh). Drains the whole cursor chain, resets the recent window, and
+    /// reconciles the home list. `completion` fires when the snapshot has
+    /// settled so the refresh control can end.
+    func refreshAll(completion: (@MainActor () -> Void)? = nil) {
+        guard let appModel, isActive else { return }
+        let serverIds = visibleServerIDs(from: connectedServers)
+        guard !serverIds.isEmpty else { return }
+        let client = appModel.client
+        let params = AppListThreadsRequest(limit: nil, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: nil)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await withTaskGroup(of: Void.self) { group in
+                for serverId in serverIds {
+                    group.addTask {
+                        _ = try? await client.listThreads(serverId: serverId, params: params)
+                    }
+                }
+            }
+            await appModel.refreshSnapshot()
+            self.recentLimit = Self.defaultRecentLimit
+            self.refreshState()
+            completion?()
+        }
     }
 
     private func reconcileSelectedProject() {
@@ -402,7 +543,8 @@ final class HomeDashboardModel {
         pinned: [SavedThreadsStore.PinnedKey],
         hidden: [SavedThreadsStore.PinnedKey],
         allSessions: [HomeDashboardRecentSession],
-        servers: [HomeDashboardServer]
+        servers: [HomeDashboardServer],
+        recentLimit: Int
     ) -> [HomeDashboardRecentSession] {
         let hiddenSet = Set(hidden)
         let candidates = allSessions.filter {
@@ -414,7 +556,7 @@ final class HomeDashboardModel {
             })
             let resolvedPins = pinned.compactMap { byKey[$0] }
             guard !resolvedPins.isEmpty else {
-                return Array(candidates.prefix(10))
+                return Array(candidates.prefix(recentLimit))
             }
             let pinnedSet = Set(pinned)
             let localStudioServerIds = Set(
@@ -430,7 +572,7 @@ final class HomeDashboardModel {
             }
             return resolvedPins + localStudioRecent
         }
-        return Array(candidates.prefix(10))
+        return Array(candidates.prefix(recentLimit))
     }
 
     /// Called when the user picks a fresh directory via the "new project"

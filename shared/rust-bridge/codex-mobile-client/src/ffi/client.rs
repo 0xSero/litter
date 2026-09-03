@@ -219,22 +219,6 @@ fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
     runtime_kind != "shell"
 }
 
-fn list_runtime_kinds(
-    requested: Option<Vec<types::AgentRuntimeKind>>,
-    available: &[types::AgentRuntimeKind],
-) -> Vec<types::AgentRuntimeKind> {
-    let mut runtimes = match requested {
-        Some(requested) if !requested.is_empty() => requested
-            .into_iter()
-            .filter(|kind| available.contains(kind))
-            .collect(),
-        _ => available.to_vec(),
-    };
-    runtimes.sort();
-    runtimes.dedup();
-    runtimes
-}
-
 fn append_cached_models_for_failed_runtimes(
     models: &mut Vec<types::ModelInfo>,
     seen_model_ids: &mut HashSet<(types::AgentRuntimeKind, String)>,
@@ -699,135 +683,10 @@ impl AppClient {
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             let requested_runtime_kinds = params.runtime_kinds.clone();
-            let drain_all_pages = params.cursor.is_none()
-                && params.limit.is_none()
-                && params
-                    .search_term
-                    .as_deref()
-                    .map(str::trim)
-                    .unwrap_or_default()
-                    .is_empty()
-                && !params.use_state_db_only;
             let params: upstream::ThreadListParams = params.into();
-            let session = c
-                .get_session(&server_id)
-                .map_err(|error| ClientError::Rpc(error.to_string()))?;
-            let available_runtime_kinds = session.runtime_kinds();
-            tracing::info!(
-                "list_threads: resolve runtimes server_id={} requested={:?} available={:?} search_term={:?} use_state_db_only={} limit={:?} cursor={:?}",
-                server_id,
-                requested_runtime_kinds,
-                available_runtime_kinds,
-                params.search_term,
-                params.use_state_db_only,
-                params.limit,
-                params.cursor
-            );
-            let runtime_kinds =
-                list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
-            if runtime_kinds.is_empty() {
-                return Err(ClientError::Rpc(
-                    "none of the requested agent runtimes are available on this controller"
-                        .to_string(),
-                ));
-            }
-            tracing::info!(
-                "list_threads: fanout start server_id={} runtime_kinds={:?}",
-                server_id,
-                runtime_kinds
-            );
-
-            // Fan out per-runtime concurrently. The previous sequential loop
-            // exhausted Codex's full cursor pagination before non-Codex runtimes
-            // ever got their first page, so a Codex inbox with many threads
-            // would starve the other providers — the user would see only
-            // Codex threads while other runtimes were silently waiting their
-            // turn. By spawning each runtime's pagination as its own future
-            // and joining them, every provider's first page lands in
-            // parallel and the UI gets representative threads from each
-            // immediately.
-            let mut codex_visited = false;
-            let mut tasks = Vec::new();
-            for runtime_kind in runtime_kinds {
-                if runtime_kind == "codex" {
-                    if codex_visited {
-                        continue;
-                    }
-                    codex_visited = true;
-                }
-
-                let client = std::sync::Arc::clone(c);
-                let server_id = server_id.clone();
-                let initial_params = params.clone();
-                tasks.push(async move {
-                    let mut request_params = initial_params;
-                    let mut ids = Vec::new();
-                    let mut completed = true;
-                    loop {
-                        let response: upstream::ThreadListResponse =
-                            match rpc_runtime::<upstream::ThreadListResponse>(
-                                client.as_ref(),
-                                &server_id,
-                                runtime_kind.clone(),
-                                req!(server_id, ThreadList, request_params.clone()),
-                            )
-                            .await
-                            {
-                                Ok(response) => response,
-                                Err(error) => {
-                                    tracing::warn!(
-                                        "list_threads: thread/list failed for runtime {:?} on server {}: {}",
-                                        runtime_kind, server_id, error
-                                    );
-                                    completed = false;
-                                    break;
-                                }
-                            };
-                        let page = client.upsert_thread_list_page_for_runtime(
-                            &server_id,
-                            runtime_kind.clone(),
-                            &response.data,
-                        );
-                        ids.extend(page.into_iter().map(|thread| thread.id));
-                        let Some(next_cursor) = response.next_cursor else {
-                            break;
-                        };
-                        if !drain_all_pages {
-                            break;
-                        }
-                        request_params.cursor = Some(next_cursor);
-                    }
-                    (runtime_kind, ids, completed)
-                });
-            }
-
-            let results = futures::future::join_all(tasks).await;
-            if results.iter().all(|(_, _, completed)| !completed) {
-                return Err(ClientError::Rpc(
-                    "thread list failed for every runtime".into(),
-                ));
-            }
-            // Only prune if every runtime finished cleanly. A partial
-            // result (one runtime timed out / errored) means we don't
-            // know its true thread set yet, and `finalize_thread_list_sync`
-            // would delete unseen threads from healthy runtimes too —
-            // wiping pi/opencode threads from the store on a transient
-            // codex failure. Skip pruning in that case; the next refresh
-            // reconciles when the failing runtime recovers.
-            let all_completed = results.iter().all(|(_, _, ok)| *ok);
-            if all_completed && drain_all_pages {
-                let mut all_thread_ids = Vec::new();
-                for (_, ids, _) in results {
-                    all_thread_ids.extend(ids);
-                }
-                c.finalize_thread_list_sync(&server_id, all_thread_ids);
-            } else if !all_completed {
-                tracing::warn!(
-                    "list_threads: skipping finalize prune — partial fan-out result on server {}",
-                    server_id
-                );
-            }
-            Ok(())
+            c.refresh_thread_list(&server_id, requested_runtime_kinds, params)
+                .await
+                .map_err(ClientError::Rpc)
         })
     }
 
@@ -2988,7 +2847,6 @@ mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        list_runtime_kinds,
         normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
         splice_generative_ui_preamble,
     };
@@ -3118,8 +2976,8 @@ mod tests {
     #[test]
     fn thread_list_only_queries_runtimes_the_controller_exposes() {
         let local_studio = vec!["local-studio".to_string()];
-        assert_eq!(list_runtime_kinds(None, &local_studio), local_studio);
-        assert!(list_runtime_kinds(Some(vec!["codex".to_string()]), &local_studio).is_empty());
+        assert_eq!(crate::types::list_runtime_kinds(None, &local_studio), local_studio);
+        assert!(crate::types::list_runtime_kinds(Some(vec!["codex".to_string()]), &local_studio).is_empty());
     }
 
     #[test]

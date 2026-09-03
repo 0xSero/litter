@@ -488,10 +488,29 @@ impl ThreadSnapshot {
     }
 }
 
+/// Cursor state for paged `thread/list` loading of a single (server, runtime)
+/// pair, driven by the home sessions list. Mirrors
+/// `ThreadSnapshot::older_turns_cursor` semantics for the session list.
+/// Rust-only state; platforms read the aggregate `session_list_has_more`
+/// projection on `AppServerSnapshot`.
+#[derive(Debug, Clone, Default)]
+pub struct SessionPageCursor {
+    /// Opaque server cursor pointing at the next newer page. `None` means
+    /// either this runtime has not been paged yet (first page) or no more
+    /// sessions remain.
+    pub cursor: Option<String>,
+    /// Whether more sessions remain on this runtime. Set to `false` when the
+    /// last page for a runtime returned no `next_cursor`, or when a full
+    /// `thread/list` drain (refresh) completed for the server.
+    pub has_more: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AppSnapshot {
     pub servers: HashMap<String, ServerSnapshot>,
     pub threads: HashMap<ThreadKey, ThreadSnapshot>,
+    /// Per-(server, runtime) cursors for paged session list loading.
+    pub session_pages: HashMap<(String, AgentRuntimeKind), SessionPageCursor>,
     pub active_thread: Option<ThreadKey>,
     pub pending_approvals: Vec<PendingApproval>,
     pub(crate) pending_approval_seeds: HashMap<PendingApprovalKey, PendingApprovalSeed>,

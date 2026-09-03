@@ -69,6 +69,16 @@ struct HomeDashboardView: View {
     /// new thread.
     var onForkThread: (@MainActor (HomeDashboardRecentSession) async -> Void)? = nil
     var onInputModeChange: ((HomeInputMode) -> Void)? = nil
+    /// Fired when the user scrolls near the bottom of the sessions list.
+    /// The model fetches the next page and reveals more sessions.
+    var onLoadMore: (() -> Void)? = nil
+    /// Fired by the drag-down-to-refresh control. The model drains all
+    /// sessions and resets the recent window.
+    var onRefreshSessions: (@MainActor () async -> Void)? = nil
+    /// Whether more sessions are available on the visible servers.
+    var hasMoreSessions: Bool = false
+    /// True while a "load more" page fetch is in flight.
+    var isLoadingMoreSessions: Bool = false
 
     @State private var deleteTargetThread: HomeDashboardRecentSession?
     @State private var replyTargetThread: HomeDashboardRecentSession?
@@ -581,8 +591,12 @@ struct HomeDashboardView: View {
                     openingKey: openingRecentSessionKey,
                     zoomLevel: $zoomLevel,
                     showCatFooter: chrome == .full,
-                    topInset: 48,
+                    topInset: 52,
                     bottomInset: chrome == .full ? 140 : 24,
+                    hasMoreSessions: hasMoreSessions,
+                    isLoadingMoreSessions: isLoadingMoreSessions,
+                    onLoadMore: onLoadMore,
+                    onRefreshSessions: onRefreshSessions,
                     callbacks: HomeSessionsScrollView.Callbacks(
                         onOpen: { session in
                             guard openingRecentSessionKey == nil else { return }
@@ -782,6 +796,7 @@ struct SessionCanvasLine: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+.padding(.bottom, 4)
 
                 // Detail below — gets full width. As zoom grows, additional
                 // rows are revealed by the container's layout animation.

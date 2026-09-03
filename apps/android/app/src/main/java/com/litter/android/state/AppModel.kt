@@ -100,8 +100,8 @@ class AppModel private constructor(context: android.content.Context) {
         /**
          * Matches the iOS page sizes. Server clamps this at 100.
          */
-        const val INITIAL_TURN_PAGE_LIMIT: UInt = 5u
-        const val OLDER_TURN_PAGE_LIMIT: UInt = 5u
+        const val INITIAL_TURN_PAGE_LIMIT: UInt = 20u
+        const val OLDER_TURN_PAGE_LIMIT: UInt = 20u
     }
 
     // --- Rust bridges (singletons behind the scenes) -------------------------
@@ -439,7 +439,10 @@ class AppModel private constructor(context: android.content.Context) {
         )
         restoreStoredLocalAuthState(serverId)
         try {
-            refreshSessions(listOf(serverId))
+            // First page only — the home dashboard drives the rest via
+            // infinite scroll. Full drains still happen on pull-to-refresh
+            // and the dedicated Sessions screen.
+            loadSessionsPage(listOf(serverId), limit = 10u)
         } catch (_: Exception) {
         }
         refreshSnapshot()
@@ -480,6 +483,31 @@ class AppModel private constructor(context: android.content.Context) {
                 throw e
             }
         }
+    }
+
+    /**
+     * Fetch the next page of the session list for each server via
+     * `store.loadThreadsPage`, merging additively into the canonical store.
+     * Used by the home dashboard's infinite scroll. On failure for a server,
+     * falls back to a full `refreshSessions` drain so the home list still
+     * populates (the retained Rust cursor state is cleared by that drain).
+     */
+    suspend fun loadSessionsPage(serverIds: Collection<String>, limit: UInt = 10u) {
+        val target = serverIds.filter { it !in sessionPageLoadingServerIds }
+        if (target.isEmpty()) return
+        target.forEach { sessionPageLoadingServerIds.add(it) }
+        try {
+            for (serverId in target) {
+                try {
+                    store.loadThreadsPage(serverId, limit)
+                } catch (_: Exception) {
+                    runCatching { refreshSessions(listOf(serverId)) }
+                }
+            }
+        } finally {
+            target.forEach { sessionPageLoadingServerIds.remove(it) }
+        }
+        refreshSnapshot()
     }
 
     suspend fun refreshThreadSearchSessions(
@@ -859,6 +887,7 @@ class AppModel private constructor(context: android.content.Context) {
      */
     private val initialTurnsLoadingKeys = mutableSetOf<ThreadKey>()
     private val olderTurnsLoadingKeys = mutableSetOf<ThreadKey>()
+    private val sessionPageLoadingServerIds = mutableSetOf<String>()
 
     /**
      * Launch an initial-turn load on the AppModel-owned scope so it survives
@@ -906,19 +935,27 @@ class AppModel private constructor(context: android.content.Context) {
 
     /**
      * Fetch the next older page using the thread's stored
-     * `older_turns_cursor`. No-op when the cursor is null.
+     * `older_turns_cursor`. No-op (returns false) when the cursor is null or
+     * empty, or when a page is already in flight for this thread.
      *
-     * Returns a [Job] so the caller can `join()` to drive UI state (e.g.
-     * spinner on the "Load earlier messages" button).
+     * Runs on the AppModel-owned scope so the RPC survives recomposition.
+     * `onResult` reports whether a page was actually merged, so the
+     * conversation UI can release its "requested cursor" guard once the store
+     * advances `olderTurnsCursor` (or retry on failure).
      */
-    fun loadOlderTurns(key: ThreadKey, limit: UInt = OLDER_TURN_PAGE_LIMIT): Job {
-        val cursor = threadSnapshot(key)?.olderTurnsCursor
-        if (cursor == null || !olderTurnsLoadingKeys.add(key)) {
-            return scope.launch { /* no-op */ }
-        }
+    fun loadOlderTurns(
+        key: ThreadKey,
+        limit: UInt = OLDER_TURN_PAGE_LIMIT,
+        onResult: (didLoad: Boolean) -> Unit = {},
+    ): Job {
+        val cursor = threadSnapshot(key)?.olderTurnsCursor ?: return scope.launch { onResult(false) }
+        if (cursor.isEmpty()) return scope.launch { onResult(false) }
+        if (!olderTurnsLoadingKeys.add(key)) return scope.launch { onResult(false) }
         return scope.launch {
+            var didLoad = false
             try {
                 val outcome = store.loadThreadTurnsPage(key, cursor, limit)
+                didLoad = outcome.loaded
                 LLog.i(
                     "Pagination",
                     "loadOlderTurns",
@@ -943,6 +980,7 @@ class AppModel private constructor(context: android.content.Context) {
                 _lastError.value = e.message
             } finally {
                 olderTurnsLoadingKeys.remove(key)
+                onResult(didLoad)
             }
         }
     }

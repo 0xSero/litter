@@ -12,7 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
@@ -36,6 +38,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,6 +57,7 @@ import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.automirrored.outlined.ViewQuilt
 import androidx.compose.material.icons.outlined.ViewStream
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +72,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -74,6 +80,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +105,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.AppSessionSummary
 import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.DebugSettings
 import com.litter.android.state.SavedProjectStore
@@ -123,7 +133,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppProject
 import uniffi.codex_mobile_client.AppServerSnapshot
-import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.PinnedThreadKey
 import uniffi.codex_mobile_client.SavedApp
 import uniffi.codex_mobile_client.ThreadKey
@@ -183,15 +192,106 @@ fun HomeDashboardScreen(
 
     // Home list = pinned first (preserving pin order). Local Studio also keeps
     // recent sessions visible after a pin so newly synced Pi sessions do not
-    // disappear behind legacy pinned rows. Hidden threads stay excluded.
-    val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions) {
-        mergeHomeSessions(pinnedKeys, hiddenKeys, servers, allSessions)
+    // disappear behind legacy pinned rows. Hidden threads stay excluded. The
+    // unpinned recent window grows via infinite scroll.
+    var recentLimit by remember { mutableIntStateOf(DefaultRecentLimit) }
+    var isRefreshingSessions by remember { mutableStateOf(false) }
+    var isLoadingMoreSessions by remember { mutableStateOf(false) }
+    val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions, recentLimit) {
+        mergeHomeSessions(pinnedKeys, hiddenKeys, servers, allSessions, recentLimit)
     }
 
     val scopedServerId = selectedProject?.serverId ?: selectedServerId
     val recentSessions = remember(homeSessions, scopedServerId) {
         if (scopedServerId.isNullOrEmpty()) homeSessions
         else homeSessions.filter { it.key.serverId == scopedServerId }
+    }
+
+    // --- Infinite scroll + pull-to-refresh --------------------------------
+    val hasMoreSessions = remember(snapshot, scopedServerId, allSessions.size, recentLimit) {
+        val scoped = scopedServerId
+        // Server still has remote pages to fetch.
+        val serverHasMore = snapshot?.servers?.any { server ->
+            (scoped.isNullOrEmpty() || server.serverId == scoped) && server.sessionListHasMore
+        } ?: false
+        // OR: the Rust store already holds more sessions than the current
+        // display window (e.g. user scrolled before navigating away and
+        // `recentLimit` reset on re-entry).
+        val localHasMore = allSessions.size > recentLimit
+        serverHasMore || localHasMore
+    }
+    val listState = rememberLazyListState()
+    val isLoadingMore by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            if (info.totalItemsCount == 0) return@derivedStateOf false
+            val last = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+            last.index >= info.totalItemsCount - 3
+        }
+    }
+
+    fun loadMoreSessions() {
+        if (isRefreshingSessions || isLoadingMoreSessions) return
+        val targetServers = snapshot?.servers
+            ?.filter { server ->
+                (scopedServerId.isNullOrEmpty() || server.serverId == scopedServerId) &&
+                    server.sessionListHasMore
+            }
+            ?.map { it.serverId }
+            .orEmpty()
+        if (targetServers.isEmpty()) {
+            // Server cursors exhausted but local store may hold more
+            // sessions than the current display window (e.g. previously
+            // loaded pages after re-entry).
+            if (allSessions.size > recentLimit) {
+                isLoadingMoreSessions = true
+                scope.launch {
+                    try {
+                        recentLimit += RecentLimitStep
+                    } finally {
+                        isLoadingMoreSessions = false
+                    }
+                }
+            }
+            return
+        }
+        isLoadingMoreSessions = true
+        scope.launch {
+            try {
+                appModel.loadSessionsPage(targetServers, limit = RecentLimitStep.toUInt())
+                recentLimit += RecentLimitStep
+            } finally {
+                isLoadingMoreSessions = false
+            }
+        }
+    }
+
+    fun refreshAllSessions() {
+        if (isRefreshingSessions) return
+        isRefreshingSessions = true
+        isLoadingMoreSessions = false
+        val targetServers = snapshot?.servers
+            ?.filter { it.isConnected }
+            ?.map { it.serverId }
+            .orEmpty()
+        scope.launch {
+            try {
+                appModel.refreshSessions(targetServers)
+            } finally {
+                recentLimit = DefaultRecentLimit
+                isRefreshingSessions = false
+            }
+        }
+    }
+
+    @OptIn(FlowPreview::class)
+    LaunchedEffect(recentSessions.size, hasMoreSessions, scopedServerId, isLoadingMoreSessions) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling && isLoadingMore && hasMoreSessions) {
+                    loadMoreSessions()
+                }
+            }
     }
 
     fun pinThreadOnHome(key: ThreadKey) {
@@ -365,41 +465,15 @@ fun HomeDashboardScreen(
     ) {
         // Sessions list fills the whole screen, with top/bottom content padding
         // so items don't sit under the floating chrome.
+        PullToRefreshBox(
+            isRefreshing = isRefreshingSessions,
+            onRefresh = { refreshAllSessions() },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    // Pinch-to-zoom. `detectTransformGestures(panZoomLock = true)`
-                    // lets single-finger vertical drags still reach the
-                    // LazyColumn scroll, and only begins consuming when a
-                    // true pinch is in progress. We accumulate the
-                    // multiplicative zoom factor across the gesture so a
-                    // slow pinch composes the same as a fast one, then
-                    // round to a discrete level delta (same 0.4 threshold
-                    // iOS uses at HomeDashboardView.swift:334-363). The
-                    // outer while-loop resets accumulator state when the
-                    // gesture ends and detectTransformGestures returns.
-                    while (true) {
-                        pinchBaseZoom = null
-                        pinchAccumulator = 1f
-                        detectTransformGestures(panZoomLock = true) { _, _, zoom, _ ->
-                            if (zoom == 1f) return@detectTransformGestures
-                            val base = pinchBaseZoom ?: zoomLevel.also { pinchBaseZoom = it }
-                            pinchAccumulator *= zoom
-                            val delta = ((pinchAccumulator - 1f) / 0.4f).roundToInt()
-                            val next = (base + delta).coerceIn(
-                                DashboardZoomPrefs.MIN_LEVEL,
-                                DashboardZoomPrefs.MAX_LEVEL,
-                            )
-                            if (next != zoomLevel) {
-                                DashboardZoomPrefs.setLevel(context, next)
-                                haptics.performHapticFeedback(
-                                    HapticFeedbackType.TextHandleMove,
-                                )
-                            }
-                        }
-                    }
-                },
+                .fillMaxSize(),
             contentPadding = run {
                 // Respect system bars so list content can scroll under the
                 // translucent top/bottom chrome *and* past the status/nav bar
@@ -537,11 +611,36 @@ fun HomeDashboardScreen(
                         )
                     }
                 }
+                if (hasMoreSessions) {
+                    item(key = "home-load-more") {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                        ) {
+                            if (isLoadingMoreSessions) {
+                                CircularProgressIndicator(
+                                    color = LitterTheme.accent,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            Text(
+                                text = if (isLoadingMoreSessions) "Loading more sessions..." else "Pull up for more",
+                                color = LitterTheme.textMuted,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                }
             } else {
                 item {
                     Spacer(Modifier.height(1.dp))
                 }
             }
+        }
         }
 
         // Top chrome: header + server pill row, floating over the list with a
@@ -1376,6 +1475,7 @@ internal fun mergeHomeSessions(
     hidden: List<PinnedThreadKey>,
     servers: List<AppServerSnapshot>,
     allSessions: List<AppSessionSummary>,
+    recentLimit: Int = DefaultRecentLimit,
 ): List<AppSessionSummary> {
     val hiddenSet = hidden.toSet()
     val candidates = allSessions.filter {
@@ -1410,8 +1510,11 @@ internal fun mergeHomeSessions(
         }
         return pinnedSessions + localStudioRecent
     }
-    return candidates.take(10)
+    return candidates.take(recentLimit)
 }
+
+private const val DefaultRecentLimit = 20
+private const val RecentLimitStep = 20
 
 private fun placeholderPinnedSession(
     pinned: PinnedThreadKey,
