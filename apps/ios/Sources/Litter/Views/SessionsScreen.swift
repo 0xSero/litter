@@ -31,6 +31,8 @@ struct SessionsScreen: View {
     @State private var sessionSearchDebounceTask: Task<Void, Never>?
     @State private var hasLoadedInitialSessions = false
     @State private var isSessionLoadInFlight = false
+    @State private var sessionHydrationLimit = SessionsScreen.sessionHydrationPageSize
+    private static let sessionHydrationPageSize: UInt32 = 100
     private let autoLoadSessions: Bool
     private let onOpenConversation: (ThreadKey) -> Void
     private let onInfo: (() -> Void)?
@@ -782,6 +784,10 @@ struct SessionsScreen: View {
                             }
                         }
                     }
+
+                    if derived.allThreads.count >= Int(sessionHydrationLimit) {
+                        loadMoreSessionsRow
+                    }
                 }
                 .padding(.leading, 4)
                 .padding(.trailing, 8)
@@ -1134,6 +1140,29 @@ struct SessionsScreen: View {
         }
     }
 
+    private var loadMoreSessionsRow: some View {
+        Button {
+            sessionHydrationLimit += Self.sessionHydrationPageSize
+            refreshSessions()
+        } label: {
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(LitterTheme.accent)
+                }
+                Text("Load more sessions")
+                    .litterFont(.footnote)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(LitterTheme.accent)
+        .disabled(isLoading)
+        .accessibilityIdentifier("sessions.loadMore")
+    }
+
     private func loadSessions() async {
         let signpostID = OSSignpostID(log: sessionsScreenSignpostLog)
         os_signpost(.begin, log: sessionsScreenSignpostLog, name: "LoadSessions", signpostID: signpostID)
@@ -1152,6 +1181,7 @@ struct SessionsScreen: View {
         isLoading = true
         let serverIds = selectedServerFilterId.map { [$0] } ?? connectedServerIds
         let runtimeKinds = selectedRuntimeKindFilter.map { [$0] }
+        let hydrationLimit = sessionHydrationLimit
         let client = appModel.client
         let failures = await withTaskGroup(of: String?.self) { group in
             for serverId in serverIds {
@@ -1159,7 +1189,7 @@ struct SessionsScreen: View {
                     do {
                         try await client.listThreads(
                             serverId: serverId,
-                            params: AppListThreadsRequest(limit: nil, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
+                            params: AppListThreadsRequest(limit: hydrationLimit, sortKey: .updatedAt, sortDirection: .desc, runtimeKinds: runtimeKinds)
                         )
                         return nil
                     } catch {
