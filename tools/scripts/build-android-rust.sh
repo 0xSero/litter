@@ -110,4 +110,12 @@ echo "==> Building codex_mobile_client Android shared libs..."
 cd "$WORKSPACE_DIR"
 cargo ndk "${ABI_ARGS[@]}" -o "$OUT_DIR" build --profile "$RUST_PROFILE" -p codex-mobile-client
 
+# Fail the build instead of shipping an app whose embedded iSH runtime has a
+# broken (empty-stub) ARM64 vdso; at runtime that SIGABRTs as soon as a guest
+# process hits a signal. Mirrors the iOS guard in apps/ios/scripts/build-rust.sh.
+TARGET_DIR="${CARGO_TARGET_DIR:-$WORKSPACE_DIR/target}"
+for target in "${RUST_TARGETS[@]}"; do
+  "$REPO_DIR/tools/scripts/check-ish-vdso.sh" "$TARGET_DIR" "$target" "$RUST_PROFILE"
+done
+
 echo "==> Done. Android JNI libs are in: $OUT_DIR"
