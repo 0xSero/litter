@@ -30,6 +30,7 @@ class TerminalSessionController(
         val port: UShort,
         val fingerprint: String,
         val backend: TerminalBackendKind,
+        val isChanged: Boolean,
     )
 
     var phase by mutableStateOf(Phase.IDLE)
@@ -143,6 +144,12 @@ class TerminalSessionController(
         open(challenge.backend)
     }
 
+    fun dismissSshTrustChallenge() {
+        sshTrustChallenge = null
+        errorMessage = null
+        phase = Phase.IDLE
+    }
+
     fun switchBackend(backend: TerminalBackendKind) {
         close()
         output = ""
@@ -184,17 +191,20 @@ class TerminalSessionController(
         backend: TerminalBackendKind,
     ): SshHostTrustChallenge? {
         val sshBackend = backend as? TerminalBackendKind.RemoteSsh ?: return null
-        val fingerprint = unknownHostFingerprint(error.message.orEmpty()) ?: return null
+        val message = error.message.orEmpty()
+        val fingerprint = sshHostFingerprint(message) ?: return null
         return SshHostTrustChallenge(
             host = sshBackend.host,
             port = sshBackend.port,
             fingerprint = fingerprint,
             backend = backend,
+            isChanged = message.contains("host-key-changed:"),
         )
     }
 
-    private fun unknownHostFingerprint(message: String): String? {
-        val marker = "unknown-host:"
+    private fun sshHostFingerprint(message: String): String? {
+        val markers = listOf("unknown-host:", "host-key-changed:")
+        val marker = markers.firstOrNull { message.contains(it) } ?: return null
         val start = message.indexOf(marker)
         if (start < 0) return null
         return message

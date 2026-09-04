@@ -112,6 +112,35 @@ impl ReconnectController {
         }
     }
 
+    pub fn set_ssh_trust_store(&self, store: Arc<crate::terminal::TerminalSshTrustStore>) {
+        self.inner.set_ssh_trust_store(store);
+    }
+
+    /// Replace a server's pinned SSH identity after an explicit user confirmation.
+    pub async fn replace_ssh_host_key(&self, server_id: String, fingerprint: String) -> bool {
+        let Some(server) = self
+            .saved_servers
+            .read()
+            .ok()
+            .and_then(|servers| servers.iter().find(|server| server.id == server_id).cloned())
+        else {
+            return false;
+        };
+        let store = self
+            .inner
+            .ssh_trust_store
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        let Some(store) = store else { return false };
+        store.pin(
+            crate::terminal::normalize_host(&server.hostname),
+            crate::reconnect::resolved_ssh_port(&server),
+            fingerprint,
+        );
+        true
+    }
+
     pub fn set_slingshot_credential_provider(
         &self,
         provider: Box<dyn SlingshotCredentialProvider>,

@@ -1006,6 +1006,23 @@ private struct HomeNavigationView: View {
         } message: {
             Text(actionErrorMessage ?? "Unknown error")
         }
+        .alert("SSH Host Identity Changed", isPresented: Binding(
+            get: { appModel.sshHostKeyChangeChallenge != nil },
+            set: { if !$0 { appModel.clearSshHostKeyChange() } }
+        )) {
+            Button("Replace Stored Identity", role: .destructive) {
+                guard let challenge = appModel.sshHostKeyChangeChallenge else { return }
+                Task {
+                    await AppRuntimeController.shared.replaceSshHostKey(
+                        serverId: challenge.serverId,
+                        fingerprint: challenge.fingerprint
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) { appModel.clearSshHostKeyChange() }
+        } message: {
+            Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: \(appModel.sshHostKeyChangeChallenge?.fingerprint ?? "unknown")")
+        }
     }
 
     private func defaultNewSessionServerId(preferredServerId: String? = nil) -> String? {

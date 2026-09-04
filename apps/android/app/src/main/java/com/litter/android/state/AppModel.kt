@@ -14,6 +14,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
 import uniffi.codex_mobile_client.AppClient
 import uniffi.codex_mobile_client.AppMinigameRequest
@@ -38,6 +41,7 @@ import uniffi.codex_mobile_client.ReconnectController
 import uniffi.codex_mobile_client.ServerBridge
 import uniffi.codex_mobile_client.SshBridge
 import uniffi.codex_mobile_client.ThreadKey
+import uniffi.codex_mobile_client.TerminalSshTrustStore
 import uniffi.codex_mobile_client.AppListThreadsRequest
 import uniffi.codex_mobile_client.AppLoginAccountRequest
 import uniffi.codex_mobile_client.AppRefreshModelsRequest
@@ -57,6 +61,10 @@ class LocalAccountLoginRequiredException(val serverId: String) :
  * via the Rust subscription stream.
  */
 class AppModel private constructor(context: android.content.Context) {
+    data class SshHostKeyChangeChallenge(
+        val serverId: String,
+        val fingerprint: String,
+    )
 
     data class ComposerPrefillRequest(
         val requestId: Long,
@@ -119,6 +127,8 @@ class AppModel private constructor(context: android.content.Context) {
     /** Persists the iroh device secret key across cold launches. */
     val alleycatCredentials: AlleycatCredentialStore
     val appContext: android.content.Context = context
+    var sshHostKeyChangeChallenge by mutableStateOf<SshHostKeyChangeChallenge?>(null)
+        private set
     init {
         UniffiInit.ensure(context)
         Thread({
@@ -137,6 +147,9 @@ class AppModel private constructor(context: android.content.Context) {
         sshSessionStore = SshSessionStore(ssh)
         parser = MessageParser()
         reconnectController = ReconnectController()
+        val sshTrustStore = TerminalSshTrustStore(SshTrustStore(context))
+        serverBridge.setSshTrustStore(sshTrustStore)
+        reconnectController.setSshTrustStore(sshTrustStore)
         reconnectController.setCredentialProvider(
             KotlinSshCredentialProvider(SshCredentialStore(context))
         )
@@ -155,6 +168,20 @@ class AppModel private constructor(context: android.content.Context) {
         runCatching { alleycatCredentials.loadDeviceSecretKey() }
             .getOrNull()
             ?.let { client.setAlleycatSecretKey(it) }
+    }
+
+    fun recordSshHostKeyChange(serverId: String, errorMessage: String?) {
+        val marker = "host-key-changed:"
+        val start = errorMessage?.indexOf(marker) ?: -1
+        if (start < 0) return
+        val fingerprint = errorMessage!!.substring(start + marker.length).trim()
+        if (fingerprint.isNotEmpty()) {
+            sshHostKeyChangeChallenge = SshHostKeyChangeChallenge(serverId, fingerprint)
+        }
+    }
+
+    fun clearSshHostKeyChange() {
+        sshHostKeyChangeChallenge = null
     }
 
     /**
