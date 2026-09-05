@@ -1,0 +1,9 @@
+{
+  "name": "litter-mobile-tools",
+  "version": "1.0.0",
+  "private": true,
+  "license": "GPL-3.0-only WITH LicenseRef-App-Store-Google-Play-Exception",
+  "dependencies": {
+    "@material/material-color-utilities": "0.4.0"
+  }
+}
