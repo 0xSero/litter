@@ -68,6 +68,7 @@ struct ConversationDisplayUITestHarnessView: View {
                         onForkFromUserItem: { _ in }
                     )
                     .accessibilityIdentifier("conversationDisplayHarness.timeline")
+                    .skillMentionCatalog(Self.qaSkillCatalog)
                 }
                 .padding(16)
             }
@@ -117,11 +118,54 @@ struct ConversationDisplayUITestHarnessView: View {
         return rawValue
     }
 
+    private static let qaSkillCatalog: SkillMentionCatalog = {
+        let catalog = SkillMentionCatalog()
+        catalog.configureLoader {
+            [
+                SkillMetadata(
+                    name: "cad",
+                    description: "Sim2real 3D CAD pipeline: takes a real object from caliper measurement to a validated printable STL.",
+                    shortDescription: "Design 3D-printable parts from measurements",
+                    interface: SkillInterface(
+                        displayName: "CAD",
+                        shortDescription: "Design 3D-printable parts from real measurements",
+                        iconSmall: nil,
+                        iconLarge: nil,
+                        brandColor: nil,
+                        defaultPrompt: "Use the CAD skill to design a parametric part from the given measurements, validate overhangs, and emit an STL."
+                    ),
+                    dependencies: nil,
+                    path: AbsolutePath(value: "/Users/qa/.codex/skills/cad"),
+                    scope: .user,
+                    enabled: true
+                ),
+                SkillMetadata(
+                    name: "mujoco",
+                    description: "Physics simulation of assemblies before printing.",
+                    shortDescription: nil,
+                    interface: nil,
+                    dependencies: nil,
+                    path: AbsolutePath(value: "/Users/qa/.codex/skills/mujoco"),
+                    scope: .repo,
+                    enabled: true
+                ),
+            ]
+        }
+        return catalog
+    }()
+
     private static let seedItems: [ConversationItem] = [
         ConversationItem(
             id: "ui-test-user",
             content: .user(ConversationUserMessageData(
                 text: "UITEST_USER_MESSAGE",
+                images: []
+            ))
+        ),
+        ConversationItem(
+            id: "ui-test-user-skill",
+            content: .user(ConversationUserMessageData(
+                text: "$cad can you use CAD skill to make me a long 3d print holder, then $mujoco the physics. budget is $200 and cost$cad stays plain",
                 images: []
             ))
         ),

@@ -14,56 +14,101 @@ struct FormattedText: View {
     /// nil, wraps via a FlowLayout.
     var lineLimit: Int? = nil
 
+    @Environment(\.skillMentionCatalog) private var skillMentionCatalog
+
+    private enum Fragment {
+        case text(String)
+        case pluginRef(displayName: String, pluginName: String)
+        case skill(SkillMetadata)
+    }
+
     var body: some View {
         content
             .environment(\.openURL, externalBrowserAction)
+            .onAppear { requestSkillLoadIfMentioned() }
+            .onChange(of: skillMentionCatalog.map(ObjectIdentifier.init)) {
+                requestSkillLoadIfMentioned()
+            }
+    }
+
+    private func requestSkillLoadIfMentioned() {
+        guard let skillMentionCatalog, textContainsSkillMentionSyntax(text) else { return }
+        skillMentionCatalog.loadIfNeeded()
     }
 
     @ViewBuilder
     private var content: some View {
-        let segments = parsePluginRefs(input: text)
-        if segments.count == 1, case .text(let t) = segments.first {
+        let fragments = resolvedFragments
+        if fragments.count == 1, case .text(let t) = fragments.first {
             Text(linkifiedText(t))
                 .lineLimit(lineLimit)
         } else if lineLimit == 1 {
-            singleLine(segments)
+            singleLine(fragments)
         } else {
-            multiLine(segments)
+            multiLine(fragments)
         }
     }
 
-    private func singleLine(_ segments: [TitleSegment]) -> some View {
-        // spacing=0: segments already carry the original whitespace, so the
+    private var resolvedFragments: [Fragment] {
+        parsePluginRefs(input: text).flatMap { segment -> [Fragment] in
+            switch segment {
+            case .pluginRef(let displayName, let pluginName, _):
+                return [.pluginRef(displayName: displayName, pluginName: pluginName)]
+            case .text(let text):
+                guard let catalog = skillMentionCatalog else { return [.text(text)] }
+                return splitSkillMentionPieces(text).map { piece -> Fragment in
+                    switch piece {
+                    case .text(let run):
+                        return .text(run)
+                    case .mention(let name, let raw):
+                        guard let skill = catalog.skill(named: name) else {
+                            return .text(raw)
+                        }
+                        return .skill(skill)
+                    }
+                }
+            }
+        }
+    }
+
+    private func singleLine(_ fragments: [Fragment]) -> some View {
+        // spacing=0: fragments already carry the original whitespace, so the
         // HStack must not add extra.
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
+            ForEach(Array(fragments.enumerated()), id: \.offset) { _, fragment in
+                switch fragment {
                 case .text(let text):
                     Text(linkifiedText(text))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                case .pluginRef(let displayName, let pluginName, _):
+                case .pluginRef(let displayName, let pluginName):
                     PluginPill(displayName: displayName, pluginName: pluginName)
+                        .fixedSize()
+                case .skill(let skill):
+                    SkillPill(skill: skill)
                         .fixedSize()
                 }
             }
         }
     }
 
-    private func multiLine(_ segments: [TitleSegment]) -> some View {
+    private func multiLine(_ fragments: [Fragment]) -> some View {
         // spacing=0: word pieces produced by splitPreservingWhitespace include
         // their own whitespace runs, so FlowLayout shouldn't add extra.
         FlowLayout(spacing: 0, rowSpacing: 4) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
+            ForEach(Array(fragments.enumerated()), id: \.offset) { _, fragment in
+                switch fragment {
                 case .text(let text):
                     let pieces = splitPreservingWhitespace(text)
                     ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                         Text(linkifiedText(piece))
                             .fixedSize()
                     }
-                case .pluginRef(let displayName, let pluginName, _):
+                case .pluginRef(let displayName, let pluginName):
                     PluginPill(displayName: displayName, pluginName: pluginName)
+                        .fixedSize()
+                case .skill(let skill):
+                    SkillPill(skill: skill)
                         .fixedSize()
                 }
             }
