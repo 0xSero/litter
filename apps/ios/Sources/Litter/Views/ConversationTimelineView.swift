@@ -13,8 +13,6 @@ struct ConversationTurnTimeline: View {
     let originThreadId: String?
     let agentDirectoryVersion: UInt64
     let messageActionsDisabled: Bool
-    let onStreamingSnapshotRendered: (() -> Void)?
-    let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
     let resolveThreadKey: (String) -> ThreadKey?
     let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
@@ -43,12 +41,6 @@ struct ConversationTurnTimeline: View {
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
-                    .onGeometryChange(for: CGFloat.self) { geometry in
-                        geometry.size.height
-                    } action: { oldHeight, newHeight in
-                        guard isLive, abs(newHeight - oldHeight) > 0.5 else { return }
-                        onLiveContentLayoutChanged?()
-                    }
             }
         }
     }
@@ -103,8 +95,6 @@ struct ConversationTurnTimeline: View {
                     commandDisplayMode: commandDisplayMode,
                     toolDisplayMode: toolDisplayMode,
                     messageActionsDisabled: messageActionsDisabled,
-                    onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
-                    onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                     resolveTargetLabel: resolveTargetLabel,
                     resolveThreadKey: resolveThreadKey,
                     resolveLiveStatus: resolveLiveStatus,
@@ -485,8 +475,6 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let commandDisplayMode: ConversationDetailDisplayMode
     let toolDisplayMode: ConversationDetailDisplayMode
     let messageActionsDisabled: Bool
-    let onStreamingSnapshotRendered: (() -> Void)?
-    let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
     let resolveThreadKey: (String) -> ThreadKey?
     let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
@@ -704,8 +692,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
             itemId: item.id,
             text: data.text,
             isStreaming: isStreamingMessage,
-            label: assistantLabel,
-            onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
+            label: assistantLabel
         )
     }
 
