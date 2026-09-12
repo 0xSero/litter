@@ -108,7 +108,7 @@ struct DiscoveryView: View {
             self.pendingSSHServer = nil
             self.sshServer = pendingSSHServer
         }
-        .onChange(of: appModel.snapshot) { _, _ in
+        .onChange(of: appModel.snapshotRevision) { _, _ in
             guard let pendingAutoNavigateServerId else { return }
             guard let serverSnapshot = appModel.snapshot?.serverSnapshot(for: pendingAutoNavigateServerId) else {
                 return

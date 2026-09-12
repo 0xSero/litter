@@ -331,7 +331,6 @@ struct ToolCallCardView: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     SyntaxHighlightedDiffText(
                         diff: visibleText(content, id: id),
-                        titleHint: label.isEmpty ? nil : label,
                         fontSize: terminalFontSize
                     )
                     .padding(.horizontal, 10)

@@ -7,10 +7,11 @@ struct PetSettingsView: View {
     @State private var pets: [AppPetSummary] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-
-    private var connectedServers: [AppServerSnapshot] {
-        appModel.snapshot?.servers.filter(\.isConnected) ?? []
-    }
+    /// Mirrored out of `appModel.snapshot` by `snapshotObserver`. Reading
+    /// `appModel.snapshot` from `body` re-rendered this Form at the ~8 fps
+    /// streaming snapshot cadence.
+    @State private var connectedServers: [AppServerSnapshot] = []
+    @State private var snapshotObserver = AppSnapshotObserver()
 
     var body: some View {
         Form {
@@ -144,6 +145,11 @@ struct PetSettingsView: View {
         .navigationTitle("Pet")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // Keeps `connectedServers` live: the observer re-runs the
+            // projection on every (coalesced) snapshot revision, so servers
+            // connecting/disconnecting while this screen is open still show up.
+            let model = appModel
+            snapshotObserver.start(appModel: model) { refreshConnectedServers(model) }
             if selectedServerId.isEmpty {
                 selectedServerId = controller.selectedPet?.serverId
                     ?? appModel.snapshot?.activeThread?.serverId
@@ -151,6 +157,17 @@ struct PetSettingsView: View {
                     ?? ""
             }
             await refreshPets()
+        }
+        .onDisappear { snapshotObserver.stop() }
+    }
+
+    /// Called from `snapshotObserver`, never from `body`. Writes `@State` only
+    /// on a real change so idle snapshot bumps cost nothing. Takes the model
+    /// explicitly so the deferred closure never reads `@Environment`.
+    private func refreshConnectedServers(_ appModel: AppModel) {
+        let next = appModel.snapshot?.servers.filter(\.isConnected) ?? []
+        if connectedServers != next {
+            connectedServers = next
         }
     }
 

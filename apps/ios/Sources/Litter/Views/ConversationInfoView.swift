@@ -28,19 +28,32 @@ struct ConversationInfoView: View {
     @State private var serverUsage: AppServerUsageStats?
     @State private var isShowingMountedFolders = false
 
-    private var thread: AppThreadSnapshot? {
-        guard let threadKey else { return nil }
-        return appModel.snapshot?.threads.first { $0.key == threadKey }
-    }
+    /// Resolved snapshot of the thread for this screen. Stored in `@State`
+    /// and refreshed from `.onAppear`/`.onChange` (closure context), NOT read
+    /// from `appModel.snapshot` in `body`. Reading `appModel.snapshot` in
+    /// `body` would create a per-token observation edge that re-renders the
+    /// entire info screen on every streaming delta.
+    @State private var resolvedThread: AppThreadSnapshot?
 
-    private var server: AppServerSnapshot? {
-        guard let sid = resolvedServerId else { return nil }
-        return appModel.snapshot?.servers.first { $0.serverId == sid }
-    }
+    /// Resolved snapshot of the server. Same pattern as `resolvedThread`.
+    @State private var resolvedServer: AppServerSnapshot?
 
-    private var allServerThreads: [AppThreadSnapshot] {
-        guard let snapshot = appModel.snapshot, let sid = resolvedServerId else { return [] }
-        return snapshot.threads.filter { $0.key.serverId == sid }
+    private var thread: AppThreadSnapshot? { resolvedThread }
+
+    private var server: AppServerSnapshot? { resolvedServer }
+
+    private func refreshResolvedSnapshot() {
+        guard let snapshot = appModel.snapshot else {
+            resolvedThread = nil
+            resolvedServer = nil
+            return
+        }
+        if let threadKey {
+            resolvedThread = snapshot.threads.first { $0.key == threadKey }
+        }
+        if let sid = resolvedServerId {
+            resolvedServer = snapshot.servers.first { $0.serverId == sid }
+        }
     }
 
     var body: some View {
@@ -91,8 +104,14 @@ struct ConversationInfoView: View {
                     .foregroundStyle(LitterTheme.textPrimary)
             }
         }
-        .onAppear { computeData() }
-        .onChange(of: thread?.hydratedConversationItems.count) { computeData() }
+        .onAppear {
+            refreshResolvedSnapshot()
+            computeData()
+        }
+        .onChange(of: appModel.snapshotRevision) {
+            refreshResolvedSnapshot()
+            computeData()
+        }
         .alert("Rename Thread", isPresented: $isRenaming) {
             TextField("Thread name", text: $renameText)
             Button("Save") { saveRename() }
@@ -248,17 +267,6 @@ struct ConversationInfoView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func timestampLabel(_ label: String, timestamp: Int64) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .litterFont(size: 10, weight: .medium)
-                .foregroundStyle(LitterTheme.textMuted)
-            Text(relativeDate(timestamp))
-                .litterFont(size: 12)
-                .foregroundStyle(LitterTheme.textSecondary)
-        }
-    }
-
     private var statusColor: Color {
         switch thread?.info.status {
         case .active: return LitterTheme.success
@@ -266,16 +274,6 @@ struct ConversationInfoView: View {
         case .systemError: return LitterTheme.danger
         case .notLoaded: return LitterTheme.textMuted
         default: return LitterTheme.textMuted
-        }
-    }
-
-    private var statusLabel: String {
-        switch thread?.info.status {
-        case .active: return "Active"
-        case .idle: return "Idle"
-        case .systemError: return "Error"
-        case .notLoaded: return "Not Loaded"
-        default: return "Unknown"
         }
     }
 

@@ -15,10 +15,36 @@ struct TranscriptTurn: Identifiable, Equatable {
 
     let id: String
     let items: [ConversationItem]
-    let preview: Preview
     let isLive: Bool
     let isCollapsedByDefault: Bool
     let renderDigest: Int
+
+    /// Derived on demand rather than stored.
+    ///
+    /// Previews are only rendered by `ConversationTurnRow.collapsedCard`, which
+    /// runs for turns above the collapse boundary. With the default
+    /// `collapseTurns == false` the boundary is 0, so *nothing* is ever
+    /// collapsed — yet `build` used to compute a preview (a full
+    /// `trimmingCharacters` copy plus `enumerateLines` of every message) for
+    /// every turn in the transcript on every coalesced streaming tick, then
+    /// throw all of it away.
+    ///
+    /// Callers that need more than one field should bind this to a local once;
+    /// each access re-derives.
+    var preview: Preview {
+        Self.makePreview(from: items)
+    }
+
+    /// Render equality. `renderDigest` already folds in `items.count` plus each
+    /// item's id and `renderDigest`, and `preview` is a pure function of
+    /// `items`, so this covers everything the synthesized `==` did without
+    /// deep-comparing item content.
+    static func == (lhs: TranscriptTurn, rhs: TranscriptTurn) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.isLive == rhs.isLive &&
+            lhs.isCollapsedByDefault == rhs.isCollapsedByDefault &&
+            lhs.renderDigest == rhs.renderDigest
+    }
 
     static func build(
         from items: [ConversationItem],
@@ -43,7 +69,6 @@ struct TranscriptTurn: Identifiable, Equatable {
             return TranscriptTurn(
                 id: turnIdentifier(for: turnItems, ordinal: index),
                 items: turnItems,
-                preview: makePreview(from: turnItems),
                 isLive: isLive,
                 isCollapsedByDefault: index < collapseBoundary,
                 renderDigest: makeRenderDigest(from: turnItems, isLive: isLive)
@@ -55,7 +80,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         TranscriptTurn(
             id: id,
             items: items,
-            preview: preview,
             isLive: isLive,
             isCollapsedByDefault: isCollapsedByDefault,
             renderDigest: renderDigest
@@ -66,7 +90,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         TranscriptTurn(
             id: id,
             items: items,
-            preview: Self.makePreview(from: items),
             isLive: isLive,
             isCollapsedByDefault: isCollapsedByDefault,
             renderDigest: Self.makeRenderDigest(from: items, isLive: isLive)
@@ -77,7 +100,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         TranscriptTurn(
             id: id,
             items: items,
-            preview: preview,
             isLive: isLive,
             isCollapsedByDefault: isCollapsedByDefault,
             renderDigest: Self.makeRenderDigest(from: items, isLive: isLive)
@@ -191,7 +213,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         return TranscriptTurn(
             id: "exploration-turn-\(first.id)",
             items: items,
-            preview: makePreview(from: items),
             isLive: isLive,
             isCollapsedByDefault: turns.allSatisfy(\.isCollapsedByDefault),
             renderDigest: makeRenderDigest(from: items, isLive: isLive)
@@ -350,25 +371,27 @@ struct TranscriptTurn: Identifiable, Equatable {
 
         switch item.content {
         case .user(let data):
-            let trimmed = data.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return collapsedExcerpt(from: trimmed) }
+            // `collapsedExcerpt` trims each line itself, so the extra
+            // whole-string `trimmingCharacters` copy would be pure waste.
+            if !ConversationItem.isBlank(data.text) { return collapsedExcerpt(from: data.text) }
             if !data.images.isEmpty {
                 return data.images.count == 1 ? "Shared 1 image" : "Shared \(data.images.count) images"
             }
             return "Conversation turn"
         case .assistant(let data):
-            let trimmed = data.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Assistant response" : collapsedExcerpt(from: trimmed)
+            return ConversationItem.isBlank(data.text)
+                ? "Assistant response"
+                : collapsedExcerpt(from: data.text)
         case .codeReview(let data):
             if let first = data.findings.first {
                 return "Review: \(collapsedExcerpt(from: first.title))"
             }
             return "Code review"
         case .reasoning(let data):
-            let body = (data.summary + data.content)
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return body.isEmpty ? "Reasoning" : "Reasoning: \(collapsedExcerpt(from: body))"
+            let body = (data.summary + data.content).joined(separator: " ")
+            return ConversationItem.isBlank(body)
+                ? "Reasoning"
+                : "Reasoning: \(collapsedExcerpt(from: body))"
         case .todoList(let data):
             if data.steps.isEmpty {
                 return "To do list"
@@ -380,8 +403,9 @@ struct TranscriptTurn: Identifiable, Equatable {
             }
             return "To do list: \(completed) of \(total) done"
         case .proposedPlan(let data):
-            let trimmed = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Plan" : "Plan: \(collapsedExcerpt(from: trimmed))"
+            return ConversationItem.isBlank(data.content)
+                ? "Plan"
+                : "Plan: \(collapsedExcerpt(from: data.content))"
         case .commandExecution(let data):
             if let action = data.actions.first {
                 switch action.kind {

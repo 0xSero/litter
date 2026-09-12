@@ -617,7 +617,7 @@ pub(super) fn thread_snapshot_from_upstream_thread_state(
     let info = ThreadInfo::from(thread.clone());
     let items = crate::conversation::hydrate_turns(&thread.turns, &Default::default());
     let mut snapshot = ThreadSnapshot::from_info(server_id, info);
-    snapshot.items = items;
+    snapshot.items = items.into();
     snapshot.model = model;
     snapshot.reasoning_effort = reasoning_effort;
     snapshot.effective_approval_policy = effective_approval_policy;

@@ -53,47 +53,6 @@ struct ExperimentalFeaturesView: View {
                     .tint(LitterTheme.accent)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
 
-                    #if DEBUG
-                    NavigationLink {
-                        ProximityPairView()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "wave.3.right")
-                                .foregroundColor(LitterTheme.accent)
-                                .frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Pair")
-                                    .litterFont(.subheadline)
-                                    .foregroundColor(LitterTheme.textPrimary)
-                                Text("Walk-up pairing with proximity + haptics")
-                                    .litterFont(.caption)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                            }
-                        }
-                    }
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
-                    #endif
-
-                    #if !targetEnvironment(macCatalyst) && DEBUG
-                    NavigationLink {
-                        UWBDebugView()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "dot.radiowaves.left.and.right")
-                                .foregroundColor(LitterTheme.accent)
-                                .frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("UWB Debug")
-                                    .litterFont(.subheadline)
-                                    .foregroundColor(LitterTheme.textPrimary)
-                                Text("Live distance & direction to a paired Mac")
-                                    .litterFont(.caption)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                            }
-                        }
-                    }
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
-                    #endif
                 } header: {
                     Text("Debug")
                         .foregroundColor(LitterTheme.textSecondary)

@@ -11,7 +11,6 @@ func isDiffLanguage(_ language: String?) -> Bool {
 
 struct SyntaxHighlightedDiffText: View {
     let diff: String
-    var titleHint: String? = nil
     var fontSize: CGFloat = 12
 
     @Environment(\.colorScheme) private var colorScheme
@@ -20,9 +19,9 @@ struct SyntaxHighlightedDiffText: View {
 
     private struct RenderInputs: Equatable {
         let diff: String
-        let titleHint: String?
         let fontSize: CGFloat
         let colorScheme: ColorScheme
+        let themeSlug: String
     }
 
     var body: some View {
@@ -30,19 +29,18 @@ struct SyntaxHighlightedDiffText: View {
         .task(id: renderInputs) {
             renderedDiff = syntaxHighlightedDiffAttributedString(
                 diff: diff,
-                titleHint: titleHint,
-                fontSize: fontSize * textScale,
-                colorScheme: colorScheme
+                fontSize: fontSize * textScale
             )
         }
     }
 
     private var renderInputs: RenderInputs {
-        RenderInputs(
+        let resolved = colorScheme == .dark ? ThemeStore.shared.dark : ThemeStore.shared.light
+        return RenderInputs(
             diff: diff,
-            titleHint: titleHint,
             fontSize: fontSize * textScale,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            themeSlug: resolved.slug
         )
     }
 }
@@ -84,9 +82,7 @@ private struct DiffAttributedTextView: UIViewRepresentable {
 
 private func syntaxHighlightedDiffAttributedString(
     diff: String,
-    titleHint: String?,
-    fontSize: CGFloat,
-    colorScheme: ColorScheme
+    fontSize: CGFloat
 ) -> NSAttributedString {
     let monoFont = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     let result = NSMutableAttributedString()

@@ -760,7 +760,7 @@ impl MobileClient {
             sessions,
             event_processor,
             app_store,
-            agent_metadata: crate::store::AgentMetadataStore::new(),
+            agent_metadata: crate::store::AgentMetadataStore::with_builtin_catalog(),
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
             slingshot_apis: Arc::new(StdMutex::new(HashMap::new())),
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),
@@ -3868,7 +3868,7 @@ impl MobileClient {
         &self,
         bytes: Vec<u8>,
     ) -> Result<bool, crate::terminal::TerminalError> {
-        let active_id = self.app_store.snapshot().active_terminal_id.clone();
+        let active_id = self.app_store.active_terminal_id();
         let Some(id) = active_id else {
             return Ok(false);
         };

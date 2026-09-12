@@ -29,6 +29,13 @@ enum ConversationDetailDisplayMode: String, CaseIterable, Identifiable, Equatabl
         ConversationDetailDisplayMode(rawValue: rawValue) ?? .collapsed
     }
 
+    /// `isInProgress` matters as much as `isFailed`: a running tool call has to
+    /// stay open so its output streams in. Command executions already do this
+    /// inline (`commandDefaultExpanded` returns `data.isInProgress`), and tool
+    /// calls used to get the same treatment from
+    /// `ConversationLiveDetailRetentionPolicy` until 7066c5ab removed it —
+    /// leaving running tool calls collapsed and silent until completion, which
+    /// reads as the app freezing mid-turn.
     func defaultExpanded(isFailed: Bool = false, isInProgress: Bool = false) -> Bool {
         switch self {
         case .expanded:

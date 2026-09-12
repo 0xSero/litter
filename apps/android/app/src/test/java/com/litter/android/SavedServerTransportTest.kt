@@ -111,4 +111,51 @@ class SavedServerTransportTest {
             port = 0,
             alleycatNodeId = nodeId,
         )
+
+    @Test
+    fun detachedTransportDefaultsToFalse() {
+        val server =
+            SavedServer(
+                id = "server-detached-default",
+                name = "SSH Host",
+                hostname = "10.0.0.5",
+                port = 22,
+                source = "ssh",
+            )
+
+        assertFalse(server.detachedTransport)
+    }
+
+    @Test
+    fun detachedTransportPersistsThroughJsonRoundTrip() {
+        val server =
+            SavedServer(
+                id = "server-detached-json",
+                name = "SSH Host",
+                hostname = "10.0.0.5",
+                port = 22,
+                detachedTransport = true,
+            )
+
+        val restored = SavedServer.fromJson(server.toJson().toString())
+
+        assertTrue(restored.detachedTransport)
+    }
+
+    @Test
+    fun detachedTransportDefaultsToFalseWhenMissingFromJson() {
+        val legacy =
+            SavedServer(
+                id = "server-legacy",
+                name = "SSH Host",
+                hostname = "10.0.0.5",
+                port = 22,
+            )
+        val json = legacy.toJson().toString()
+            .replace("\"detachedTransport\":false", "")
+
+        val restored = SavedServer.fromJson(json)
+
+        assertFalse(restored.detachedTransport)
+    }
 }

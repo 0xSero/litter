@@ -18,10 +18,11 @@
   rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
   ```
 
-- **meson** + **ninja** (required by `webrtc-audio-processing-sys`):
+- **meson** + **ninja** — required by native dependencies that build from
+  source. Every iOS/Mac CI lane installs these together with `llvm` and `lld`:
 
   ```bash
-  brew install meson
+  brew install meson ninja llvm lld
   ```
 
 - **xcodegen** (for regenerating `Litter.xcodeproj`):

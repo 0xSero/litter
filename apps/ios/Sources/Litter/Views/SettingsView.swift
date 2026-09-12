@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 struct SettingsView: View {
@@ -12,21 +13,13 @@ struct SettingsView: View {
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var activeServerSheet: SettingsServerSheet?
     @State private var serverEditError: String?
-
-    private var localServer: AppServerSnapshot? {
-        // Account management (ChatGPT login / API key) is local-only, always.
-        // If the local Codex bridge hasn't spun up there's no login target, and
-        // the caller falls through to `SettingsDisconnectedAccountSection`.
-        appModel.snapshot?.servers.first(where: \.isLocal)
-    }
-
-    private var connectedServers: [HomeDashboardServer] {
-        HomeDashboardSupport.sortedConnectedServers(
-            from: appModel.snapshot?.servers ?? [],
-            savedServers: SavedServerStore.rememberedServers(),
-            activeServerId: appModel.snapshot?.activeThread?.serverId
-        )
-    }
+    /// Server projections mirrored out of `appModel.snapshot` by
+    /// `snapshotObserver`. Reading the snapshot from `body` (as these used to,
+    /// via computed properties) re-rendered all of Settings at the ~8 fps
+    /// streaming snapshot cadence.
+    @State private var localServer: AppServerSnapshot?
+    @State private var connectedServers: [HomeDashboardServer] = []
+    @State private var snapshotObserver = AppSnapshotObserver()
 
     var body: some View {
         NavigationStack {
@@ -47,6 +40,21 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                // Mirror the server projections out of the snapshot from a
+                // non-body context. `AppSnapshotObserver` re-runs this on every
+                // (coalesced) snapshot revision, so connection health, account
+                // state and new/removed servers all still land here — but the
+                // Form only re-renders when a projection actually changes.
+                let model = appModel
+                snapshotObserver.start(appModel: model) { refreshServerProjections(model) }
+            }
+            .onDisappear { snapshotObserver.stop() }
+            .onReceive(NotificationCenter.default.publisher(for: .litterSavedServersDidChange)) { _ in
+                // `connectedServers` also folds in `SavedServerStore`, which
+                // changes without a snapshot revision (add/remove/rename).
+                refreshServerProjections(appModel)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -94,6 +102,35 @@ struct SettingsView: View {
             } message: {
                 Text(serverEditError ?? "Unable to update this server.")
             }
+        }
+    }
+
+    /// Recompute the server-derived projections. Called from
+    /// `snapshotObserver` (every coalesced snapshot revision) and from the
+    /// saved-servers notification — never from `body`. Writes `@State` only
+    /// when a value actually changed, so an idle snapshot bump costs nothing.
+    /// Takes the model explicitly: the observer invokes this long after the
+    /// enclosing `body` ran, and `@Environment` should not be read from a
+    /// deferred closure.
+    private func refreshServerProjections(_ appModel: AppModel) {
+        let snapshot = appModel.snapshot
+        let servers = snapshot?.servers ?? []
+
+        // Account management (ChatGPT login / API key) is local-only, always.
+        // If the local Codex bridge hasn't spun up there's no login target, and
+        // the caller falls through to `SettingsDisconnectedAccountSection`.
+        let nextLocalServer = servers.first(where: \.isLocal)
+        if localServer != nextLocalServer {
+            localServer = nextLocalServer
+        }
+
+        let nextConnectedServers = HomeDashboardSupport.sortedConnectedServers(
+            from: servers,
+            savedServers: SavedServerStore.rememberedServers(),
+            activeServerId: snapshot?.activeThread?.serverId
+        )
+        if connectedServers != nextConnectedServers {
+            connectedServers = nextConnectedServers
         }
     }
 
@@ -583,6 +620,7 @@ struct SettingsView: View {
     }
 
 }
+
 
 private enum SettingsServerSheet: Identifiable {
     case add

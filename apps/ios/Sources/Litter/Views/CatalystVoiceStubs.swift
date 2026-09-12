@@ -21,13 +21,4 @@ struct RealtimeVoiceScreen: View {
         EmptyView()
     }
 }
-
-struct InlineVoiceButton: View {
-    let session: VoiceSessionState?
-    let action: () -> Void
-
-    var body: some View {
-        EmptyView()
-    }
-}
 #endif

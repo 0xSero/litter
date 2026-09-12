@@ -1,13 +1,15 @@
 import SwiftUI
 
 struct InlineHandoffView: View {
-    @Environment(AppModel.self) private var appModel
-    let threadKey: ThreadKey
+    /// The resolved handoff thread, supplied by the parent. This view used to
+    /// resolve it itself from `appModel.snapshot` and re-resolve on
+    /// `.onChange(of: appModel.snapshotRevision)` — a per-instance ~8 fps
+    /// re-render for a view that lives inside a live transcript. The parent
+    /// (`RealtimeVoiceScreen`) now mirrors the snapshot outside of `body` and
+    /// passes the result down, so this view re-renders only when its own
+    /// thread data actually changes.
+    let thread: AppThreadSnapshot?
     let maxHeight: CGFloat
-
-    private var thread: AppThreadSnapshot? {
-        appModel.snapshot?.threadSnapshot(for: threadKey)
-    }
 
     @State private var contentHeight: CGFloat = 0
 
@@ -24,45 +26,47 @@ struct InlineHandoffView: View {
     }
 
     var body: some View {
-        if thread != nil, !entries.isEmpty {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 12) {
-                        ForEach(entries) { entry in
-                            InlineHandoffRow(entry: entry)
-                                .id(entry.id)
-                        }
+        Group {
+            if thread != nil, !entries.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 12) {
+                            ForEach(entries) { entry in
+                                InlineHandoffRow(entry: entry)
+                                    .id(entry.id)
+                            }
 
-                        Color.clear
-                            .frame(height: 1)
-                            .id("handoff-bottom")
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        GeometryReader { geometry in
-                            Color.clear.preference(key: InlineHandoffContentHeightKey.self, value: geometry.size.height)
+                            Color.clear
+                                .frame(height: 1)
+                                .id("handoff-bottom")
                         }
-                    )
-                }
-                .frame(height: min(contentHeight, maxHeight))
-                .onPreferenceChange(InlineHandoffContentHeightKey.self) { contentHeight = $0 }
-                .onChange(of: scrollSignature) { _, _ in
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo("handoff-bottom", anchor: .bottom)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(key: InlineHandoffContentHeightKey.self, value: geometry.size.height)
+                            }
+                        )
+                    }
+                    .frame(height: min(contentHeight, maxHeight))
+                    .onPreferenceChange(InlineHandoffContentHeightKey.self) { contentHeight = $0 }
+                    .onChange(of: scrollSignature) { _, _ in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo("handoff-bottom", anchor: .bottom)
+                        }
                     }
                 }
+            } else if thread != nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(Color.white.opacity(0.7))
+                    Text("Running...")
+                        .font(LitterFont.styled(.caption))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.vertical, 4)
             }
-        } else if thread != nil {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .tint(Color.white.opacity(0.7))
-                Text("Running...")
-                    .font(LitterFont.styled(.caption))
-                    .foregroundColor(.white.opacity(0.7))
-            }
-            .padding(.vertical, 4)
         }
     }
 }

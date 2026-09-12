@@ -3,10 +3,13 @@ import SwiftUI
 struct ProjectPickerSheet: View {
     let projects: [AppProject]
     let serverNamesById: [String: String]
+    /// Precomputed set of local server IDs so rows don't each read
+    /// `appModel.snapshot` (which would create N observation edges and
+    /// re-render every row per streaming token).
+    let localServerIds: Set<String>
     let onSelect: (AppProject) -> Void
     let onCreateNew: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppModel.self) private var appModel
     @State private var query = ""
 
     private var filtered: [AppProject] {
@@ -108,7 +111,7 @@ struct ProjectPickerSheet: View {
                             Text(serverName)
                                 .foregroundStyle(LitterTheme.accent.opacity(0.75))
                         }
-                        Text(PathDisplay.display(project.cwd, isLocal: appModel.isLocalServer(serverId: project.serverId)))
+                        Text(PathDisplay.display(project.cwd, isLocal: localServerIds.contains(project.serverId)))
                             .foregroundStyle(LitterTheme.textMuted)
                     }
                     .litterMonoFont(size: 11, weight: .regular)

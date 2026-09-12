@@ -303,6 +303,11 @@ private fun ThreadSearchRow(
                         color = LitterTheme.textMuted.copy(alpha = 0.8f),
                         fontSize = 10f.scaled,
                         fontFamily = FontFamily.Monospace,
+                        // See SessionCanvasRow: an uncapped timestamp is the
+                        // only child free to wrap, so a narrow row breaks it
+                        // one character per line (#162).
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }
@@ -411,6 +416,8 @@ private fun ThreadSearchClusterRow(
                             color = LitterTheme.textMuted.copy(alpha = 0.8f),
                             fontSize = 10f.scaled,
                             fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }

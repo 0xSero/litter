@@ -10,13 +10,61 @@ final class StreamingAssistantRenderCache {
         let prefixText: String
         let prefixSegments: [MessageRenderCache.AssistantSegment]
         let suffixSegments: [MessageRenderCache.AssistantSegment]
+        /// Cheap identity for `fullText`: UTF-8 length plus a bounded sample of
+        /// its head and tail bytes. Comparing the whole string on every cache
+        /// hit was O(message length) at streaming tick rate.
+        let signature: TextSignature
+        /// Concatenated once at construction. The old computed property
+        /// allocated a fresh array on every hit.
+        let combinedSegments: [MessageRenderCache.AssistantSegment]
+
+        init(
+            itemId: String,
+            fullText: String,
+            prefixText: String,
+            prefixSegments: [MessageRenderCache.AssistantSegment],
+            suffixSegments: [MessageRenderCache.AssistantSegment]
+        ) {
+            self.itemId = itemId
+            self.fullText = fullText
+            self.prefixText = prefixText
+            self.prefixSegments = prefixSegments
+            self.suffixSegments = suffixSegments
+            self.signature = TextSignature(fullText)
+            self.combinedSegments = prefixSegments + suffixSegments
+        }
 
         var suffixText: String {
             String(fullText.dropFirst(prefixText.count))
         }
+    }
 
-        var combinedSegments: [MessageRenderCache.AssistantSegment] {
-            prefixSegments + suffixSegments
+    /// UTF-8 length plus a hash of at most 64 leading and 64 trailing bytes.
+    /// `String.utf8.count` is O(1) for native strings and the sampling is
+    /// bounded, so building one is O(1) regardless of message length.
+    private struct TextSignature: Equatable {
+        let utf8Count: Int
+        let sampleHash: Int
+
+        init(_ text: String) {
+            let utf8 = text.utf8
+            let count = utf8.count
+            var hasher = Hasher()
+            hasher.combine(count)
+            var taken = 0
+            for byte in utf8 {
+                hasher.combine(byte)
+                taken += 1
+                if taken == 64 { break }
+            }
+            taken = 0
+            for byte in utf8.reversed() {
+                hasher.combine(byte)
+                taken += 1
+                if taken == 64 { break }
+            }
+            self.utf8Count = count
+            self.sampleHash = hasher.finalize()
         }
     }
 
@@ -27,11 +75,15 @@ final class StreamingAssistantRenderCache {
     private let minimumReusablePrefixCharacters = 1024
 
     private var entries: [String: Entry] = [:]
+    /// Cached math-detection results keyed by itemId. Stores the text the
+    /// check ran against so a stale result is never returned after the text
+    /// changes. Shares the LRU eviction with `entries`.
+    private var mathResults: [String: (text: String, hasMath: Bool)] = [:]
     private var accessTimestamps: [String: UInt64] = [:]
     private var accessCounter: UInt64 = 0
 
     func segments(itemId: String, text: String) -> [MessageRenderCache.AssistantSegment] {
-        if let cached = entries[itemId], cached.fullText == text {
+        if let cached = entries[itemId], cached.signature == TextSignature(text) {
             touch(itemId)
             return cached.combinedSegments
         }
@@ -47,16 +99,36 @@ final class StreamingAssistantRenderCache {
         return nextEntry.combinedSegments
     }
 
+    /// Returns whether the text contains LaTeX math, using a cached result
+    /// when the text hasn't changed since the last call. This avoids a
+    /// redundant `extractSegmentsTyped` Rust FFI parse on body re-evaluations
+    /// that don't change the text (e.g. display-mode toggles).
+    func containsMath(itemId: String, text: String) -> Bool {
+        if let cached = mathResults[itemId], cached.text == text {
+            touch(itemId)
+            return cached.hasMath
+        }
+        let result = MessageContentBridge.containsMath(text)
+        mathResults[itemId] = (text, result)
+        touch(itemId)
+        trimIfNeeded()
+        return result
+    }
+
     func reset() {
         entries.removeAll(keepingCapacity: false)
+        mathResults.removeAll(keepingCapacity: false)
         accessTimestamps.removeAll(keepingCapacity: false)
         accessCounter = 0
     }
 
     private func makeEntry(itemId: String, text: String, existing: Entry?) -> Entry {
+        // `hasPrefix(existing.fullText)` used to run here as well, doubling the
+        // prefix comparison work per tick. It is redundant: reusing
+        // `prefixSegments` is only sound if the new text still starts with
+        // `prefixText`, and the suffix is reparsed from scratch either way.
         guard let existing,
               !existing.prefixText.isEmpty,
-              text.hasPrefix(existing.fullText),
               text.hasPrefix(existing.prefixText)
         else {
             return rebuildEntry(itemId: itemId, text: text)
@@ -340,6 +412,7 @@ final class StreamingAssistantRenderCache {
         let removeCount = entries.count - trimTarget
         for (key, _) in sorted.prefix(removeCount) {
             entries.removeValue(forKey: key)
+            mathResults.removeValue(forKey: key)
             accessTimestamps.removeValue(forKey: key)
         }
     }

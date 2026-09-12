@@ -15,6 +15,9 @@ struct HomeModelChip: View {
     /// the chip is disabled.
     let serverId: String?
     let disabled: Bool
+    /// Precomputed server snapshot, passed by the parent to avoid reading
+    /// `appModel.snapshot` in body.
+    var server: AppServerSnapshot?
     var onSheetStateChange: (Bool) -> Void = { _ in }
 
     @State private var showSheet = false
@@ -40,14 +43,9 @@ struct HomeModelChip: View {
         server?.availableModels ?? []
     }
 
-    private var server: AppServerSnapshot? {
-        guard let serverId else { return nil }
-        return appModel.snapshot?.serverSnapshot(for: serverId)
-    }
-
     private var metadataLoadID: String {
         guard let serverId,
-              let server = appModel.snapshot?.serverSnapshot(for: serverId) else {
+              let server else {
             return serverId ?? "none"
         }
         let runtimes = server.agentRuntimes

@@ -290,6 +290,21 @@ struct ConversationItem: Identifiable, Equatable {
     }
     private(set) var renderDigest: Int
 
+    /// Identity + digest comparison instead of the synthesized member-wise `==`.
+    ///
+    /// The synthesized version compared `content` first, which deep-compares the
+    /// full message text of every item. That ran three times per coalesced
+    /// streaming tick (`ConversationScreenModel` diffing) plus once for
+    /// `.onChange(of: items)`, making each tick O(total transcript bytes).
+    ///
+    /// `renderDigest` is maintained by `init` and by the `didSet` on every
+    /// stored property, and `computeRenderDigest` hashes *every* field of
+    /// `ConversationItem` and *every* field of every `ConversationItemContent`
+    /// payload — so equal digests imply equal render input.
+    static func == (lhs: ConversationItem, rhs: ConversationItem) -> Bool {
+        lhs.id == rhs.id && lhs.renderDigest == rhs.renderDigest
+    }
+
     init(
         id: String,
         content: ConversationItemContent,
@@ -364,19 +379,26 @@ struct ConversationItem: Identifiable, Equatable {
         return data.isPureExploration
     }
 
+    /// Non-allocating blank test. `trimmingCharacters(in:)` copies the whole
+    /// string just to answer "is this empty?"; this walks characters and stops
+    /// at the first non-whitespace one. Called for every item on every
+    /// transcript pass, so the allocation matters.
+    static func isBlank(_ text: String?) -> Bool {
+        guard let text else { return true }
+        return !text.contains { !$0.isWhitespace }
+    }
+
     var isVisuallyEmptyNeutralItem: Bool {
         switch content {
         case .assistant(let data):
-            let textIsEmpty = data.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let nicknameIsEmpty = data.agentNickname?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-            let roleIsEmpty = data.agentRole?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-            return textIsEmpty && nicknameIsEmpty && roleIsEmpty
+            return Self.isBlank(data.text)
+                && Self.isBlank(data.agentNickname)
+                && Self.isBlank(data.agentRole)
         case .codeReview(let data):
             return data.findings.isEmpty
         case .reasoning(let data):
-            return (data.summary + data.content).allSatisfy {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
+            return data.summary.allSatisfy { Self.isBlank($0) }
+                && data.content.allSatisfy { Self.isBlank($0) }
         default:
             return false
         }
@@ -508,10 +530,14 @@ struct ConversationItem: Identifiable, Equatable {
                 hasher.combine(change.path)
                 hasher.combine(change.kind)
                 hasher.combine(change.diff)
+                hasher.combine(change.additions)
+                hasher.combine(change.deletions)
             }
         case .turnDiff(let data):
             hasher.combine("turnDiff")
             hasher.combine(data.diff)
+            hasher.combine(data.additions)
+            hasher.combine(data.deletions)
         case .mcpToolCall(let data):
             hasher.combine("mcpToolCall")
             hasher.combine(data.server)
@@ -524,14 +550,26 @@ struct ConversationItem: Identifiable, Equatable {
             hasher.combine(data.rawOutputJSON)
             hasher.combine(data.errorMessage)
             hasher.combine(data.progressMessages)
+            hasher.combine(data.computerUse)
         case .dynamicToolCall(let data):
             hasher.combine("dynamicToolCall")
+            hasher.combine(data.namespace)
             hasher.combine(data.tool)
             hasher.combine(String(describing: data.status))
             hasher.combine(data.durationMs)
             hasher.combine(data.success)
             hasher.combine(data.argumentsJSON)
             hasher.combine(data.contentSummary)
+            if let display = data.display {
+                hasher.combine(display.title)
+                hasher.combine(display.summary)
+                for entry in display.metadata {
+                    hasher.combine(entry.key)
+                    hasher.combine(entry.value)
+                }
+            } else {
+                hasher.combine("no-display")
+            }
         case .multiAgentAction(let data):
             hasher.combine("multiAgentAction")
             hasher.combine(data.tool)
@@ -558,6 +596,9 @@ struct ConversationItem: Identifiable, Equatable {
             hasher.combine(String(describing: data.status))
             hasher.combine(data.revisedPrompt)
             hasher.combine(data.imagePNG?.count)
+            // Data's own hash is length-bounded on Darwin, so this stays cheap
+            // while catching same-length replacements that `count` alone missed.
+            hasher.combine(data.imagePNG)
             hasher.combine(data.savedPath)
         case .widget(let data):
             hasher.combine("widget")
@@ -568,6 +609,7 @@ struct ConversationItem: Identifiable, Equatable {
             hasher.combine(data.widgetState.width)
             hasher.combine(data.widgetState.height)
             hasher.combine(data.widgetState.isFinalized)
+            hasher.combine(data.widgetState.appId)
         case .userInputResponse(let data):
             hasher.combine("userInputResponse")
             for question in data.questions {

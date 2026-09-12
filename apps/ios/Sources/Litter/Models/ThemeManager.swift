@@ -7,13 +7,16 @@ extension Notification.Name {
 }
 
 /// Thread-safe store for resolved themes, accessible from any isolation context.
-/// ThemeManager writes here; LitterTheme reads from here.
-final class ThemeStore: Sendable {
+/// ThemeManager writes here; LitterTheme reads from here. Marked @Observable so
+/// SwiftUI tracks every LitterTheme color read and recolors theme-consuming
+/// views when the theme changes, without tearing down the navigation tree.
+@Observable
+final class ThemeStore: @unchecked Sendable {
     static let shared = ThemeStore()
 
-    nonisolated(unsafe) var light: ResolvedTheme = .defaultLight
-    nonisolated(unsafe) var dark: ResolvedTheme = .defaultDark
-    nonisolated(unsafe) var colorScheme: ColorScheme = .dark
+    var light: ResolvedTheme = .defaultLight
+    var dark: ResolvedTheme = .defaultDark
+    var colorScheme: ColorScheme = .dark
 }
 
 enum LitterAppearanceMode: String, CaseIterable, Identifiable {
@@ -72,7 +75,6 @@ final class ThemeManager {
     private(set) var lightTheme: ResolvedTheme = .defaultLight
     private(set) var darkTheme: ResolvedTheme = .defaultDark
     private(set) var appearanceMode: LitterAppearanceMode = .system
-    private(set) var themeVersion: Int = 0
     private(set) var themeIndex: [ThemeIndexEntry] = []
     private var systemColorScheme: ColorScheme = .dark
 
@@ -119,7 +121,6 @@ final class ThemeManager {
         appearanceMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: Self.appearanceModeKey)
         syncStore()
-        themeVersion += 1
         writeToSharedDefaults()
         notifyHighlighter()
     }
@@ -129,7 +130,6 @@ final class ThemeManager {
         systemColorScheme = colorScheme
         guard appearanceMode == .system else { return }
         syncStore()
-        themeVersion += 1
         notifyHighlighter()
     }
 
@@ -137,7 +137,6 @@ final class ThemeManager {
         selectedLightSlug = slug
         lightTheme = loadAndResolve(slug) ?? .defaultLight
         syncStore()
-        themeVersion += 1
         writeToSharedDefaults()
         notifyHighlighter()
     }
@@ -146,7 +145,6 @@ final class ThemeManager {
         selectedDarkSlug = slug
         darkTheme = loadAndResolve(slug) ?? .defaultDark
         syncStore()
-        themeVersion += 1
         writeToSharedDefaults()
         notifyHighlighter()
     }

@@ -131,6 +131,21 @@ private fun LinkifiedText(
     val annotated = remember(text, linkColor) {
         linkifiedAnnotatedString(text, linkColor)
     }
+    val hasLinks = WebLinkRegex.containsMatchIn(text)
+    // Only attach link tap handling when the text actually contains links.
+    // ClickableText consumes taps across the whole span to detect link hits,
+    // which would otherwise swallow the parent row's click when a session
+    // title has no links at all.
+    if (!hasLinks) {
+        Text(
+            text = annotated,
+            style = TextStyle(color = color, fontSize = fontSize),
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier,
+        )
+        return
+    }
     ClickableText(
         text = annotated,
         style = TextStyle(color = color, fontSize = fontSize),

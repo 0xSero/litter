@@ -191,17 +191,6 @@ extension VoiceSessionState {
         min(1, outputLevel * Self.levelScaleFactor)
     }
 
-    /// The active level based on current phase.
-    var activeLevel: Float {
-        switch phase {
-        case .listening:          return scaledInputLevel
-        case .speaking:           return scaledOutputLevel
-        case .thinking, .handoff: return 0.3
-        case .connecting:         return 0
-        case .error:              return 0
-        }
-    }
-
     /// Truncated transcript suitable for glanceable display (CarPlay, widgets).
     func truncatedTranscript(maxLength: Int = 80) -> String? {
         guard let text = transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines),

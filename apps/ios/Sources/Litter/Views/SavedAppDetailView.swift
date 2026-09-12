@@ -26,6 +26,13 @@ struct SavedAppDetailView: View {
     /// calls in this view reuse the same hidden thread. Dies with the
     /// view — that's the whole point (Option B in the plan).
     @State private var cachedStructuredThreadId: String?
+    /// Whether this app's origin thread still exists, mirrored out of
+    /// `AppModel.shared.snapshot` by `snapshotObserver`. The old
+    /// `threadExists(_:)` scanned `snapshot.threads` from `body` (via
+    /// `topBar(for:)`), which re-rendered — and re-scanned — at the ~8 fps
+    /// streaming snapshot cadence.
+    @State private var originThreadExists = false
+    @State private var snapshotObserver = AppSnapshotObserver()
 
     var body: some View {
         ZStack {
@@ -96,7 +103,18 @@ struct SavedAppDetailView: View {
         }
         .navigationBarBackButtonHidden(true)
         .onAppear(perform: reloadPayload)
+        .task {
+            // Keeps the "View Conversation" affordance honest: the observer
+            // re-runs the lookup on every (coalesced) snapshot revision, so a
+            // thread appearing/disappearing while this view is open still
+            // shows/hides the button.
+            snapshotObserver.start(appModel: AppModel.shared) { refreshOriginThreadExists() }
+        }
+        .onChange(of: payload?.app.originThreadId) { _, _ in
+            refreshOriginThreadExists()
+        }
         .onDisappear {
+            snapshotObserver.stop()
             pollingTask?.cancel()
             pollingTask = nil
         }
@@ -202,7 +220,7 @@ struct SavedAppDetailView: View {
                 .modifier(GlassCircleModifier())
                 .accessibilityLabel("App options")
 
-                if let threadId = app.originThreadId, threadExists(threadId) {
+                if let threadId = app.originThreadId, originThreadExists {
                     Button {
                         SavedAppsNavigation.shared.requestConversation(threadId: threadId)
                         dismiss()
@@ -248,9 +266,19 @@ struct SavedAppDetailView: View {
         .padding(.top, 8)
     }
 
-    private func threadExists(_ threadId: String) -> Bool {
-        guard let threads = AppModel.shared.snapshot?.threads else { return false }
-        return threads.contains(where: { $0.key.threadId == threadId })
+    /// Called from `snapshotObserver` and on payload changes — never from
+    /// `body`. Writes `@State` only on a real change.
+    private func refreshOriginThreadExists() {
+        let exists: Bool
+        if let threadId = payload?.app.originThreadId,
+           let threads = AppModel.shared.snapshot?.threads {
+            exists = threads.contains(where: { $0.key.threadId == threadId })
+        } else {
+            exists = false
+        }
+        if originThreadExists != exists {
+            originThreadExists = exists
+        }
     }
 
     private var shimmerOverlay: some View {

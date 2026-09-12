@@ -1,7 +1,70 @@
 import SwiftUI
 import UIKit
 
+enum SkillMentionTokens {
+    static let namePattern = "[A-Za-z0-9_-]+"
+    private static let regex = try? NSRegularExpression(
+        pattern: "(?<![A-Za-z0-9_-])\\$(\(namePattern))"
+    )
+
+    static func matches(in text: String) -> [(name: String, range: NSRange)] {
+        guard let regex, !text.isEmpty else { return [] }
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: fullRange).compactMap { match in
+            guard let nameRange = Range(match.range(at: 1), in: text) else { return nil }
+            return (String(text[nameRange]), match.range)
+        }
+    }
+
+    static func names(in text: String) -> [String] {
+        matches(in: text).map(\.name)
+    }
+}
+
+private struct SkillMentionHighlightNamesKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
+extension EnvironmentValues {
+    var skillMentionHighlightNames: Set<String> {
+        get { self[SkillMentionHighlightNamesKey.self] }
+        set { self[SkillMentionHighlightNamesKey.self] = newValue }
+    }
+}
+
+/// Holds the composer's UIKit selection range *outside* SwiftUI state.
+///
+/// The range is pure edit plumbing: nothing draws it. Its only readers are the
+/// transcript-insert and composer-prefill handlers, which query it on demand.
+/// Routing it through `@State` meant every keystroke published an extra
+/// invalidation of the whole composer subtree (the coordinator writes it from
+/// both `textViewDidChange` and `textViewDidChangeSelection`) for a value no
+/// body ever reads. A reference box keeps the *synchronous* write behaviour
+/// that `Coordinator.updateSelectedRange` depends on to avoid reordering edits,
+/// at zero body passes.
+///
+/// Owning views keep it alive with `@State private var selection = ComposerSelectionBox()`
+/// and hand `selection.binding` to the composer instead of `$someNSRangeState`.
+/// Readers/writers use `selection.range` directly.
+final class ComposerSelectionBox {
+    var range: NSRange
+
+    init(_ range: NSRange = NSRange(location: 0, length: 0)) {
+        self.range = range
+    }
+
+    /// Bridges the box into the existing `Binding<NSRange>` plumbing. Writes
+    /// land on the box, never on SwiftUI state, so they invalidate nothing.
+    var binding: Binding<NSRange> {
+        Binding(
+            get: { self.range },
+            set: { self.range = $0 }
+        )
+    }
+}
+
 struct ConversationComposerTextView: UIViewRepresentable {
+    @Environment(\.skillMentionHighlightNames) var mentionHighlightNames
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var selectedRange: NSRange
@@ -100,6 +163,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
             uiView.text = text
             context.coordinator.applySelectedRange(to: uiView)
             context.coordinator.isSynchronizingText = false
+            context.coordinator.invalidateMentionHighlight()
+            context.coordinator.applyMentionHighlight(to: uiView)
         } else if !uiView.isFirstResponder {
             context.coordinator.applySelectedRange(to: uiView)
         }
@@ -129,6 +194,15 @@ struct ConversationComposerTextView: UIViewRepresentable {
         var textReconciler: ComposerTextReconciler
         private var requestedFocusState: Bool?
         private var focusSyncWorkItem: DispatchWorkItem?
+        /// `LitterFont.uiFont` reads `UserDefaults` and probes `UIFont(name:)`
+        /// up to twice on every call, and `applyStyling` runs from every
+        /// `updateUIView` — i.e. several times per keystroke. Cache the
+        /// resolved font per coordinator (one per text view) keyed on the
+        /// Dynamic Type point size plus the app's font-preference revision,
+        /// which `SettingsView` bumps whenever the family changes.
+        private var cachedFont: UIFont?
+        private var cachedFontPointSize: CGFloat = 0
+        private var cachedFontRevision: Int = -1
 
         init(_ parent: ConversationComposerTextView) {
             self.parent = parent
@@ -151,6 +225,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
                 parent.text = updatedText
             }
             updateSelectedRange(from: textView)
+            applyMentionHighlight(to: textView)
             // While focused the view is already scroll-enabled. Avoid forcing
             // TextKit to measure the entire draft again for every keystroke.
             if !textView.isFirstResponder {
@@ -199,6 +274,39 @@ struct ConversationComposerTextView: UIViewRepresentable {
             if textView.textColor != color {
                 textView.textColor = color
             }
+            applyMentionHighlight(to: textView)
+        }
+
+        private var lastHighlightedText: String?
+        private var lastHighlightNames: Set<String> = []
+
+        func invalidateMentionHighlight() {
+            lastHighlightedText = nil
+        }
+
+        func applyMentionHighlight(to textView: UITextView) {
+            let names = parent.mentionHighlightNames
+            let text = textView.text ?? ""
+            if text == lastHighlightedText, names == lastHighlightNames { return }
+            lastHighlightedText = text
+            lastHighlightNames = names
+
+            let storage = textView.textStorage
+            let fullRange = NSRange(location: 0, length: storage.length)
+            let baseColor = UIColor(LitterTheme.textPrimary)
+            let accentColor = UIColor(LitterTheme.success)
+            storage.beginEditing()
+            storage.addAttribute(.foregroundColor, value: baseColor, range: fullRange)
+            if !names.isEmpty {
+                for token in SkillMentionTokens.matches(in: text)
+                where names.contains(token.name.lowercased()) {
+                    let clamped = NSIntersectionRange(token.range, fullRange)
+                    guard clamped.length > 0 else { continue }
+                    storage.addAttribute(.foregroundColor, value: accentColor, range: clamped)
+                }
+            }
+            storage.endEditing()
+            textView.typingAttributes[.foregroundColor] = baseColor
         }
 
         func updateScrollState(for textView: UITextView) {
@@ -248,7 +356,17 @@ struct ConversationComposerTextView: UIViewRepresentable {
 
         private func composerFont() -> UIFont {
             let pointSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-            return LitterFont.uiFont(size: pointSize)
+            let revision = FontPreferenceObserver.shared.revision
+            if let cachedFont,
+               cachedFontPointSize == pointSize,
+               cachedFontRevision == revision {
+                return cachedFont
+            }
+            let font = LitterFont.uiFont(size: pointSize)
+            cachedFont = font
+            cachedFontPointSize = pointSize
+            cachedFontRevision = revision
+            return font
         }
 
         private func updateFocusBinding(_ isFocused: Bool) {
