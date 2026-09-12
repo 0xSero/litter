@@ -653,7 +653,11 @@ enum MessageLinks {
 
     static func copyTitle(for url: URL) -> String {
         let display = url.host.map { host in
-            url.path.count > 1 ? "\(host)\(url.path)" : host
+            let port = url.port.map { ":\($0)" } ?? ""
+            let path = url.path.count > 1 ? url.path : ""
+            let query = url.query.map { "?\($0)" } ?? ""
+            let fragment = url.fragment.map { "#\($0)" } ?? ""
+            return "\(host)\(port)\(path)\(query)\(fragment)"
         } ?? url.absoluteString
         let trimmed = display.count > 40 ? String(display.prefix(40)) + "…" : display
         return "Copy \(trimmed)"
