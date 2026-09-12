@@ -122,6 +122,7 @@ enum SavedServerStore {
                     preferredConnectionMode: nil,
                     preferredCodexPort: nil,
                     sshPortForwardingEnabled: nil,
+                    detachedTransport: false,
                     websocketUrl: nil,
                     rememberedByUser: true,
                     alleycatHost: nil,

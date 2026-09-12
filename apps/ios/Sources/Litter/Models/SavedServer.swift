@@ -293,6 +293,7 @@ struct SavedServer: Codable, Identifiable, Equatable {
             preferredConnectionMode: preferredConnectionMode?.rawValue,
             preferredCodexPort: preferredCodexPort,
             sshPortForwardingEnabled: sshPortForwardingEnabled,
+            detachedTransport: false,
             websocketUrl: websocketURL,
             rememberedByUser: rememberedByUser,
             alleycatHost: alleycatHost,
