@@ -625,13 +625,6 @@ private func modelCatalogNotice(
     }
 }
 
-private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
-    guard let modes = visibleModeNames(for: model.agentRuntimeKind) else {
-        return true
-    }
-    return modes.contains(modeName(for: model))
-}
-
 struct InlineModelSelectorView: View {
     let models: [ModelInfo]
     var catalogLoaded = false
@@ -666,7 +659,7 @@ struct InlineModelSelectorView: View {
     }
 
     private var visibleModels: [ModelInfo] {
-        models.filter(isVisibleModelOption)
+        models
     }
 
     private var runtimeBuckets: [RuntimeModelBucket] {
@@ -930,7 +923,7 @@ struct InlineModelSelectorView: View {
         }
         .onChange(of: models) { _, newModels in
             synchronizeRuntimeFilter()
-            modelSearchIndex = ModelSearchIndex(models: newModels.filter(isVisibleModelOption).filtered(by: activeRuntimeFilter))
+            modelSearchIndex = ModelSearchIndex(models: newModels.filtered(by: activeRuntimeFilter))
         }
         .onChange(of: selectedRuntimeFilter) { _, _ in
             resetModelSearchIndex()
@@ -1033,7 +1026,7 @@ struct ModelSelectorSheet: View {
     }
 
     private var visibleModels: [ModelInfo] {
-        models.filter(isVisibleModelOption)
+        models
     }
 
     private var runtimeBuckets: [RuntimeModelBucket] {
@@ -1214,7 +1207,7 @@ struct ModelSelectorSheet: View {
         }
         .onChange(of: models) { _, newModels in
             synchronizeRuntimeFilter()
-            modelSearchIndex = ModelSearchIndex(models: newModels.filter(isVisibleModelOption).filtered(by: activeRuntimeFilter))
+            modelSearchIndex = ModelSearchIndex(models: newModels.filtered(by: activeRuntimeFilter))
         }
         .onChange(of: selectedRuntimeFilter) { _, _ in
             resetModelSearchIndex()

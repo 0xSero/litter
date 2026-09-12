@@ -95,7 +95,7 @@ fun ModelSelectorPanel(
     val launchState by appModel.launchState.snapshot.collectAsState()
     var modelSearchQuery by rememberSaveable { mutableStateOf("") }
     val visibleModels = remember(availableModels) {
-        availableModels.filter { it.isVisibleModelOption() }
+        availableModels
     }
     val catalogMessage = catalogError
         ?: if (!catalogLoaded) "Loading models..."
@@ -515,8 +515,6 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
     if (supportedReasoningEfforts.isEmpty()) null else effortLabel(defaultReasoningEffort)
 
-private val AmpVisibleModes = setOf("low", "medium", "high", "ultra")
-
 private fun normalizedAmpModeName(value: String): String =
     value.trim()
         .lowercase(Locale.ROOT)
@@ -535,9 +533,6 @@ internal fun ModelInfo.modelPickerDisplayName(): String =
     } else {
         displayName.ifBlank { id }
     }
-
-private fun ModelInfo.isVisibleModelOption(): Boolean =
-    agentRuntimeKind != "amp" || ampModeName() in AmpVisibleModes
 
 private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,
