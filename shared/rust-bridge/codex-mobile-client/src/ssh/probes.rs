@@ -16,7 +16,7 @@ pub(crate) fn format_process_logs(stdout: &str, stderr: &str) -> String {
 }
 
 impl SshClient {
-    pub(super) async fn is_port_listening_shell(&self, port: u16, shell: RemoteShell) -> bool {
+    pub(crate) async fn is_port_listening_shell(&self, port: u16, shell: RemoteShell) -> bool {
         let port_str = port.to_string();
         let cmd =
             crate::ssh_scripts::render(shell.port_listening_template(), &[("PORT", &port_str)]);

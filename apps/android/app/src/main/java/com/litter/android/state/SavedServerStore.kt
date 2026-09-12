@@ -27,6 +27,7 @@ data class SavedServer(
     val os: String? = null,
     val sshBanner: String? = null,
     val rememberedByUser: Boolean = false,
+    val detachedTransport: Boolean = false,
     val alleycatHost: String? = null,
     val alleycatNodeId: String? = null,
     val alleycatRelay: String? = null,
@@ -64,6 +65,7 @@ data class SavedServer(
         os?.let { put("os", it) }
         sshBanner?.let { put("sshBanner", it) }
         put("rememberedByUser", rememberedByUser)
+        put("detachedTransport", detachedTransport)
         alleycatHost?.let { put("alleycatHost", it) }
         alleycatNodeId?.let { put("alleycatNodeId", it) }
         alleycatRelay?.let { put("alleycatRelay", it) }
@@ -201,6 +203,7 @@ data class SavedServer(
             } else {
                 true
             },
+            detachedTransport = obj.optBoolean("detachedTransport"),
             alleycatHost = if (obj.has("alleycatHost")) obj.getString("alleycatHost") else null,
             alleycatNodeId = obj.optString("alleycatNodeId").ifBlank { null },
             alleycatRelay = obj.optString("alleycatRelay").ifBlank { null },
@@ -226,6 +229,7 @@ fun SavedServer.toRecord(context: Context? = null) = SavedServerRecord(
     sshPortForwardingEnabled = sshPortForwardingEnabled,
     websocketUrl = websocketURL,
     rememberedByUser = rememberedByUser,
+    detachedTransport = detachedTransport,
     alleycatHost = alleycatHost,
     alleycatUdpPort = alleycatUdpPort,
     alleycatNodeId = alleycatNodeId,
@@ -359,6 +363,20 @@ object SavedServerStore {
         val updated = existing.map { server ->
             if (server.id == serverId || normalizedHostKey(server.hostname) == normalizedHostKey(host)) {
                 if (server.wakeMAC != normalizedWakeMac) server.copy(wakeMAC = normalizedWakeMac) else server
+            } else {
+                server
+            }
+        }
+        if (updated != existing) {
+            save(context, updated)
+        }
+    }
+
+    fun updateDetachedTransport(context: Context, serverId: String, detachedTransport: Boolean) {
+        val existing = load(context)
+        val updated = existing.map { server ->
+            if (server.id == serverId) {
+                if (server.detachedTransport != detachedTransport) server.copy(detachedTransport = detachedTransport) else server
             } else {
                 server
             }

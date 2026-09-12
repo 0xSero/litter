@@ -177,7 +177,7 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.14904198"
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libcap-dev clang cmake
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libcap-dev clang lld cmake
 
       - name: Setup Zig (libghostty build)
         uses: mlugg/setup-zig@v2
@@ -382,3 +382,31 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             -only-testing:LitterTests \
             test-without-building
+
+      # Runtime smoke test: install the freshly built app, launch it, and
+      # assert the process survives. Unit tests never boot the embedded iSH
+      # guest runtime, so they cannot catch silently-broken embeds (e.g.
+      # litter-ish's ARM64 vdso degrading to an empty stub when no
+      # lld-capable clang is available, which SIGABRTs the app at launch).
+      - name: Smoke test (app launches and stays alive)
+        run: |
+          set -euo pipefail
+          xcrun simctl bootstatus "$IOS_SIMULATOR_UDID" -b
+          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -path "*Debug-iphonesimulator/Litter.app" -type d -print -quit 2>/dev/null || true)"
+          if [ -z "$APP" ]; then
+            echo "Could not locate Litter.app in DerivedData" >&2
+            exit 1
+          fi
+          echo "Using app: $APP"
+          xcrun simctl install "$IOS_SIMULATOR_UDID" "$APP"
+          xcrun simctl launch "$IOS_SIMULATOR_UDID" com.sigkitten.litter
+          sleep 10
+          if ! xcrun simctl spawn "$IOS_SIMULATOR_UDID" launchctl list 2>/dev/null \
+              | grep -q "UIKitApplication:com.sigkitten.litter"; then
+            echo "App exited or crashed within 10s of launch" >&2
+            xcrun simctl spawn "$IOS_SIMULATOR_UDID" log show --last 2m \
+              --predicate 'process == "Litter"' --style compact 2>/dev/null | tail -80 || true
+            exit 1
+          fi
+          echo "App is alive"

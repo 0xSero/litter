@@ -35,10 +35,6 @@ pub(crate) mod posix {
     /// to SIGKILL.
     pub(crate) const KILL_PORT_LISTENER: &str = include_str!("posix/kill_port_listener.sh");
 
-    /// Best-effort "is this port unbound right now?" — used when *picking* a
-    /// port for a fresh remote agent. Placeholders: `{{PORT}}`.
-    pub(crate) const REMOTE_PORT_FREE_PROBE: &str = include_str!("posix/remote_port_free_probe.sh");
-
     /// Spawn a remote opencode agent in a per-session directory. Placeholders:
     /// `{{PROFILE_INIT}}`, `{{SESSION_ID}}`, `{{BIN}}` (shell-quoted),
     /// `{{PORT}}`.
