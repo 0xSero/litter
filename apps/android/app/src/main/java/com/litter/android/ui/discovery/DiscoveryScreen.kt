@@ -1256,6 +1256,7 @@ internal fun SSHLoginDialog(
     onDismiss: () -> Unit,
     onConnect: suspend (SavedSshCredential, Boolean) -> String?,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var username by remember(server.id) { mutableStateOf(initialCredential?.username ?: "") }
     var authMethod by remember(server.id) { mutableStateOf(initialCredential?.method ?: SshAuthMethod.PASSWORD) }
@@ -1403,7 +1404,7 @@ internal fun SSHLoginDialog(
                         checked = detachedTransport,
                         onCheckedChange = {
                             detachedTransport = it
-                            SavedServerStore(context).updateDetachedTransport(context, server.id, it)
+                            SavedServerStore.updateDetachedTransport(context, server.id, it)
                         },
                         enabled = !isConnecting,
                     )
