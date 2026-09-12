@@ -89,4 +89,35 @@ final class SkillMentionPiecesTests: XCTestCase {
         XCTAssertFalse(textContainsSkillMentionSyntax("no mentions here"))
         XCTAssertFalse(textContainsSkillMentionSyntax("price is 5$"))
     }
+
+    @MainActor
+    func testCatalogRetriesFailedLoadAndCachesSuccess() async {
+        enum LoadFailure: Error { case unavailable }
+        let catalog = SkillMentionCatalog()
+        var attempts = 0
+        catalog.configureLoader {
+            attempts += 1
+            if attempts == 1 { throw LoadFailure.unavailable }
+            return []
+        }
+
+        await catalog.loadIfNeeded()
+        await catalog.loadIfNeeded()
+        await catalog.loadIfNeeded()
+        XCTAssertEqual(attempts, 2)
+    }
+
+    @MainActor
+    func testCatalogCanLoadAfterLoaderBecomesAvailable() async {
+        let catalog = SkillMentionCatalog()
+        await catalog.loadIfNeeded()
+        var attempts = 0
+        catalog.configureLoader {
+            attempts += 1
+            return []
+        }
+        await catalog.loadIfNeeded()
+        XCTAssertEqual(attempts, 1)
+    }
+
 }

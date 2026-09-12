@@ -124,7 +124,7 @@ struct ConversationView: View {
         // one snapshot observation edge *per inline image* in the transcript.
         .activeThreadCwd(thread.info.cwd)
         .skillMentionCatalog(skillMentionCatalog)
-        .task(id: activeThreadKey) {
+        .task(id: skillMentionContext) {
             configureSkillMentionLoader()
         }
         .background { ChatWallpaperBackground(threadKey: activeThreadKey) }
@@ -395,20 +395,33 @@ struct ConversationView: View {
         )
     }
 
+    private struct SkillMentionContext: Equatable {
+        let threadKey: ThreadKey
+        let cwd: String
+        let canUseTransportActions: Bool
+    }
+
+    private var skillMentionContext: SkillMentionContext {
+        SkillMentionContext(
+            threadKey: activeThreadKey,
+            cwd: thread.info.cwd ?? workDir,
+            canUseTransportActions: appModel.snapshot?.servers
+                .first(where: { $0.serverId == activeThreadKey.serverId })?
+                .canUseTransportActions == true
+        )
+    }
+
     private func configureSkillMentionLoader() {
         let catalog = SkillMentionCatalog()
         let client = appModel.client
-        let serverId = activeThreadKey.serverId
-        let cwd = thread.info.cwd ?? workDir
-        catalog.configureLoader { [weak appModel] in
-            guard appModel?.snapshot?.servers
-                .first(where: { $0.serverId == serverId })?
-                .canUseTransportActions == true else { return [] }
-            let skills = (try? await client.listSkills(
-                serverId: serverId,
-                params: AppListSkillsRequest(cwds: [cwd], forceReload: false)
-            )) ?? []
-            return skills
+        let context = skillMentionContext
+        if context.canUseTransportActions {
+            catalog.configureLoader {
+                try await client.listSkills(
+                    serverId: context.threadKey.serverId,
+                    params: AppListSkillsRequest(cwds: [context.cwd], forceReload: false)
+                )
+            }
         }
         skillMentionCatalog = catalog
     }

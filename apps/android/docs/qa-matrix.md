@@ -292,3 +292,15 @@ must be tappable, existing Markdown links must remain valid, and code must
 remain literal. The per-link copy action is an Android follow-up; verify URL
 deduplication, the five-link cap, and distinct labels for ports, queries, and
 fragments when adding it. No Android execution was covered by this iOS change.
+
+## Skill mention details (iOS PR #320)
+
+This PR adds a SwiftUI presentation for skill mentions. Android still needs the
+matching pill and detail sheet; this is an explicit parity gap, not a verified
+Android workflow. Move mention tokenization and catalog resolution into the
+shared Rust client before implementing the second native presentation, so both
+platforms use the same name and metadata rules.
+
+Follow-up QA: known and unknown mentions, edited messages, thread/cwd changes,
+opening offline then reconnecting, failed catalog requests, and full description
+and default-prompt display. Mention-free transcripts should not request skills.
