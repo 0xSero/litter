@@ -98,6 +98,16 @@ fn thread_list_hydration_budget(params: &types::AppListThreadsRequest) -> Option
     })
 }
 
+// Only an unfiltered server listing can prove that absent threads were deleted.
+fn thread_list_can_prune(params: &types::AppListThreadsRequest) -> bool {
+    thread_list_hydration_budget(params).is_some()
+        && params.runtime_kinds.as_ref().is_none_or(Vec::is_empty)
+        && params.model_providers.as_ref().is_none_or(Vec::is_empty)
+        && params.source_kinds.as_ref().is_none_or(Vec::is_empty)
+        && params.cwd.is_none()
+        && params.archived != Some(true)
+}
+
 fn normalize_amp_mode_name(value: &str) -> String {
     value
         .trim()
@@ -762,6 +772,7 @@ impl AppClient {
         blocking_async!(self.rt, self.inner, |c| {
             let requested_runtime_kinds = params.runtime_kinds.clone();
             let hydration_budget = thread_list_hydration_budget(&params);
+            let can_prune = thread_list_can_prune(&params);
             let params: upstream::ThreadListParams = params.into();
             let session = c
                 .get_session(&server_id)
@@ -876,7 +887,7 @@ impl AppClient {
             // reconciles when the failing runtime recovers.
             let all_completed = results.iter().all(|(_, _, ok, _)| *ok);
             let all_exhausted = results.iter().all(|(_, _, _, exhausted)| *exhausted);
-            if all_completed && all_exhausted && hydration_budget.is_some() {
+            if all_completed && all_exhausted && can_prune {
                 let mut all_thread_ids = Vec::new();
                 for (_, ids, _, _) in results {
                     all_thread_ids.extend(ids);
@@ -1473,12 +1484,13 @@ impl AppClient {
                 Some("/tmp"),
             )
             .await
-                && resp.exit_code == 0 {
-                    let home = resp.stdout.trim().to_string();
-                    if !home.is_empty() {
-                        return Ok(home);
-                    }
+                && resp.exit_code == 0
+            {
+                let home = resp.stdout.trim().to_string();
+                if !home.is_empty() {
+                    return Ok(home);
                 }
+            }
             // Fallback: Windows
             if let Ok(resp) = exec_command_simple(
                 c.as_ref(),
@@ -1487,12 +1499,13 @@ impl AppClient {
                 None,
             )
             .await
-                && resp.exit_code == 0 {
-                    let home = resp.stdout.trim().to_string();
-                    if !home.is_empty() && home != "%USERPROFILE%" {
-                        return Ok(home);
-                    }
+                && resp.exit_code == 0
+            {
+                let home = resp.stdout.trim().to_string();
+                if !home.is_empty() && home != "%USERPROFILE%" {
+                    return Ok(home);
                 }
+            }
             Ok("/".to_string())
         })
     }
@@ -3057,7 +3070,8 @@ mod tests {
         append_missing_amp_mode_models, append_missing_claude_family_models,
         choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
         list_runtime_kinds, normalize_model_info_for_runtime, normalized_image_path,
-        runtime_exposes_model_choices, splice_generative_ui_preamble, thread_list_hydration_budget,
+        runtime_exposes_model_choices, splice_generative_ui_preamble, thread_list_can_prune,
+        thread_list_hydration_budget,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
@@ -3231,6 +3245,17 @@ mod tests {
                 runtime_kinds: None,
             }
         };
+
+        let mut scoped = request(Some(100), None, None, false);
+        assert!(thread_list_can_prune(&scoped));
+        scoped.runtime_kinds = Some(vec!["claude".to_string()]);
+        assert!(!thread_list_can_prune(&scoped));
+        scoped.runtime_kinds = None;
+        scoped.cwd = Some("/one-project".to_string());
+        assert!(!thread_list_can_prune(&scoped));
+        scoped.cwd = None;
+        scoped.archived = Some(true);
+        assert!(!thread_list_can_prune(&scoped));
 
         assert_eq!(
             thread_list_hydration_budget(&request(None, None, None, false)),
