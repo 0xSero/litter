@@ -1127,6 +1127,7 @@ impl AppClient {
             runtime_kinds.sort();
             runtime_kinds.dedup();
             let runtime_count = runtime_kinds.len();
+            let includes_claude = runtime_kinds.iter().any(|kind| kind == "claude");
             let params: upstream::ModelListParams = params.into();
             let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
                 let client = Arc::clone(c);
@@ -1169,14 +1170,8 @@ impl AppClient {
                         if runtime_kind == "amp" {
                             append_missing_amp_mode_models(&mut models);
                         }
-                        if runtime_kind == "claude" {
-                            append_missing_claude_family_models(&mut models);
-                        }
                     }
                     _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
-                    _ if runtime_kind == "claude" => {
-                        append_missing_claude_family_models(&mut models)
-                    }
                     Ok(Err(error)) => {
                         failed_runtime_kinds.insert(runtime_kind.clone());
                         failures.push(format!("{runtime_kind}: {error}"));
@@ -1204,6 +1199,11 @@ impl AppClient {
                     &cached,
                     &failed_runtime_kinds,
                 );
+            }
+            // Restore failed-runtime catalogs first, so custom deployment IDs,
+            // capabilities, and the cached default take precedence over aliases.
+            if includes_claude {
+                append_missing_claude_family_models(&mut models);
             }
             c.app_store.update_server_models(&server_id, Some(models));
             if failures.is_empty() || failed_runtime_kinds.len() < runtime_count {
@@ -3243,6 +3243,28 @@ mod tests {
         assert_eq!(models.len(), 4);
         assert_eq!(models[0].description, "Host capabilities");
         assert!(models[0].supported_reasoning_efforts.is_empty());
+    }
+
+    #[test]
+    fn claude_failed_refresh_preserves_cached_default_before_alias_fallback() {
+        let mut custom = test_model("custom-deployment", "claude".to_string());
+        custom.is_default = true;
+        custom.description = "Host capability metadata".to_string();
+        let mut cached = vec![custom];
+        append_missing_claude_family_models(&mut cached);
+        let mut models = Vec::new();
+        append_cached_models_for_failed_runtimes(
+            &mut models,
+            &mut HashSet::new(),
+            &cached,
+            &HashSet::from(["claude".to_string()]),
+        );
+        append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 5);
+        let defaults = models.iter().filter(|model| model.is_default).collect::<Vec<_>>();
+        assert_eq!(defaults.len(), 1);
+        assert_eq!(defaults[0].id, "custom-deployment");
+        assert_eq!(defaults[0].description, "Host capability metadata");
     }
 
     #[test]
