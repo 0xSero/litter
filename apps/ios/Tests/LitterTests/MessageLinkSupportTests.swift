@@ -32,4 +32,16 @@ final class MessageLinkSupportTests: XCTestCase {
         let long = MessageLinks.copyTitle(for: URL(string: "https://example.com/" + String(repeating: "a", count: 60))!)
         XCTAssertTrue(long.hasSuffix("…"))
     }
+
+    func testCopyTitleDistinguishesPortsQueriesAndFragments() {
+        XCTAssertEqual(
+            MessageLinks.copyTitle(for: URL(string: "https://example.com:8443/?id=2#details")!),
+            "Copy example.com:8443?id=2#details"
+        )
+        XCTAssertNotEqual(
+            MessageLinks.copyTitle(for: URL(string: "https://example.com/?id=1")!),
+            MessageLinks.copyTitle(for: URL(string: "https://example.com/?id=2")!)
+        )
+    }
+
 }

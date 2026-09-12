@@ -283,3 +283,12 @@ Replaces the prior WebSocket + base64-PCM audio pump with a platform-native WebR
 | Known non-blockers | Per-frame input/output meter animation no longer drives — requires `RTCRtpReceiver.stats` polling to restore (follow-up) | Same flat meter behavior; speaker toggle currently stubbed to a boolean — follow-up to honor runtime routing |
 | Regression: custom AEC path | Retired — `codex-ios-audio` crate + `AecBridge.swift` / `VoiceSessionAudioCodec.swift` were deleted; libwebrtc AEC3 handles echo cancellation natively | Retired — `AecBridge.kt` deleted; `JavaAudioDeviceModule` enables the hardware AEC + NS |
 | Regression: SSH-tunneled codex server | RPC still flows through SSH; WebRTC peer goes direct to OpenAI edge from device. If client runs in fully air-gapped network, realtime voice will not establish | Same |
+
+## Message link menus (iOS PR #322)
+
+This PR updates iOS's Hairball renderer and native context menu. Android's
+Markwon renderer needs a separate parity verification: bare HTTP/HTTPS URLs
+must be tappable, existing Markdown links must remain valid, and code must
+remain literal. The per-link copy action is an Android follow-up; verify URL
+deduplication, the five-link cap, and distinct labels for ports, queries, and
+fragments when adding it. No Android execution was covered by this iOS change.
