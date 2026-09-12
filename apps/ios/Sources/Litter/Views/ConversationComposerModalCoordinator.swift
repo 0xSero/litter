@@ -38,14 +38,14 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     @State private var modelSelectorDetent: PresentationDetent = .large
 
     /// Bridge binding for `CameraView` which expects a single `UIImage?`.
-    /// Appends the captured photo to the `attachedImages` array (capped at 4)
-    /// instead of replacing existing attachments.
+    /// Appends the captured photo to the `attachedImages` array (capped at
+    /// the shared limit) instead of replacing existing attachments.
     private var cameraImageBinding: Binding<UIImage?> {
         Binding(
             get: { attachedImages.last },
             set: { newImage in
                 guard let newImage else { return }
-                if attachedImages.count < 4 {
+                if attachedImages.count < ComposerAttachmentLimits.maxImages {
                     attachedImages.append(newImage)
                 }
             }
@@ -182,7 +182,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 .presentationDetents([.height(attachSheetDetentHeight)])
                 .presentationDragIndicator(.visible)
             }
-            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 4, matching: .images)
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: ComposerAttachmentLimits.maxImages, matching: .images)
             .fileImporter(
                 isPresented: $showFileImporter,
                 allowedContentTypes: ConversationAttachmentSupport.supportedFileContentTypes,

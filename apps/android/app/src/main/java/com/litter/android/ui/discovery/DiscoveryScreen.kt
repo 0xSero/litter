@@ -694,7 +694,7 @@ fun DiscoveryScreen(
                         host = agentContext.host,
                         stateRoot = sshBridgeStateRoot(context, agentContext.host),
                         runtimeKinds = selectedKinds,
-                        transport = SshBridgeTransport.EPHEMERAL,
+                        transport = if (agentContext.server.detachedTransport) SshBridgeTransport.DETACHED else SshBridgeTransport.EPHEMERAL,
                     )
                     val server = agentContext.server.copy(
                         id = result.serverId,
@@ -1267,6 +1267,7 @@ internal fun SSHLoginDialog(
     var unlockMacosKeychain by remember(server.id) {
         mutableStateOf(initialCredential?.unlockMacosKeychain ?: false)
     }
+    var detachedTransport by remember(server.id) { mutableStateOf(server.detachedTransport) }
     var isConnecting by remember(server.id) { mutableStateOf(false) }
     var errorMessage by remember(server.id) { mutableStateOf<String?>(null) }
     val hostDisplay = if (server.resolvedSshPort == 22) {
@@ -1393,6 +1394,31 @@ internal fun SSHLoginDialog(
                         color = LitterTheme.textSecondary,
                         fontSize = 12.sp,
                     )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Switch(
+                        checked = detachedTransport,
+                        onCheckedChange = {
+                            detachedTransport = it
+                            SavedServerStore(context).updateDetachedTransport(context, server.id, it)
+                        },
+                        enabled = !isConnecting,
+                    )
+                    Column {
+                        Text(
+                            text = "Detached sessions",
+                            color = LitterTheme.textPrimary,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            text = "Agent sessions survive app close on this server. They keep running on the host and re-attach when you return.",
+                            color = LitterTheme.textSecondary,
+                            fontSize = 11.sp,
+                        )
+                    }
                 }
                 if (errorMessage != null) {
                     Text(
