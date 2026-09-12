@@ -33,6 +33,7 @@ pub struct SavedServerRecord {
     pub ssh_port_forwarding_enabled: Option<bool>,
     pub websocket_url: Option<String>,
     pub remembered_by_user: bool,
+    pub detached_transport: bool,
     /// Legacy Alleycat marker. Unsupported after the iroh-backed host migration;
     /// records with only these fields require a new pairing scan.
     pub alleycat_host: Option<String>,
@@ -917,6 +918,7 @@ mod tests {
             ssh_port_forwarding_enabled: None,
             websocket_url: None,
             remembered_by_user: true,
+            detached_transport: false,
             alleycat_host: None,
             alleycat_udp_port: None,
             alleycat_node_id: None,

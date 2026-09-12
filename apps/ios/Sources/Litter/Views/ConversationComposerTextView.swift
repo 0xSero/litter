@@ -1,6 +1,37 @@
 import SwiftUI
 import UIKit
 
+enum SkillMentionTokens {
+    static let namePattern = "[A-Za-z0-9_-]+"
+    private static let regex = try? NSRegularExpression(
+        pattern: "(?<![A-Za-z0-9_-])\\$(\(namePattern))"
+    )
+
+    static func matches(in text: String) -> [(name: String, range: NSRange)] {
+        guard let regex, !text.isEmpty else { return [] }
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: fullRange).compactMap { match in
+            guard let nameRange = Range(match.range(at: 1), in: text) else { return nil }
+            return (String(text[nameRange]), match.range)
+        }
+    }
+
+    static func names(in text: String) -> [String] {
+        matches(in: text).map(\.name)
+    }
+}
+
+private struct SkillMentionHighlightNamesKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
+extension EnvironmentValues {
+    var skillMentionHighlightNames: Set<String> {
+        get { self[SkillMentionHighlightNamesKey.self] }
+        set { self[SkillMentionHighlightNamesKey.self] = newValue }
+    }
+}
+
 /// Holds the composer's UIKit selection range *outside* SwiftUI state.
 ///
 /// The range is pure edit plumbing: nothing draws it. Its only readers are the
@@ -33,6 +64,7 @@ final class ComposerSelectionBox {
 }
 
 struct ConversationComposerTextView: UIViewRepresentable {
+    @Environment(\.skillMentionHighlightNames) var mentionHighlightNames
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var selectedRange: NSRange
@@ -131,6 +163,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
             uiView.text = text
             context.coordinator.applySelectedRange(to: uiView)
             context.coordinator.isSynchronizingText = false
+            context.coordinator.invalidateMentionHighlight()
+            context.coordinator.applyMentionHighlight(to: uiView)
         } else if !uiView.isFirstResponder {
             context.coordinator.applySelectedRange(to: uiView)
         }
@@ -191,6 +225,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
                 parent.text = updatedText
             }
             updateSelectedRange(from: textView)
+            applyMentionHighlight(to: textView)
             // While focused the view is already scroll-enabled. Avoid forcing
             // TextKit to measure the entire draft again for every keystroke.
             if !textView.isFirstResponder {
@@ -239,6 +274,39 @@ struct ConversationComposerTextView: UIViewRepresentable {
             if textView.textColor != color {
                 textView.textColor = color
             }
+            applyMentionHighlight(to: textView)
+        }
+
+        private var lastHighlightedText: String?
+        private var lastHighlightNames: Set<String> = []
+
+        func invalidateMentionHighlight() {
+            lastHighlightedText = nil
+        }
+
+        func applyMentionHighlight(to textView: UITextView) {
+            let names = parent.mentionHighlightNames
+            let text = textView.text ?? ""
+            if text == lastHighlightedText, names == lastHighlightNames { return }
+            lastHighlightedText = text
+            lastHighlightNames = names
+
+            let storage = textView.textStorage
+            let fullRange = NSRange(location: 0, length: storage.length)
+            let baseColor = UIColor(LitterTheme.textPrimary)
+            let accentColor = UIColor(LitterTheme.success)
+            storage.beginEditing()
+            storage.addAttribute(.foregroundColor, value: baseColor, range: fullRange)
+            if !names.isEmpty {
+                for token in SkillMentionTokens.matches(in: text)
+                where names.contains(token.name.lowercased()) {
+                    let clamped = NSIntersectionRange(token.range, fullRange)
+                    guard clamped.length > 0 else { continue }
+                    storage.addAttribute(.foregroundColor, value: accentColor, range: clamped)
+                }
+            }
+            storage.endEditing()
+            textView.typingAttributes[.foregroundColor] = baseColor
         }
 
         func updateScrollState(for textView: UITextView) {
