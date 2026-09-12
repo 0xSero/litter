@@ -80,17 +80,42 @@ enum ConversationAttachmentSupport {
         return inputs
     }
 
+    private static let maxTransportPixelDimension: CGFloat = 2048
+    private static let minTransportPixelDimension: CGFloat = 1024
+    private static let maxTransportImageBytes = 1_200_000
+    private static let transportJpegQuality: CGFloat = 0.7
+
     private static func encodedImageData(for image: UIImage) -> (data: Data, mimeType: String)? {
-        if image.litterHasAlpha, let pngData = image.pngData() {
+        var current = downscaled(image, longestSide: maxTransportPixelDimension)
+        if current.litterHasAlpha,
+           let pngData = current.pngData(),
+           pngData.count <= maxTransportImageBytes {
             return (pngData, "image/png")
         }
-        if let jpegData = image.jpegData(compressionQuality: 0.85) {
-            return (jpegData, "image/jpeg")
+        var dimension = maxTransportPixelDimension
+        while true {
+            guard let jpegData = current.jpegData(compressionQuality: transportJpegQuality) else { break }
+            if jpegData.count <= maxTransportImageBytes || dimension <= minTransportPixelDimension {
+                return (jpegData, "image/jpeg")
+            }
+            dimension = max(dimension * 0.75, minTransportPixelDimension)
+            current = downscaled(current, longestSide: dimension)
         }
-        if let pngData = image.pngData() {
-            return (pngData, "image/png")
+        return current.pngData().map { ($0, "image/png") }
+    }
+
+    private static func downscaled(_ image: UIImage, longestSide limit: CGFloat) -> UIImage {
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        let longestSide = max(pixelWidth, pixelHeight)
+        guard longestSide > limit else { return image }
+        let ratio = limit / longestSide
+        let targetSize = CGSize(width: pixelWidth * ratio, height: pixelHeight * ratio)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
-        return nil
     }
 
     private static func isSupportedImageFile(_ url: URL) -> Bool {

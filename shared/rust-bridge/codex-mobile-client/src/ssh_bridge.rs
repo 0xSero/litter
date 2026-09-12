@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use alleycat_bridge_core::{Bridge, ProcessLauncher, serve_stream};
 use alleycat_claude_bridge::index::{ClaudeSessionInfo, entry_from_claude};
@@ -38,11 +38,19 @@ use crate::types::{AgentRuntimeInfo, AgentRuntimeKind};
 /// How long we'll poll a freshly-spawned local opencode for `/global/health`.
 const OPENCODE_LOCAL_HEALTH_BUDGET: Duration = Duration::from_secs(10);
 const OPENCODE_LOCAL_HEALTH_INTERVAL: Duration = Duration::from_millis(50);
-/// How many candidate ports we'll check when picking a free remote port.
-const REMOTE_PORT_PROBE_CANDIDATES: u16 = 50;
-/// Probe range for ephemeral remote ports (matches Linux's local port range).
-const REMOTE_PORT_PROBE_BASE: u16 = 17600;
-const REMOTE_PORT_PROBE_SPAN: u16 = 2000;
+/// Well-known port where a reusable `opencode serve` listens (opencode's own
+/// default). Reuse probes start here, and spawns bind here so the next
+/// connect/reconnect can find the server again instead of launching a fresh
+/// one — mirroring the Codex bootstrap's well-known port identity.
+const OPENCODE_DEFAULT_PORT: u16 = 4096;
+/// How many consecutive ports (starting at `OPENCODE_DEFAULT_PORT`) we'll
+/// probe for an existing server / try to spawn on before giving up.
+const OPENCODE_PORT_CANDIDATES: u16 = 4;
+/// Short probe budget when deciding whether an occupied port is a healthy
+/// opencode server worth reusing (vs a foreign process to skip). Kept tiny so
+/// scanning candidates over the tunnel doesn't stall the connect.
+const OPENCODE_REUSE_PROBE_ATTEMPTS: u32 = 5;
+const OPENCODE_REUSE_PROBE_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Clone)]
 struct StreamCloseHandle {
@@ -50,28 +58,10 @@ struct StreamCloseHandle {
 }
 
 impl StreamCloseHandle {
-    fn with_on_close(self, on_close: Box<dyn Fn() + Send + Sync + 'static>) -> Self {
-        *self
-            .state
-            .on_close
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(on_close);
-        self
-    }
-
     fn close(&self) {
         let already_closed = self.state.closed.swap(true, Ordering::SeqCst);
-        let on_close = if already_closed {
-            None
-        } else {
-            self.state
-                .on_close
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .take()
-        };
-        if let Some(on_close) = on_close {
-            on_close();
+        if already_closed {
+            return;
         }
         if let Some(waker) = self
             .state
@@ -88,7 +78,6 @@ impl StreamCloseHandle {
 struct StreamCloseState {
     closed: AtomicBool,
     waker: StdMutex<Option<Waker>>,
-    on_close: StdMutex<Option<Box<dyn Fn() + Send + Sync + 'static>>>,
 }
 
 struct ClosableStream<S> {
@@ -101,7 +90,6 @@ impl<S> ClosableStream<S> {
         let state = Arc::new(StreamCloseState {
             closed: AtomicBool::new(false),
             waker: StdMutex::new(None),
-            on_close: StdMutex::new(None),
         });
         (
             Self {
@@ -701,84 +689,134 @@ async fn connect_opencode_via_ssh(
     .await?;
     info!("ssh bridge resolved runtime cli kind=Opencode bin={bin}");
     validate_remote_cli_executes(&ssh, shell, &bin, "opencode").await?;
-    let remote_port = pick_remote_port(&ssh, shell).await?;
-    let session_id = format!("opencode-{}", now_millis());
-    info!(
-        "ssh bridge opencode remote start bin={bin} remote_port={remote_port} session_id={session_id}"
-    );
-    spawn_remote_opencode(&ssh, shell, &bin, remote_port, &session_id).await?;
-    if let Err(error) =
-        wait_until_remote_opencode_healthy(&ssh, shell, remote_port, &session_id).await
-    {
-        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
-        return Err(error);
-    }
-    let local_port = match ssh.forward_port_to(0, "127.0.0.1", remote_port).await {
-        Ok(port) => port,
-        Err(error) => {
-            schedule_remote_opencode_cleanup(
-                Arc::clone(&ssh),
-                shell,
-                remote_port,
-                session_id.clone(),
-            );
-            return Err(error.into());
+
+    // Attach-or-spawn, mirroring the Codex bootstrap: probe a well-known port
+    // range for an existing healthy `opencode serve` and reuse it; only spawn
+    // a fresh server on a free candidate when nothing is already running. The
+    // spawned server persists across disconnects so a reconnect attaches to it
+    // instead of re-launching (which is what used to leave the session list
+    // empty while the fresh server re-materialized its threads).
+    for offset in 0..OPENCODE_PORT_CANDIDATES {
+        let port = OPENCODE_DEFAULT_PORT + offset;
+
+        if ssh.is_port_listening_shell(port, shell).await {
+            info!("ssh bridge opencode reuse candidate port={port} already listening; probing");
+            let local_port = match ssh.forward_port_to(0, "127.0.0.1", port).await {
+                Ok(local_port) => local_port,
+                Err(error) => {
+                    warn!("ssh bridge opencode reuse forward failed port={port}: {error}");
+                    continue;
+                }
+            };
+            let base_url = format!("http://127.0.0.1:{local_port}");
+            if opencode_healthy_reuse_probe(&base_url).await {
+                info!("ssh bridge opencode attach existing port={port} local_port={local_port}");
+                match attach_opencode_bridge(state_dir.clone(), base_url).await {
+                    Ok(connected) => return Ok(connected),
+                    Err(error) => {
+                        warn!(
+                            "ssh bridge opencode attach failed port={port}: {error}; trying next candidate"
+                        );
+                        let _ = ssh.abort_forward_port(local_port).await;
+                        continue;
+                    }
+                }
+            }
+            let _ = ssh.abort_forward_port(local_port).await;
+            warn!("ssh bridge opencode reuse candidate port={port} did not answer /global/health");
+            continue;
         }
-    };
-    let base_url = format!("http://127.0.0.1:{local_port}");
-    info!(
-        "ssh bridge opencode forwarded remote_port={remote_port} local_port={local_port} session_id={session_id}"
-    );
-    if let Err(error) = wait_until_opencode_healthy(&base_url).await {
-        let logs = fetch_remote_opencode_logs(&ssh, shell, &session_id)
-            .await
-            .unwrap_or_else(|log_error| {
-                format!("failed to fetch remote opencode logs: {log_error}")
-            });
-        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
-        return Err(SshBridgeError::BridgeStartupFailed(format!(
-            "{error}; remote opencode logs:\n{logs}"
-        )));
+
+        // Free port: spawn opencode here so it is discoverable on the next
+        // connect/reconnect. The session dir is stable (`opencode`, not
+        // `opencode-<millis>`) so the pidfile doubles as our ownership marker.
+        let session_id = "opencode";
+        info!("ssh bridge opencode remote start bin={bin} port={port} session_id={session_id}");
+        spawn_remote_opencode(&ssh, shell, &bin, port, session_id).await?;
+        if let Err(error) =
+            wait_until_remote_opencode_healthy(&ssh, shell, port, session_id).await
+        {
+            schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, port, session_id.to_string());
+            return Err(error);
+        }
+        let local_port = match ssh.forward_port_to(0, "127.0.0.1", port).await {
+            Ok(local_port) => local_port,
+            Err(error) => {
+                schedule_remote_opencode_cleanup(
+                    Arc::clone(&ssh),
+                    shell,
+                    port,
+                    session_id.to_string(),
+                );
+                return Err(error.into());
+            }
+        };
+        let base_url = format!("http://127.0.0.1:{local_port}");
+        info!(
+            "ssh bridge opencode spawned+forwarded port={port} local_port={local_port} session_id={session_id}"
+        );
+        if let Err(error) =
+            wait_until_opencode_healthy(&base_url, OPENCODE_LOCAL_HEALTH_BUDGET).await
+        {
+            let logs = fetch_remote_opencode_logs(&ssh, shell, session_id)
+                .await
+                .unwrap_or_else(|log_error| {
+                    format!("failed to fetch remote opencode logs: {log_error}")
+                });
+            schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, port, session_id.to_string());
+            return Err(SshBridgeError::BridgeStartupFailed(format!(
+                "{error}; remote opencode logs:\n{logs}"
+            )));
+        }
+        return match attach_opencode_bridge(state_dir, base_url).await {
+            Ok(connected) => Ok(connected),
+            Err(error) => {
+                schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, port, session_id.to_string());
+                Err(error)
+            }
+        };
     }
 
-    let bridge = match OpencodeBridge::builder()
+    Err(SshBridgeError::BridgeStartupFailed(
+        "opencode server could not be attached or started on any candidate port".to_string(),
+    ))
+}
+
+/// Build an `OpencodeBridge` pointed at an already-healthy server and connect
+/// the app-server stream. The server itself is left running on disconnect —
+/// the caller decides when to clean up a spawned server (see the failure
+/// paths in [`connect_opencode_via_ssh`]); attaching to an existing server
+/// never kills it.
+async fn attach_opencode_bridge(
+    state_dir: PathBuf,
+    base_url: String,
+) -> Result<(AppServerClient, Option<StreamCloseHandle>), SshBridgeError> {
+    let bridge = OpencodeBridge::builder()
         .runtime(OpencodeRuntime::external(base_url, String::new()))
         .state_dir(state_dir)
         .build()
         .await
-    {
-        Ok(bridge) => bridge,
-        Err(error) => {
-            schedule_remote_opencode_cleanup(
-                Arc::clone(&ssh),
-                shell,
-                remote_port,
-                session_id.clone(),
-            );
-            return Err(SshBridgeError::BridgeStartupFailed(error.to_string()));
+        .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?;
+    connect_bridge_stream(bridge, "opencode".to_string()).await
+}
+
+/// Quick `/global/health` check used to decide whether an occupied candidate
+/// port is a reusable opencode server vs a foreign process. Much shorter than
+/// the spawn-path readiness budget so scanning the port range stays cheap.
+async fn opencode_healthy_reuse_probe(base_url: &str) -> bool {
+    let client = reqwest::Client::new();
+    let url = format!("{}/global/health", base_url.trim_end_matches('/'));
+    for _ in 0..OPENCODE_REUSE_PROBE_ATTEMPTS {
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status().is_success()
+            && let Ok(body) = resp.json::<serde_json::Value>().await
+            && body.get("healthy").and_then(serde_json::Value::as_bool) == Some(true)
+        {
+            return true;
         }
-    };
-    let (client, close_handle) = match connect_bridge_stream(bridge, "opencode".to_string()).await {
-        Ok(result) => result,
-        Err(error) => {
-            schedule_remote_opencode_cleanup(
-                Arc::clone(&ssh),
-                shell,
-                remote_port,
-                session_id.clone(),
-            );
-            return Err(error);
-        }
-    };
-    let close_handle = close_handle.map(|handle| {
-        handle.with_on_close(remote_opencode_cleanup_callback(
-            ssh,
-            shell,
-            remote_port,
-            session_id,
-        ))
-    });
-    Ok((client, close_handle))
+        tokio::time::sleep(OPENCODE_REUSE_PROBE_INTERVAL).await;
+    }
+    false
 }
 
 fn cli_candidates(defaults: &[&str], bin_override: Option<&str>) -> Vec<String> {
@@ -1114,10 +1152,13 @@ async fn wait_until_remote_opencode_healthy(
     }
 }
 
-async fn wait_until_opencode_healthy(base_url: &str) -> Result<(), SshBridgeError> {
+async fn wait_until_opencode_healthy(
+    base_url: &str,
+    budget: Duration,
+) -> Result<(), SshBridgeError> {
     let client = reqwest::Client::new();
     let url = format!("{}/global/health", base_url.trim_end_matches('/'));
-    let deadline = Instant::now() + OPENCODE_LOCAL_HEALTH_BUDGET;
+    let deadline = Instant::now() + budget;
     loop {
         if let Ok(resp) = client.get(&url).send().await
             && resp.status().is_success()
@@ -1146,17 +1187,6 @@ async fn fetch_remote_opencode_logs(
     );
     let result = ssh.exec_shell(&script, shell).await?;
     Ok(nonempty_stdout_or_stderr(result))
-}
-
-fn remote_opencode_cleanup_callback(
-    ssh: Arc<SshClient>,
-    shell: RemoteShell,
-    remote_port: u16,
-    session_id: String,
-) -> Box<dyn Fn() + Send + Sync + 'static> {
-    Box::new(move || {
-        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
-    })
 }
 
 fn schedule_remote_opencode_cleanup(
@@ -1229,44 +1259,6 @@ fn parse_agent_probe(stdout: &str) -> Vec<RemoteAgentAvailability> {
         .collect()
 }
 
-async fn pick_remote_port(ssh: &SshClient, shell: RemoteShell) -> Result<u16, SshBridgeError> {
-    let start = fallback_remote_port();
-    for offset in 0..REMOTE_PORT_PROBE_CANDIDATES {
-        let port = REMOTE_PORT_PROBE_BASE
-            + ((start - REMOTE_PORT_PROBE_BASE + offset) % REMOTE_PORT_PROBE_SPAN);
-        if remote_port_looks_free(ssh, shell, port).await? {
-            return Ok(port);
-        }
-    }
-    debug!(
-        "remote free-port probe failed, falling back to time-derived port: {}",
-        start
-    );
-    Ok(start)
-}
-
-async fn remote_port_looks_free(
-    ssh: &SshClient,
-    shell: RemoteShell,
-    port: u16,
-) -> Result<bool, SshBridgeError> {
-    let port_str = port.to_string();
-    let script = format!(
-        "{PROFILE_INIT}\n{}",
-        crate::ssh_scripts::render(
-            crate::ssh_scripts::posix::REMOTE_PORT_FREE_PROBE,
-            &[("PORT", &port_str)],
-        )
-    );
-    let result = ssh.exec_shell(&script, shell).await?;
-    Ok(result.exit_code == 0)
-}
-
-fn fallback_remote_port() -> u16 {
-    let span = now_millis() % 2000;
-    17600 + span as u16
-}
-
 fn nonempty_stderr_or_stdout(result: crate::ssh::ExecResult) -> String {
     if result.stderr.trim().is_empty() {
         result.stdout
@@ -1285,13 +1277,6 @@ fn nonempty_stdout_or_stderr(result: crate::ssh::ExecResult) -> String {
     } else {
         format!("{}\n{}", result.stdout, result.stderr)
     }
-}
-
-fn now_millis() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
 }
 
 /// Explain why an agent cannot be reached over SSH and what to do about

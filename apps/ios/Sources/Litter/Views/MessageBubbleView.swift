@@ -122,30 +122,10 @@ struct UserBubble: View, Equatable {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: compact ? 30 : 60)
             VStack(alignment: .trailing, spacing: compact ? 4 : 8) {
-                ForEach(images) { img in
-                    if let request = UserBubble.imageRequest(for: img) {
-                        LazyImage(request: request) { state in
-                            if let image = state.image {
-                                if let ui = state.imageContainer?.image {
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxWidth: 200, maxHeight: 200)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .draggable(Image(uiImage: ui)) {
-                                            Image(uiImage: ui)
-                                                .resizable()
-                                                .scaledToFit()
-                                                .frame(width: 120)
-                                        }
-                                } else {
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxWidth: 200, maxHeight: 200)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                }
-                            }
+                ForEach(Array(images.chunked(into: 3).enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 6) {
+                        ForEach(row) { img in
+                            bubbleImage(img)
                         }
                     }
                 }
@@ -170,15 +150,40 @@ struct UserBubble: View, Equatable {
                             .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
                         }
                     }
+                    .padding(.horizontal, compact ? 12 : 18)
+                    .padding(.vertical, compact ? 8 : 14)
+                    .modifier(GlassRectModifier(cornerRadius: compact ? 14 : 18, tint: LitterTheme.accent.opacity(0.3)))
                 }
             }
-            .padding(.horizontal, compact ? 12 : 18)
-            .padding(.vertical, compact ? 8 : 14)
-            .modifier(GlassRectModifier(cornerRadius: compact ? 14 : 18, tint: LitterTheme.accent.opacity(0.3)))
         }
         .padding(.bottom, 14)
         .onChange(of: text) { _, _ in
             expandedLongText = false
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleImage(_ img: ChatImage) -> some View {
+        if let request = UserBubble.imageRequest(for: img) {
+            LazyImage(request: request) { state in
+                if let image = state.image {
+                    let thumb = image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 100, height: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    if let ui = state.imageContainer?.image {
+                        thumb.draggable(Image(uiImage: ui)) {
+                            Image(uiImage: ui)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 120)
+                        }
+                    } else {
+                        thumb
+                    }
+                }
+            }
         }
     }
 
