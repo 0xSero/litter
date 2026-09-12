@@ -53,34 +53,30 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
-const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool, types::ReasoningEffort); 4] = [
+const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool); 4] = [
     (
         "fable",
         "Fable",
         "Anthropic's most capable model. Resolved by the claude CLI to the latest Fable revision.",
         false,
-        types::ReasoningEffort::High,
     ),
     (
         "opus",
         "Opus",
         "Deep reasoning, hard refactors, multi-step planning. Resolved by the claude CLI to the latest Opus revision.",
         false,
-        types::ReasoningEffort::High,
     ),
     (
         "sonnet",
         "Sonnet",
         "Balanced model for everyday coding work. Resolved by the claude CLI to the latest Sonnet revision.",
         true,
-        types::ReasoningEffort::Medium,
     ),
     (
         "haiku",
         "Haiku",
         "Lightest, fastest model for quick edits. Resolved by the claude CLI to the latest Haiku revision.",
         false,
-        types::ReasoningEffort::Minimal,
     ),
 ];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
@@ -165,58 +161,46 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
         .collect()
 }
 
-fn claude_reasoning_efforts() -> Vec<types::ReasoningEffortOption> {
-    [
-        (
-            types::ReasoningEffort::Minimal,
-            "Lowest latency, no extended thinking",
-        ),
-        (types::ReasoningEffort::Low, "Brief reasoning"),
-        (types::ReasoningEffort::Medium, "Default depth of reasoning"),
-        (types::ReasoningEffort::High, "Maximum reasoning effort"),
-    ]
-    .into_iter()
-    .map(
-        |(reasoning_effort, description)| types::ReasoningEffortOption {
-            reasoning_effort,
-            description: description.to_string(),
-        },
-    )
-    .collect()
-}
-
 fn claude_family_models() -> Vec<types::ModelInfo> {
     CLAUDE_FAMILY_ALIASES
         .into_iter()
-        .map(
-            |(alias, display_name, description, is_default, default_reasoning_effort)| {
-                types::ModelInfo {
-                    id: alias.to_string(),
-                    model: alias.to_string(),
-                    upgrade: None,
-                    upgrade_model: None,
-                    upgrade_copy: None,
-                    model_link: None,
-                    migration_markdown: None,
-                    availability_nux_message: None,
-                    display_name: display_name.to_string(),
-                    description: description.to_string(),
-                    hidden: false,
-                    supported_reasoning_efforts: claude_reasoning_efforts(),
-                    default_reasoning_effort,
-                    input_modalities: vec![types::InputModality::Text, types::InputModality::Image],
-                    supports_personality: false,
-                    is_default,
-                    agent_runtime_kind: "claude".to_string(),
-                    provider_id: None,
-                }
-            },
-        )
+        .map(|(alias, display_name, description, is_default)| {
+            types::ModelInfo {
+                id: alias.to_string(),
+                model: alias.to_string(),
+                upgrade: None,
+                upgrade_model: None,
+                upgrade_copy: None,
+                model_link: None,
+                migration_markdown: None,
+                availability_nux_message: None,
+                display_name: display_name.to_string(),
+                description: description.to_string(),
+                hidden: false,
+                // An alias can resolve to different models per host/provider.
+                // Only advertise effort controls returned by the host catalog.
+                supported_reasoning_efforts: Vec::new(),
+                default_reasoning_effort: types::ReasoningEffort::None,
+                input_modalities: vec![types::InputModality::Text, types::InputModality::Image],
+                supports_personality: false,
+                is_default,
+                agent_runtime_kind: "claude".to_string(),
+                provider_id: None,
+            }
+        })
         .collect()
 }
 
 fn append_missing_claude_family_models(models: &mut Vec<types::ModelInfo>) {
-    for family_model in claude_family_models() {
+    // Host entries can carry provider deployment IDs and model-specific capabilities.
+    // Keep their default authoritative when supplementing older bridge catalogs.
+    let has_default = models
+        .iter()
+        .any(|model| model.agent_runtime_kind == "claude" && model.is_default);
+    for mut family_model in claude_family_models() {
+        if has_default {
+            family_model.is_default = false;
+        }
         let alias = family_model.id.clone();
         let prefixed_alias = format!("anthropic/{alias}");
         let exists = models.iter().any(|existing| {
@@ -255,9 +239,6 @@ fn normalize_model_info_for_runtime(
     model_info: &mut types::ModelInfo,
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
-    if runtime_kind == "claude" {
-        return false;
-    }
     let is_amp = runtime_kind == "amp";
     let is_pi = matches!(runtime_kind.as_str(), "pi" | "local-studio");
     let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
@@ -283,9 +264,10 @@ fn normalize_model_info_for_runtime(
         model_info.default_reasoning_effort = default_reasoning_effort;
         model_info.is_default = mode == "smart";
     } else if has_qualified_catalog
-        && let Some(provider_id) = derive_model_provider_id(&model_info.id) {
-            model_info.provider_id = Some(provider_id.to_string());
-        }
+        && let Some(provider_id) = derive_model_provider_id(&model_info.id)
+    {
+        model_info.provider_id = Some(provider_id.to_string());
+    }
     if is_pi
         && !model_info
             .supported_reasoning_efforts
@@ -3229,38 +3211,38 @@ mod tests {
     }
 
     #[test]
-    fn claude_wire_models_are_replaced_by_family_aliases() {
-        let mut stale = test_model("claude-opus-4-7", "claude".to_string());
-        assert!(!normalize_model_info_for_runtime(
-            &mut stale,
+    fn claude_catalog_preserves_host_models_and_default() {
+        let mut custom = test_model("my-bedrock-deployment", "codex".to_string());
+        custom.provider_id = Some("bedrock".to_string());
+        custom.is_default = true;
+        assert!(normalize_model_info_for_runtime(
+            &mut custom,
             "claude".to_string()
         ));
-
-        let mut models = Vec::new();
+        assert_eq!(custom.agent_runtime_kind, "claude");
+        assert_eq!(custom.provider_id.as_deref(), Some("bedrock"));
+        let mut models = vec![custom];
         append_missing_claude_family_models(&mut models);
         append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 5);
+        assert_eq!(models.iter().filter(|model| model.is_default).count(), 1);
+        assert_eq!(
+            models.iter().find(|model| model.is_default).unwrap().id,
+            "my-bedrock-deployment"
+        );
+    }
 
-        let claude_ids = models
-            .iter()
-            .filter(|model| model.agent_runtime_kind == "claude")
-            .map(|model| model.id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(claude_ids, vec!["fable", "opus", "sonnet", "haiku"]);
-
-        let defaults = models
-            .iter()
-            .filter(|model| model.is_default)
-            .collect::<Vec<_>>();
-        assert_eq!(defaults.len(), 1);
-        assert_eq!(defaults[0].id, "sonnet");
-
-        let fable = models
-            .iter()
-            .find(|model| model.id == "fable")
-            .expect("fable listed");
-        assert_eq!(fable.display_name, "Fable");
-        assert_eq!(fable.default_reasoning_effort, ReasoningEffort::High);
-        assert_eq!(fable.supported_reasoning_efforts.len(), 4);
+    #[test]
+    fn claude_alias_fallback_preserves_advertised_capabilities() {
+        let mut advertised = test_model("sonnet", "claude".to_string());
+        advertised.description = "Host capabilities".to_string();
+        advertised.supported_reasoning_efforts.clear();
+        let mut models = vec![advertised];
+        append_missing_claude_family_models(&mut models);
+        append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 4);
+        assert_eq!(models[0].description, "Host capabilities");
+        assert!(models[0].supported_reasoning_efforts.is_empty());
     }
 
     #[test]
@@ -3374,12 +3356,16 @@ mod tests {
             &failed_runtime_kinds,
         );
 
-        assert!(models.iter().any(|model| {
-            model.agent_runtime_kind == "claude" && model.id == "opus"
-        }));
-        assert!(!models.iter().any(|model| {
-            model.agent_runtime_kind == "codex" && model.id == "gpt-5.5"
-        }));
+        assert!(
+            models
+                .iter()
+                .any(|model| { model.agent_runtime_kind == "claude" && model.id == "opus" })
+        );
+        assert!(
+            !models
+                .iter()
+                .any(|model| { model.agent_runtime_kind == "codex" && model.id == "gpt-5.5" })
+        );
         assert_eq!(
             models
                 .iter()
