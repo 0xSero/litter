@@ -282,3 +282,15 @@ Replaces the prior WebSocket + base64-PCM audio pump with a platform-native WebR
 | Known non-blockers | Per-frame input/output meter animation no longer drives — requires `RTCRtpReceiver.stats` polling to restore (follow-up) | Same flat meter behavior; speaker toggle currently stubbed to a boolean — follow-up to honor runtime routing |
 | Regression: custom AEC path | Retired — `codex-ios-audio` crate + `AecBridge.swift` / `VoiceSessionAudioCodec.swift` were deleted; libwebrtc AEC3 handles echo cancellation natively | Retired — `AecBridge.kt` deleted; `JavaAudioDeviceModule` enables the hardware AEC + NS |
 | Regression: SSH-tunneled codex server | RPC still flows through SSH; WebRTC peer goes direct to OpenAI edge from device. If client runs in fully air-gapped network, realtime voice will not establish | Same |
+
+## Skill mention details (iOS PR #320)
+
+This PR adds a SwiftUI presentation for skill mentions. Android still needs the
+matching pill and detail sheet; this is an explicit parity gap, not a verified
+Android workflow. Move mention tokenization and catalog resolution into the
+shared Rust client before implementing the second native presentation, so both
+platforms use the same name and metadata rules.
+
+Follow-up QA: known and unknown mentions, edited messages, thread/cwd changes,
+opening offline then reconnecting, failed catalog requests, and full description
+and default-prompt display. Mention-free transcripts should not request skills.

@@ -21,6 +21,7 @@ final class SkillMentionPillUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["CAD"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["$cad"].exists)
+        XCTAssertTrue(app.staticTexts["Sim2real 3D CAD pipeline: takes a real object from caliper measurement to a validated printable STL."].exists)
         XCTAssertTrue(app.staticTexts["Default prompt"].exists)
         XCTAssertTrue(app.staticTexts["User"].exists)
 

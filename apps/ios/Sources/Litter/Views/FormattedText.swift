@@ -25,15 +25,19 @@ struct FormattedText: View {
     var body: some View {
         content
             .environment(\.openURL, externalBrowserAction)
-            .onAppear { requestSkillLoadIfMentioned() }
-            .onChange(of: skillMentionCatalog.map(ObjectIdentifier.init)) {
-                requestSkillLoadIfMentioned()
+            .task(id: SkillMentionLoadID(catalog: skillMentionCatalog.map(ObjectIdentifier.init), text: text)) {
+                await requestSkillLoadIfMentioned()
             }
     }
 
-    private func requestSkillLoadIfMentioned() {
+    private struct SkillMentionLoadID: Equatable {
+        let catalog: ObjectIdentifier?
+        let text: String
+    }
+
+    private func requestSkillLoadIfMentioned() async {
         guard let skillMentionCatalog, textContainsSkillMentionSyntax(text) else { return }
-        skillMentionCatalog.loadIfNeeded()
+        await skillMentionCatalog.loadIfNeeded()
     }
 
     @ViewBuilder

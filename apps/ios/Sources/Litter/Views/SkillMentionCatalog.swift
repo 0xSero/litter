@@ -5,10 +5,10 @@ import SwiftUI
 final class SkillMentionCatalog {
     private(set) var skillsByName: [String: SkillMetadata] = [:]
 
-    @ObservationIgnored private var loader: (() async -> [SkillMetadata])?
+    @ObservationIgnored private var loader: (() async throws -> [SkillMetadata])?
     @ObservationIgnored private var loadStarted = false
 
-    func configureLoader(_ loader: @escaping () async -> [SkillMetadata]) {
+    func configureLoader(_ loader: @escaping () async throws -> [SkillMetadata]) {
         self.loader = loader
     }
 
@@ -16,15 +16,19 @@ final class SkillMentionCatalog {
         skillsByName[name.lowercased()]
     }
 
-    func loadIfNeeded() {
+    func loadIfNeeded() async {
         guard !loadStarted, let loader else { return }
         loadStarted = true
-        Task { @MainActor in
-            let skills = await loader()
+        do {
+            // The catalog owns the request: recycled text rows must not cancel it.
+            let skills = try await Task { try await loader() }.value
             skillsByName = Dictionary(
                 skills.map { ($0.name.lowercased(), $0) },
                 uniquingKeysWith: { first, _ in first }
             )
+        } catch {
+            // A failed or cancelled request must not poison this conversation.
+            loadStarted = false
         }
     }
 }
@@ -234,9 +238,8 @@ private struct SkillMentionDetailView: View {
     }
 
     private var description: String {
-        let short = skill.shortDescription?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return short.isEmpty ? skill.description : short
+        let full = skill.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return full.isEmpty ? (skill.shortDescription ?? "") : full
     }
 
     private var scopeLabel: String {
