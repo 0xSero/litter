@@ -534,10 +534,8 @@ final class HomeDashboardModel {
     /// Merge rule:
     /// - If the user has pinned anything, the home list starts with their pins
     ///   (in pin order, most-recent-pinned first).
-    /// - Local Studio appends its unpinned recent sessions so a pin cannot hide
-    ///   newly synced Pi sessions. Other runtimes keep the pins-only rule.
-    /// - If nothing is pinned, fill the list with up to 10 most-recent
-    ///   sessions so the home screen isn't empty.
+    /// - Append the current window of unpinned recent sessions for every runtime.
+    /// - Growing recentLimit reveals older sessions even when pins exist.
     /// - Hidden threads are always excluded.
     private static func mergedHomeSessions(
         pinned: [SavedThreadsStore.PinnedKey],
@@ -559,18 +557,10 @@ final class HomeDashboardModel {
                 return Array(candidates.prefix(recentLimit))
             }
             let pinnedSet = Set(pinned)
-            let localStudioServerIds = Set(
-                servers.filter { server in
-                    usesServerConfiguredModelDefault(
-                        server.agentRuntimes.filter(\.available).map(\.kind)
-                    )
-                }.map(\.id)
-            )
-            let localStudioRecent = candidates.filter { session in
-                localStudioServerIds.contains(session.key.serverId) &&
-                    !pinnedSet.contains(SavedThreadsStore.PinnedKey(threadKey: session.key))
+            let recent = candidates.filter { session in
+                !pinnedSet.contains(SavedThreadsStore.PinnedKey(threadKey: session.key))
             }
-            return resolvedPins + localStudioRecent
+            return resolvedPins + Array(recent.prefix(recentLimit))
         }
         return Array(candidates.prefix(recentLimit))
     }

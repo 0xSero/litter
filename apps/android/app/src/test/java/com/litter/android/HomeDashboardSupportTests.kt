@@ -55,18 +55,19 @@ class HomeDashboardSupportTests {
     }
 
     @Test
-    fun `Codex pins keep the existing pins-only behavior`() {
+    fun `Codex pins retain the growing recent window`() {
         val server = server("codex", "codex")
 
         val result = mergeHomeSessions(
             pinned = listOf(PinnedThreadKey(serverId = "codex", threadId = "stale")),
             hidden = emptyList(),
             servers = listOf(server),
-            allSessions = listOf(session("codex", "recent", "codex")),
+            allSessions = listOf(session("codex", "recent", "codex"), session("codex", "older", "codex")),
+            recentLimit = 1,
         )
 
-        assertEquals(listOf("stale"), result.map { it.key.threadId })
-        assertEquals(listOf("codex"), result.map { it.agentRuntimeKind })
+        assertEquals(listOf("stale", "recent"), result.map { it.key.threadId })
+        assertEquals(listOf("codex", "codex"), result.map { it.agentRuntimeKind })
     }
 
     @Test

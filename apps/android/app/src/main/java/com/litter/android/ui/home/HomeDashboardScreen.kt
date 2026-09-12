@@ -1487,10 +1487,8 @@ private fun EmptyHomeFatCat(modifier: Modifier = Modifier) {
  * Merge rule:
  * - If the user has pinned anything, the home list starts with their pins
  *   (in pin order, most-recent-pinned first).
- * - Local Studio appends its unpinned recent sessions so a pin cannot hide
- *   newly synced Pi sessions. Other runtimes keep the existing pins-only rule.
- * - If nothing is pinned, fill the list with up to 10 most-recent
- *   sessions so the home screen isn't empty.
+ * - Append the current window of unpinned recent sessions for every runtime.
+ * - Growing recentLimit reveals older sessions even when pins exist.
  * - Hidden threads are always excluded.
  */
 internal fun mergeHomeSessions(
@@ -1516,22 +1514,13 @@ internal fun mergeHomeSessions(
             }
         }
         val pinnedSet = pinned.toSet()
-        val localStudioServerIds = servers.asSequence()
-            .filter { server ->
-                usesServerConfiguredModelDefault(
-                    server.agentRuntimes.filter { it.available }.map { it.kind },
-                )
-            }
-            .map { it.serverId }
-            .toSet()
-        val localStudioRecent = candidates.filter { session ->
-            session.key.serverId in localStudioServerIds &&
-                PinnedThreadKey(
-                    serverId = session.key.serverId,
-                    threadId = session.key.threadId,
-                ) !in pinnedSet
+        val recent = candidates.filter { session ->
+            PinnedThreadKey(
+                serverId = session.key.serverId,
+                threadId = session.key.threadId,
+            ) !in pinnedSet
         }
-        return pinnedSessions + localStudioRecent
+        return pinnedSessions + recent.take(recentLimit)
     }
     return candidates.take(recentLimit)
 }

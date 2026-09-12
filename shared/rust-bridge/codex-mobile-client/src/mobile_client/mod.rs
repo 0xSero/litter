@@ -2685,8 +2685,7 @@ impl MobileClient {
         requested_runtime_kinds: Option<Vec<AgentRuntimeKind>>,
         params: upstream::ThreadListParams,
     ) -> Result<(), String> {
-        let drain_all_pages = params.cursor.is_none()
-            && params.limit.is_none()
+        let hydrate_recents = params.cursor.is_none()
             && params
                 .search_term
                 .as_deref()
@@ -2694,7 +2693,31 @@ impl MobileClient {
                 .unwrap_or_default()
                 .is_empty()
             && !params.use_state_db_only;
-        let session = self.get_session(server_id).map_err(|error| error.to_string())?;
+        let unfiltered = requested_runtime_kinds.as_ref().is_none_or(Vec::is_empty)
+            && params.model_providers.as_ref().is_none_or(Vec::is_empty)
+            && params.source_kinds.as_ref().is_none_or(Vec::is_empty)
+            && params.cwd.is_none()
+            && params.archived != Some(true)
+            && params
+                .search_term
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            && !params.use_state_db_only;
+        let tracks_home_cursor = unfiltered
+            && params.cursor.is_none()
+            && matches!(
+                params.sort_key,
+                None | Some(upstream::ThreadSortKey::UpdatedAt)
+            )
+            && matches!(
+                params.sort_direction,
+                None | Some(upstream::SortDirection::Desc)
+            );
+        let session = self
+            .get_session(server_id)
+            .map_err(|error| error.to_string())?;
         let available_runtime_kinds = session.runtime_kinds();
         let runtime_kinds =
             crate::types::list_runtime_kinds(requested_runtime_kinds, &available_runtime_kinds);
@@ -2721,11 +2744,15 @@ impl MobileClient {
             }
             let client = Arc::clone(self);
             let server_id = server_id.to_string();
-            let initial_params = params.clone();
+            let mut initial_params = params.clone();
+            let budget = params.limit.unwrap_or(200) as usize;
+            initial_params.limit = Some(params.limit.unwrap_or(200));
             tasks.push(async move {
                 let mut request_params = initial_params;
                 let mut ids = Vec::new();
                 let mut completed = true;
+                let mut exhausted = false;
+                let mut visited_cursors = std::collections::HashSet::new();
                 loop {
                     let response: upstream::ThreadListResponse = match client
                         .request_typed_for_server_runtime(
@@ -2748,6 +2775,7 @@ impl MobileClient {
                             break;
                         }
                     };
+                    let page_was_empty = response.data.is_empty();
                     let page = client.upsert_thread_list_page_for_runtime(
                         &server_id,
                         runtime_kind.clone(),
@@ -2760,34 +2788,42 @@ impl MobileClient {
                     // `session_list_has_more` reflects the server's actual
                     // pagination.  On a full drain this is overwritten with
                     // (None, false) after the loop.
-                    client.app_store.set_thread_page_state(
-                        &server_id,
-                        &runtime_kind,
-                        next_cursor.clone(),
-                        has_more,
-                    );
+                    if tracks_home_cursor {
+                        client.app_store.set_thread_page_state(
+                            &server_id,
+                            &runtime_kind,
+                            next_cursor.clone(),
+                            has_more,
+                        );
+                    }
                     let Some(next_cursor) = next_cursor else {
+                        exhausted = true;
                         break;
                     };
-                    if !drain_all_pages {
+                    if !hydrate_recents || ids.len() >= budget || page_was_empty
+                        || !visited_cursors.insert(next_cursor.clone()) {
                         break;
                     }
                     request_params.cursor = Some(next_cursor);
                 }
-                (runtime_kind, ids, completed)
+                (runtime_kind, ids, completed, exhausted)
             });
         }
 
         let results = futures::future::join_all(tasks).await;
-        if results.iter().all(|(_, _, completed)| !completed) {
+        if results.iter().all(|(_, _, completed, _)| !completed) {
             return Err("thread list failed for every runtime".to_string());
         }
-        let all_completed = results.iter().all(|(_, _, ok)| *ok);
+        let all_completed = results.iter().all(|(_, _, ok, _)| *ok);
         // Only prune on a full drain — a limited page load is additive and
         // must not evict threads the server didn't return in this page.
-        if all_completed && drain_all_pages {
+        if all_completed
+            && hydrate_recents
+            && unfiltered
+            && results.iter().all(|(_, _, _, exhausted)| *exhausted)
+        {
             let mut all_thread_ids = Vec::new();
-            for (_, ids, _) in &results {
+            for (_, ids, _, _) in &results {
                 all_thread_ids.extend(ids.iter().cloned());
             }
             self.finalize_thread_list_sync(server_id, all_thread_ids);
@@ -2796,23 +2832,6 @@ impl MobileClient {
                 "refresh_thread_list: skipping finalize prune — partial fan-out result on server {}",
                 server_id
             );
-        }
-        // Persist per-runtime cursor state so the snapshot's
-        // `session_list_has_more` reflects the server's actual pagination.
-        for (runtime_kind, _, completed) in &results {
-            if !completed {
-                continue;
-            }
-            // For a limited page load, the last page's `next_cursor` drives
-            // `has_more`.  For a full drain the cursor is exhausted (None,
-            // has_more: false) — correct because all pages are loaded.
-            if drain_all_pages {
-                self.app_store
-                    .set_thread_page_state(server_id, runtime_kind, None, false);
-            }
-            // On a limited load, `load_threads_page` already called
-            // `set_thread_page_state` with the actual cursor/has_more from
-            // the server response — nothing to do here.
         }
         Ok(())
     }
@@ -3419,9 +3438,8 @@ impl MobileClient {
     /// - Advances the retained cursor to the page's `next_cursor` and records
     ///   `has_more` per runtime; the aggregate `has_more` is true when any
     ///   runtime still has more pages.
-    /// - A per-runtime RPC failure marks that runtime exhausted and continues
-    ///   with the others rather than failing the whole load; the caller can
-    ///   fall back to a full `list_threads` drain if desired.
+    /// - A per-runtime RPC failure preserves its cursor for retry and continues
+    ///   with the other runtimes without reporting the failed runtime exhausted.
     pub async fn load_threads_page(
         &self,
         server_id: &str,
@@ -3454,9 +3472,13 @@ impl MobileClient {
                 }
                 codex_visited = true;
             }
-            let cursor = self.app_store.thread_page_cursor(server_id, &runtime_kind);
+            let page_state = self.app_store.thread_page_state(server_id, &runtime_kind);
+            if page_state.as_ref().is_some_and(|state| !state.has_more) {
+                continue;
+            }
+            let cursor = page_state.and_then(|state| state.cursor);
             let params = upstream::ThreadListParams {
-                cursor,
+                cursor: cursor.clone(),
                 limit,
                 sort_key: Some(upstream::ThreadSortKey::UpdatedAt),
                 sort_direction: Some(upstream::SortDirection::Desc),
@@ -3507,8 +3529,10 @@ impl MobileClient {
                         server_id,
                         error
                     );
+                    // Preserve the failed cursor so a later scroll can retry this page.
                     self.app_store
-                        .set_thread_page_state(server_id, &runtime_kind, None, false);
+                        .set_thread_page_state(server_id, &runtime_kind, cursor, true);
+                    any_has_more = true;
                 }
             }
         }
@@ -4377,9 +4401,13 @@ pub(super) fn run_connect_warmup(
             )
             .await
             {
-                Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
+                Ok(()) => {
+                    trace!("MobileClient: {label} account sync completed server_id={server_id}")
+                }
                 Err(error) => {
-                    warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+                    warn!(
+                        "MobileClient: {label} account sync failed server_id={server_id}: {error}"
+                    )
                 }
             }
         } else {
