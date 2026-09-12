@@ -561,6 +561,11 @@ struct RateLimitBadgeView: View, Equatable {
 }
 
 
+private struct ConversationScrollLayout: Equatable {
+    let contentHeight: CGFloat
+    let viewportHeight: CGFloat
+}
+
 private struct ConversationMessageList: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let items: [ConversationItem]
@@ -737,10 +742,15 @@ private struct ConversationMessageList: View {
                 } action: { _, distance in
                     updateDistanceFromBottom(distance)
                 }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentSize.height
-                } action: { oldHeight, newHeight in
-                    guard newHeight != oldHeight, isFollowingBottom else { return }
+                .onScrollGeometryChange(for: ConversationScrollLayout.self) { geometry in
+                    ConversationScrollLayout(
+                        contentHeight: geometry.contentSize.height,
+                        viewportHeight: geometry.containerSize.height
+                    )
+                } action: { oldLayout, newLayout in
+                    // Keyboard/composer resizing can hide the last message even
+                    // when the transcript's content height does not change.
+                    guard newLayout != oldLayout, isFollowingBottom else { return }
                     followBottom()
                 }
                 .defaultScrollAnchor(.bottom, for: .initialOffset)
@@ -765,8 +775,10 @@ private struct ConversationMessageList: View {
                     syncTranscriptTurns()
                 }
                 .onChange(of: activeThreadKey) {
+                    scrollPosition = ScrollPosition()
                     isFollowingBottom = true
                     isNearBottom = true
+                    showScrollToBottomButton = false
                     waitingForDataExpired = false
                     syncTranscriptTurns(resetExpansion: true)
                     StreamingRendererCoordinator.shared.reset()
