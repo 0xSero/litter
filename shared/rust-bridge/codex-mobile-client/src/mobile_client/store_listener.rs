@@ -98,6 +98,7 @@ fn maybe_reconcile_idle_thread(
                         &app_store,
                         &key.server_id,
                         response,
+                        true,
                     ) {
                         warn!(
                             "MobileClient: failed to reconcile idle thread for server={} thread={}: {}",
@@ -184,7 +185,7 @@ fn maybe_hydrate_collab_agent_metadata(
                             return;
                         }
                         if let Err(error) = upsert_thread_snapshot_from_app_server_read_response(
-                            &app_store, &server_id, response,
+                            &app_store, &server_id, response, false,
                         ) {
                             warn!(
                                 "MobileClient: failed to hydrate collab receiver metadata for server={} thread={}: {}",

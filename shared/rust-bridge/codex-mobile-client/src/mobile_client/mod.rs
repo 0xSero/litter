@@ -677,7 +677,9 @@ fn missing_runtime_kinds(
         .cloned()
         .collect::<HashSet<_>>();
     let mut missing = requested_runtime_kinds
-        .iter().filter(|&kind| !existing.contains(kind)).cloned()
+        .iter()
+        .filter(|&kind| !existing.contains(kind))
+        .cloned()
         .collect::<Vec<_>>();
     missing.sort();
     missing
@@ -2825,10 +2827,8 @@ impl MobileClient {
             {
                 Ok(()) => {
                     self.note_thread_runtime(key.clone(), runtime_kind.clone());
-                    let post_resume_active = self
-                        .app_store
-                        .thread_snapshot(&key)
-                        .is_some_and(|thread| {
+                    let post_resume_active =
+                        self.app_store.thread_snapshot(&key).is_some_and(|thread| {
                             thread.active_turn_id.is_some()
                                 || matches!(thread.info.status, ThreadSummaryStatus::Active)
                         });
@@ -3214,7 +3214,12 @@ impl MobileClient {
             )
             .await
             .map_err(RpcError::Deserialization)?;
-        upsert_thread_snapshot_from_app_server_read_response(&self.app_store, server_id, response)
+        upsert_thread_snapshot_from_app_server_read_response(
+            &self.app_store,
+            server_id,
+            response,
+            false,
+        )
     }
 
     pub async fn thread_unsubscribe(
@@ -3784,7 +3789,7 @@ impl MobileClient {
                 {
                     Ok(response) => {
                         if let Err(error) = upsert_thread_snapshot_from_app_server_read_response(
-                            &app_store, &server_id, response,
+                            &app_store, &server_id, response, true,
                         ) {
                             warn!(
                                 "MobileClient: failed to reconcile thread after user input for server={} thread={}: {}",
@@ -3989,7 +3994,6 @@ impl MobileClient {
     pub fn set_voice_handoff_thread(&self, key: Option<ThreadKey>) {
         self.app_store.set_voice_handoff_thread(key);
     }
-
 }
 
 /// Listener that feeds session output bytes into the reducer's ring

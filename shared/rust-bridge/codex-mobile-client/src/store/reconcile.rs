@@ -446,7 +446,7 @@ impl MobileClient {
 /// does not flicker to empty while pagination loads the first page. Legacy
 /// servers ignore `exclude_turns` and return the embedded turns — we treat
 /// those as an authoritative hydration.
-fn apply_pagination_merge(
+pub(crate) fn apply_pagination_merge(
     existing: Option<&ThreadSnapshot>,
     target: &mut ThreadSnapshot,
     upstream_turns: &[upstream::Turn],
@@ -622,24 +622,25 @@ fn merge_paged_turns(
                 )
         });
         if let Some(id) = group_turn_id.as_deref()
-            && existing_turn_ids.contains(id) {
-                // A reconnect repair page is authoritative for completed turn
-                // text. Drop stale streaming assistant/reasoning placeholders
-                // absent from the replay, while preserving the historical
-                // turn-id dedupe for non-stream/user items.
-                if thread.active_turn_id.is_none()
-                    && group_replays_existing_user
-                    && group_has_persisted_text
-                {
-                    prune_replayed_live_span(thread, &group_user_keys, &incoming_item_ids);
-                    thread.items.retain(|item| {
-                        incoming_item_ids.contains(&item.id)
-                            || !is_stream_text_item(item)
-                            || item.source_turn_id.as_deref() != Some(id)
-                    });
-                }
-                continue;
+            && existing_turn_ids.contains(id)
+        {
+            // A reconnect repair page is authoritative for completed turn
+            // text. Drop stale streaming assistant/reasoning placeholders
+            // absent from the replay, while preserving the historical
+            // turn-id dedupe for non-stream/user items.
+            if thread.active_turn_id.is_none()
+                && group_replays_existing_user
+                && group_has_persisted_text
+            {
+                prune_replayed_live_span(thread, &group_user_keys, &incoming_item_ids);
+                thread.items.retain(|item| {
+                    incoming_item_ids.contains(&item.id)
+                        || !is_stream_text_item(item)
+                        || item.source_turn_id.as_deref() != Some(id)
+                });
             }
+            continue;
+        }
         if thread.active_turn_id.is_none()
             && group_replays_existing_user
             && group_has_persisted_text

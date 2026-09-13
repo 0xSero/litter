@@ -452,7 +452,9 @@ pub(super) fn core_reasoning_effort_from_mobile(
             codex_protocol::openai_models::ReasoningEffort::XHigh
         }
         crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::Max,
-        crate::types::ReasoningEffort::Ultra => codex_protocol::openai_models::ReasoningEffort::Ultra,
+        crate::types::ReasoningEffort::Ultra => {
+            codex_protocol::openai_models::ReasoningEffort::Ultra
+        }
     }
 }
 
@@ -576,8 +578,12 @@ pub(super) async fn read_thread_response_from_app_server_runtime(
 pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     app_store: &AppStoreReducer,
     server_id: &str,
-    response: upstream::ThreadReadResponse,
+    mut response: upstream::ThreadReadResponse,
+    include_turns: bool,
 ) -> Result<(), RpcError> {
+    if !include_turns {
+        response.thread.turns.clear();
+    }
     let turns = response.thread.turns.clone();
     let thread_id = response.thread.id.clone();
     let existing = app_store
@@ -600,6 +606,7 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     if let Some(existing) = existing.as_ref() {
         copy_thread_runtime_fields(existing, &mut snapshot);
     }
+    crate::store::reconcile::apply_pagination_merge(existing.as_ref(), &mut snapshot, &turns);
     reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
     app_store.upsert_thread_snapshot(snapshot);
     Ok(())

@@ -827,7 +827,7 @@ mod mobile_client_tests {
         }))
         .expect("thread/read response should deserialize");
 
-        upsert_thread_snapshot_from_app_server_read_response(&reducer, "srv", response)
+        upsert_thread_snapshot_from_app_server_read_response(&reducer, "srv", response, true)
             .expect("upsert should succeed");
 
         let key = ThreadKey {
@@ -891,7 +891,7 @@ mod mobile_client_tests {
         }))
         .expect("thread/read response should deserialize");
 
-        upsert_thread_snapshot_from_app_server_read_response(&reducer, "srv", response)
+        upsert_thread_snapshot_from_app_server_read_response(&reducer, "srv", response, true)
             .expect("upsert should succeed");
 
         let snapshot = reducer
@@ -903,6 +903,78 @@ mod mobile_client_tests {
 
         assert_eq!(snapshot.active_turn_id, None);
         assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
+    }
+
+    #[test]
+    fn metadata_read_preserves_page_and_active_turn_despite_embedded_history() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let mut existing = ThreadSnapshot::from_info("srv", make_thread_info("thread-1"));
+        existing.active_turn_id = Some("turn-1".to_string());
+        existing.info.status = ThreadSummaryStatus::Active;
+        existing.items = vec![crate::conversation::make_error_item(
+            "paged-item".into(),
+            "kept".into(),
+            None,
+        )]
+        .into();
+        existing.older_turns_cursor = Some("older".to_string());
+        existing.initial_turns_loaded = true;
+        reducer.upsert_thread_snapshot(existing);
+
+        let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
+            "thread": {
+                "id": "thread-1",
+                "sessionId": "session-1",
+                "preview": "hi",
+                "ephemeral": false,
+                "modelProvider": "openai",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "status": { "type": "idle" },
+                "path": "/tmp/thread",
+                "cwd": "/tmp/thread",
+                "cliVersion": "1.0.0",
+                "source": "cli",
+                "agentNickname": null,
+                "agentRole": null,
+                "gitInfo": null,
+                "name": "thread",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "items": [],
+                        "itemsView": "full",
+                        "status": "completed",
+                        "error": null,
+                        "startedAt": null,
+                        "completedAt": null,
+                        "durationMs": null
+                    }
+                ]
+            }
+        }))
+        .expect("thread/read response should deserialize");
+
+        upsert_thread_snapshot_from_app_server_read_response(&reducer, "srv", response, false)
+            .expect("upsert should succeed");
+
+        let snapshot = reducer
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("thread snapshot should exist");
+
+        assert_eq!(snapshot.active_turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(snapshot.older_turns_cursor.as_deref(), Some("older"));
+        assert!(snapshot.initial_turns_loaded);
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].id, "paged-item");
+        assert_eq!(snapshot.info.status, ThreadSummaryStatus::Active);
     }
 
     #[test]
