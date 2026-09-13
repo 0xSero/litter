@@ -567,7 +567,18 @@ struct DiscoveryView: View {
             )
         } catch {
             connectingServer = nil
-            connectError = error.localizedDescription
+            // The probe session is the first trust-store check in the guided
+            // flow, so a changed host key surfaces here first. Route it to
+            // the shared confirm dialog instead of the raw marker text.
+            let message = error.localizedDescription
+            if decodeSshHostKeyChallenge(message: message)?.isChanged == true {
+                appModel.recordSshHostKeyChange(
+                    serverId: server.id,
+                    errorMessage: message
+                )
+            } else {
+                connectError = message
+            }
         }
     }
 

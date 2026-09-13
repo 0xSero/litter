@@ -615,10 +615,12 @@ async fn reconnect_server_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        resolved_local_display_name, server_counts_as_connected_for_reconnect,
-        server_supports_account_probe,
+        ReconnectController, resolved_local_display_name,
+        server_counts_as_connected_for_reconnect, server_supports_account_probe, shared_runtime,
     };
     use crate::reconnect::SavedServerRecord;
+    use crate::terminal::{TerminalSshTrustBackend, TerminalSshTrustStore};
+    use std::sync::{Arc, RwLock};
     use crate::store::snapshot::{
         AppSnapshot, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
         ServerTransportDiagnostics,
@@ -817,5 +819,165 @@ mod tests {
             resolved_local_display_name(&snapshot, &[saved], "local"),
             "Desk Mac"
         );
+    }
+
+    #[derive(Default, Clone)]
+    struct MapTrustBackend {
+        pins: Arc<std::sync::Mutex<HashMap<(String, u16), String>>>,
+    }
+
+    impl TerminalSshTrustBackend for MapTrustBackend {
+        fn read(&self, host: String, port: u16) -> Option<String> {
+            self.pins.lock().unwrap().get(&(host, port)).cloned()
+        }
+
+        fn write(&self, host: String, port: u16, fingerprint: String) {
+            self.pins.lock().unwrap().insert((host, port), fingerprint);
+        }
+
+        fn remove(&self, host: String, port: u16) {
+            self.pins.lock().unwrap().remove(&(host, port));
+        }
+    }
+
+    fn ssh_record(id: &str, hostname: &str) -> SavedServerRecord {
+        SavedServerRecord {
+            id: id.to_string(),
+            name: id.to_string(),
+            hostname: hostname.to_string(),
+            port: 0,
+            codex_ports: Vec::new(),
+            ssh_port: None,
+            source: "ssh".to_string(),
+            has_codex_server: false,
+            wake_mac: None,
+            preferred_connection_mode: None,
+            preferred_codex_port: None,
+            ssh_port_forwarding_enabled: None,
+            websocket_url: None,
+            remembered_by_user: true,
+            detached_transport: false,
+            alleycat_host: None,
+            alleycat_udp_port: None,
+            alleycat_node_id: None,
+            alleycat_token: None,
+            alleycat_relay: None,
+            alleycat_agent_name: None,
+            alleycat_agent_wire: None,
+        }
+    }
+
+    /// Builds a controller over its own (non-shared) MobileClient so parallel
+    /// tests never race on the shared singleton's trust-store slot. Returns
+    /// the backend handle so tests can assert on the raw pin map.
+    fn replace_controller(
+        servers: Vec<SavedServerRecord>,
+    ) -> (
+        ReconnectController,
+        Arc<TerminalSshTrustStore>,
+        MapTrustBackend,
+    ) {
+        let controller = ReconnectController {
+            inner: Arc::new(super::MobileClient::new()),
+            rt: shared_runtime(),
+            saved_servers: Arc::new(RwLock::new(servers)),
+            credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
+            slingshot_credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
+            multi_clanker_and_quic_enabled: Arc::new(std::sync::Mutex::new(false)),
+            reconnect_guard: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let backend = MapTrustBackend::default();
+        let store = Arc::new(TerminalSshTrustStore::new(Box::new(backend.clone())));
+        controller.set_ssh_trust_store(Arc::clone(&store));
+        (controller, store, backend)
+    }
+
+    #[test]
+    fn replace_ssh_host_key_rewrites_the_pin_for_a_known_server() {
+        let mut record = ssh_record("srv-1", "LabMac.local");
+        record.ssh_port = Some(2222);
+        let (controller, store, backend) = replace_controller(vec![record]);
+
+        store.pin("labmac.local".to_string(), 2222, "AA:OLD".to_string());
+        assert_eq!(
+            store.pinned("labmac.local".to_string(), 2222),
+            Some("AA:OLD".to_string())
+        );
+
+        let replaced = controller.rt.block_on(
+            controller.replace_ssh_host_key("srv-1".to_string(), "BB:NEW".to_string()),
+        );
+        assert!(replaced);
+        assert_eq!(
+            store.pinned("labmac.local".to_string(), 2222),
+            Some("BB:NEW".to_string())
+        );
+        // Exactly the one pin was rewritten — nothing else appeared.
+        assert_eq!(backend.pins.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn replace_ssh_host_key_uses_the_server_resolved_ssh_port() {
+        let mut direct = ssh_record("direct", "BoxA.local");
+        direct.port = 2200;
+        let mut codex = ssh_record("codex", "BoxB.local");
+        codex.port = 8080;
+        codex.has_codex_server = true;
+        let (controller, store, backend) = replace_controller(vec![direct, codex]);
+
+        assert!(
+            controller
+                .rt
+                .block_on(controller.replace_ssh_host_key("direct".to_string(), "FP-A".to_string()))
+        );
+        assert!(
+            controller
+                .rt
+                .block_on(controller.replace_ssh_host_key("codex".to_string(), "FP-B".to_string()))
+        );
+
+        // Direct-port server: ssh_port unset, has_codex_server false -> its port.
+        assert_eq!(
+            store.pinned("boxa.local".to_string(), 2200),
+            Some("FP-A".to_string())
+        );
+        // Codex-carrying server: falls back to the SSH default of 22.
+        assert_eq!(
+            store.pinned("boxb.local".to_string(), 22),
+            Some("FP-B".to_string())
+        );
+        assert_eq!(backend.pins.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn replace_ssh_host_key_reports_unknown_servers_without_writing() {
+        let (controller, store, backend) = replace_controller(vec![ssh_record("srv-1", "Box.local")]);
+
+        let replaced = controller
+            .rt
+            .block_on(controller.replace_ssh_host_key("missing".to_string(), "FP".to_string()));
+
+        assert!(!replaced);
+        assert_eq!(store.pinned("box.local".to_string(), 22), None);
+        assert!(backend.pins.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn replace_ssh_host_key_fails_closed_without_a_trust_store() {
+        let controller = ReconnectController {
+            inner: Arc::new(super::MobileClient::new()),
+            rt: shared_runtime(),
+            saved_servers: Arc::new(RwLock::new(vec![ssh_record("srv-1", "Box.local")])),
+            credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
+            slingshot_credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
+            multi_clanker_and_quic_enabled: Arc::new(std::sync::Mutex::new(false)),
+            reconnect_guard: Arc::new(tokio::sync::Mutex::new(())),
+        };
+
+        let replaced = controller
+            .rt
+            .block_on(controller.replace_ssh_host_key("srv-1".to_string(), "FP".to_string()));
+
+        assert!(!replaced);
     }
 }

@@ -135,6 +135,7 @@ import uniffi.codex_mobile_client.projectIdFor
 fun HomeDashboardScreen(
     onOpenConversation: (ThreadKey) -> Unit,
     onShowDiscovery: () -> Unit,
+    discoveryVisible: Boolean = false,
     onShowSettings: () -> Unit,
     onShowApps: () -> Unit,
     onOpenProjectPicker: () -> Unit,
@@ -154,7 +155,9 @@ fun HomeDashboardScreen(
     val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
     val lifecycleController = remember { AppLifecycleController() }
 
-    appModel.sshHostKeyChangeChallenge?.let { challenge ->
+    // Discovery renders its own confirm dialog for the same shared challenge
+    // state; skip here while it is up so the two never stack.
+    if (!discoveryVisible) appModel.sshHostKeyChangeChallenge?.let { challenge ->
         AlertDialog(
             onDismissRequest = appModel::clearSshHostKeyChange,
             title = { Text("SSH Host Identity Changed") },

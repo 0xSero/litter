@@ -65,6 +65,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.SavedServer
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.SavedSshCredential
@@ -99,6 +100,7 @@ import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.RemoteAgentAvailability
 import uniffi.codex_mobile_client.AppSlingshotEnvironment
 import uniffi.codex_mobile_client.SshBridgeTransport
+import uniffi.codex_mobile_client.decodeSshHostKeyChallenge
 
 private data class SshBridgeAgentContext(
     val server: SavedServer,
@@ -139,6 +141,7 @@ fun DiscoveryScreen(
     var authorizedSlingshotConnect by remember { mutableStateOf<Pair<AppSlingshotEnvironment, String>?>(null) }
     var wakingServerId by remember { mutableStateOf<String?>(null) }
     var connectError by remember { mutableStateOf<String?>(null) }
+    val lifecycleController = remember { AppLifecycleController() }
     val slingshotStepUpLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -176,7 +179,11 @@ fun DiscoveryScreen(
         } else if (serverSnapshot.health == AppServerHealth.DISCONNECTED) {
             serverSnapshot.connectionProgress?.terminalMessage?.let { message ->
                 pendingAutoNavigateServerId = null
-                connectError = message
+                if (decodeSshHostKeyChallenge(message)?.isChanged == true) {
+                    appModel.recordSshHostKeyChange(pendingServerId, message)
+                } else {
+                    connectError = message
+                }
             }
         }
     }
@@ -657,7 +664,18 @@ fun DiscoveryScreen(
                             "os" to server.os,
                         ),
                     )
-                    e.message ?: "Unable to connect over SSH."
+                    // The probe session is the first trust-store check in the
+                    // guided flow, so a changed host key surfaces here first.
+                    // Route it to the shared confirm dialog instead of the raw
+                    // marker text.
+                    val message = e.message
+                    if (message != null && decodeSshHostKeyChallenge(message)?.isChanged == true) {
+                        appModel.recordSshHostKeyChange(server.id, message)
+                        sshServer = null
+                        null
+                    } else {
+                        message ?: "Unable to connect over SSH."
+                    }
                 }
             },
         )
@@ -723,8 +741,35 @@ fun DiscoveryScreen(
                             "host" to agentContext.host,
                         ),
                     )
-                    e.message ?: "Unable to connect SSH bridge agents."
+                    val message = e.message
+                    if (message != null && decodeSshHostKeyChallenge(message)?.isChanged == true) {
+                        appModel.recordSshHostKeyChange(agentContext.server.id, message)
+                        sshAgentContext = null
+                        null
+                    } else {
+                        message ?: "Unable to connect SSH bridge agents."
+                    }
                 }
+            },
+        )
+    }
+
+    appModel.sshHostKeyChangeChallenge?.let { challenge ->
+        AlertDialog(
+            onDismissRequest = appModel::clearSshHostKeyChange,
+            title = { Text("SSH Host Identity Changed") },
+            text = {
+                Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: ${challenge.fingerprint}")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        lifecycleController.replaceSshHostKey(appModel, challenge.serverId, challenge.fingerprint)
+                    }
+                }) { Text("Replace Stored Identity") }
+            },
+            dismissButton = {
+                TextButton(onClick = appModel::clearSshHostKeyChange) { Text("Cancel") }
             },
         )
     }
