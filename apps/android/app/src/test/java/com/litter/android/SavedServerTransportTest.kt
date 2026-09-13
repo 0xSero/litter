@@ -2,6 +2,7 @@ package com.litter.android
 
 import com.litter.android.state.SavedServer
 import com.litter.android.state.SavedServerStore
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -137,7 +138,7 @@ class SavedServerTransportTest {
                 detachedTransport = true,
             )
 
-        val restored = SavedServer.fromJson(server.toJson().toString())
+        val restored = SavedServer.fromJson(JSONObject(server.toJson().toString()))
 
         assertTrue(restored.detachedTransport)
     }
@@ -151,8 +152,7 @@ class SavedServerTransportTest {
                 hostname = "10.0.0.5",
                 port = 22,
             )
-        val json = legacy.toJson().toString()
-            .replace("\"detachedTransport\":false", "")
+        val json = legacy.toJson().apply { remove("detachedTransport") }
 
         val restored = SavedServer.fromJson(json)
 
