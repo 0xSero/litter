@@ -145,11 +145,12 @@ xcodebuild \
 
 ## Build and Run Android
 
-Prerequisites: Java 17 or newer, Android SDK + build tools for API 36, and the
-checked-in Gradle 9 wrapper. The Rust/JNI lane also requires the Android NDK
+Prerequisites: Node 24 (for Material3 theme generation), Java 17 or newer,
+Android SDK + build tools for API 36, and the checked-in Gradle 9 wrapper. The Rust/JNI lane also requires the Android NDK
 and `cargo-ndk`.
 
 ```bash
+make material-schemes                  # generate theme sources before standalone Gradle/Android Studio builds
 open -a "Android Studio" apps/android  # open in Android Studio
 make test-android                      # generate bindings and run unit tests
 make android                           # full Rust/JNI + debug APK pipeline

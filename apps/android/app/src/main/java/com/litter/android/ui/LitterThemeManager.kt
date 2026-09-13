@@ -241,7 +241,16 @@ internal fun colorFromHex(
     fallback: Color = Color.Transparent,
 ): Color {
     val normalized = hex?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
-    return runCatching { Color(android.graphics.Color.parseColor(normalized)) }.getOrElse { fallback }
+    // Theme JSON uses CSS/VS Code #RRGGBBAA, not Android #AARRGGBB.
+    // App theme tokens are solid colors, matching the Material3 generator.
+    val rgb = when {
+        Regex("#[0-9a-fA-F]{3}").matches(normalized) ->
+            normalized.drop(1).map { "$it$it" }.joinToString("")
+        Regex("#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?").matches(normalized) ->
+            normalized.substring(1, 7)
+        else -> return fallback
+    }
+    return Color(0xFF000000 or rgb.toLong(16))
 }
 
 object LitterThemeManager {
