@@ -66,6 +66,11 @@ panic = "abort"
 # and a correspondingly faster Swift link step.
 [profile.ios-dev]
 inherits = "dev"
+# opt-level 2 instead of the dev default (0): the staticlib is still small
+# (debug = 1 keeps line tables only) but the interpreter-side hot loops —
+# streaming snapshot assembly, conversation projection, JSON parsing — run
+# roughly an order of magnitude faster, which is what the mobile UI feels.
+opt-level = 2
 debug = 1
 codegen-units = 256
 
