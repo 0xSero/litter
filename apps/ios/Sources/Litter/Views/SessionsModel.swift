@@ -41,6 +41,14 @@ final class SessionsModel {
     /// second. Mirrors HomeDashboardModel's debounce pattern.
     @ObservationIgnored private var debouncedRefreshTask: Task<Void, Never>?
     @ObservationIgnored private let observedRefreshDelayNanoseconds: UInt64 = 120_000_000 // 120 ms
+    /// Cache of the last `SessionsDerivation.build` result, keyed by a
+    /// fingerprint of (snapshot revision + filter inputs). `refreshState`
+    /// re-runs `withObservationTracking` on every snapshot bump, but an
+    /// unrelated bump (e.g. background-thread item churn) or a duplicate
+    /// trigger at the same revision must not re-sort and re-group the whole
+    /// session list — the cached derivation is reused instead.
+    @ObservationIgnored private var cachedDerivationFingerprint: String?
+    @ObservationIgnored private var cachedDerivedData: SessionsDerivedData?
 
     func bind(appModel: AppModel, appState: AppState) {
         let needsRebind = self.appModel !== appModel || self.appState !== appState
@@ -84,6 +92,8 @@ final class SessionsModel {
 
         observationGeneration &+= 1
         let generation = observationGeneration
+        let revision = appModel.snapshotRevision
+        let derivationFingerprint = "\(revision)|\(appState.sessionsSelectedServerFilterId ?? "all")|\(appState.sessionsShowOnlyForks)|\(selectedRuntimeKind ?? "any")|\(appState.sessionsWorkspaceSortModeRaw)|\(searchQuery)"
         let snapshot = withObservationTracking {
             let selectedServerFilterId = appState.sessionsSelectedServerFilterId
             let showOnlyForks = appState.sessionsShowOnlyForks
@@ -120,15 +130,24 @@ final class SessionsModel {
                 previousDisplayedOrder: previousDisplayedOrder
             )
 
-            let nextDerivedData = SessionsDerivation.build(
-                sessions: appSnapshot?.sessionSummaries ?? [],
-                selectedServerFilterId: selectedServerFilterId,
-                showOnlyForks: showOnlyForks,
-                selectedRuntimeKind: currentRuntimeKindFilter,
-                workspaceSortMode: workspaceSortMode,
-                searchQuery: currentSearchQuery,
-                frozenMostRecentOrder: nextFrozenMostRecentThreadOrder
-            )
+            let nextDerivedData: SessionsDerivedData
+            if cachedDerivationFingerprint == derivationFingerprint, let cached = cachedDerivedData {
+                // Unrelated snapshot bump or duplicate trigger at the same
+                // revision: skip the expensive sort/group pass entirely.
+                nextDerivedData = cached
+            } else {
+                nextDerivedData = SessionsDerivation.build(
+                    sessions: appSnapshot?.sessionSummaries ?? [],
+                    selectedServerFilterId: selectedServerFilterId,
+                    showOnlyForks: showOnlyForks,
+                    selectedRuntimeKind: currentRuntimeKindFilter,
+                    workspaceSortMode: workspaceSortMode,
+                    searchQuery: currentSearchQuery,
+                    frozenMostRecentOrder: nextFrozenMostRecentThreadOrder
+                )
+                cachedDerivationFingerprint = derivationFingerprint
+                cachedDerivedData = nextDerivedData
+            }
 
             return Snapshot(
                 derivedData: nextDerivedData,

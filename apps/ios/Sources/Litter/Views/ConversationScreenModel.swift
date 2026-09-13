@@ -135,6 +135,7 @@ final class ConversationScreenModel {
     @ObservationIgnored private var cachedHydratedConversationItems: [HydratedConversationItem] = []
     @ObservationIgnored private var cachedProjectedConversationItems: [ConversationItem] = []
     @ObservationIgnored private var transcriptRevision: Int = 0
+    @ObservationIgnored private var projectedRevision: UInt64?
     @ObservationIgnored private var minigameTask: Task<Void, Never>?
 
     func bind(
@@ -155,6 +156,7 @@ final class ConversationScreenModel {
             cachedConversationItemProjections = [:]
             cachedProjectedConversationItems = []
             transcriptRevision = 0
+            projectedRevision = nil
             minigameTask?.cancel()
             minigameTask = nil
             minigameOverlay = .idle
@@ -380,7 +382,30 @@ private struct ProjectedConversationItemsResult {
 private extension ConversationScreenModel {
     func projectConversationItems(from hydratedItems: [HydratedConversationItem]) -> ProjectedConversationItemsResult {
         let previousHydratedItems = cachedHydratedConversationItems
+        let revision = appModel?.snapshotRevision
+
+        // Cheap change signals first — the deep equality walk over the whole
+        // hydrated array is the most expensive part of `refreshState`, and it
+        // re-ran on every coalesced snapshot bump (~8 fps while streaming)
+        // plus on duplicate binds (the revision and composerPrefillRequest
+        // onChange handlers both call `bindScreenModel`).
+        //
+        // 1. Same snapshot revision as the last projection: the snapshot only
+        //    changes when the revision bumps, so the arrays are identical.
+        // 2. Item count / last item id: appends and truncations are detected
+        //    in O(1). Only when all cheap signals agree do we fall back to
+        //    deep equality.
+        if let revision, revision == projectedRevision,
+           previousHydratedItems.count == hydratedItems.count,
+           previousHydratedItems.last?.id == hydratedItems.last?.id {
+            return ProjectedConversationItemsResult(
+                items: cachedProjectedConversationItems,
+                didChange: false
+            )
+        }
+
         if previousHydratedItems == hydratedItems {
+            projectedRevision = revision
             return ProjectedConversationItemsResult(
                 items: cachedProjectedConversationItems,
                 didChange: false
@@ -452,6 +477,7 @@ private extension ConversationScreenModel {
         cachedHydratedConversationItems = hydratedItems
         cachedConversationItemProjections = nextCache
         cachedProjectedConversationItems = projectedItems
+        projectedRevision = revision
         return ProjectedConversationItemsResult(items: projectedItems, didChange: true)
     }
 
