@@ -162,13 +162,10 @@ struct ResolvedTheme {
     }
 
     static func hexToRGB(_ hex: String) -> (Double, Double, Double) {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: cleaned).scanHexInt64(&int)
-        let r = Double((int >> 16) & 0xFF) / 255
-        let g = Double((int >> 8) & 0xFF) / 255
-        let b = Double(int & 0xFF) / 255
-        return (r, g, b)
+        // Theme hex is CSS with alpha last; the dimming math uses the RGB
+        // channels only.
+        guard let rgba = LitterHexRGBA(hex) else { return (0, 0, 0) }
+        return (rgba.red, rgba.green, rgba.blue)
     }
 
     static func rgbToHex(_ r: Double, _ g: Double, _ b: Double) -> String {

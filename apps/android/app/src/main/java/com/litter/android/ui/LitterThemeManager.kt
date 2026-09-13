@@ -241,16 +241,24 @@ internal fun colorFromHex(
     fallback: Color = Color.Transparent,
 ): Color {
     val normalized = hex?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
-    // Theme JSON uses CSS/VS Code #RRGGBBAA, not Android #AARRGGBB.
-    // App theme tokens are solid colors, matching the Material3 generator.
-    val rgb = when {
-        Regex("#[0-9a-fA-F]{3}").matches(normalized) ->
-            normalized.drop(1).map { "$it$it" }.joinToString("")
-        Regex("#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?").matches(normalized) ->
-            normalized.substring(1, 7)
+    // Theme JSON uses CSS/VS Code hex with alpha last: #RGB, #RGBA,
+    // #RRGGBB, #RRGGBBAA. Android's Color(Long) is ARGB (alpha first),
+    // so an alpha byte must be moved to the front, not dropped.
+    var digits = normalized.removePrefix("#").lowercase().toList()
+    if (digits.size == 3 || digits.size == 4) {
+        digits = digits.flatMap { listOf(it, it) }
+    }
+    val value = when (digits.size) {
+        6, 8 -> digits.joinToString("").toLongOrNull(16) ?: return fallback
         else -> return fallback
     }
-    return Color(0xFF000000 or rgb.toLong(16))
+    return Color(
+        if (digits.size == 8) {
+            ((value and 0xFF) shl 24) or (value ushr 8)
+        } else {
+            0xFF000000L or value
+        },
+    )
 }
 
 object LitterThemeManager {

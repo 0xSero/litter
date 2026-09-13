@@ -48,12 +48,29 @@ final class WatchThemeStore: ObservableObject {
 
 extension Color {
     init(themeHex string: String) {
-        let cleaned = string.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var v: UInt64 = 0
-        Scanner(string: cleaned).scanHexInt64(&v)
-        let r = Double((v >> 16) & 0xFF) / 255
-        let g = Double((v >> 8)  & 0xFF) / 255
-        let b = Double(v         & 0xFF) / 255
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
+        // Theme hex is CSS with alpha last: #RGB/#RGBA/#RRGGBB/#RRGGBBAA.
+        // The watch target doesn't compile the app's LitterHexRGBA helper,
+        // so keep this parse in step with it.
+        var value = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("#") { value.removeFirst() }
+        var digits = Array(value.lowercased())
+        if digits.count == 3 || digits.count == 4 {
+            digits = digits.flatMap { [$0, $0] }
+        }
+        guard digits.count == 6 || digits.count == 8,
+              let v = UInt64(String(digits), radix: 16)
+        else {
+            self.init(.sRGB, red: 0, green: 0, blue: 0, opacity: 1)
+            return
+        }
+        let opacity = digits.count == 8 ? Double(v & 0xFF) / 255 : 1
+        let rgb = digits.count == 8 ? v >> 8 : v
+        self.init(
+            .sRGB,
+            red: Double((rgb >> 16) & 0xFF) / 255,
+            green: Double((rgb >> 8) & 0xFF) / 255,
+            blue: Double(rgb & 0xFF) / 255,
+            opacity: opacity
+        )
     }
 }
