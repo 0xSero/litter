@@ -53,7 +53,6 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 4] = ["low", "medium", "high", "ultra"];
-const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
 const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool); 4] = [
     (
         "fable",
