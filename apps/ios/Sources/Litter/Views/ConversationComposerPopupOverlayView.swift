@@ -28,30 +28,17 @@ struct ConversationComposerPopupOverlayView: View {
             suggestionPopup {
                 let indexedSuggestions = Array(suggestions.enumerated())
                 ForEach(indexedSuggestions, id: \.offset) { item in
-                    let index = item.offset
-                    let command = item.element
                     VStack(spacing: 0) {
-                        Button {
-                            onApplySlashSuggestion(command)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("/\(command.rawValue)")
-                                    .litterFont(.body)
-                                    .foregroundColor(LitterTheme.success)
-                                Text(command.description)
-                                    .litterFont(.body)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
+                        nameDescriptionRow(
+                            name: "/\(item.element.rawValue)",
+                            description: item.element.description
+                        ) {
+                            onApplySlashSuggestion(item.element)
                         }
-                        .buttonStyle(.plain)
 
                         Divider()
                             .background(LitterTheme.border)
-                            .opacity(index < suggestions.count - 1 ? 1 : 0)
+                            .opacity(item.offset < suggestions.count - 1 ? 1 : 0)
                     }
                 }
             }
@@ -154,35 +141,44 @@ struct ConversationComposerPopupOverlayView: View {
                 } else {
                     let indexedSuggestions = Array(Array(suggestions.prefix(8)).enumerated())
                     ForEach(indexedSuggestions, id: \.offset) { item in
-                        let index = item.offset
-                        let skill = item.element
                         VStack(spacing: 0) {
-                            Button {
-                                onApplySkillSuggestion(skill)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text("$\(skill.name)")
-                                        .litterFont(.footnote)
-                                        .foregroundColor(LitterTheme.success)
-                                    Text(skill.description)
-                                        .litterFont(.footnote)
-                                        .foregroundColor(LitterTheme.textSecondary)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
+                            nameDescriptionRow(
+                                name: "$\(item.element.name)",
+                                description: item.element.description
+                            ) {
+                                onApplySkillSuggestion(item.element)
                             }
-                            .buttonStyle(.plain)
 
                             Divider()
                                 .background(LitterTheme.border)
-                                .opacity(index < indexedSuggestions.count - 1 ? 1 : 0)
+                                .opacity(item.offset < indexedSuggestions.count - 1 ? 1 : 0)
                         }
                     }
                 }
             }
         }
+    }
+
+    private func nameDescriptionRow(
+        name: String,
+        description: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(name)
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.success)
+                Text(description)
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -218,8 +214,6 @@ struct ConversationComposerPopupOverlayView: View {
                 .stroke(LitterTheme.border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-        .padding(.bottom, 56)
+        .padding(.horizontal, 10)
     }
 }

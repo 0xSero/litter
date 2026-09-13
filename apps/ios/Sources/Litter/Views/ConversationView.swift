@@ -1529,7 +1529,7 @@ private struct ConversationInputBar: View {
                 composerSelectionRange: composerSelection.binding
             )
             .environment(\.skillMentionHighlightNames, recognizedSkillNames)
-            .overlay(alignment: .bottom) {
+            .overlay(alignment: .top) {
                 ConversationComposerPopupOverlayView(
                     state: popupState,
                     onApplySlashSuggestion: applySlashSuggestion,
@@ -1537,6 +1537,7 @@ private struct ConversationInputBar: View {
                     onApplySkillSuggestion: applySkillSuggestion,
                     onApplyPluginSuggestion: applyPluginSuggestion
                 )
+                .alignmentGuide(.top) { $0[.bottom] }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
