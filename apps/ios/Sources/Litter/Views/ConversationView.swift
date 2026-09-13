@@ -714,9 +714,6 @@ private struct ConversationMessageList: View {
                                 .turnDebugOverlay(turnId: turn.id)
                             }
 
-                            Color.clear
-                                .frame(height: 1)
-                                .id(Self.bottomAnchorID)
                         }
                         .scrollTargetLayout()
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
@@ -787,7 +784,6 @@ private struct ConversationMessageList: View {
                     isNearBottom = true
                     showScrollToBottomButton = false
                     waitingForDataExpired = false
-                    scrollPosition = ScrollPosition(idType: String.self)
                     visibleTurnIDs = []
                     requestedOlderTurnsCursor = nil
                     requestedOlderTurnsThreadKey = nil
