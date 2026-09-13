@@ -293,6 +293,7 @@ fun LitterApp(
                     HomeDashboardScreen(
                         onOpenConversation = navigateToConversation,
                         onShowDiscovery = { showDiscovery = true },
+                        discoveryVisible = showDiscovery,
                         onShowSettings = { showSettings = true },
                         onShowApps = { navigate(Route.Apps) },
                         onOpenProjectPicker = { showProjectPicker = true },

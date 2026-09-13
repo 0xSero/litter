@@ -664,7 +664,18 @@ fun DiscoveryScreen(
                             "os" to server.os,
                         ),
                     )
-                    e.message ?: "Unable to connect over SSH."
+                    // The probe session is the first trust-store check in the
+                    // guided flow, so a changed host key surfaces here first.
+                    // Route it to the shared confirm dialog instead of the raw
+                    // marker text.
+                    val message = e.message
+                    if (message != null && decodeSshHostKeyChallenge(message)?.isChanged == true) {
+                        appModel.recordSshHostKeyChange(server.id, message)
+                        sshServer = null
+                        null
+                    } else {
+                        message ?: "Unable to connect over SSH."
+                    }
                 }
             },
         )
@@ -730,7 +741,14 @@ fun DiscoveryScreen(
                             "host" to agentContext.host,
                         ),
                     )
-                    e.message ?: "Unable to connect SSH bridge agents."
+                    val message = e.message
+                    if (message != null && decodeSshHostKeyChallenge(message)?.isChanged == true) {
+                        appModel.recordSshHostKeyChange(agentContext.server.id, message)
+                        sshAgentContext = null
+                        null
+                    } else {
+                        message ?: "Unable to connect SSH bridge agents."
+                    }
                 }
             },
         )
