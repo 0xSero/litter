@@ -3106,6 +3106,38 @@ mod tests {
     }
 
     #[test]
+    fn amp_modes_retired_by_the_daemon_are_dropped_and_replaced_by_the_fallback() {
+        // A host still running the pre-alleycat#47 daemon advertises the
+        // retired smart/rush/deep modes; every one of them must be dropped
+        // by normalize_model_info_for_runtime and the fallback list appended
+        // in their place, so the picker never offers a mode the CLI rejects.
+        let mut models = vec!["smart", "rush", "deep"]
+            .into_iter()
+            .map(|mode| {
+                let mut model = test_model(mode, "amp".to_string());
+                model.is_default = mode == "smart";
+                model
+            })
+            .collect::<Vec<_>>();
+
+        models.retain_mut(|model| normalize_model_info_for_runtime(model, "amp".to_string()));
+        assert!(models.is_empty(), "retired modes must all be dropped");
+
+        append_missing_amp_mode_models(&mut models);
+
+        let amp_ids = models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(amp_ids, vec!["low", "medium", "high", "ultra"]);
+        assert_eq!(
+            models.iter().filter(|model| model.is_default).count(),
+            1,
+            "exactly one default (medium) after replacement"
+        );
+    }
+
+    #[test]
     fn amp_mode_fallback_preserves_advertised_modes() {
         let mut models = vec![test_model("medium", "amp".to_string())];
 

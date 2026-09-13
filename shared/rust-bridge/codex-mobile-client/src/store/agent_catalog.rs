@@ -203,8 +203,8 @@ pub const CATALOG: &[AgentCatalogEntry] = &[
         description: "Sourcegraph Amp. Runs on the paired host — pair with kittylitter to use it.",
         requirement: "pair with kittylitter on a host that has the `amp` CLI installed",
         aliases: &["ampcode", "amp-code", "amp_code", "amp code"],
-        locks_reasoning_effort_after_activity: true,
-        visible_modes: Some(&["smart", "rush", "deep"]),
+        locks_reasoning_effort_after_activity: false,
+        visible_modes: Some(&["low", "medium", "high", "ultra"]),
         uses_direct_codex_port: false,
         supports_thread_permission_overrides: false,
         reports_effective_thread_permissions: false,
@@ -583,7 +583,12 @@ mod tests {
         assert_eq!(
             amp.capabilities
                 .and_then(|capabilities| capabilities.visible_modes),
-            Some(vec!["smart".to_string(), "rush".to_string(), "deep".to_string()])
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "ultra".to_string(),
+            ])
         );
     }
 }

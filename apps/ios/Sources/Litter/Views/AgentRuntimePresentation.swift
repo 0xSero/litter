@@ -194,7 +194,7 @@ extension AgentRuntimeKind {
     }
 
     /// Allowlist of model "mode" names this agent advertises (e.g. Amp's
-    /// `smart` / `rush` / `deep`), from `capabilities.visible_modes`.
+    /// `low` / `medium` / `high` / `ultra`), from `capabilities.visible_modes`.
     /// `nil` when the agent does not use modes at all.
     var visibleModeNames: Set<String>? {
         AgentMetadataMemo.visibleModes(for: self)
