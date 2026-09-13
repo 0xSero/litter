@@ -27,6 +27,7 @@ mod connect;
 mod detect;
 mod exec;
 mod forwarding;
+mod host_key;
 mod keychain;
 mod port_forward;
 mod probes;
@@ -54,6 +55,8 @@ pub(crate) use crate::shell_quoting::posix_quote as shell_quote;
 pub(crate) use crate::ssh_scripts::posix::{PACKAGE_MANAGER_PROBE, PROFILE_INIT};
 pub(crate) use codex_binary::RemoteCodexBinary;
 pub(crate) use exec::build_posix_exec_command;
+pub(crate) use host_key::ssh_host_key_is_trusted;
+pub use host_key::{SshHostKeyChallenge, decode_ssh_host_key_challenge};
 pub use types::{
     ExecResult, SshAuth, SshBootstrapResult, SshCredentials, SshError, SshExecChild, SshExecIo,
     SshExecStderr, SshExecStdin, SshExecStdout,
@@ -124,9 +127,10 @@ pub(super) fn normalize_host(host: &str) -> String {
     let mut h = host.trim().trim_matches('[').trim_matches(']').to_string();
     h = h.replace("%25", "%");
     if !h.contains(':')
-        && let Some(idx) = h.find('%') {
-            h.truncate(idx);
-        }
+        && let Some(idx) = h.find('%')
+    {
+        h.truncate(idx);
+    }
     h
 }
 

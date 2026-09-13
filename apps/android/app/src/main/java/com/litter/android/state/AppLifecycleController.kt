@@ -52,8 +52,10 @@ class AppLifecycleController {
         // running reconnect — alleycat can recover via path migration.
         appModel.reconnectController.notifyNetworkChange()
         val results = appModel.reconnectController.reconnectSavedServers()
+        results.forEach { appModel.recordSshHostKeyChange(it.serverId, it.errorMessage) }
         restoreLocalStateAfterReconnect(appModel, results)
         val retryResults = appModel.reconnectController.reconnectSavedServers()
+        retryResults.forEach { appModel.recordSshHostKeyChange(it.serverId, it.errorMessage) }
         restoreLocalStateAfterReconnect(appModel, retryResults)
         appModel.refreshSnapshot()
         // If reconnecting saved alleycat servers triggered the iroh
@@ -69,8 +71,15 @@ class AppLifecycleController {
         appModel.reconnectController.setMultiClankerAndQuicEnabled(true)
         appModel.reconnectController.syncSavedServers(servers)
         val result = appModel.reconnectController.reconnectServer(serverId)
+        appModel.recordSshHostKeyChange(serverId, result.errorMessage)
         restoreLocalStateAfterReconnect(appModel, listOf(result))
         appModel.refreshSnapshot()
+    }
+
+    suspend fun replaceSshHostKey(appModel: AppModel, serverId: String, fingerprint: String) {
+        if (!appModel.reconnectController.replaceSshHostKey(serverId, fingerprint)) return
+        appModel.clearSshHostKeyChange()
+        reconnectServer(appModel.appContext, appModel, serverId)
     }
 
     /**

@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.decodeSshHostKeyChallenge
 import uniffi.codex_mobile_client.AppStore
 import uniffi.codex_mobile_client.TerminalBackendKind
 import uniffi.codex_mobile_client.TerminalOutputListener
@@ -30,6 +31,7 @@ class TerminalSessionController(
         val port: UShort,
         val fingerprint: String,
         val backend: TerminalBackendKind,
+        val isChanged: Boolean,
     )
 
     var phase by mutableStateOf(Phase.IDLE)
@@ -143,6 +145,12 @@ class TerminalSessionController(
         open(challenge.backend)
     }
 
+    fun dismissSshTrustChallenge() {
+        sshTrustChallenge = null
+        errorMessage = null
+        phase = Phase.IDLE
+    }
+
     fun switchBackend(backend: TerminalBackendKind) {
         close()
         output = ""
@@ -184,24 +192,14 @@ class TerminalSessionController(
         backend: TerminalBackendKind,
     ): SshHostTrustChallenge? {
         val sshBackend = backend as? TerminalBackendKind.RemoteSsh ?: return null
-        val fingerprint = unknownHostFingerprint(error.message.orEmpty()) ?: return null
+        val challenge = decodeSshHostKeyChallenge(error.message.orEmpty()) ?: return null
         return SshHostTrustChallenge(
             host = sshBackend.host,
             port = sshBackend.port,
-            fingerprint = fingerprint,
+            fingerprint = challenge.fingerprint,
             backend = backend,
+            isChanged = challenge.isChanged,
         )
-    }
-
-    private fun unknownHostFingerprint(message: String): String? {
-        val marker = "unknown-host:"
-        val start = message.indexOf(marker)
-        if (start < 0) return null
-        return message
-            .substring(start + marker.length)
-            .trim()
-            .trim('"', '\'', '(', ')', '[', ']')
-            .takeIf { it.isNotEmpty() }
     }
 
     fun resize(cols: Int, rows: Int, notifyBackend: Boolean = true) {

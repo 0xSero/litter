@@ -17,6 +17,7 @@ final class TerminalSessionController {
         let port: UInt16
         let fingerprint: String
         let backend: TerminalBackendKind
+        let isChanged: Bool
     }
 
     private(set) var phase: Phase = .idle
@@ -96,8 +97,7 @@ final class TerminalSessionController {
         return false
     }
 
-    func trustUnknownSshHostAndRetry() async {
-        guard let challenge = sshTrustChallenge else { return }
+    func trustUnknownSshHostAndRetry(_ challenge: SshHostTrustChallenge) async {
         SwiftSshTrustBackend.shared.write(
             host: challenge.host,
             port: challenge.port,
@@ -106,6 +106,11 @@ final class TerminalSessionController {
         sshTrustChallenge = nil
         phase = .idle
         await open(backend: challenge.backend)
+    }
+
+    func dismissSshTrustChallenge() {
+        sshTrustChallenge = nil
+        phase = .idle
     }
 
     func switchBackend(_ backend: TerminalBackendKind) async {
@@ -156,24 +161,16 @@ final class TerminalSessionController {
         ) = backend else {
             return nil
         }
-        guard let fingerprint = unknownHostFingerprint(from: error.localizedDescription) else {
+        guard let challenge = decodeSshHostKeyChallenge(message: error.localizedDescription) else {
             return nil
         }
         return SshHostTrustChallenge(
             host: host,
             port: port,
-            fingerprint: fingerprint,
-            backend: backend
+            fingerprint: challenge.fingerprint,
+            backend: backend,
+            isChanged: challenge.isChanged
         )
-    }
-
-    private static func unknownHostFingerprint(from description: String) -> String? {
-        guard let range = description.range(of: "unknown-host:") else { return nil }
-        let raw = description[range.upperBound...]
-        let fingerprint = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'()[]"))
-        return fingerprint.isEmpty ? nil : fingerprint
     }
 
     func resize(cols: UInt16, rows: UInt16, notifyBackend: Bool = true) async {

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -87,6 +88,26 @@ fun TerminalScreen(
     val controller = remember { TerminalSessionController(scope) }
     val prootState by AndroidProotBootstrap.state.collectAsState()
     val rendererStatus = remember { GhosttyRendererBridge.status() }
+
+    controller.sshTrustChallenge?.takeIf { it.isChanged }?.let { challenge ->
+        AlertDialog(
+            onDismissRequest = controller::dismissSshTrustChallenge,
+            title = { Text("SSH Host Identity Changed") },
+            text = {
+                Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: ${challenge.fingerprint}")
+            },
+            confirmButton = {
+                TextButton(onClick = controller::trustUnknownSshHostAndRetry) {
+                    Text("Replace Stored Identity")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = controller::dismissSshTrustChallenge) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
     var nativeRendererAvailable by remember {
         mutableStateOf(rendererStatus.canCreateAndroidSurface)
     }

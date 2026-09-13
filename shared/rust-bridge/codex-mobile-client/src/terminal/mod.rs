@@ -40,3 +40,4 @@ pub use session::{
 };
 pub use ssh::TerminalSshAuth;
 pub use ssh_known_hosts::{TerminalSshTrustBackend, TerminalSshTrustStore};
+pub(crate) use ssh_known_hosts::normalize_host;

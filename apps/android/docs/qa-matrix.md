@@ -34,6 +34,7 @@ Current automated checks:
 | Connect local/on-device | Success (`ServerConfig.local`) |
 | Connect remote server | Success |
 | Manual or saved SSH server | Prompts for SSH credentials, connects through SSH port forwarding, and never attempts `ws://host:22` directly |
+| SSH changed identity (saved server and terminal) | Both platforms decode the shared Rust challenge. Verify hostname and IPv6 targets: Cancel preserves the old pin; Replace stores only SHA256 fingerprint and retries successfully. Device acceptance pending. |
 | Local transport drop | Reconnect and one-time reinitialize before the next non-initialize RPC |
 | Remote transport drop | Reconnect behavior via Rust `AppStore` updates and resumed RPC notifications |
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when Linux sandboxing is unavailable |

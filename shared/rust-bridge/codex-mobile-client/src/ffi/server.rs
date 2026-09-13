@@ -84,6 +84,10 @@ impl ServerBridge {
         }
     }
 
+    pub fn set_ssh_trust_store(&self, store: Arc<crate::terminal::TerminalSshTrustStore>) {
+        self.inner.set_ssh_trust_store(store);
+    }
+
     pub async fn connect_local_server(
         &self,
         server_id: String,

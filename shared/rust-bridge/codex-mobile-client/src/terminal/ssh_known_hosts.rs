@@ -13,8 +13,9 @@
 //!
 //! When the callback rejects, we map the resulting
 //! [`crate::ssh::SshError::HostKeyVerification`] to a typed
-//! [`crate::terminal::session::TerminalError::Backend`] detail string the
-//! platform UI can parse:
+//! [`crate::terminal::session::TerminalError::Backend`] detail string. Native
+//! UI decodes it through [`crate::ssh::decode_ssh_host_key_challenge`] to a
+//! typed challenge; it must not interpret or persist the raw detail:
 //!
 //! - `host-key-changed:<host>:<new_fingerprint>` — pin exists but differs.
 //!   Platforms surface this as a refused connect with a fingerprint diff.

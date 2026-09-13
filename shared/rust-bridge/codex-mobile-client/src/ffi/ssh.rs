@@ -109,12 +109,53 @@ impl SshBridge {
         let rt = Arc::clone(&self.rt);
         let session = tokio::task::spawn_blocking(move || {
             rt.block_on(async move {
-                SshClient::connect(
+                let normalized_host_for_pin = normalize_ssh_host(&credentials.host);
+                let trust_store = shared_mobile_client()
+                    .ssh_trust_store
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.clone());
+                let pinned_fingerprint = trust_store.as_ref().and_then(|store| {
+                    store.pinned(normalized_host_for_pin.clone(), port)
+                });
+                let policy_pin = pinned_fingerprint.clone();
+                let observed_fingerprint = Arc::new(tokio::sync::Mutex::new(None::<String>));
+                let callback_observed = Arc::clone(&observed_fingerprint);
+                let client = SshClient::connect(
                     credentials,
-                    Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host })),
+                    Box::new(move |fingerprint| {
+                        let expected = policy_pin.clone();
+                        let observed = Arc::clone(&callback_observed);
+                        let fingerprint = fingerprint.to_string();
+                        Box::pin(async move {
+                            *observed.lock().await = Some(fingerprint.clone());
+                            match expected {
+                                Some(expected) => expected == fingerprint,
+                                None => accept_unknown_host,
+                            }
+                        })
+                    }),
                 )
                 .await
-                .map_err(map_ssh_error)
+                .map_err(|error| match error {
+                    SshError::HostKeyVerification { fingerprint } => {
+                        let marker = if pinned_fingerprint.is_some() {
+                            "host-key-changed"
+                        } else {
+                            "unknown-host"
+                        };
+                        ClientError::Transport(format!("{marker}:{fingerprint}"))
+                    }
+                    other => map_ssh_error(other),
+                })?;
+                if let (Some(store), None, true) = (
+                    trust_store.as_ref(),
+                    pinned_fingerprint.as_ref(),
+                    accept_unknown_host,
+                ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+                    store.pin(normalized_host_for_pin, port, fingerprint);
+                }
+                Ok::<_, ClientError>(client)
             })
         })
         .await
@@ -228,14 +269,53 @@ impl SshBridge {
             auth,
             unlock_macos_keychain,
         };
+        let trust_store = shared_mobile_client()
+            .ssh_trust_store
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        let pinned_fingerprint = trust_store
+            .as_ref()
+            .and_then(|store| store.pinned(normalized_host.clone(), port));
+        let policy_pin = pinned_fingerprint.clone();
+        let observed_fingerprint = Arc::new(tokio::sync::Mutex::new(None::<String>));
+        let callback_observed = Arc::clone(&observed_fingerprint);
         let session = Arc::new(
             SshClient::connect(
                 credentials,
-                Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host })),
+                Box::new(move |fingerprint| {
+                    let expected = policy_pin.clone();
+                    let observed = Arc::clone(&callback_observed);
+                    let fingerprint = fingerprint.to_string();
+                    Box::pin(async move {
+                        *observed.lock().await = Some(fingerprint.clone());
+                        match expected {
+                            Some(expected) => expected == fingerprint,
+                            None => accept_unknown_host,
+                        }
+                    })
+                }),
             )
             .await
-            .map_err(map_ssh_error)?,
+            .map_err(|error| match error {
+                SshError::HostKeyVerification { fingerprint } => {
+                    let marker = if pinned_fingerprint.is_some() {
+                        "host-key-changed"
+                    } else {
+                        "unknown-host"
+                    };
+                    ClientError::Transport(format!("{marker}:{fingerprint}"))
+                }
+                other => map_ssh_error(other),
+            })?,
         );
+        if let (Some(store), None, true) = (
+            trust_store.as_ref(),
+            pinned_fingerprint.as_ref(),
+            accept_unknown_host,
+        ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+            store.pin(normalized_host.clone(), port, fingerprint);
+        }
         let shell = session.detect_remote_shell().await;
         let wake_mac = self.ssh_read_wake_mac(Arc::clone(&session)).await;
         let session_id = format!(
@@ -425,14 +505,54 @@ pub(crate) async fn run_guided_ssh_connect(
         credentials.port,
         working_dir.as_deref().unwrap_or("<none>")
     );
+    let normalized_host = crate::terminal::normalize_host(&credentials.host);
+    let trust_store = mobile_client
+        .ssh_trust_store
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+    let pinned_fingerprint = trust_store
+        .as_ref()
+        .and_then(|store| store.pinned(normalized_host.clone(), credentials.port));
+    let policy_pin = pinned_fingerprint.clone();
+    let observed_fingerprint = Arc::new(tokio::sync::Mutex::new(None::<String>));
+    let callback_observed = Arc::clone(&observed_fingerprint);
     let ssh_client = Arc::new(
         SshClient::connect(
             credentials.clone(),
-            Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host })),
+            Box::new(move |fingerprint| {
+                let expected = policy_pin.clone();
+                let observed = Arc::clone(&callback_observed);
+                let fingerprint = fingerprint.to_string();
+                Box::pin(async move {
+                    *observed.lock().await = Some(fingerprint.clone());
+                    match expected {
+                        Some(expected) => expected == fingerprint,
+                        None => accept_unknown_host,
+                    }
+                })
+            }),
         )
         .await
-        .map_err(map_ssh_error)?,
+        .map_err(|error| match error {
+            SshError::HostKeyVerification { fingerprint } => {
+                let marker = if pinned_fingerprint.is_some() {
+                    "host-key-changed"
+                } else {
+                    "unknown-host"
+                };
+                ClientError::Transport(format!("{marker}:{fingerprint}"))
+            }
+            other => map_ssh_error(other),
+        })?,
     );
+    if let (Some(store), None, true) = (
+        trust_store.as_ref(),
+        pinned_fingerprint.as_ref(),
+        accept_unknown_host,
+    ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+        store.pin(normalized_host.clone(), credentials.port, fingerprint);
+    }
     info!(
         "guided ssh connect connected to ssh server_id={} host={} ssh_port={}",
         server_id,

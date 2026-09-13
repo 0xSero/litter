@@ -295,6 +295,7 @@ struct SavedServer: Codable, Identifiable, Equatable {
             sshPortForwardingEnabled: sshPortForwardingEnabled,
             websocketUrl: websocketURL,
             rememberedByUser: rememberedByUser,
+            detachedTransport: false,
             alleycatHost: alleycatHost,
             alleycatUdpPort: alleycatUdpPort,
             alleycatNodeId: alleycatNodeId,

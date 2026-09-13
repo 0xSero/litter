@@ -154,6 +154,26 @@ fun HomeDashboardScreen(
     val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
     val lifecycleController = remember { AppLifecycleController() }
 
+    appModel.sshHostKeyChangeChallenge?.let { challenge ->
+        AlertDialog(
+            onDismissRequest = appModel::clearSshHostKeyChange,
+            title = { Text("SSH Host Identity Changed") },
+            text = {
+                Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: ${challenge.fingerprint}")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        lifecycleController.replaceSshHostKey(appModel, challenge.serverId, challenge.fingerprint)
+                    }
+                }) { Text("Replace Stored Identity") }
+            },
+            dismissButton = {
+                TextButton(onClick = appModel::clearSshHostKeyChange) { Text("Cancel") }
+            },
+        )
+    }
+
     var showTipJar by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var renameText by remember { mutableStateOf("") }

@@ -53,6 +53,20 @@ struct TerminalScreen: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom, .horizontal])
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .toolbar(.hidden, for: .navigationBar)
+        .alert("SSH Host Identity Changed", isPresented: Binding(
+            get: { controller.sshTrustChallenge?.isChanged == true },
+            set: { if !$0 { controller.dismissSshTrustChallenge() } }
+        )) {
+            Button("Replace Stored Identity", role: .destructive) {
+                guard let challenge = controller.sshTrustChallenge else { return }
+                Task { await controller.trustUnknownSshHostAndRetry(challenge) }
+            }
+            Button("Cancel", role: .cancel) {
+                controller.dismissSshTrustChallenge()
+            }
+        } message: {
+            Text("The SSH identity for this server changed. This can happen after a server is recreated, but may also indicate a man-in-the-middle attack. New fingerprint: \(controller.sshTrustChallenge?.fingerprint ?? "unknown")")
+        }
         .task {
             attachOutputSink()
             // Reconcile the backend chooser when the connected-server list
@@ -310,7 +324,7 @@ struct TerminalScreen: View {
                                 .textSelection(.enabled)
                             if let challenge = controller.sshTrustChallenge {
                                 Button {
-                                    Task { await controller.trustUnknownSshHostAndRetry() }
+                                    Task { await controller.trustUnknownSshHostAndRetry(challenge) }
                                 } label: {
                                     Label("Trust \(challenge.fingerprint)", systemImage: "key.fill")
                                         .font(.custom("SFMono-Regular", size: 12))

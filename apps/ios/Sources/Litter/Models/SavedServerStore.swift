@@ -124,6 +124,7 @@ enum SavedServerStore {
                     sshPortForwardingEnabled: nil,
                     websocketUrl: nil,
                     rememberedByUser: true,
+                    detachedTransport: false,
                     alleycatHost: nil,
                     alleycatUdpPort: nil,
                     alleycatNodeId: nil,

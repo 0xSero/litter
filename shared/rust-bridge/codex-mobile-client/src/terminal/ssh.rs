@@ -92,10 +92,11 @@ pub(crate) async fn open(
             let observed = Arc::clone(&cb_observed);
             Box::pin(async move {
                 *observed.lock().await = Some(fingerprint.clone());
-                match pin {
-                    Some(expected) => expected == fingerprint,
-                    None => accept_unknown_host,
-                }
+                crate::ssh::ssh_host_key_is_trusted(
+                    pin.as_deref(),
+                    &fingerprint,
+                    accept_unknown_host,
+                )
             })
         }),
     )
@@ -108,9 +109,10 @@ pub(crate) async fn open(
     // the russh handshake so future connects can detect a host-key change.
     if let (Some(store), None) = (trust_store.as_ref(), &pinned_fingerprint)
         && accept_unknown_host
-        && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
-            store.pin(normalized.clone(), port, fingerprint);
-        }
+        && let Some(fingerprint) = observed_fingerprint.lock().await.clone()
+    {
+        store.pin(normalized.clone(), port, fingerprint);
+    }
 
     let shell_override = shell.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let cwd_arg = cwd.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -285,6 +287,62 @@ mod tests {
     use super::*;
     use crate::terminal::session::{TerminalBackendKind, TerminalOutputListener, TerminalSession};
     use std::sync::Mutex as StdMutex;
+
+    #[test]
+    fn changed_terminal_identity_can_be_replaced_and_matches_next_handshake() {
+        use crate::ssh::{decode_ssh_host_key_challenge, ssh_host_key_is_trusted};
+        use crate::terminal::TerminalSshTrustBackend;
+        use std::collections::HashMap;
+
+        #[derive(Default)]
+        struct Backend(StdMutex<HashMap<(String, u16), String>>);
+        impl TerminalSshTrustBackend for Backend {
+            fn read(&self, host: String, port: u16) -> Option<String> {
+                self.0.lock().unwrap().get(&(host, port)).cloned()
+            }
+            fn write(&self, host: String, port: u16, fingerprint: String) {
+                self.0.lock().unwrap().insert((host, port), fingerprint);
+            }
+            fn remove(&self, host: String, port: u16) {
+                self.0.lock().unwrap().remove(&(host, port));
+            }
+        }
+
+        let fingerprint = format!("SHA256:{}", "a".repeat(43));
+        for host in ["example.com", "[2001:db8::1]", "[fe80::1%en0]"] {
+            let store = TerminalSshTrustStore::new(Box::new(Backend::default()));
+            store.pin(host.into(), 2222, "SHA256:old".into());
+            assert!(!ssh_host_key_is_trusted(
+                store.lookup(host, 2222).as_deref(),
+                &fingerprint,
+                true
+            ));
+            let error = map_ssh_error(
+                SshError::HostKeyVerification {
+                    fingerprint: fingerprint.clone(),
+                },
+                host,
+                store.lookup(host, 2222).as_deref(),
+            );
+            for message in [error.to_string(), format!("{error:?}")] {
+                let challenge = decode_ssh_host_key_challenge(message).expect("typed challenge");
+                assert!(challenge.is_changed);
+                assert_eq!(challenge.fingerprint, fingerprint);
+                // This is the store and comparison used by the reconnect handshake.
+                store.pin(host.into(), 2222, challenge.fingerprint);
+                assert!(ssh_host_key_is_trusted(
+                    store.lookup(host, 2222).as_deref(),
+                    &fingerprint,
+                    false
+                ));
+                assert!(!ssh_host_key_is_trusted(
+                    store.lookup(host, 2222).as_deref(),
+                    "SHA256:another",
+                    true
+                ));
+            }
+        }
+    }
 
     fn parse_live_target() -> Option<(String, u16, String, TerminalSshAuth)> {
         let raw = match std::env::var("LITTER_TERMINAL_LIVE_SSH") {
