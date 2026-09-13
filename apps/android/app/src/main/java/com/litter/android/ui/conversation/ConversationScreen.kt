@@ -778,25 +778,17 @@ fun ConversationScreen(
                     }
 
                     // Composer bar
-                    ComposerBar(
-                        threadKey = threadKey,
-                        collaborationMode = thread?.collaborationMode ?: uniffi.codex_mobile_client.AppModeKind.DEFAULT,
-                        activePlanProgress = thread?.activePlanProgress,
-                        activeTurnId = thread?.activeTurnId,
-                        contextPercent = thread?.composerContextPercent(),
-                        isThinking = isThinking,
-                        activeTaskSummary = activeTaskSummary,
-                        queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
-                        goal = thread?.goal,
-                        rateLimits = thread?.agentRuntimeKind?.let { runtimeKind ->
-                            server?.rateLimitsByRuntime?.firstOrNull { it.runtimeKind == runtimeKind }?.rateLimits
-                        },
-                        showCollaborationModeChip = pinnedContext?.diffSummary == null,
-                        onOpenCollaborationModePicker = { showCollaborationModeSelector = true },
-                        onToggleModelSelector = { showModelSelector = !showModelSelector },
-                        onNavigateToSessions = onNavigateToSessions,
-                        onShowDirectoryPicker = onShowDirectoryPicker,
-                        onShowRenameDialog = { initialName ->
+                    // Stable callbacks: freshly-allocated inline lambdas here
+                    // re-allocate on every recomposition (snapshot emissions are
+                    // frequent while streaming), disabling ComposerBar's
+                    // argument-level skipping. remember()ed captures keep
+                    // identity stable across unrelated recompositions.
+                    val onOpenCollaborationModePicker = remember { { showCollaborationModeSelector = true } }
+                    val onToggleModelSelector = remember { { showModelSelector = !showModelSelector } }
+                    val onShowDirectoryPickerStable = remember { onShowDirectoryPicker }
+                    val onNavigateToSessionsStable = remember { onNavigateToSessions }
+                    val onShowRenameDialog: (String?) -> Unit = remember(scope, appModel, threadKey, thread?.info?.title) {
+                        { initialName: String? ->
                             val trimmed = initialName?.trim().orEmpty()
                             if (trimmed.isNotEmpty()) {
                                 scope.launch {
@@ -817,15 +809,40 @@ fun ConversationScreen(
                                 renameDraft = thread?.info?.title?.takeIf { it.isNotBlank() }.orEmpty()
                                 showRenameDialog = true
                             }
+                        }
+                    }
+                    val onShowPermissionsSheet = remember { { showPermissionsSheet = true } }
+                    val onShowExperimentalSheet = remember { { showExperimentalSheet = true } }
+                    val onShowSkillsSheet = remember { { showSkillsSheet = true } }
+                    val onSlashError = remember { { message: String -> slashErrorMessage = message } }
+                    val onDismissPendingUserInput: () -> Unit = remember(pendingInput) {
+                        { pendingInput?.let { dismissedUserInputs.dismiss(it.id) }; Unit }
+                    }
+                    ComposerBar(
+                        threadKey = threadKey,
+                        collaborationMode = thread?.collaborationMode ?: uniffi.codex_mobile_client.AppModeKind.DEFAULT,
+                        activePlanProgress = thread?.activePlanProgress,
+                        onOpenCollaborationModePicker = onOpenCollaborationModePicker,
+                        onToggleModelSelector = onToggleModelSelector,
+                        onNavigateToSessions = onNavigateToSessionsStable,
+                        onShowDirectoryPicker = onShowDirectoryPickerStable,
+                        activeTurnId = thread?.activeTurnId,
+                        contextPercent = thread?.composerContextPercent(),
+                        isThinking = isThinking,
+                        activeTaskSummary = activeTaskSummary,
+                        queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
+                        goal = thread?.goal,
+                        rateLimits = thread?.agentRuntimeKind?.let { runtimeKind ->
+                            server?.rateLimitsByRuntime?.firstOrNull { it.runtimeKind == runtimeKind }?.rateLimits
                         },
-                        onShowPermissionsSheet = { showPermissionsSheet = true },
-                        onShowExperimentalSheet = { showExperimentalSheet = true },
-                        onShowSkillsSheet = { showSkillsSheet = true },
-                        onSlashError = { slashErrorMessage = it },
+                        showCollaborationModeChip = pinnedContext?.diffSummary == null,
+                        onShowRenameDialog = onShowRenameDialog,
+                        onShowPermissionsSheet = onShowPermissionsSheet,
+                        onShowExperimentalSheet = onShowExperimentalSheet,
+                        onShowSkillsSheet = onShowSkillsSheet,
+                        onSlashError = onSlashError,
                         pendingUserInput = pendingInput,
-                        onDismissPendingUserInput = {
-                            pendingInput?.let { dismissedUserInputs.dismiss(it.id) }
-                        },
+                        onDismissPendingUserInput = onDismissPendingUserInput,
                     )
 
                     Spacer(Modifier.navigationBarsPadding())
