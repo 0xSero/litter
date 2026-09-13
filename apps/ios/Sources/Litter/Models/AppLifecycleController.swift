@@ -102,6 +102,12 @@ final class AppLifecycleController {
     }
 
     func replaceSshHostKey(serverId: String, fingerprint: String, appModel: AppModel) async {
+        // The Rust-side saved-servers list only refreshes on reconnect syncs;
+        // a server added via guided connect this session isn't in it yet.
+        let servers = SavedServerStore.reconnectRecords(
+            localDisplayName: appModel.resolvedLocalServerDisplayName()
+        )
+        appModel.reconnectController.syncSavedServers(servers: servers)
         guard await appModel.reconnectController.replaceSshHostKey(
             serverId: serverId,
             fingerprint: fingerprint

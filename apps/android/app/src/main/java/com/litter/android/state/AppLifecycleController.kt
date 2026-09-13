@@ -77,6 +77,10 @@ class AppLifecycleController {
     }
 
     suspend fun replaceSshHostKey(appModel: AppModel, serverId: String, fingerprint: String) {
+        // The Rust-side saved-servers list only refreshes on reconnect syncs;
+        // a server added via guided connect this session isn't in it yet.
+        val servers = SavedServerStore.load(appModel.appContext).map { it.toRecord(appModel.appContext) }
+        appModel.reconnectController.syncSavedServers(servers)
         if (!appModel.reconnectController.replaceSshHostKey(serverId, fingerprint)) return
         appModel.clearSshHostKeyChange()
         reconnectServer(appModel.appContext, appModel, serverId)
