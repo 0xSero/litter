@@ -1746,13 +1746,20 @@ impl MobileClient {
         }
         // Cache metadata so platforms can render labels/icons/capability
         // flags from anywhere in the app, not just at probe time.
-        self.agent_metadata
-            .upsert_all(agents.iter().map(|agent| crate::store::AppAgentMetadata {
-                name: agent.name.clone(),
-                display_name: agent.display_name.clone(),
-                presentation: agent.presentation.clone().map(Into::into),
-                capabilities: agent.capabilities.clone().map(Into::into),
-            }));
+        // Reconciled against the built-in catalog first so a host can't
+        // erase what litter already knows, and so `supports_ssh_bridge`
+        // keeps meaning "litter can launch this over SSH" rather than
+        // "the alleycat host could".
+        self.agent_metadata.upsert_all(agents.iter().map(|agent| {
+            crate::store::agent_catalog::reconcile_probe_metadata(
+                crate::store::AppAgentMetadata {
+                    name: agent.name.clone(),
+                    display_name: agent.display_name.clone(),
+                    presentation: agent.presentation.clone().map(Into::into),
+                    capabilities: agent.capabilities.clone().map(Into::into),
+                },
+            )
+        }));
         Ok(agents)
     }
 
