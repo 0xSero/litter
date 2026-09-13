@@ -541,11 +541,10 @@ pub(crate) async fn execute_reconnect_plan(
             .await
             {
                 Ok(client) => {
-                    if let (Some(store), None, true) = (
-                        trust_store.as_ref(),
-                        pinned_fingerprint.as_ref(),
-                        true,
-                    ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+                    if let Some(store) = trust_store.as_ref()
+                        && pinned_fingerprint.as_ref().is_none()
+                        && let Some(fingerprint) = observed_fingerprint.lock().await.clone()
+                    {
                         store.pin(normalized_host, *ssh_port, fingerprint);
                     }
                     Arc::new(client)
