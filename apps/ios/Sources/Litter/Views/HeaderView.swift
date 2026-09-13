@@ -508,7 +508,7 @@ private func defaultReasoningEffortSelection(for model: ModelInfo) -> String {
 }
 
 /// Allowlist of model "mode" names the runtime advertises (e.g. Amp's
-/// `smart` / `rush` / `deep`). Pulled from `capabilities.visible_modes`
+/// `low` / `medium` / `high` / `ultra`). Pulled from `capabilities.visible_modes`
 /// in the alleycat manifest so the rule is per-agent, not Amp-hardcoded.
 /// Memoized per run-loop turn by `AgentMetadataMemo` — this is called
 /// once per model per filtering pass.
@@ -686,9 +686,8 @@ private struct ModelSelectorDerivation {
 /// agent-directory fingerprint. `models` is passed straight through from
 /// the server snapshot, so repeated body passes hand over the same
 /// `Array` buffer and the equality check short-circuits in O(1). The
-/// fingerprint dependency is what keeps this honest: `isVisibleModelOption`
-/// and the bucket ordering both read agent metadata, so a probe response
-/// must rebuild the derivation.
+/// fingerprint dependency tracks bucket ordering, which reads agent
+/// metadata, so a probe response must rebuild the derivation.
 @MainActor
 private final class ModelSelectorDerivationCache {
     private var cachedModels: [ModelInfo] = []
