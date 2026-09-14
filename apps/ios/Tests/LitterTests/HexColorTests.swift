@@ -5,7 +5,7 @@ import XCTest
 
 final class HexColorTests: XCTestCase {
     func testAlphaLastCssHexPreservesAlpha() throws {
-        let rgba = try XCTUnwrap(LitterHexRGBA("#45858880"))
+        let rgba = try XCTUnwrap(litterHexRGBA("#45858880"))
         XCTAssertEqual(rgba.red, 0x45 / 255, accuracy: 0.0001)
         XCTAssertEqual(rgba.green, 0x85 / 255, accuracy: 0.0001)
         XCTAssertEqual(rgba.blue, 0x88 / 255, accuracy: 0.0001)
@@ -13,31 +13,49 @@ final class HexColorTests: XCTestCase {
     }
 
     func testOpaqueAndShorthandForms() throws {
-        let opaque = try XCTUnwrap(LitterHexRGBA("#458588"))
+        let opaque = try XCTUnwrap(litterHexRGBA("#458588"))
         XCTAssertEqual(opaque.alpha, 1, accuracy: 0.0001)
         XCTAssertEqual(opaque.red, 0x45 / 255, accuracy: 0.0001)
 
         // #RGB and #RGBA shorthand expand each nibble.
-        let rgb = try XCTUnwrap(LitterHexRGBA("#f0a"))
+        let rgb = try XCTUnwrap(litterHexRGBA("#f0a"))
         XCTAssertEqual(rgb.red, 0xFF / 255, accuracy: 0.0001)
         XCTAssertEqual(rgb.green, 0x00 / 255, accuracy: 0.0001)
         XCTAssertEqual(rgb.blue, 0xAA / 255, accuracy: 0.0001)
-        let rgba = try XCTUnwrap(LitterHexRGBA("#f0a5"))
+        let rgba = try XCTUnwrap(litterHexRGBA("#f0a5"))
         XCTAssertEqual(rgba.blue, 0xAA / 255, accuracy: 0.0001)
         XCTAssertEqual(rgba.alpha, 0x55 / 255, accuracy: 0.0001)
     }
 
     func testUppercaseAndPaddedInput() throws {
-        let rgba = try XCTUnwrap(LitterHexRGBA(" #4585AA80 "))
+        let rgba = try XCTUnwrap(litterHexRGBA(" #4585AA80 "))
         XCTAssertEqual(rgba.blue, 0xAA / 255, accuracy: 0.0001)
         XCTAssertEqual(rgba.alpha, 0x80 / 255, accuracy: 0.0001)
     }
 
     func testInvalidInputReturnsNil() {
-        XCTAssertNil(LitterHexRGBA("#invalid"))
-        XCTAssertNil(LitterHexRGBA("#1234567"))
-        XCTAssertNil(LitterHexRGBA(""))
-        XCTAssertNil(LitterHexRGBA("#zzzzzz"))
+        XCTAssertNil(litterHexRGBA("#invalid"))
+        XCTAssertNil(litterHexRGBA("#1234567"))
+        XCTAssertNil(litterHexRGBA(""))
+        XCTAssertNil(litterHexRGBA("#zzzzzz"))
+        // A leading sign is not a hex digit and must not parse.
+        XCTAssertNil(litterHexRGBA("#-12345"))
+        XCTAssertNil(litterHexRGBA("#+12345"))
+    }
+
+    func testThemeDecodeStripsAlphaFromTokens() throws {
+        // Theme tokens must stay opaque so they match Android's
+        // tokenColorFromHex and the generated Material schemes.
+        let json = """
+        {"name":"T","type":"dark","colors":{
+          "button.background":"#45858880",
+          "editorGroup.border":"#0000",
+          "editor.background":"#111111"
+        }}
+        """
+        let theme = try JSONDecoder().decode(ThemeDefinition.self, from: Data(json.utf8))
+        XCTAssertEqual(theme.colors["button.background"], "#458588")
+        XCTAssertEqual(theme.colors["editorGroup.border"], "#000000")
     }
 
     func testUIColorInitializerCarriesAlpha() {

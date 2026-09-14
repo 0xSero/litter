@@ -38,11 +38,19 @@ struct ThemeDefinition: Codable {
         }
     }
 
-    // VS Code allows #RRGGBBAA. Downstream color helpers assume 6-digit
-    // RGB, so strip the trailing alpha pair at the decode boundary.
+    // VS Code allows #RRGGBBAA and #RGBA. Downstream color helpers assume
+    // 6-digit RGB and theme tokens must stay opaque (Android strips alpha
+    // the same way), so drop the trailing pair at the decode boundary and
+    // expand 4-digit shorthand to solid #RRGGBB.
     private static func sanitizeHex(_ raw: String) -> String {
-        guard raw.hasPrefix("#"), raw.count == 9 else { return raw }
-        return String(raw.prefix(7))
+        guard raw.hasPrefix("#") else { return raw }
+        let hex = String(raw.dropFirst())
+        if hex.count == 8 { return "#" + hex.prefix(6) }
+        if hex.count == 4 {
+            let digits = Array(hex.lowercased()).prefix(3)
+            return "#" + digits.map { "\($0)\($0)" }.joined()
+        }
+        return raw
     }
 
     // tokenColors are ignored — syntax highlighting is handled by Hairball
@@ -164,7 +172,7 @@ struct ResolvedTheme {
     static func hexToRGB(_ hex: String) -> (Double, Double, Double) {
         // Theme hex is CSS with alpha last; the dimming math uses the RGB
         // channels only.
-        guard let rgba = LitterHexRGBA(hex) else { return (0, 0, 0) }
+        guard let rgba = litterHexRGBA(hex) else { return (0, 0, 0) }
         return (rgba.red, rgba.green, rgba.blue)
     }
 

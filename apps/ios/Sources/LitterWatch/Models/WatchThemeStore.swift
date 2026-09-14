@@ -49,11 +49,17 @@ final class WatchThemeStore: ObservableObject {
 extension Color {
     init(themeHex string: String) {
         // Theme hex is CSS with alpha last: #RGB/#RGBA/#RRGGBB/#RRGGBBAA.
-        // The watch target doesn't compile the app's LitterHexRGBA helper,
+        // The watch target doesn't compile the app's litterHexRGBA helper,
         // so keep this parse in step with it.
         var value = string.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.hasPrefix("#") { value.removeFirst() }
         var digits = Array(value.lowercased())
+        // A leading sign is not a hex digit; UInt64(_:radix:) would still
+        // accept one, so require hex digits before parsing.
+        guard digits.allSatisfy(\.isHexDigit) else {
+            self.init(.sRGB, red: 0, green: 0, blue: 0, opacity: 1)
+            return
+        }
         if digits.count == 3 || digits.count == 4 {
             digits = digits.flatMap { [$0, $0] }
         }

@@ -4,7 +4,7 @@ import Observation
 
 extension Color {
     init(hex: String) {
-        if let rgba = LitterHexRGBA(hex) {
+        if let rgba = litterHexRGBA(hex) {
             self.init(red: rgba.red, green: rgba.green, blue: rgba.blue, opacity: rgba.alpha)
         } else {
             self.init(red: 0, green: 0, blue: 0)
@@ -14,7 +14,7 @@ extension Color {
 
 extension UIColor {
     convenience init(hex: String) {
-        if let rgba = LitterHexRGBA(hex) {
+        if let rgba = litterHexRGBA(hex) {
             self.init(red: rgba.red, green: rgba.green, blue: rgba.blue, alpha: rgba.alpha)
         } else {
             self.init(red: 0, green: 0, blue: 0, alpha: 1)

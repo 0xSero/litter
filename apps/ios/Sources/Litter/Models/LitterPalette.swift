@@ -5,10 +5,13 @@ import SwiftUI
 ///
 /// Lives in this file because both the main app target and the
 /// `LitterLiveActivity` extension compile `LitterPalette.swift`.
-func LitterHexRGBA(_ hex: String) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
+func litterHexRGBA(_ hex: String) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
     var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
     if value.hasPrefix("#") { value.removeFirst() }
     var digits = Array(value.lowercased())
+    // A leading sign is not a hex digit; UInt64(_:radix:) would still
+    // accept one, so require hex digits before parsing.
+    guard digits.allSatisfy(\.isHexDigit) else { return nil }
     if digits.count == 3 || digits.count == 4 {
         digits = digits.flatMap { [$0, $0] }
     }
@@ -88,7 +91,7 @@ extension LitterPalette.Pair {
     }
 
     static func colorFromHex(_ hex: String) -> Color {
-        if let rgba = LitterHexRGBA(hex) {
+        if let rgba = litterHexRGBA(hex) {
             return Color(red: rgba.red, green: rgba.green, blue: rgba.blue, opacity: rgba.alpha)
         }
         return Color(red: 0, green: 0, blue: 0)

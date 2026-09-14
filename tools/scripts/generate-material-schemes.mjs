@@ -96,7 +96,8 @@ export function parseColor(hex, fallback) {
     return parseInt(s.slice(1), 16) | 0xff000000;
   }
   // VS Code themes carry #RRGGBBAA (alpha last). App tokens use the solid
-  // RGB color, matching Android colorFromHex rather than #AARRGGBB.
+  // RGB color, matching Android tokenColorFromHex / iOS sanitizeHex rather
+  // than #AARRGGBB.
   if (/^#[0-9a-fA-F]{8}$/.test(s)) {
     return parseInt(s.slice(1, 7), 16) | 0xff000000;
   }
