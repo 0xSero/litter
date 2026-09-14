@@ -118,7 +118,12 @@ jobs:
       - name: Shared Rust tests
         env:
           CARGO_INCREMENTAL: "0"
-        run: cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client -p codex-slingshot
+        run: |
+          cargo test --manifest-path shared/rust-bridge/Cargo.toml -p codex-mobile-client -p codex-slingshot
+          # The codex submodule is checked out pristine on cache hits, so apply
+          # the patch set before testing patched submodule crates.
+          ./apps/ios/scripts/sync-codex.sh --recorded-gitlink
+          cargo test --manifest-path shared/third_party/codex/codex-rs/Cargo.toml -p codex-thread-store
 
       - name: Release script tests
         run: |
