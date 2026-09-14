@@ -16,6 +16,57 @@ struct PiPContentView: View {
     static let minHeight: CGFloat = 160
     static let maxHeight: CGFloat = 720
 
+    /// Cached derivation of the active session, keyed off
+    /// `AppModel.snapshotRevision` (~8 fps while streaming) and the resolved
+    /// active thread key. `body` re-evaluates on every ImageRenderer tick
+    /// (up to 30 fps), and the derivation re-sorts, rebuilds dictionaries and
+    /// scans threads — far too expensive to repeat per tick. With the cache,
+    /// the derivation only re-runs when the snapshot actually moved or the
+    /// pin/active thread changed; `body` otherwise reads the derived result.
+    @MainActor
+    private func activeSession() -> HomeDashboardRecentSession? {
+        let revision = AppModel.shared.snapshotRevision
+        let activeKey = StreamingPiPController.shared.pinnedThreadKey
+            ?? AppModel.shared.snapshot?.activeThread
+        if ActiveSessionCache.revision == revision,
+           ActiveSessionCache.activeKey == activeKey {
+            return ActiveSessionCache.session
+        }
+        let session = computeActiveSession(activeKey: activeKey)
+        ActiveSessionCache.revision = revision
+        ActiveSessionCache.activeKey = activeKey
+        ActiveSessionCache.session = session
+        return session
+    }
+
+    @MainActor
+    private func computeActiveSession(activeKey: ThreadKey?) -> HomeDashboardRecentSession? {
+        guard let snapshot = AppModel.shared.snapshot, let activeKey = activeKey else { return nil }
+        let servers = HomeDashboardSupport.sortedConnectedServers(
+            from: snapshot.servers,
+            savedServers: [],
+            activeServerId: activeKey.serverId
+        )
+        let serversById = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        let sessions = HomeDashboardSupport.recentConnectedSessions(
+            from: snapshot.sessionSummaries,
+            serversById: serversById,
+            limit: nil
+        )
+        guard let base = sessions.first(where: { $0.key == activeKey }) else { return nil }
+        // The summary's `model` (and runtime kind) can be stale relative to
+        // what the user actually selected for the active thread — the
+        // conversation header reads from the live AppThreadSnapshot. Mirror
+        // that here so PiP always shows the truly-current model.
+        let liveThread = snapshot.threads.first { $0.key == activeKey }
+        let liveModel = liveThread?.model?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveRuntime = liveThread?.agentRuntimeKind
+        return base.overriding(
+            model: (liveModel?.isEmpty == false) ? liveModel : nil,
+            agentRuntimeKindString: liveRuntime
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black
@@ -46,40 +97,17 @@ struct PiPContentView: View {
         .background(Color.black)
         .clipped()
     }
+}
 
-    @MainActor
-    private func activeSession() -> HomeDashboardRecentSession? {
-        guard let snapshot = AppModel.shared.snapshot else { return nil }
-        // Prefer the explicit pin from the home-card menu over whatever
-        // thread is currently active in the app.
-        guard let activeKey =
-                StreamingPiPController.shared.pinnedThreadKey
-                ?? snapshot.activeThread
-        else { return nil }
-        let servers = HomeDashboardSupport.sortedConnectedServers(
-            from: snapshot.servers,
-            savedServers: [],
-            activeServerId: activeKey.serverId
-        )
-        let serversById = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
-        let sessions = HomeDashboardSupport.recentConnectedSessions(
-            from: snapshot.sessionSummaries,
-            serversById: serversById,
-            limit: nil
-        )
-        guard let base = sessions.first(where: { $0.key == activeKey }) else { return nil }
-        // The summary's `model` (and runtime kind) can be stale relative to
-        // what the user actually selected for the active thread — the
-        // conversation header reads from the live AppThreadSnapshot. Mirror
-        // that here so PiP always shows the truly-current model.
-        let liveThread = snapshot.threads.first { $0.key == activeKey }
-        let liveModel = liveThread?.model?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let liveRuntime = liveThread?.agentRuntimeKind
-        return base.overriding(
-            model: (liveModel?.isEmpty == false) ? liveModel : nil,
-            agentRuntimeKindString: liveRuntime
-        )
-    }
+/// File-scoped cache for the PiP card's derived session. `StreamingPiPController`
+/// reassigns `renderer.content = PiPContentView()` on every render tick, so a
+/// per-instance cache never survives between body evaluations. Keyed by
+/// (snapshot revision, resolved active thread key) — see `activeSession()`.
+@MainActor
+private enum ActiveSessionCache {
+    static var revision: UInt64?
+    static var activeKey: ThreadKey?
+    static var session: HomeDashboardRecentSession?
 }
 
 private extension HomeDashboardRecentSession {

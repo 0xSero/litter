@@ -406,6 +406,44 @@ pub fn seed_metadata() -> Vec<AppAgentMetadata> {
     CATALOG.iter().map(AgentCatalogEntry::metadata).collect()
 }
 
+/// Fold a probe response into what litter already knows before it is
+/// cached.
+///
+/// Two corrections:
+///
+/// * **`supports_ssh_bridge` is re-stated from the catalog.** Every
+///   consumer of that flag — the iOS SSH picker, the iOS SSH probe
+///   filter, the Android discovery screen — asks "can *litter* start
+///   this agent over SSH?", and litter is the SSH client, so only
+///   litter's linked bridges decide the answer. The host manifest flag
+///   means something different ("could an alleycat host bridge it"),
+///   and taking it verbatim would enable picker rows that fail on
+///   connect (the alleycat manifest marks devin and grok
+///   SSH-bridgeable; litter links no bridge for either).
+/// * **Missing blocks fall back to the seeded entry** instead of
+///   erasing what litter already had. Older hosts omit `presentation`
+///   / `capabilities` entirely; a probe from one should not downgrade a
+///   known agent to an unlabelled, unsorted row.
+pub fn reconcile_probe_metadata(mut metadata: AppAgentMetadata) -> AppAgentMetadata {
+    let Some(entry) = entry(&metadata.name) else {
+        return metadata;
+    };
+    let builtin = entry.metadata();
+    if metadata.display_name.trim().is_empty() {
+        metadata.display_name = builtin.display_name;
+    }
+    if metadata.presentation.is_none() {
+        metadata.presentation = builtin.presentation;
+    }
+    match metadata.capabilities.as_mut() {
+        Some(capabilities) => {
+            capabilities.supports_ssh_bridge = entry.reach.supports_ssh_bridge();
+        }
+        None => metadata.capabilities = builtin.capabilities,
+    }
+    metadata
+}
+
 /// POSIX `sh` fragment that reports one `<kind>\t<path>` line per
 /// PATH-probed SSH-bridge agent. Local Studio is excluded — it has its
 /// own `crate::local_studio::probe_script()` fragment, which
@@ -571,6 +609,106 @@ mod tests {
                 .expect("capabilities")
                 .supports_ssh_bridge,
             "droid has no litter-side SSH bridge"
+        );
+    }
+
+    fn probed(name: &str, capabilities: Option<AppAgentCapabilities>) -> AppAgentMetadata {
+        AppAgentMetadata {
+            name: name.to_string(),
+            display_name: name.to_string(),
+            presentation: Some(AppAgentPresentation {
+                title: None,
+                is_beta: true,
+                sort_order: 99,
+                description: Some("host blurb".to_string()),
+                aliases: Vec::new(),
+            }),
+            capabilities,
+        }
+    }
+
+    fn host_capabilities(supports_ssh_bridge: bool) -> AppAgentCapabilities {
+        AppAgentCapabilities {
+            locks_reasoning_effort_after_activity: false,
+            visible_modes: None,
+            supports_ssh_bridge,
+            uses_direct_codex_port: false,
+            supports_thread_permission_overrides: true,
+            reports_effective_thread_permissions: true,
+        }
+    }
+
+    /// The alleycat manifest marks devin SSH-bridgeable because *its*
+    /// host can bridge it. Litter links no devin bridge, so the flag it
+    /// caches has to say so — otherwise the SSH picker offers a row that
+    /// cannot connect.
+    #[test]
+    fn probe_cannot_claim_ssh_bridge_support_litter_does_not_have() {
+        let reconciled =
+            reconcile_probe_metadata(probed("devin", Some(host_capabilities(true))));
+        assert!(
+            !reconciled
+                .capabilities
+                .expect("capabilities")
+                .supports_ssh_bridge
+        );
+    }
+
+    /// …and the reverse: a host that under-reports must not hide a
+    /// bridge litter actually links.
+    #[test]
+    fn probe_cannot_hide_ssh_bridge_support_litter_does_have() {
+        let reconciled =
+            reconcile_probe_metadata(probed("claude", Some(host_capabilities(false))));
+        assert!(
+            reconciled
+                .capabilities
+                .expect("capabilities")
+                .supports_ssh_bridge
+        );
+    }
+
+    #[test]
+    fn probe_keeps_its_own_presentation_but_inherits_missing_blocks() {
+        let reconciled =
+            reconcile_probe_metadata(probed("claude", Some(host_capabilities(true))));
+        let presentation = reconciled.presentation.expect("presentation");
+        assert_eq!(presentation.sort_order, 99, "host presentation must win");
+        assert_eq!(presentation.description.as_deref(), Some("host blurb"));
+
+        let legacy = reconcile_probe_metadata(AppAgentMetadata {
+            name: "claude".to_string(),
+            display_name: String::new(),
+            presentation: None,
+            capabilities: None,
+        });
+        assert_eq!(legacy.display_name, "Claude");
+        assert_eq!(
+            legacy
+                .presentation
+                .expect("seeded presentation")
+                .sort_order,
+            4
+        );
+        assert!(
+            legacy
+                .capabilities
+                .expect("seeded capabilities")
+                .supports_ssh_bridge
+        );
+    }
+
+    #[test]
+    fn probe_for_an_unknown_agent_passes_through_untouched() {
+        let reconciled =
+            reconcile_probe_metadata(probed("brand-new", Some(host_capabilities(true))));
+        assert_eq!(reconciled.name, "brand-new");
+        assert!(
+            reconciled
+                .capabilities
+                .expect("capabilities")
+                .supports_ssh_bridge,
+            "litter has no opinion about agents it does not know"
         );
     }
 

@@ -183,10 +183,16 @@ fun ComposerBar(
 ) {
     val appModel = LocalAppModel.current
     val appSnapshot by appModel.snapshot.collectAsState()
-    val hasFixedFullAccess = appSnapshot?.threads
-        ?.firstOrNull { it.key == threadKey }
-        ?.agentRuntimeKind
-        ?.hasFixedFullAccess == true
+    // Rescan only when the snapshot input changes; readers recompose only when
+    // the derived flag flips, not on every unrelated recomposition.
+    val hasFixedFullAccess by remember(threadKey) {
+        derivedStateOf {
+            appSnapshot?.threads
+                ?.firstOrNull { it.key == threadKey }
+                ?.agentRuntimeKind
+                ?.hasFixedFullAccess == true
+        }
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val composerPrefillRequest by appModel.composerPrefillRequest.collectAsState()
@@ -205,6 +211,10 @@ fun ComposerBar(
     var attachedFiles by remember(threadKey) {
         mutableStateOf(appModel.composerDraft(threadKey).fileAttachments)
     }
+    // Persist the composer draft on every state change. Debounced/coalesced
+    // variants lose typed text when the composable leaves composition before
+    // the trailing write fires (quick navigation, backgrounding) — so this
+    // stays an immediate, unconditional write.
     LaunchedEffect(threadKey, text, attachedImage, attachedFiles) {
         appModel.setComposerDraft(
             threadKey,
