@@ -53,6 +53,32 @@ macro_rules! req {
 }
 
 const AMP_VISIBLE_MODES: [&str; 4] = ["low", "medium", "high", "ultra"];
+const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool); 4] = [
+    (
+        "fable",
+        "Fable",
+        "Anthropic's most capable model. Resolved by the claude CLI to the latest Fable revision.",
+        false,
+    ),
+    (
+        "opus",
+        "Opus",
+        "Deep reasoning, hard refactors, multi-step planning. Resolved by the claude CLI to the latest Opus revision.",
+        false,
+    ),
+    (
+        "sonnet",
+        "Sonnet",
+        "Balanced model for everyday coding work. Resolved by the claude CLI to the latest Sonnet revision.",
+        true,
+    ),
+    (
+        "haiku",
+        "Haiku",
+        "Lightest, fastest model for quick edits. Resolved by the claude CLI to the latest Haiku revision.",
+        false,
+    ),
+];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn normalize_amp_mode_name(value: &str) -> String {
@@ -97,6 +123,62 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
             provider_id: None,
         })
         .collect()
+}
+
+fn claude_family_models() -> Vec<types::ModelInfo> {
+    CLAUDE_FAMILY_ALIASES
+        .into_iter()
+        .map(|(alias, display_name, description, is_default)| {
+            types::ModelInfo {
+                id: alias.to_string(),
+                model: alias.to_string(),
+                upgrade: None,
+                upgrade_model: None,
+                upgrade_copy: None,
+                model_link: None,
+                migration_markdown: None,
+                availability_nux_message: None,
+                display_name: display_name.to_string(),
+                description: description.to_string(),
+                hidden: false,
+                // An alias can resolve to different models per host/provider.
+                // Only advertise effort controls returned by the host catalog.
+                supported_reasoning_efforts: Vec::new(),
+                default_reasoning_effort: types::ReasoningEffort::None,
+                input_modalities: vec![types::InputModality::Text, types::InputModality::Image],
+                supports_personality: false,
+                is_default,
+                agent_runtime_kind: "claude".to_string(),
+                provider_id: None,
+            }
+        })
+        .collect()
+}
+
+fn append_missing_claude_family_models(models: &mut Vec<types::ModelInfo>) {
+    // Host entries can carry provider deployment IDs and model-specific capabilities.
+    // Keep their default authoritative when supplementing older bridge catalogs.
+    let has_default = models
+        .iter()
+        .any(|model| model.agent_runtime_kind == "claude" && model.is_default);
+    for mut family_model in claude_family_models() {
+        if has_default {
+            family_model.is_default = false;
+        }
+        let alias = family_model.id.clone();
+        let prefixed_alias = format!("anthropic/{alias}");
+        let exists = models.iter().any(|existing| {
+            if existing.agent_runtime_kind != "claude" {
+                return false;
+            }
+            let id = existing.id.trim().to_ascii_lowercase();
+            let model = existing.model.trim().to_ascii_lowercase();
+            id == alias || id == prefixed_alias || model == alias || model == prefixed_alias
+        });
+        if !exists {
+            models.push(family_model);
+        }
+    }
 }
 
 fn append_missing_amp_mode_models(models: &mut Vec<types::ModelInfo>) {
@@ -144,9 +226,10 @@ fn normalize_model_info_for_runtime(
         model_info.default_reasoning_effort = types::ReasoningEffort::None;
         model_info.is_default = mode == "medium";
     } else if has_qualified_catalog
-        && let Some(provider_id) = derive_model_provider_id(&model_info.id) {
-            model_info.provider_id = Some(provider_id.to_string());
-        }
+        && let Some(provider_id) = derive_model_provider_id(&model_info.id)
+    {
+        model_info.provider_id = Some(provider_id.to_string());
+    }
     if is_pi
         && !model_info
             .supported_reasoning_efforts
@@ -1006,6 +1089,7 @@ impl AppClient {
             runtime_kinds.sort();
             runtime_kinds.dedup();
             let runtime_count = runtime_kinds.len();
+            let includes_claude = runtime_kinds.iter().any(|kind| kind == "claude");
             let params: upstream::ModelListParams = params.into();
             let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
                 let client = Arc::clone(c);
@@ -1077,6 +1161,11 @@ impl AppClient {
                     &cached,
                     &failed_runtime_kinds,
                 );
+            }
+            // Restore failed-runtime catalogs first, so custom deployment IDs,
+            // capabilities, and the cached default take precedence over aliases.
+            if includes_claude {
+                append_missing_claude_family_models(&mut models);
             }
             c.app_store.update_server_models(&server_id, Some(models));
             if failures.is_empty() || failed_runtime_kinds.len() < runtime_count {
@@ -2949,10 +3038,9 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 mod tests {
     use super::{
         ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
-        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        list_runtime_kinds,
-        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
-        splice_generative_ui_preamble,
+        append_missing_claude_family_models, choose_saved_app_update_server_id, image_read_command,
+        is_mobile_hidden_skill, list_runtime_kinds, normalize_model_info_for_runtime,
+        normalized_image_path, runtime_exposes_model_choices, splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
@@ -3085,6 +3173,63 @@ mod tests {
     }
 
     #[test]
+    fn claude_catalog_preserves_host_models_and_default() {
+        let mut custom = test_model("my-bedrock-deployment", "codex".to_string());
+        custom.provider_id = Some("bedrock".to_string());
+        custom.is_default = true;
+        assert!(normalize_model_info_for_runtime(
+            &mut custom,
+            "claude".to_string()
+        ));
+        assert_eq!(custom.agent_runtime_kind, "claude");
+        assert_eq!(custom.provider_id.as_deref(), Some("bedrock"));
+        let mut models = vec![custom];
+        append_missing_claude_family_models(&mut models);
+        append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 5);
+        assert_eq!(models.iter().filter(|model| model.is_default).count(), 1);
+        assert_eq!(
+            models.iter().find(|model| model.is_default).unwrap().id,
+            "my-bedrock-deployment"
+        );
+    }
+
+    #[test]
+    fn claude_alias_fallback_preserves_advertised_capabilities() {
+        let mut advertised = test_model("sonnet", "claude".to_string());
+        advertised.description = "Host capabilities".to_string();
+        advertised.supported_reasoning_efforts.clear();
+        let mut models = vec![advertised];
+        append_missing_claude_family_models(&mut models);
+        append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 4);
+        assert_eq!(models[0].description, "Host capabilities");
+        assert!(models[0].supported_reasoning_efforts.is_empty());
+    }
+
+    #[test]
+    fn claude_failed_refresh_preserves_cached_default_before_alias_fallback() {
+        let mut custom = test_model("custom-deployment", "claude".to_string());
+        custom.is_default = true;
+        custom.description = "Host capability metadata".to_string();
+        let mut cached = vec![custom];
+        append_missing_claude_family_models(&mut cached);
+        let mut models = Vec::new();
+        append_cached_models_for_failed_runtimes(
+            &mut models,
+            &mut HashSet::new(),
+            &cached,
+            &HashSet::from(["claude".to_string()]),
+        );
+        append_missing_claude_family_models(&mut models);
+        assert_eq!(models.len(), 5);
+        let defaults = models.iter().filter(|model| model.is_default).collect::<Vec<_>>();
+        assert_eq!(defaults.len(), 1);
+        assert_eq!(defaults[0].id, "custom-deployment");
+        assert_eq!(defaults[0].description, "Host capability metadata");
+    }
+
+    #[test]
     fn amp_mode_fallback_adds_builtin_modes() {
         let mut models = vec![test_model("gpt-5.2", "codex".to_string())];
 
@@ -3214,12 +3359,16 @@ mod tests {
             &failed_runtime_kinds,
         );
 
-        assert!(models.iter().any(|model| {
-            model.agent_runtime_kind == "claude" && model.id == "opus"
-        }));
-        assert!(!models.iter().any(|model| {
-            model.agent_runtime_kind == "codex" && model.id == "gpt-5.5"
-        }));
+        assert!(
+            models
+                .iter()
+                .any(|model| { model.agent_runtime_kind == "claude" && model.id == "opus" })
+        );
+        assert!(
+            !models
+                .iter()
+                .any(|model| { model.agent_runtime_kind == "codex" && model.id == "gpt-5.5" })
+        );
         assert_eq!(
             models
                 .iter()
