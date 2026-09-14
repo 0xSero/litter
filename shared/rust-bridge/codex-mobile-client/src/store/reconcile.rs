@@ -176,6 +176,7 @@ impl MobileClient {
             .filter_map(crate::thread_info_from_upstream_thread)
             .collect::<Vec<_>>();
         self.app_store.sync_thread_list(server_id, &threads);
+        self.apply_persisted_thread_modes_to_infos(server_id, &threads);
         Ok(threads)
     }
 
@@ -200,6 +201,7 @@ impl MobileClient {
             .collect::<Vec<_>>();
         self.app_store
             .upsert_thread_list_page_for_runtime(server_id, runtime_kind, &threads);
+        self.apply_persisted_thread_modes_to_infos(server_id, &threads);
         threads
     }
 
@@ -251,6 +253,7 @@ impl MobileClient {
         let key = snapshot.key.clone();
         let existing = self.app_store.thread_snapshot(&key);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(key)
     }
@@ -304,6 +307,7 @@ impl MobileClient {
             snapshot.initial_turns_loaded = true;
         }
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &upstream_turns);
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(key)
     }
@@ -329,6 +333,7 @@ impl MobileClient {
         let existing = self.app_store.thread_snapshot(&key);
         apply_pagination_merge(existing.as_ref(), &mut snapshot, &response.thread.turns);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(key)
     }
@@ -354,6 +359,7 @@ impl MobileClient {
         let existing = self.app_store.thread_snapshot(&key);
         apply_pagination_merge(existing.as_ref(), &mut snapshot, &response.thread.turns);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(key)
     }
@@ -394,6 +400,7 @@ impl MobileClient {
             initial_turns_loaded = thread.initial_turns_loaded,
             "apply_thread_turns_page merged"
         );
+        self.apply_persisted_thread_collaboration_mode(&mut thread);
         self.app_store.upsert_thread_snapshot(thread);
         Ok(())
     }
@@ -433,6 +440,7 @@ impl MobileClient {
             crate::reconcile_active_turn(Some(current), &mut snapshot, &response.thread.turns);
         }
         let next_key = snapshot.key.clone();
+        self.apply_persisted_thread_collaboration_mode(&mut snapshot);
         self.app_store.upsert_thread_snapshot(snapshot);
         Ok(next_key)
     }
