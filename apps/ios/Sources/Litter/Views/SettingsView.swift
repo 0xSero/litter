@@ -170,7 +170,7 @@ struct SettingsView: View {
                         Text("Collapse Turns")
                             .litterFont(.subheadline)
                             .foregroundColor(LitterTheme.textPrimary)
-                        Text("Collapse previous turns into cards")
+                        Text("Collapse previous turns into cards; large conversations collapse automatically")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
