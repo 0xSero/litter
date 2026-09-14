@@ -80,6 +80,33 @@ const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool); 4] = [
     ),
 ];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
+const THREAD_LIST_HYDRATION_BUDGET: usize = 200;
+
+fn thread_list_hydration_budget(params: &types::AppListThreadsRequest) -> Option<usize> {
+    let hydrates_recents = params.cursor.is_none()
+        && params
+            .search_term
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+        && !params.use_state_db_only;
+    hydrates_recents.then(|| {
+        params
+            .limit
+            .map_or(THREAD_LIST_HYDRATION_BUDGET, |limit| limit as usize)
+    })
+}
+
+// Only an unfiltered server listing can prove that absent threads were deleted.
+fn thread_list_can_prune(params: &types::AppListThreadsRequest) -> bool {
+    thread_list_hydration_budget(params).is_some()
+        && params.runtime_kinds.as_ref().is_none_or(Vec::is_empty)
+        && params.model_providers.as_ref().is_none_or(Vec::is_empty)
+        && params.source_kinds.as_ref().is_none_or(Vec::is_empty)
+        && params.cwd.is_none()
+        && params.archived != Some(true)
+}
 
 fn normalize_amp_mode_name(value: &str) -> String {
     value
@@ -750,15 +777,8 @@ impl AppClient {
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
             let requested_runtime_kinds = params.runtime_kinds.clone();
-            let drain_all_pages = params.cursor.is_none()
-                && params.limit.is_none()
-                && params
-                    .search_term
-                    .as_deref()
-                    .map(str::trim)
-                    .unwrap_or_default()
-                    .is_empty()
-                && !params.use_state_db_only;
+            let hydration_budget = thread_list_hydration_budget(&params);
+            let can_prune = thread_list_can_prune(&params);
             let params: upstream::ThreadListParams = params.into();
             let session = c
                 .get_session(&server_id)
@@ -814,6 +834,7 @@ impl AppClient {
                     let mut request_params = initial_params;
                     let mut ids = Vec::new();
                     let mut completed = true;
+                    let mut exhausted = false;
                     loop {
                         let response: upstream::ThreadListResponse =
                             match rpc_runtime::<upstream::ThreadListResponse>(
@@ -834,6 +855,7 @@ impl AppClient {
                                     break;
                                 }
                             };
+                        let page_was_empty = response.data.is_empty();
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
                             runtime_kind.clone(),
@@ -841,19 +863,23 @@ impl AppClient {
                         );
                         ids.extend(page.into_iter().map(|thread| thread.id));
                         let Some(next_cursor) = response.next_cursor else {
+                            exhausted = true;
                             break;
                         };
-                        if !drain_all_pages {
+                        let Some(budget) = hydration_budget else {
+                            break;
+                        };
+                        if page_was_empty || ids.len() >= budget {
                             break;
                         }
                         request_params.cursor = Some(next_cursor);
                     }
-                    (runtime_kind, ids, completed)
+                    (runtime_kind, ids, completed, exhausted)
                 });
             }
 
             let results = futures::future::join_all(tasks).await;
-            if results.iter().all(|(_, _, completed)| !completed) {
+            if results.iter().all(|(_, _, completed, _)| !completed) {
                 return Err(ClientError::Rpc(
                     "thread list failed for every runtime".into(),
                 ));
@@ -865,10 +891,11 @@ impl AppClient {
             // wiping pi/opencode threads from the store on a transient
             // codex failure. Skip pruning in that case; the next refresh
             // reconciles when the failing runtime recovers.
-            let all_completed = results.iter().all(|(_, _, ok)| *ok);
-            if all_completed && drain_all_pages {
+            let all_completed = results.iter().all(|(_, _, ok, _)| *ok);
+            let all_exhausted = results.iter().all(|(_, _, _, exhausted)| *exhausted);
+            if all_completed && all_exhausted && can_prune {
                 let mut all_thread_ids = Vec::new();
-                for (_, ids, _) in results {
+                for (_, ids, _, _) in results {
                     all_thread_ids.extend(ids);
                 }
                 c.finalize_thread_list_sync(&server_id, all_thread_ids);
@@ -1463,12 +1490,13 @@ impl AppClient {
                 Some("/tmp"),
             )
             .await
-                && resp.exit_code == 0 {
-                    let home = resp.stdout.trim().to_string();
-                    if !home.is_empty() {
-                        return Ok(home);
-                    }
+                && resp.exit_code == 0
+            {
+                let home = resp.stdout.trim().to_string();
+                if !home.is_empty() {
+                    return Ok(home);
                 }
+            }
             // Fallback: Windows
             if let Ok(resp) = exec_command_simple(
                 c.as_ref(),
@@ -1477,12 +1505,13 @@ impl AppClient {
                 None,
             )
             .await
-                && resp.exit_code == 0 {
-                    let home = resp.stdout.trim().to_string();
-                    if !home.is_empty() && home != "%USERPROFILE%" {
-                        return Ok(home);
-                    }
+                && resp.exit_code == 0
+            {
+                let home = resp.stdout.trim().to_string();
+                if !home.is_empty() && home != "%USERPROFILE%" {
+                    return Ok(home);
                 }
+            }
             Ok("/".to_string())
         })
     }
@@ -3043,10 +3072,12 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
-        append_missing_claude_family_models, choose_saved_app_update_server_id, image_read_command,
-        is_mobile_hidden_skill, list_runtime_kinds, normalize_model_info_for_runtime,
-        normalized_image_path, runtime_exposes_model_choices, splice_generative_ui_preamble,
+        ImageViewSource, THREAD_LIST_HYDRATION_BUDGET, append_cached_models_for_failed_runtimes,
+        append_missing_amp_mode_models, append_missing_claude_family_models,
+        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
+        list_runtime_kinds, normalize_model_info_for_runtime, normalized_image_path,
+        runtime_exposes_model_choices, splice_generative_ui_preamble, thread_list_can_prune,
+        thread_list_hydration_budget,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
@@ -3197,6 +3228,64 @@ mod tests {
         assert_eq!(
             models.iter().find(|model| model.is_default).unwrap().id,
             "my-bedrock-deployment"
+        );
+    }
+
+    #[test]
+    fn thread_list_hydration_budget_bounds_recents_and_skips_scoped_queries() {
+        let request = |limit: Option<u32>,
+                       cursor: Option<&str>,
+                       search_term: Option<&str>,
+                       use_state_db_only: bool| {
+            crate::types::AppListThreadsRequest {
+                cursor: cursor.map(str::to_string),
+                limit,
+                sort_key: None,
+                sort_direction: None,
+                model_providers: None,
+                source_kinds: None,
+                archived: None,
+                cwd: None,
+                search_term: search_term.map(str::to_string),
+                use_state_db_only,
+                runtime_kinds: None,
+            }
+        };
+
+        let mut scoped = request(Some(100), None, None, false);
+        assert!(thread_list_can_prune(&scoped));
+        scoped.runtime_kinds = Some(vec!["claude".to_string()]);
+        assert!(!thread_list_can_prune(&scoped));
+        scoped.runtime_kinds = None;
+        scoped.cwd = Some("/one-project".to_string());
+        assert!(!thread_list_can_prune(&scoped));
+        scoped.cwd = None;
+        scoped.archived = Some(true);
+        assert!(!thread_list_can_prune(&scoped));
+
+        assert_eq!(
+            thread_list_hydration_budget(&request(None, None, None, false)),
+            Some(THREAD_LIST_HYDRATION_BUDGET)
+        );
+        assert_eq!(
+            thread_list_hydration_budget(&request(Some(100), None, None, false)),
+            Some(100)
+        );
+        assert_eq!(
+            thread_list_hydration_budget(&request(None, None, Some("   "), false)),
+            Some(THREAD_LIST_HYDRATION_BUDGET)
+        );
+        assert_eq!(
+            thread_list_hydration_budget(&request(None, Some("cursor"), None, false)),
+            None
+        );
+        assert_eq!(
+            thread_list_hydration_budget(&request(None, None, Some("query"), false)),
+            None
+        );
+        assert_eq!(
+            thread_list_hydration_budget(&request(None, None, None, true)),
+            None
         );
     }
 

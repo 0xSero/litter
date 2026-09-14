@@ -133,11 +133,19 @@ disconnects and re-establishes the chosen transport.
 
 ### Session Sidebar
 
-**Unreachable — do not QA until re-wired.** Android's `SessionsScreen` (search,
-server filter, forks filter, lineage chips) is still compiled but `Route.Sessions`
-is never constructed, so no user path opens it. iOS has no sidebar either; the
-home dashboard replaced it. Treat this section as a parked feature, not a
-shipping surface.
+The legacy Android `Route.Sessions` and `SessionsScreen` are no longer present
+in the current navigation tree. PR #330 intentionally exposes the existing
+All Sessions browser and its bounded Load more action on iOS only: Android
+needs a new reachable browser, not a link to the removed screen. Shared Rust
+hydration limits and protection against pruning other runtimes apply to both
+platforms.
+
+Android follow-up acceptance: add a home entry point that browses sessions
+across connected servers, loads older results, filters them, and resumes and
+pins the selected session. Verify more than 200 sessions per runtime, mixed
+Codex/Claude servers, empty results, load failures, and continued live updates
+when a CLI-created session is opened. Until then, do not report Android
+browser parity as complete.
 
 ### Thread List Consistency
 
