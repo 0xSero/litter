@@ -2931,10 +2931,11 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
-        append_missing_claude_family_models, choose_saved_app_update_server_id, image_read_command,
-        is_mobile_hidden_skill, normalize_model_info_for_runtime, normalized_image_path,
-        runtime_exposes_model_choices, splice_generative_ui_preamble,
+        ImageViewSource, THREAD_LIST_HYDRATION_BUDGET, append_cached_models_for_failed_runtimes,
+        append_missing_amp_mode_models, append_missing_claude_family_models,
+        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
+        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
+        splice_generative_ui_preamble, thread_list_can_prune, thread_list_hydration_budget,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
