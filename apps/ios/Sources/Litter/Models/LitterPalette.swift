@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// Parses CSS hex with alpha last (`#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`)
+/// into normalized RGBA components, or nil for anything else.
+///
+/// Lives in this file because both the main app target and the
+/// `LitterLiveActivity` extension compile `LitterPalette.swift`.
+func litterHexRGBA(_ hex: String) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
+    var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if value.hasPrefix("#") { value.removeFirst() }
+    var digits = Array(value.lowercased())
+    // A leading sign is not a hex digit; UInt64(_:radix:) would still
+    // accept one, so require hex digits before parsing.
+    guard digits.allSatisfy(\.isHexDigit) else { return nil }
+    if digits.count == 3 || digits.count == 4 {
+        digits = digits.flatMap { [$0, $0] }
+    }
+    guard digits.count == 6 || digits.count == 8,
+          let int = UInt64(String(digits), radix: 16)
+    else { return nil }
+    let alpha = digits.count == 8 ? Double(int & 0xFF) / 255 : 1
+    let rgb = digits.count == 8 ? int >> 8 : int
+    return (
+        Double((rgb >> 16) & 0xFF) / 255,
+        Double((rgb >> 8) & 0xFF) / 255,
+        Double(rgb & 0xFF) / 255,
+        alpha
+    )
+}
+
 /// Shared color palette used by both the main app (LitterTheme) and the
 /// Live Activity widget extension. Reads from the shared App Group
 /// UserDefaults (written by ThemeManager) with hardcoded fallbacks.
@@ -63,12 +91,9 @@ extension LitterPalette.Pair {
     }
 
     static func colorFromHex(_ hex: String) -> Color {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let r = Double((int >> 16) & 0xFF) / 255
-        let g = Double((int >> 8) & 0xFF) / 255
-        let b = Double(int & 0xFF) / 255
-        return Color(red: r, green: g, blue: b)
+        if let rgba = litterHexRGBA(hex) {
+            return Color(red: rgba.red, green: rgba.green, blue: rgba.blue, opacity: rgba.alpha)
+        }
+        return Color(red: 0, green: 0, blue: 0)
     }
 }
