@@ -1,45 +1,232 @@
+diff --git a/codex-rs/rollout/src/list.rs b/codex-rs/rollout/src/list.rs
+index d4f067789..d3119771f 100644
+--- a/codex-rs/rollout/src/list.rs
++++ b/codex-rs/rollout/src/list.rs
+@@ -48,6 +48,9 @@ pub struct ThreadItem {
+     pub path: PathBuf,
+     /// Thread ID from session metadata.
+     pub thread_id: Option<ThreadId>,
++    /// Immutable parent thread id from session metadata, when this rollout
++    /// is a fork.
++    pub forked_from_id: Option<ThreadId>,
+     /// First user message captured for this thread, if any.
+     pub first_user_message: Option<String>,
+     /// Best available user-facing preview for discovery and list display.
+@@ -88,6 +91,7 @@ pub type ConversationsPage = ThreadsPage;
+ struct HeadTailSummary {
+     saw_session_meta: bool,
+     thread_id: Option<ThreadId>,
++    forked_from_id: Option<ThreadId>,
+     first_user_message: Option<String>,
+     preview: Option<String>,
+     cwd: Option<PathBuf>,
+@@ -771,6 +775,7 @@ async fn build_thread_item(
+     if summary.saw_session_meta && summary.preview.is_some() {
+         let HeadTailSummary {
+             thread_id,
++            forked_from_id,
+             first_user_message,
+             preview,
+             cwd,
+@@ -792,6 +797,7 @@ async fn build_thread_item(
+         return Some(ThreadItem {
+             path,
+             thread_id,
++            forked_from_id,
+             first_user_message,
+             preview,
+             cwd,
+@@ -1105,6 +1111,7 @@ async fn read_head_summary(path: &Path, head_limit: usize) -> io::Result<HeadTai
+                     summary.agent_role = session_meta_line.meta.agent_role.clone();
+                     summary.model_provider = session_meta_line.meta.model_provider.clone();
+                     summary.thread_id = Some(session_meta_line.meta.id);
++                    summary.forked_from_id = session_meta_line.meta.forked_from_id.clone();
+                     summary.cwd = Some(session_meta_line.meta.cwd.clone());
+                     summary.git_branch = session_meta_line
+                         .git
+diff --git a/codex-rs/rollout/src/recorder.rs b/codex-rs/rollout/src/recorder.rs
+index 23b05b9de..5686f85ae 100644
+--- a/codex-rs/rollout/src/recorder.rs
++++ b/codex-rs/rollout/src/recorder.rs
+@@ -1011,6 +1011,7 @@ fn fill_missing_thread_item_metadata(item: &mut ThreadItem, state_item: ThreadIt
+     let ThreadItem {
+         path: _state_path,
+         thread_id: _state_thread_id,
++        forked_from_id,
+         first_user_message,
+         preview,
+         cwd,
+@@ -1065,6 +1066,9 @@ fn fill_missing_thread_item_metadata(item: &mut ThreadItem, state_item: ThreadIt
+     if item.updated_at.is_none() {
+         item.updated_at = updated_at;
+     }
++    if item.forked_from_id.is_none() {
++        item.forked_from_id = forked_from_id;
++    }
+ }
+ 
+ #[allow(clippy::too_many_arguments)]
+@@ -1674,6 +1678,7 @@ fn thread_item_from_state_metadata(item: codex_state::ThreadMetadata) -> ThreadI
+     ThreadItem {
+         path: item.rollout_path,
+         thread_id: Some(item.id),
++        forked_from_id: None,
+         first_user_message: item.first_user_message,
+         preview: item.preview,
+         cwd: Some(item.cwd),
+diff --git a/codex-rs/rollout/src/recorder_tests.rs b/codex-rs/rollout/src/recorder_tests.rs
+index 8199f290d..7030d753d 100644
+--- a/codex-rs/rollout/src/recorder_tests.rs
++++ b/codex-rs/rollout/src/recorder_tests.rs
+@@ -961,9 +961,11 @@ async fn list_threads_metadata_filter_overlays_state_db_list_metadata() -> std::
+ fn fill_missing_thread_item_metadata_preserves_identity_and_prefers_state_git_fields() {
+     let filesystem_thread_id = ThreadId::new();
+     let state_thread_id = ThreadId::new();
++    let state_fork_thread_id = ThreadId::new();
+     let filesystem_path = PathBuf::from("/tmp/filesystem-rollout.jsonl");
+     let state_path = PathBuf::from("/tmp/state-rollout.jsonl");
+     let mut item = ThreadItem {
++        forked_from_id: None,
+         path: filesystem_path.clone(),
+         thread_id: Some(filesystem_thread_id),
+         first_user_message: Some("filesystem message".to_string()),
+@@ -981,6 +983,7 @@ fn fill_missing_thread_item_metadata_preserves_identity_and_prefers_state_git_fi
+         updated_at: None,
+     };
+     let state_item = ThreadItem {
++        forked_from_id: Some(state_fork_thread_id),
+         path: state_path,
+         thread_id: Some(state_thread_id),
+         first_user_message: Some("state message".to_string()),
+@@ -1021,6 +1024,7 @@ fn fill_missing_thread_item_metadata_preserves_identity_and_prefers_state_git_fi
+     assert_eq!(item.cli_version.as_deref(), Some("state-version"));
+     assert_eq!(item.created_at.as_deref(), Some("2025-01-03T16:00:00Z"));
+     assert_eq!(item.updated_at.as_deref(), Some("2025-01-03T16:01:02.003Z"));
++    assert_eq!(item.forked_from_id, Some(state_fork_thread_id));
+ }
+ 
+ #[tokio::test]
+diff --git a/codex-rs/rollout/src/tests.rs b/codex-rs/rollout/src/tests.rs
+index bcd395d82..e640ef1ed 100644
+--- a/codex-rs/rollout/src/tests.rs
++++ b/codex-rs/rollout/src/tests.rs
+@@ -724,6 +724,7 @@ async fn test_list_conversations_latest_first() {
+     let expected = ThreadsPage {
+         items: vec![
+             ThreadItem {
++                forked_from_id: None,
+                 path: p1,
+                 thread_id: Some(thread_id_from_uuid(u3)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -741,6 +742,7 @@ async fn test_list_conversations_latest_first() {
+                 updated_at: updated_times.first().cloned().flatten(),
+             },
+             ThreadItem {
++                forked_from_id: None,
+                 path: p2,
+                 thread_id: Some(thread_id_from_uuid(u2)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -758,6 +760,7 @@ async fn test_list_conversations_latest_first() {
+                 updated_at: updated_times.get(1).cloned().flatten(),
+             },
+             ThreadItem {
++                forked_from_id: None,
+                 path: p3,
+                 thread_id: Some(thread_id_from_uuid(u1)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -868,6 +871,7 @@ async fn test_pagination_cursor() {
+     let expected_page1 = ThreadsPage {
+         items: vec![
+             ThreadItem {
++                forked_from_id: None,
+                 path: p5,
+                 thread_id: Some(thread_id_from_uuid(u5)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -885,6 +889,7 @@ async fn test_pagination_cursor() {
+                 updated_at: updated_page1.first().cloned().flatten(),
+             },
+             ThreadItem {
++                forked_from_id: None,
+                 path: p4,
+                 thread_id: Some(thread_id_from_uuid(u4)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -938,6 +943,7 @@ async fn test_pagination_cursor() {
+     let expected_page2 = ThreadsPage {
+         items: vec![
+             ThreadItem {
++                forked_from_id: None,
+                 path: p3,
+                 thread_id: Some(thread_id_from_uuid(u3)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -955,6 +961,7 @@ async fn test_pagination_cursor() {
+                 updated_at: updated_page2.first().cloned().flatten(),
+             },
+             ThreadItem {
++                forked_from_id: None,
+                 path: p2,
+                 thread_id: Some(thread_id_from_uuid(u2)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -1000,6 +1007,7 @@ async fn test_pagination_cursor() {
+         page3.items.iter().map(|i| i.updated_at.clone()).collect();
+     let expected_page3 = ThreadsPage {
+         items: vec![ThreadItem {
++            forked_from_id: None,
+             path: p1,
+             thread_id: Some(thread_id_from_uuid(u1)),
+             first_user_message: Some("Hello from user".to_string()),
+@@ -1170,6 +1178,7 @@ async fn test_get_thread_contents() {
+         .join(format!("rollout-2025-04-01T10-30-00-{uuid}.jsonl"));
+     let expected_page = ThreadsPage {
+         items: vec![ThreadItem {
++            forked_from_id: None,
+             path: expected_path,
+             thread_id: Some(thread_id_from_uuid(uuid)),
+             first_user_message: Some("Hello from user".to_string()),
+@@ -1520,6 +1529,7 @@ async fn test_timestamp_only_cursor_skips_same_second_filesystem_ties() {
+     let expected_page1 = ThreadsPage {
+         items: vec![
+             ThreadItem {
++                forked_from_id: None,
+                 path: p3,
+                 thread_id: Some(thread_id_from_uuid(u3)),
+                 first_user_message: Some("Hello from user".to_string()),
+@@ -1537,6 +1547,7 @@ async fn test_timestamp_only_cursor_skips_same_second_filesystem_ties() {
+                 updated_at: updated_page1.first().cloned().flatten(),
+             },
+             ThreadItem {
++                forked_from_id: None,
+                 path: p2,
+                 thread_id: Some(thread_id_from_uuid(u2)),
+                 first_user_message: Some("Hello from user".to_string()),
+diff --git a/codex-rs/thread-store/src/local/helpers.rs b/codex-rs/thread-store/src/local/helpers.rs
+index bfdc94fbf..4e8ed287e 100644
+--- a/codex-rs/thread-store/src/local/helpers.rs
++++ b/codex-rs/thread-store/src/local/helpers.rs
+@@ -119,7 +119,7 @@ pub(super) fn stored_thread_from_rollout_item(
+     Some(StoredThread {
+         thread_id,
+         rollout_path: Some(item.path),
+-        forked_from_id: None,
++        forked_from_id: item.forked_from_id,
+         preview,
+         name: None,
+         model_provider: item
 diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-store/src/local/list_threads.rs
-index ede9e9e..ead8b7f 100644
+index ede9e9e9c..9b8490e71 100644
 --- a/codex-rs/thread-store/src/local/list_threads.rs
 +++ b/codex-rs/thread-store/src/local/list_threads.rs
-@@ -75,6 +75,25 @@ pub(super) async fn list_threads(
-         })
-         .collect::<Vec<_>>();
-
-+    // The lightweight rollout-list projection does not carry fork lineage,
-+    // while `read_thread` does. Restore the immutable parent id from the
-+    // canonical session metadata so a cold `thread/list` can rediscover
-+    // persistent forks without loading their histories. Keep state-DB-only
-+    // requests free of filesystem reads as their contract requires.
-+    if !params.use_state_db_only {
-+        for thread in &mut items {
-+            let Some(rollout_path) = thread.rollout_path.as_ref() else {
-+                continue;
-+            };
-+            let Ok(meta_line) = codex_rollout::read_session_meta_line(rollout_path).await else {
-+                continue;
-+            };
-+            if meta_line.meta.id == thread.thread_id {
-+                thread.forked_from_id = meta_line.meta.forked_from_id;
-+            }
-+        }
-+    }
-+
-     let thread_ids = items
-         .iter()
-         .map(|thread| thread.thread_id)
-@@ -199,6 +218,7 @@ mod tests {
+@@ -199,6 +199,7 @@ mod tests {
      use crate::local::test_support::write_archived_session_file;
      use crate::local::test_support::write_session_file;
      use crate::local::test_support::write_session_file_with;
 +    use crate::local::test_support::write_session_file_with_fork;
-
+ 
      #[tokio::test]
      async fn list_threads_uses_default_provider_when_rollout_omits_provider() {
-@@ -234,6 +254,49 @@ mod tests {
+@@ -234,6 +235,49 @@ mod tests {
          assert_eq!(page.items[0].model_provider, "test-provider");
      }
-
+ 
 +    #[tokio::test]
 +    async fn cold_list_threads_preserves_fork_lineage_from_rollout() {
 +        let home = TempDir::new().expect("temp dir");
