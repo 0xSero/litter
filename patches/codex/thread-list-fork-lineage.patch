@@ -212,7 +212,7 @@ index bfdc94fbf..4e8ed287e 100644
          name: None,
          model_provider: item
 diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-store/src/local/list_threads.rs
-index ede9e9e9c..9b8490e71 100644
+index ede9e9e9c..d7b68b844 100644
 --- a/codex-rs/thread-store/src/local/list_threads.rs
 +++ b/codex-rs/thread-store/src/local/list_threads.rs
 @@ -199,6 +199,7 @@ mod tests {
@@ -223,7 +223,7 @@ index ede9e9e9c..9b8490e71 100644
  
      #[tokio::test]
      async fn list_threads_uses_default_provider_when_rollout_omits_provider() {
-@@ -234,6 +235,49 @@ mod tests {
+@@ -234,6 +235,58 @@ mod tests {
          assert_eq!(page.items[0].model_provider, "test-provider");
      }
  
@@ -232,6 +232,7 @@ index ede9e9e9c..9b8490e71 100644
 +        let home = TempDir::new().expect("temp dir");
 +        let parent_id = Uuid::from_u128(103);
 +        let fork_id = Uuid::from_u128(104);
++        let plain_id = Uuid::from_u128(105);
 +        write_session_file_with_fork(
 +            home.path(),
 +            home.path().join("sessions/2025/01/03"),
@@ -242,6 +243,8 @@ index ede9e9e9c..9b8490e71 100644
 +            Some(parent_id),
 +        )
 +        .expect("fork rollout");
++        write_session_file(home.path(), "2025-01-02T12-00-00", plain_id)
++            .expect("plain rollout");
 +
 +        // A fresh store has no warm in-memory fork response to preserve. The
 +        // list response must recover lineage from the persisted rollout.
@@ -262,12 +265,18 @@ index ede9e9e9c..9b8490e71 100644
 +            .await
 +            .expect("cold thread listing");
 +
-+        assert_eq!(page.items.len(), 1);
++        assert_eq!(page.items.len(), 2);
 +        assert_eq!(page.items[0].thread_id.to_string(), fork_id.to_string());
 +        assert_eq!(
 +            page.items[0].forked_from_id.map(|id| id.to_string()),
 +            Some(parent_id.to_string())
 +        );
++        let plain = page
++            .items
++            .iter()
++            .find(|item| item.thread_id.to_string() == plain_id.to_string())
++            .expect("plain thread listed");
++        assert!(plain.forked_from_id.is_none());
 +    }
 +
      #[tokio::test]
