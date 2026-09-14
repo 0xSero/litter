@@ -225,10 +225,14 @@ private fun List<HydratedConversationItem>.isExplorationGroup(): Boolean {
 private fun turnIdentifier(items: List<HydratedConversationItem>, ordinal: Int): String {
     val first = items.firstOrNull() ?: return "turn-$ordinal"
     val sourceTurnId = items.firstNotNullOfOrNull { it.sourceTurnId }
+    // Anchor merged exploration runs to their newest constituent item (iOS
+    // parity): older pages prepend to this run, so anchoring on the first item
+    // would change the id and make SwiftUI/LazyColumn lose scroll position.
+    val anchor = if (items.isExplorationGroup()) items.last() else first
     return if (sourceTurnId != null) {
-        "turn-$sourceTurnId-${first.id}"
+        "turn-$sourceTurnId-${anchor.id}"
     } else {
-        "turn-${first.id}"
+        "turn-${anchor.id}"
     }
 }
 

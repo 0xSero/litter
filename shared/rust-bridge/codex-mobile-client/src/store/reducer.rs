@@ -18,13 +18,13 @@ use crate::conversation_uniffi::{
 };
 use crate::session::connection::ServerConfig;
 use crate::session::events::UiEvent;
-use crate::types::{
-    AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
-    PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest,
-    PendingUserInputSeed, ThreadInfo, ThreadKey, ThreadSummaryStatus,
-};
 #[cfg(test)]
 use crate::types::PendingApprovalWithSeed;
+use crate::types::{
+    AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
+    PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest, PendingUserInputSeed,
+    ThreadInfo, ThreadKey, ThreadSummaryStatus,
+};
 use crate::types::{
     AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppThreadGoal,
     AppVoiceSessionPhase, AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
@@ -340,6 +340,51 @@ impl AppStoreReducer {
             .clone()
     }
 
+    /// Missing state means the first page; stored `has_more=false` means exhausted.
+    pub fn thread_page_state(
+        &self,
+        server_id: &str,
+        runtime_kind: &AgentRuntimeKind,
+    ) -> Option<super::snapshot::SessionPageCursor> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .session_pages
+            .get(&(server_id.to_string(), runtime_kind.clone()))
+            .cloned()
+    }
+
+    /// Persist the `thread/list` page cursor + `has_more` flag for a
+    /// (server, runtime) pair after a paged load.
+    pub fn set_thread_page_state(
+        &self,
+        server_id: &str,
+        runtime_kind: &AgentRuntimeKind,
+        cursor: Option<String>,
+        has_more: bool,
+    ) {
+        {
+            let mut snapshot = self.write_snapshot();
+            snapshot.session_pages.insert(
+                (server_id.to_string(), runtime_kind.clone()),
+                super::snapshot::SessionPageCursor { cursor, has_more },
+            );
+        }
+        self.emit(AppStoreUpdateRecord::ServerChanged {
+            server_id: server_id.to_string(),
+        });
+    }
+
+    /// Drop all `thread/list` page cursor state for a server. Used after a
+    /// full drain completes (so `session_list_has_more` reflects that
+    /// everything is already loaded) and on server removal.
+    pub fn clear_thread_page_state(&self, server_id: &str) {
+        let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+        snapshot
+            .session_pages
+            .retain(|(page_server_id, _), _| page_server_id != server_id);
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.updates_tx.subscribe()
     }
@@ -430,6 +475,9 @@ impl AppStoreReducer {
                 }
                 keep
             });
+            snapshot
+                .session_pages
+                .retain(|(page_server_id, _), _| page_server_id != server_id);
             if snapshot
                 .active_thread
                 .as_ref()
@@ -993,11 +1041,10 @@ impl AppStoreReducer {
             .mutate_thread_with_result(key, |thread| {
                 let mut updated_item = None;
                 let mut needs_reprojection = false;
-                let pending_overlay_index =
-                    thread.local_overlay_items.iter().position(|item| {
-                        item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
-                            && item.source_turn_id.is_none()
-                    });
+                let pending_overlay_index = thread.local_overlay_items.iter().position(|item| {
+                    item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
+                        && item.source_turn_id.is_none()
+                });
                 if let Some(item) = pending_overlay_index
                     .and_then(|index| thread.local_overlay_items.get_mut(index))
                 {
@@ -2254,8 +2301,7 @@ impl AppStoreReducer {
                         }
                         VoiceDerivedUpdate::HandoffRequest(request) => {
                             {
-                                let mut snapshot =
-                                    self.write_snapshot();
+                                let mut snapshot = self.write_snapshot();
                                 snapshot.voice_session.phase = Some(AppVoiceSessionPhase::Handoff);
                             }
                             self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
@@ -2266,8 +2312,7 @@ impl AppStoreReducer {
                         }
                         VoiceDerivedUpdate::SpeechStarted => {
                             {
-                                let mut snapshot =
-                                    self.write_snapshot();
+                                let mut snapshot = self.write_snapshot();
                                 snapshot.voice_session.phase =
                                     Some(AppVoiceSessionPhase::Listening);
                             }
@@ -3883,6 +3928,27 @@ mod tests {
     };
     use tokio::sync::broadcast::error::TryRecvError;
 
+    #[test]
+    fn session_page_state_distinguishes_unloaded_and_exhausted_and_notifies() {
+        let store = AppStoreReducer::new();
+        let runtime = "codex".to_string();
+        let mut updates = store.subscribe();
+        assert!(store.thread_page_state("srv", &runtime).is_none());
+        store.set_thread_page_state("srv", &runtime, Some("next".into()), true);
+        assert!(
+            matches!(updates.try_recv(), Ok(AppStoreUpdateRecord::ServerChanged { server_id }) if server_id == "srv")
+        );
+        let state = store.thread_page_state("srv", &runtime).unwrap();
+        assert_eq!(state.cursor.as_deref(), Some("next"));
+        assert!(state.has_more);
+        store.set_thread_page_state("srv", &runtime, None, false);
+        assert!(!store.thread_page_state("srv", &runtime).unwrap().has_more);
+        assert!(matches!(
+            updates.try_recv(),
+            Ok(AppStoreUpdateRecord::ServerChanged { .. })
+        ));
+    }
+
     fn make_thread_info(id: &str) -> ThreadInfo {
         ThreadInfo {
             id: id.to_string(),
@@ -3902,7 +3968,6 @@ mod tests {
             updated_at: None,
         }
     }
-
 
     // ── Derived-state cache invalidation ──────────────────────────────
     //
@@ -4186,7 +4251,10 @@ mod tests {
 
         let big = "x".repeat(200_000);
         let running = base(&big, AppOperationStatus::InProgress);
-        assert_eq!(item_fingerprint(&running), item_fingerprint(&running.clone()));
+        assert_eq!(
+            item_fingerprint(&running),
+            item_fingerprint(&running.clone())
+        );
 
         // Status change after a huge output body: same length, different
         // value — this is what the retained tail window is for.
@@ -5754,15 +5822,13 @@ mod tests {
             server_id: "srv".to_string(),
             thread_id: "thread".to_string(),
         };
-        let item = |id: &str, content: HydratedConversationItemContent| {
-            HydratedConversationItem {
-                id: id.to_string(),
-                content,
-                source_turn_id: None,
-                source_turn_index: None,
-                timestamp: None,
-                is_from_user_turn_boundary: false,
-            }
+        let item = |id: &str, content: HydratedConversationItemContent| HydratedConversationItem {
+            id: id.to_string(),
+            content,
+            source_turn_id: None,
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
         };
         let mut live = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
         live.items.push(item(
@@ -6203,7 +6269,8 @@ mod tests {
                 timestamp: None,
                 is_from_user_turn_boundary: false,
             },
-        ].into();
+        ]
+        .into();
         reducer.upsert_thread_snapshot(existing);
 
         let mut incoming = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
@@ -6234,7 +6301,8 @@ mod tests {
                 timestamp: None,
                 is_from_user_turn_boundary: false,
             },
-        ].into();
+        ]
+        .into();
 
         let mut receiver = reducer.subscribe();
         assert!(drain_updates(&mut receiver).is_empty());
@@ -6270,7 +6338,8 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
-        }].into();
+        }]
+        .into();
         reducer.upsert_thread_snapshot(existing);
 
         let mut incoming = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
@@ -6286,7 +6355,8 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
-        }].into();
+        }]
+        .into();
 
         let mut receiver = reducer.subscribe();
         assert!(drain_updates(&mut receiver).is_empty());

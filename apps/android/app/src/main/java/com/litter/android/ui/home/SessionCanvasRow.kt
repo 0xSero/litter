@@ -195,6 +195,8 @@ fun SessionCanvasRow(
                     }
                 }
 
+                Spacer(Modifier.height(4.dp))
+
                 // MetaLine is shown ONLY at zoom 2 (iOS `if zoomLevel == 2`).
                 // At zoom 3+, modelBadgeLine replaces it with the richer,
                 // single-line model/time/server row.

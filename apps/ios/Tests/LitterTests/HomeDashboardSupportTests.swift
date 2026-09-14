@@ -59,7 +59,7 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["pinned", "recent"])
     }
 
-    func testCodexPinsKeepExistingPinsOnlyBehavior() async {
+    func testCodexPinsRetainRecentSessions() async {
         let appModel = AppModel()
         let pinnedKey = SavedThreadsStore.PinnedKey(
             threadKey: ThreadKey(serverId: "codex", threadId: "pinned")
@@ -81,11 +81,11 @@ final class HomeDashboardSupportTests: XCTestCase {
                 activeThread: nil
             )
         )
-        await waitUntil("Codex keeps its existing pins-only home list") {
-            model.recentSessions.map(\.key.threadId) == ["pinned"]
+        await waitUntil("Codex keeps pinned and recent sessions") {
+            model.recentSessions.map(\.key.threadId) == ["pinned", "recent"]
         }
 
-        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["pinned"])
+        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["pinned", "recent"])
     }
 
     func testLocalStudioDoesNotShowFalseOpenAISignInWarning() {
@@ -537,7 +537,8 @@ final class HomeDashboardSupportTests: XCTestCase {
                 )
             ],
             connectionProgress: nil,
-            usageStats: nil
+            usageStats: nil,
+            sessionListHasMore: false
         )
     }
 

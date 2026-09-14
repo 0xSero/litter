@@ -557,19 +557,13 @@ async fn connect_bridge_runtime_via_ssh(
                         PiHydrator::with_sessions(Vec::new())
                     }
                 };
-            let builder = PiBridge::builder()
+            PiBridge::builder()
                 .agent_bin(bin)
                 .launcher(pi_launcher)
                 .codex_home(state_dir)
                 .pool_capacity(4)
                 .trust_persisted_cwd(true)
-                .hydrator(hydrator);
-            let builder = if kind == crate::local_studio::RUNTIME_KIND {
-                builder.model_provider_prefix(crate::local_studio::RUNTIME_KIND)
-            } else {
-                builder
-            };
-            builder
+                .hydrator(hydrator)
                 .build()
                 .await
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?

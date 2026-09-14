@@ -1459,7 +1459,11 @@ private struct HomeNavigationView: View {
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
-            onSearchThreads: loadSearchThreads
+            onLoadMore: { homeDashboardModel.loadMore() },
+            onRefreshSessions: { await homeDashboardModel.refreshAll() },
+            hasMoreSessions: homeDashboardModel.hasMoreSessions,
+            isLoadingMoreSessions: homeDashboardModel.isLoadingMoreSessions,
+            onSearchThreads: loadSearchThreads,
         )
     }
 
@@ -1505,7 +1509,11 @@ private struct HomeNavigationView: View {
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
-            onSearchThreads: loadSearchThreads
+            onLoadMore: { homeDashboardModel.loadMore() },
+            onRefreshSessions: { await homeDashboardModel.refreshAll() },
+            hasMoreSessions: homeDashboardModel.hasMoreSessions,
+            isLoadingMoreSessions: homeDashboardModel.isLoadingMoreSessions,
+            onSearchThreads: loadSearchThreads,
         )
     }
 
