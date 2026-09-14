@@ -2214,6 +2214,7 @@ mod mobile_client_tests {
                                 started_at: None,
                                 completed_at: None,
                                 duration_ms: None,
+                                items_view: upstream::TurnItemsView::default(),
                             },
                         })
                         .map_err(|error| RpcError::Deserialization(error.to_string()))

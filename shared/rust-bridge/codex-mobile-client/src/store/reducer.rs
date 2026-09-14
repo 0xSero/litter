@@ -789,7 +789,8 @@ impl AppStoreReducer {
             // entry can be read in place. Cloning it here duplicated every
             // item of the thread on every upsert just to read a handful of
             // preserved fields.
-            if let Some(existing) = snapshot.threads.get(&key) {
+            let existing = snapshot.threads.get(&key);
+            if let Some(existing) = existing {
                 preserve_thread_title(&existing.info, &mut thread.info);
                 preserve_thread_preview(&existing.info, &mut thread.info);
                 preserve_thread_created_at(&existing.info, &mut thread.info);
@@ -808,7 +809,7 @@ impl AppStoreReducer {
                     thread.items = existing.items.clone();
                 }
             }
-            restore_plan_implementation_prompt_from_history(&mut thread, existing.as_ref());
+            restore_plan_implementation_prompt_from_history(&mut thread, existing);
             if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
                 sync_thread_follow_up_projection(&mut thread);
             }
@@ -6527,78 +6528,6 @@ mod tests {
         assert_eq!(entry_a.item_id, "item-A");
         assert_eq!(entry_b.item_id, "item-B");
     }
-}
-
-fn appended_text_delta(existing: &str, projected: &str) -> Option<String> {
-    projected
-        .starts_with(existing)
-        .then(|| projected[existing.len()..].to_string())
-}
-
-fn appended_optional_text_delta(
-    existing: &Option<String>,
-    projected: &Option<String>,
-) -> Option<String> {
-    match (existing.as_deref(), projected.as_deref()) {
-        (None, None) => Some(String::new()),
-        (None, Some(projected)) => Some(projected.to_string()),
-        (Some(existing), Some(projected)) => appended_text_delta(existing, projected),
-        (Some(_), None) => None,
-    }
-}
-
-fn classify_item_mutation(
-    existing: Option<&HydratedConversationItem>,
-    item: &HydratedConversationItem,
-) -> Option<ItemMutationUpdate> {
-    let Some(existing) = existing else {
-        return Some(ItemMutationUpdate::Upsert(item.clone()));
-    };
-
-    match (&existing.content, &item.content) {
-        (
-            HydratedConversationItemContent::CommandExecution(existing_data),
-            HydratedConversationItemContent::CommandExecution(projected_data),
-        ) => {
-            if existing.id != item.id
-                || existing.source_turn_id != item.source_turn_id
-                || existing.source_turn_index != item.source_turn_index
-                || existing.timestamp != item.timestamp
-                || existing.is_from_user_turn_boundary != item.is_from_user_turn_boundary
-                || existing_data.command != projected_data.command
-                || existing_data.cwd != projected_data.cwd
-                || existing_data.actions != projected_data.actions
-            {
-                return Some(ItemMutationUpdate::Upsert(item.clone()));
-            }
-
-            let output_delta =
-                appended_optional_text_delta(&existing_data.output, &projected_data.output)?;
-            let status_changed = existing_data.status != projected_data.status
-                || existing_data.exit_code != projected_data.exit_code
-                || existing_data.duration_ms != projected_data.duration_ms
-                || existing_data.process_id != projected_data.process_id;
-            if output_delta.is_empty() && !status_changed {
-                None
-            } else {
-                Some(ItemMutationUpdate::Upsert(item.clone()))
-            }
-        }
-        _ if existing.content == item.content => None,
-        _ => Some(ItemMutationUpdate::Upsert(item.clone())),
-    }
-}
-
-fn format_model_reroute_reason(reason: &codex_app_server_protocol::ModelRerouteReason) -> String {
-    let raw = format!("{reason:?}");
-    let mut formatted = String::new();
-    for (index, ch) in raw.chars().enumerate() {
-        if index > 0 && ch.is_uppercase() {
-            formatted.push(' ');
-        }
-        formatted.push(ch);
-    }
-    formatted
 
     // Fork-added plan-mode persistence tests (issue #100).
 
@@ -6698,5 +6627,76 @@ fn format_model_reroute_reason(reason: &codex_app_server_protocol::ModelRerouteR
             None
         );
     }
+}
 
+fn appended_text_delta(existing: &str, projected: &str) -> Option<String> {
+    projected
+        .starts_with(existing)
+        .then(|| projected[existing.len()..].to_string())
+}
+
+fn appended_optional_text_delta(
+    existing: &Option<String>,
+    projected: &Option<String>,
+) -> Option<String> {
+    match (existing.as_deref(), projected.as_deref()) {
+        (None, None) => Some(String::new()),
+        (None, Some(projected)) => Some(projected.to_string()),
+        (Some(existing), Some(projected)) => appended_text_delta(existing, projected),
+        (Some(_), None) => None,
+    }
+}
+
+fn classify_item_mutation(
+    existing: Option<&HydratedConversationItem>,
+    item: &HydratedConversationItem,
+) -> Option<ItemMutationUpdate> {
+    let Some(existing) = existing else {
+        return Some(ItemMutationUpdate::Upsert(item.clone()));
+    };
+
+    match (&existing.content, &item.content) {
+        (
+            HydratedConversationItemContent::CommandExecution(existing_data),
+            HydratedConversationItemContent::CommandExecution(projected_data),
+        ) => {
+            if existing.id != item.id
+                || existing.source_turn_id != item.source_turn_id
+                || existing.source_turn_index != item.source_turn_index
+                || existing.timestamp != item.timestamp
+                || existing.is_from_user_turn_boundary != item.is_from_user_turn_boundary
+                || existing_data.command != projected_data.command
+                || existing_data.cwd != projected_data.cwd
+                || existing_data.actions != projected_data.actions
+            {
+                return Some(ItemMutationUpdate::Upsert(item.clone()));
+            }
+
+            let output_delta =
+                appended_optional_text_delta(&existing_data.output, &projected_data.output)?;
+            let status_changed = existing_data.status != projected_data.status
+                || existing_data.exit_code != projected_data.exit_code
+                || existing_data.duration_ms != projected_data.duration_ms
+                || existing_data.process_id != projected_data.process_id;
+            if output_delta.is_empty() && !status_changed {
+                None
+            } else {
+                Some(ItemMutationUpdate::Upsert(item.clone()))
+            }
+        }
+        _ if existing.content == item.content => None,
+        _ => Some(ItemMutationUpdate::Upsert(item.clone())),
+    }
+}
+
+fn format_model_reroute_reason(reason: &codex_app_server_protocol::ModelRerouteReason) -> String {
+    let raw = format!("{reason:?}");
+    let mut formatted = String::new();
+    for (index, ch) in raw.chars().enumerate() {
+        if index > 0 && ch.is_uppercase() {
+            formatted.push(' ');
+        }
+        formatted.push(ch);
+    }
+    formatted
 }

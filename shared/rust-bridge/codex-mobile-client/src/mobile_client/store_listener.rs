@@ -373,6 +373,7 @@ mod tests {
                 },
                 thread_id: key.thread_id.clone(),
                 turn_id: "turn-plan".to_string(),
+                completed_at_ms: 0,
             },
         };
 
