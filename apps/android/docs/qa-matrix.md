@@ -314,4 +314,6 @@ fragments when adding it. No Android execution was covered by this iOS change.
   is pending; compilation alone does not close this gate.
 - Home server/session projections are memoized by their actual inputs rather
   than the entire snapshot, avoiding repeated sorting on unrelated deltas.
+- Conversation rows use stable turn identities when earlier pages are inserted,
+  matching iOS. Verify the visible row and expansion state survive pagination.
 - App Store/Play release acceptance is tracked separately from build success.

@@ -204,6 +204,7 @@ if [ -n "${NEW_THREAD_ID:-}" ]; then
   TOOL_PROMPT="Use the shell tool exactly once to run this command: printf 'CODEX_FILE_OK\\n' > '$PROOF_FILE' && cat '$PROOF_FILE'. Do not use any other tool. After it succeeds, reply with exactly CODEX_TOOL_OK and nothing else."
   TOOL_PARAMS="$(python3 -c 'import json,sys; print(json.dumps({"threadId":sys.argv[1],"input":[{"type":"text","text":sys.argv[2]}]}))' "$NEW_THREAD_ID" "$TOOL_PROMPT")"
   "$BIN" probe --agent codex --wire websocket --method turn/start \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --params "$TOOL_PARAMS" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \
@@ -241,6 +242,7 @@ record_grep reconnect "$OUT_DIR/06-reattach.txt" \
 echo "[7/8] manual context compaction lifecycle"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   "$BIN" probe --agent codex --wire websocket --method thread/compact/start \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --until-method item/completed \
     --linger-secs 180 --timeout-secs 45 \
@@ -256,6 +258,7 @@ fi
 echo "[8/8] compacted session rehydrates and continues"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   "$BIN" probe --agent codex --wire websocket --method turn/start \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --params "{\"threadId\":\"$NEW_THREAD_ID\",\"input\":[{\"type\":\"text\",\"text\":\"Reply with exactly CODEX_POST_COMPACTION_OK and nothing else.\"}]}" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \

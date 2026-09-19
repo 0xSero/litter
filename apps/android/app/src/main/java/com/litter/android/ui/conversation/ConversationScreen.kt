@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -496,10 +495,10 @@ fun ConversationScreen(
                             }
                         }
 
-                        itemsIndexed(
+                        items(
                             items = displayedTurns,
-                            key = { index, turn -> "${turn.id}#$index" },
-                        ) { _, turn ->
+                            key = { turn -> turn.id },
+                        ) { turn ->
                             val isExpanded = !turn.isCollapsedByDefault || expandedTurnIds.contains(turn.id)
                             val streamingAssistantItemId = remember(turn.items, turn.isActiveTurn) {
                                 if (!turn.isActiveTurn) {
