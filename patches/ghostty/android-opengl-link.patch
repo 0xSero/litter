@@ -1,0 +1,84 @@
+diff --git a/pkg/android-ndk/build.zig b/pkg/android-ndk/build.zig
+--- a/pkg/android-ndk/build.zig
++++ b/pkg/android-ndk/build.zig
+@@ -27,6 +27,7 @@
+             libc: std.Build.LazyPath,
+             cpp_include: std.Build.LazyPath,
+             lib: std.Build.LazyPath,
++            api_lib: std.Build.LazyPath,
+         }) = .empty;
+     };
+ 
+@@ -106,6 +107,7 @@
+             .libc = libc_path,
+             .cpp_include = .{ .cwd_relative = cpp_include },
+             .lib = .{ .cwd_relative = lib },
++            .api_lib = .{ .cwd_relative = c_runtime_dir },
+         };
+     }
+ 
+@@ -114,6 +116,7 @@
+     step.setLibCFile(value.libc);
+     step.root_module.addSystemIncludePath(value.cpp_include);
+     step.root_module.addLibraryPath(value.lib);
++    step.root_module.addLibraryPath(value.api_lib);
+ }
+ 
+ pub fn addTranslateCPaths(b: *std.Build, step: *std.Build.Step.TranslateC) !void {
+diff --git a/pkg/dcimgui/ext.cpp b/pkg/dcimgui/ext.cpp
+--- a/pkg/dcimgui/ext.cpp
++++ b/pkg/dcimgui/ext.cpp
+@@ -39,12 +39,16 @@
+ #if __has_include("backends/imgui_impl_opengl3.h")
+ #ifdef ZIGPKG_IMGUI_ENABLE_OPENGL3
+ #include "backends/imgui_impl_opengl3.h"
++#ifndef __ANDROID__
+ #include "backends/imgui_impl_opengl3_loader.h"
++#endif
+ 
+ CIMGUI_API void ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup()
+ {
+     ::ImGui_ImplOpenGL3_Shutdown();
++#ifndef __ANDROID__
+     memset(&imgl3wProcs, 0, sizeof(imgl3wProcs));
++#endif
+ }
+ #endif // ZIGPKG_IMGUI_ENABLE_OPENGL3
+ #endif // __has_include("backends/imgui_impl_opengl3.h")
+diff --git a/src/build/GhosttyLib.zig b/src/build/GhosttyLib.zig
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -93,6 +93,8 @@
+     _ = try deps.add(lib);
+     if (lib.rootModuleTarget().abi.isAndroid()) {
+         try @import("android_ndk").addPaths(b, lib);
++        lib.linkSystemLibrary("EGL");
++        lib.linkSystemLibrary("GLESv3");
+     }
+ 
+     // On Windows with MSVC, building a DLL requires the full CRT library
+diff --git a/src/build/SharedDeps.zig b/src/build/SharedDeps.zig
+--- a/src/build/SharedDeps.zig
++++ b/src/build/SharedDeps.zig
+@@ -594,15 +594,17 @@
+         }
+     }
+ 
+-    // If we're building an exe then we have additional dependencies.
+-    if (step.kind != .lib) {
+-        // We always statically compile glad
++    // Android's embedded OpenGL renderer also needs its GL loader bundled.
++    if (step.kind != .lib or step.rootModuleTarget().abi.isAndroid()) {
+         step.addIncludePath(b.path("vendor/glad/include/"));
+         step.addCSourceFile(.{
+             .file = b.path("vendor/glad/src/gl.c"),
+             .flags = &.{},
+         });
+-
++    }
++
++    // If we're building an exe then we have additional dependencies.
++    if (step.kind != .lib) {
+         // When we're targeting flatpak we ALWAYS link GTK so we
+         // get access to glib for dbus.
+         if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
