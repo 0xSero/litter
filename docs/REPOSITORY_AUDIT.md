@@ -14,16 +14,22 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-For 2.1.1 the production dependency is `0xSero/alleycat@7710c7a`, a
-single headless-launch fix on top of the previously shipping
+For 2.1.1 the production dependency is `0xSero/alleycat@4ec496c`, two
+headless-launch fixes on top of the previously shipping
 `makyinmars/alleycat@5dd425f`. It preserves that complete production lineage;
 it does not substitute the divergent Alleycat `main` branch.
 
 The new default avoids interactive login-shell startup during background
 agent launches. Shell-provided variables must be present in the daemon's
 inherited environment; project `mise`/`direnv` providers remain supported.
-Bridge-core tests pass, including a subprocess test that fails under the old
-default. Installed-daemon and both mobile release acceptance remain required.
+Bundled Local Studio Pi now uses a plain Node executable instead of the desktop
+Electron executable, which registered foreground Dock apps even in Node mode.
+If Node is absent, the bundled runtime is unavailable. Host tests pass (96),
+including a regression test verified against the old launcher. The installed
+0.3.9 daemon was restarted without runtime overrides on macOS: all six Pi
+workers registered as BackgroundOnly through Node, while the user's existing
+Local Studio window stayed running. Both mobile release acceptance checks
+remain required.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
 bindings, and both mobile runtimes are verified.
