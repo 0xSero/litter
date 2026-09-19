@@ -113,7 +113,7 @@ jobs:
         with:
           path: |
             shared/rust-bridge/generated
-          key: mobile-bindings-${{ runner.os }}-${{ hashFiles('apps/ios/scripts/sync-codex.sh', 'shared/rust-bridge/generate-bindings.sh', 'shared/rust-bridge/Cargo.toml', 'shared/rust-bridge/Cargo.lock', 'shared/rust-bridge/codex-mobile-client/src/**', 'shared/rust-bridge/uniffi-bindgen/**', 'patches/codex/**', 'shared/third_party/codex/codex-rs/app-server-protocol/src/protocol/**', 'shared/third_party/codex/codex-rs/protocol/src/**') }}
+          key: mobile-bindings-kotlin-${{ runner.os }}-${{ hashFiles('apps/ios/scripts/sync-codex.sh', 'shared/rust-bridge/generate-bindings.sh', 'shared/rust-bridge/Cargo.toml', 'shared/rust-bridge/Cargo.lock', 'shared/rust-bridge/codex-mobile-client/src/**', 'shared/rust-bridge/uniffi-bindgen/**', 'patches/codex/**', 'shared/third_party/codex/codex-rs/app-server-protocol/src/protocol/**', 'shared/third_party/codex/codex-rs/protocol/src/**') }}
 
       - name: Generate shared mobile bindings
         if: steps.mobile-bindings-cache.outputs.cache-hit != 'true'

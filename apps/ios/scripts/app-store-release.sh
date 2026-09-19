@@ -55,15 +55,13 @@ echo "==> Using build $BUILD_ID (version $MARKETING_VERSION, build $BUILD_NUMBER
 VERSION_ID="$(resolve_app_store_version_id "$APP_STORE_APP_ID" "$MARKETING_VERSION")"
 if [[ -z "$VERSION_ID" ]]; then
     echo "==> Creating App Store version $MARKETING_VERSION"
-    VERSION_ID="$(
-        asc versions create \
-            --app "$APP_STORE_APP_ID" \
-            --version "$MARKETING_VERSION" \
-            --platform IOS \
-            --release-type AFTER_APPROVAL \
-            --output json |
-            jq -r '.data.id // empty'
-    )"
+    asc versions create \
+        --app "$APP_STORE_APP_ID" \
+        --version "$MARKETING_VERSION" \
+        --platform IOS \
+        --release-type AFTER_APPROVAL \
+        --output json >"$BUILD_DIR/version_created.json"
+    VERSION_ID="$(resolve_app_store_version_id "$APP_STORE_APP_ID" "$MARKETING_VERSION")"
 else
     echo "==> Reusing App Store version $MARKETING_VERSION ($VERSION_ID)"
     asc versions update \
@@ -80,18 +78,17 @@ fi
 mkdir -p "$FASTLANE_METADATA_DIR/screenshots"
 
 echo "==> Importing repo-managed App Store metadata"
-if ! asc migrate import \
+asc migrate import \
     --app "$APP_STORE_APP_ID" \
     --version-id "$VERSION_ID" \
     --fastlane-dir "$FASTLANE_METADATA_DIR" \
-    --output json >/dev/null 2>&1; then
-    echo "    (metadata import skipped — version may already be locked)"
-fi
+    --confirm \
+    --output json >"$BUILD_DIR/metadata_import.json"
 
 echo "==> Attaching build $BUILD_ID to version $VERSION_ID"
 asc versions attach-build \
     --version-id "$VERSION_ID" \
-    --build "$BUILD_ID" \
+    --build-id "$BUILD_ID" \
     --output json >/dev/null
 
 echo "==> Completing current App Store age-rating fields"

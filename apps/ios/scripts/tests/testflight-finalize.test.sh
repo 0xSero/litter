@@ -62,6 +62,8 @@ case "$1:$2:${3:-}" in
         printf '%s\n' '{"data":[]}'
         ;;
     validate:testflight:--app)
+        [[ " $* " == *" --build-id build-1 "* ]]
+        [[ " $* " != *" --build "* ]]
         printf '%s\n' '{"valid":true}'
         ;;
     testflight:review:submissions)

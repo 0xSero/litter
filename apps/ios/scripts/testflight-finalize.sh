@@ -245,7 +245,7 @@ fi
 echo "==> Validating TestFlight readiness"
 asc validate testflight \
     --app "$APP_STORE_APP_ID" \
-    --build "$BUILD_ID" \
+    --build-id "$BUILD_ID" \
     --strict \
     --output table
 
