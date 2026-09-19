@@ -502,7 +502,7 @@ fun DiscoveryScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ChooserCard(
                 title = "Pair with kittylitter",
-                subtitle = "Run npx kittylitter on the host, then scan the QR code it prints.",
+                subtitle = "Install Kittylitter on your computer, then scan its QR code.",
                 badge = "RECOMMENDED",
                 icon = Icons.Default.QrCodeScanner,
                 supportedAgents = KittylitterAgents,

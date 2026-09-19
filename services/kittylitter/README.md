@@ -1,6 +1,17 @@
 # kittylitter
 
-Distribution wrapper for the [alleycat](https://github.com/makyinmars/alleycat) daemon. Ships the daemon to npm, Homebrew, and the platform installer scripts under the kittylitter brand.
+Distribution wrapper for the [alleycat](https://github.com/0xSero/alleycat) daemon.
+
+Install and pair the current host release:
+
+```sh
+npx --yes https://github.com/0xSero/litter/releases/download/v0.3.8/kittylitter-npm-package.tar.gz
+```
+
+The GitHub release package supports the same platforms as the npm wrapper.
+Registry publishing currently fails because the `kittylitter` npm package is
+owned by another account; `npx kittylitter` still resolves the older 0.3.4 release.
+Use the pinned GitHub package above to receive the headless startup fix.
 
 The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylitter")`. All daemon behavior lives in the alleycat crate; this crate exists so cargo-dist sees a `kittylitter` package name and produces correctly-named artifacts (`kittylitter-installer.sh`, `kittylitter.rb`, `kittylitter` on npm).
 

@@ -320,7 +320,7 @@ fun AlleycatAddServerSheet(
             text = if (pairingMode == AlleycatPairingMode.LocalStudio) {
                 "In Local Studio, open Profile → Phone connection. Scan its QR code or paste Copy connection JSON."
             } else {
-                "Run npx kittylitter on the host, then scan its QR code or paste the JSON it prints."
+                "Run Kittylitter on the host, then scan its QR code or paste the JSON it prints. The scanner includes an installation command you can copy."
             },
             color = LitterTheme.textSecondary,
             fontSize = 12.sp,
@@ -685,7 +685,7 @@ fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.JSONL -> "jsonl"
 }
 
-private const val PAIR_COMMAND = "npx kittylitter"
+private const val PAIR_COMMAND = "npx --yes https://github.com/0xSero/litter/releases/download/v0.3.8/kittylitter-npm-package.tar.gz"
 
 @Composable
 private fun QrScannerScreen(
