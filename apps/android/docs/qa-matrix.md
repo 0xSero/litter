@@ -310,6 +310,9 @@ fragments when adding it. No Android execution was covered by this iOS change.
   path discovery remains covered. Real SSH and Kittylitter device acceptance
   is pending.
 - Android Ghostty selects epoll directly to avoid seccomp's fatal io_uring
+- Android Ghostty now bundles GLAD and explicitly links EGL/GLESv3. Verify the
+  native library actually loads: the older 2.1.0 APK fell back to text output
+  after an unresolved `imgl3wProcs` symbol, masking native renderer failures.
   probe (#354). Terminal open/input/close/reopen acceptance on Android hardware
   is pending; compilation alone does not close this gate.
 - Home server/session projections are memoized by their actual inputs rather

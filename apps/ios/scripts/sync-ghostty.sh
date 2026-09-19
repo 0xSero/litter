@@ -21,6 +21,7 @@ PATCH_DIR="$REPO_DIR/patches/ghostty"
 PATCH_FILES=(
     "$PATCH_DIR/litter-mobile-embed.patch"
     "$PATCH_DIR/android-epoll.patch"
+    "$PATCH_DIR/android-opengl-link.patch"
 )
 
 SYNC_MODE="${1:---preserve-current}"
