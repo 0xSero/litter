@@ -15,7 +15,8 @@ if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; t
 fi
 
 git fetch --no-tags --no-recurse-submodules origin "refs/tags/$tag:refs/tags/$tag"
-if git diff --quiet "$tag" -- services/kittylitter; then
+# Installation documentation can change without republishing the host binary.
+if git diff --quiet "$tag" -- services/kittylitter ':!services/kittylitter/README.md'; then
   exit 0
 fi
 
