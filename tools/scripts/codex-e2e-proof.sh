@@ -20,6 +20,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${1:-$REPO_DIR/artifacts/codex-e2e}"
 BIN="${KITTYLITTER_BIN:-$REPO_DIR/.build-stamps/kittylitter-dev/target/debug/kittylitter}"
 PROOF_CWD="${CODEX_PROOF_CWD:-$REPO_DIR}"
+PROOF_CONFIG='{"allow_login_shell":false,"features.shell_snapshot":false}'
 ASSERT="$REPO_DIR/tools/scripts/assert-local-studio-proof.py"
 RUN_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 
@@ -77,7 +78,7 @@ record availability "$OUT_DIR/01-availability.json" \
 
 echo "[2/8] start session + streaming lifecycle"
 "$BIN" probe --agent codex --wire websocket \
-  --start-thread-params "{\"cwd\":\"$PROOF_CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\"}" \
+  --start-thread-params "{\"cwd\":\"$PROOF_CWD\",\"approvalPolicy\":\"never\",\"sandbox\":\"danger-full-access\",\"config\":$PROOF_CONFIG}" \
   --method turn/start \
   --params '{"input":[{"type":"text","text":"Reply with exactly CODEX_START_OK and nothing else."}]}' \
   --until-method turn/completed \
@@ -201,10 +202,10 @@ echo "[5/8] tool/file creation and event ordering"
 PROOF_FILE="$OUT_DIR/runtime-file.txt"
 rm -f "$PROOF_FILE"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
-  TOOL_PROMPT="Use the shell tool exactly once to run this command: printf 'CODEX_FILE_OK\\n' > '$PROOF_FILE' && cat '$PROOF_FILE'. Do not use any other tool. After it succeeds, reply with exactly CODEX_TOOL_OK and nothing else."
+  TOOL_PROMPT="Run this shell command: printf 'CODEX_FILE_OK\\n' > '$PROOF_FILE' && cat '$PROOF_FILE'. If it is still running, wait for completion using the tool's session handle. After it succeeds, reply with exactly CODEX_TOOL_OK and nothing else."
   TOOL_PARAMS="$(python3 -c 'import json,sys; print(json.dumps({"threadId":sys.argv[1],"input":[{"type":"text","text":sys.argv[2]}]}))' "$NEW_THREAD_ID" "$TOOL_PROMPT")"
   "$BIN" probe --agent codex --wire websocket --method turn/start \
-    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\",\"config\":$PROOF_CONFIG}" \
     --params "$TOOL_PARAMS" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \
@@ -242,7 +243,7 @@ record_grep reconnect "$OUT_DIR/06-reattach.txt" \
 echo "[7/8] manual context compaction lifecycle"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   "$BIN" probe --agent codex --wire websocket --method thread/compact/start \
-    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\",\"config\":$PROOF_CONFIG}" \
     --params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
     --until-method item/completed \
     --linger-secs 180 --timeout-secs 45 \
@@ -258,7 +259,7 @@ fi
 echo "[8/8] compacted session rehydrates and continues"
 if [ -n "${NEW_THREAD_ID:-}" ]; then
   "$BIN" probe --agent codex --wire websocket --method turn/start \
-    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\"}" \
+    --before-method thread/resume --before-params "{\"threadId\":\"$NEW_THREAD_ID\",\"config\":$PROOF_CONFIG}" \
     --params "{\"threadId\":\"$NEW_THREAD_ID\",\"input\":[{\"type\":\"text\",\"text\":\"Reply with exactly CODEX_POST_COMPACTION_OK and nothing else.\"}]}" \
     --until-method turn/completed \
     --linger-secs 120 --timeout-secs 45 \

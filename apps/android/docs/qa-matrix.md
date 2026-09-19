@@ -316,4 +316,7 @@ fragments when adding it. No Android execution was covered by this iOS change.
   than the entire snapshot, avoiding repeated sorting on unrelated deltas.
 - Conversation rows use stable turn identities when earlier pages are inserted,
   matching iOS. Verify the visible row and expansion state survive pagination.
+- Both platforms set Codex thread start/resume/fork configuration to disable
+  login-shell tools and shell snapshots; shared Rust regression tests cover the
+  three operations and preservation of unrelated settings and other runtimes.
 - App Store/Play release acceptance is tracked separately from build success.

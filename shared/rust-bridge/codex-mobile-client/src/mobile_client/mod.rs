@@ -1212,6 +1212,21 @@ impl MobileClient {
         runtime_kind: AgentRuntimeKind,
         request: &mut upstream::ClientRequest,
     ) {
+        if runtime_kind == "codex" {
+            let config = match request {
+                upstream::ClientRequest::ThreadStart { params, .. } => Some(&mut params.config),
+                upstream::ClientRequest::ThreadResume { params, .. } => Some(&mut params.config),
+                upstream::ClientRequest::ThreadFork { params, .. } => Some(&mut params.config),
+                _ => None,
+            };
+            if let Some(config) = config {
+                // Background mobile work must not execute desktop login hooks,
+                // either for each tool command or while capturing a shell snapshot.
+                let config = config.get_or_insert_with(Default::default);
+                config.insert("allow_login_shell".into(), serde_json::json!(false));
+                config.insert("features.shell_snapshot".into(), serde_json::json!(false));
+            }
+        }
         let supports_permission_overrides =
             self.runtime_supports_thread_permission_overrides(&runtime_kind);
         let defaults_to_full_access = runtime_kind == "pi" || runtime_kind == "local-studio";
