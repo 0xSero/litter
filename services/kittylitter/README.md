@@ -5,7 +5,7 @@ Distribution wrapper for the [alleycat](https://github.com/0xSero/alleycat) daem
 Install and pair the current host release:
 
 ```sh
-npx --yes https://github.com/0xSero/litter/releases/download/v0.3.8/kittylitter-npm-package.tar.gz
+npx --yes https://github.com/0xSero/litter/releases/download/v0.3.9/kittylitter-npm-package.tar.gz
 ```
 
 The GitHub release package supports the same platforms as the npm wrapper.
@@ -41,3 +41,8 @@ Background agent launches inherit the daemon environment and apply configured
 project environment providers. They do not execute an interactive login shell
 by default. Make required tools available on the daemon PATH before launching
 it; restarting the daemon picks up changed environment variables.
+
+Local Studio's bundled Pi runs through `node` on the daemon PATH. The host never
+uses the desktop Electron executable for that background runtime, even in
+Electron's Node mode. If Node is unavailable, bundled Pi discovery fails closed;
+install Node and restart the daemon to enable it.
