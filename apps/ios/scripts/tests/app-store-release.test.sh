@@ -27,7 +27,7 @@ case "$1:$2" in
     versions:update) echo '{}' ;;
     migrate:import)
         [[ " $* " == *" --confirm "* ]]
-        [[ "${MOCK_IMPORT_FAIL:-0}" != 1 ]]
+        if [[ "${MOCK_IMPORT_FAIL:-0}" == 1 ]]; then exit 1; fi
         echo '{}' ;;
     versions:attach-build)
         [[ " $* " == *" --build-id build-1 "* ]]
