@@ -302,3 +302,16 @@ must be tappable, existing Markdown links must remain valid, and code must
 remain literal. The per-link copy action is an Android follow-up; verify URL
 deduplication, the five-link cap, and distinct labels for ports, queries, and
 fragments when adding it. No Android execution was covered by this iOS change.
+
+## 2.1.1 stability candidate
+
+- Shared SSH setup now discovers tool directories without executing login/rc
+  scripts. Regression fixture verifies no shell startup side effects; Nix
+  path discovery remains covered. Real SSH and Kittylitter device acceptance
+  is pending.
+- Android Ghostty selects epoll directly to avoid seccomp's fatal io_uring
+  probe (#354). Terminal open/input/close/reopen acceptance on Android hardware
+  is pending; compilation alone does not close this gate.
+- Home server/session projections are memoized by their actual inputs rather
+  than the entire snapshot, avoiding repeated sorting on unrelated deltas.
+- App Store/Play release acceptance is tracked separately from build success.

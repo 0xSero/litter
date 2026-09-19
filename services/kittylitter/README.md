@@ -17,3 +17,16 @@ The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylit
    triggers `auto-release.yml`, which dispatches the release workflow for an
    unpublished version. Preparing these changes on an unmerged PR does not
    publish a release.
+
+## Mobile release status
+
+The `v0.x` releases here contain the host daemon. They do not publish Litter
+Android or iOS. See the [Android release guide](../../apps/android/docs/release-automation.md),
+[Android Play workflow](https://github.com/0xSero/litter/actions/workflows/android-play-release.yml),
+and [iOS release workflow](https://github.com/0xSero/litter/actions/workflows/ios-app-store-release.yml)
+for the matching mobile source/build and submission status.
+
+Background agent launches inherit the daemon environment and apply configured
+project environment providers. They do not execute an interactive login shell
+by default. Make required tools available on the daemon PATH before launching
+it; restarting the daemon picks up changed environment variables.

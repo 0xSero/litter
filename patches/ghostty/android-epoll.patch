@@ -1,0 +1,18 @@
+diff --git a/src/global.zig b/src/global.zig
+index 29eaf5f..94e8bcb 100644
+--- a/src/global.zig
++++ b/src/global.zig
+@@ -14,7 +14,12 @@ const apprt = @import("apprt.zig");
+ /// We export the xev backend we want to use so that the rest of
+ /// Ghostty can import this once and have access to the proper
+ /// backend.
+-pub const xev = @import("xev").Dynamic;
++// Android kills the process on io_uring_setup; runtime probing cannot
++// recover from SIGSYS. Select epoll without attempting the blocked syscall.
++pub const xev = if (builtin.target.abi.isAndroid())
++    @import("xev").Epoll
++else
++    @import("xev").Dynamic;
+
+ /// Global process state. This is initialized in main() for exe artifacts
+ /// and by ghostty_init() for lib artifacts. This should ONLY be used by

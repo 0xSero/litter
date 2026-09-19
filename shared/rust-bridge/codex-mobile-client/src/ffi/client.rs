@@ -1151,7 +1151,15 @@ impl AppClient {
                         }
                         Ok::<_, ClientError>(models)
                     };
+                    let started = std::time::Instant::now();
                     let result = tokio::time::timeout(MODEL_LIST_RUNTIME_TIMEOUT, fetch).await;
+                    tracing::info!(
+                        operation = "model_list",
+                        runtime_kind = %runtime_kind,
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        success = matches!(&result, Ok(Ok(_))),
+                        "mobile request timing"
+                    );
                     (runtime_kind, result)
                 }
             });

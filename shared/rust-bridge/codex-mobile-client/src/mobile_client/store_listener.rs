@@ -74,9 +74,7 @@ fn maybe_reconcile_idle_thread(
             }
 
             let runtime_kind = app_store
-                .snapshot()
-                .threads
-                .get(&key)
+                .thread_snapshot(&key)
                 .map(|thread| thread.agent_runtime_kind.clone())
                 .unwrap_or_else(|| "codex".to_string());
             match read_thread_response_from_app_server_runtime(

@@ -1,7 +1,7 @@
-# Import the login environment into the POSIX shell used by Litter's SSH
-# commands. The command executor remains `/usr/bin/env sh`; a user's fish or
-# zsh configuration is only consulted for PATH discovery and never asked to
-# interpret Litter's generated scripts.
+# Resolve background SSH tools without executing user startup files. Sourcing
+# shell profiles (even in a subshell) can open desktop terminals and repeat
+# expensive interactive initialization for every RPC. Preserve the inherited
+# PATH and add known installation directories; generated commands run under sh.
 _litter_path_prepend() {
   [ -n "$1" ] || return 0
   case ":${PATH:-}:" in
@@ -9,31 +9,6 @@ _litter_path_prepend() {
     *) [ -d "$1" ] && PATH="$1${PATH:+:$PATH}" ;;
   esac
 }
-
-_litter_import_posix_profile() {
-  [ -f "$1" ] || return 0
-  _litter_candidate_path="$(
-    (
-      # Profiles belong to the remote user and may contain shell-specific
-      # syntax. Keep failures and side effects inside this subshell.
-      # shellcheck disable=SC1090
-      . "$1" >/dev/null 2>&1
-      printf '%s\n' "${PATH:-}"
-    ) 2>/dev/null | tail -n 1
-  )"
-  [ -n "$_litter_candidate_path" ] && PATH="$_litter_candidate_path"
-}
-
-for _litter_profile in \
-  "$HOME/.zshenv" \
-  "$HOME/.profile" \
-  "$HOME/.bash_profile" \
-  "$HOME/.bashrc" \
-  "$HOME/.zprofile" \
-  "$HOME/.zshrc"
-do
-  _litter_import_posix_profile "$_litter_profile"
-done
 
 # NixOS and `nix profile` installs commonly place user and system programs in
 # these directories without mentioning them in a POSIX profile.
@@ -45,35 +20,6 @@ _litter_add_nix_paths() {
   _litter_path_prepend "/run/current-system/sw/bin"
   _litter_path_prepend "/run/wrappers/bin"
 }
-_litter_add_nix_paths
-
-# Fish configuration cannot be sourced by sh. When fish is the account's
-# selected login shell, start it only long enough to read its normal startup
-# files and emit its exported PATH between sentinels. Config-file chatter is
-# ignored, and Litter's generated commands continue to execute under sh.
-_litter_login_shell="${SHELL:-}"
-case "$_litter_login_shell" in
-  fish)
-    _litter_login_shell="$(command -v fish 2>/dev/null || true)"
-    ;;
-esac
-case "$_litter_login_shell" in
-  */fish)
-    if [ -x "$_litter_login_shell" ]; then
-      _litter_fish_path="$(
-        "$_litter_login_shell" --login --command \
-          'printf "__litter_path_start__%s__litter_path_end__\n" "$PATH"' \
-          2>/dev/null |
-          sed -n 's/^__litter_path_start__\(.*\)__litter_path_end__$/\1/p' |
-          tail -n 1
-      )"
-      [ -n "$_litter_fish_path" ] && PATH="$_litter_fish_path"
-    fi
-    ;;
-esac
-
-# A fish config can replace PATH rather than extend it. Restore any existing
-# Nix profile directories without duplicating entries.
 _litter_add_nix_paths
 
 _litter_path_prepend "$NVM_BIN"
