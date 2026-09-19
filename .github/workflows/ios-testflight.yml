@@ -146,12 +146,16 @@ jobs:
       - name: Prepare iOS release assets
         env:
           CARGO_INCREMENTAL: "0"
+          # The host library is only used to extract UniFFI metadata here.
+          # Keep full debug symbols out of the release runner's disk budget.
+          CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_BUILD_JOBS: "1"
           IOS_RUST_PROFILE: mobile-release
         run: |
           set -euo pipefail
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
-          trap 'status=$?; if command -v sccache >/dev/null 2>&1; then echo "==> sccache stats"; sccache --show-stats || true; fi; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          trap 'status=$?; df -h .; if command -v sccache >/dev/null 2>&1; then echo "==> sccache stats"; sccache --show-stats || true; fi; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          df -h .
           if command -v sccache >/dev/null 2>&1; then sccache --zero-stats || true; fi
           ./apps/ios/scripts/build-rust.sh --preserve-current --device-only
           make alpine-fs
