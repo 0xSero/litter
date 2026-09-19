@@ -78,12 +78,15 @@ fi
 mkdir -p "$FASTLANE_METADATA_DIR/screenshots"
 
 echo "==> Importing repo-managed App Store metadata"
-asc migrate import \
+if ! asc migrate import \
     --app "$APP_STORE_APP_ID" \
     --version-id "$VERSION_ID" \
     --fastlane-dir "$FASTLANE_METADATA_DIR" \
     --confirm \
-    --output json >"$BUILD_DIR/metadata_import.json"
+    --output json >"$BUILD_DIR/metadata_import.json"; then
+    echo "App Store metadata import failed; refusing to submit." >&2
+    exit 1
+fi
 
 echo "==> Attaching build $BUILD_ID to version $VERSION_ID"
 asc versions attach-build \
