@@ -655,6 +655,60 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn codex_mobile_threads_disable_login_hooks_without_changing_other_settings() {
+        let client = MobileClient::new();
+        for runtime in ["codex", "pi", "local-studio", "claude"] {
+            let config = Some(std::collections::HashMap::from([
+                ("allow_login_shell".into(), serde_json::json!(true)),
+                ("features.shell_snapshot".into(), serde_json::json!(true)),
+                ("model_reasoning_effort".into(), serde_json::json!("high")),
+            ]));
+            let mut requests = [
+                upstream::ClientRequest::ThreadStart {
+                    request_id: upstream::RequestId::Integer(1),
+                    params: upstream::ThreadStartParams {
+                        config: config.clone(),
+                        ..Default::default()
+                    },
+                },
+                upstream::ClientRequest::ThreadResume {
+                    request_id: upstream::RequestId::Integer(2),
+                    params: upstream::ThreadResumeParams {
+                        config: config.clone(),
+                        ..Default::default()
+                    },
+                },
+                upstream::ClientRequest::ThreadFork {
+                    request_id: upstream::RequestId::Integer(3),
+                    params: upstream::ThreadForkParams {
+                        config: config.clone(),
+                        ..Default::default()
+                    },
+                },
+            ];
+            for request in &mut requests {
+                client.normalize_model_selection_for_request("srv", runtime.into(), request);
+                let config = match request {
+                    upstream::ClientRequest::ThreadStart { params, .. } => params.config.as_ref(),
+                    upstream::ClientRequest::ThreadResume { params, .. } => params.config.as_ref(),
+                    upstream::ClientRequest::ThreadFork { params, .. } => params.config.as_ref(),
+                    _ => unreachable!(),
+                }
+                .unwrap();
+                assert_eq!(
+                    config["allow_login_shell"],
+                    serde_json::json!(runtime != "codex")
+                );
+                assert_eq!(
+                    config["features.shell_snapshot"],
+                    serde_json::json!(runtime != "codex")
+                );
+                assert_eq!(config["model_reasoning_effort"], serde_json::json!("high"));
+            }
+        }
+    }
+
+    #[test]
     fn codex_permission_overrides_remain_unchanged() {
         let client = MobileClient::new();
         let mut request = upstream::ClientRequest::ThreadStart {
@@ -676,6 +730,10 @@ mod mobile_client_tests {
             Some(upstream::AskForApproval::OnRequest)
         );
         assert_eq!(params.sandbox, Some(upstream::SandboxMode::WorkspaceWrite));
+        assert_eq!(
+            params.config.unwrap()["allow_login_shell"],
+            serde_json::json!(false)
+        );
     }
 
     #[test]
