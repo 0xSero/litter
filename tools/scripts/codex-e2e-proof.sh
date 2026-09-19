@@ -25,6 +25,7 @@ ASSERT="$REPO_DIR/tools/scripts/assert-local-studio-proof.py"
 RUN_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 
 mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 if [ ! -x "$BIN" ]; then
   echo "error: kittylitter binary not found at $BIN" >&2
