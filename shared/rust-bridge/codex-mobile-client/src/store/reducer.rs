@@ -3883,6 +3883,36 @@ mod tests {
     };
     use tokio::sync::broadcast::error::TryRecvError;
 
+    #[test]
+    #[ignore = "manual performance measurement; prints scoped versus global snapshot cost"]
+    fn benchmark_scoped_thread_snapshot() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let store = AppStoreReducer::new();
+        for i in 0..1000 {
+            let mut info = make_thread_info(&format!("thread-{i}"));
+            info.title = Some("large session title ".repeat(50));
+            store.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", info));
+        }
+        let key = ThreadKey {
+            server_id: "srv".into(),
+            thread_id: "thread-500".into(),
+        };
+        let start = Instant::now();
+        for _ in 0..200 {
+            black_box(store.snapshot().threads.get(&key).cloned().unwrap());
+        }
+        let global_us = start.elapsed().as_micros();
+        let start = Instant::now();
+        for _ in 0..200 {
+            black_box(store.thread_snapshot(&key).unwrap());
+        }
+        let scoped_us = start.elapsed().as_micros();
+        assert_eq!(store.thread_snapshot(&key).unwrap().info.id, key.thread_id);
+        println!("snapshot benchmark: threads=1000 reads=200 global_us={global_us} scoped_us={scoped_us}");
+    }
+
     fn make_thread_info(id: &str) -> ThreadInfo {
         ThreadInfo {
             id: id.to_string(),

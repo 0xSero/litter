@@ -65,8 +65,11 @@ app.
      'command -v codex || command -v codex-app-server'
    ```
 
-   If the second command prints nothing, install Codex and/or fix shell PATH
-   startup files.
+   If the second command prints nothing, install Codex in a standard tool directory or expose it in the SSH
+   session PATH. Background setup does not execute shell startup files: those
+   can open desktop windows or block on interactive prompts. User-local
+   `.local/bin`, Cargo, Bun, Node managers, Homebrew and Nix paths are
+   discovered directly.
 
 3. Connect from the Litter app.
 

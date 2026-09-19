@@ -182,19 +182,6 @@ fn test_bootstrap_result_clone() {
 }
 
 #[test]
-fn test_profile_init_sources_common_files() {
-    // Verify the profile init string references the expected shell config files.
-    assert!(PROFILE_INIT.contains(".profile"));
-    assert!(PROFILE_INIT.contains(".bash_profile"));
-    assert!(PROFILE_INIT.contains(".bashrc"));
-    assert!(PROFILE_INIT.contains(".zshenv"));
-    assert!(PROFILE_INIT.contains(".zprofile"));
-    assert!(PROFILE_INIT.contains(".zshrc"));
-    assert!(PROFILE_INIT.contains("--login --command"));
-    assert!(PROFILE_INIT.contains("__litter_path_start__"));
-}
-
-#[test]
 fn test_profile_init_adds_common_node_manager_bins() {
     assert!(PROFILE_INIT.contains("$NVM_BIN"));
     assert!(PROFILE_INIT.contains("ASDF_DATA_DIR"));
@@ -244,15 +231,6 @@ fn run_profile_init(home: &std::path::Path, shell: &std::path::Path) -> String {
 }
 
 #[cfg(unix)]
-fn write_profile(path: &std::path::Path, bin_dir: &std::path::Path) {
-    std::fs::write(
-        path,
-        format!("PATH='{}':$PATH; export PATH\n", bin_dir.display()),
-    )
-    .unwrap();
-}
-
-#[cfg(unix)]
 fn path_contains(path: &str, expected: &std::path::Path) -> bool {
     path.split(':')
         .any(|entry| std::path::Path::new(entry) == expected)
@@ -260,77 +238,34 @@ fn path_contains(path: &str, expected: &std::path::Path) -> bool {
 
 #[cfg(unix)]
 #[test]
-fn test_profile_init_preserves_posix_bash_and_zsh_profile_imports() {
+fn test_profile_init_never_executes_startup_files_or_login_shell() {
+    use std::os::unix::fs::PermissionsExt;
+
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path();
-    let profile_bin = home.join("profile-bin");
-    let bash_bin = home.join("bash-bin");
-    let zsh_bin = home.join("zsh-bin");
-    for directory in [&profile_bin, &bash_bin, &zsh_bin] {
-        std::fs::create_dir_all(directory).unwrap();
+    let side_effect = "printf launched > \"$HOME/unwanted-terminal\"\n";
+    for file in [
+        ".profile",
+        ".bash_profile",
+        ".bashrc",
+        ".zshenv",
+        ".zprofile",
+        ".zshrc",
+    ] {
+        std::fs::write(home.join(file), side_effect).unwrap();
     }
-    write_profile(&home.join(".profile"), &profile_bin);
-    write_profile(&home.join(".bashrc"), &bash_bin);
-    write_profile(&home.join(".zshrc"), &zsh_bin);
-
-    let path = run_profile_init(home, std::path::Path::new("/bin/zsh"));
-
-    assert!(path_contains(&path, &profile_bin));
-    assert!(path_contains(&path, &bash_bin));
-    assert!(path_contains(&path, &zsh_bin));
-}
-
-#[cfg(unix)]
-#[test]
-fn test_profile_init_imports_selected_fish_login_path_without_chatter() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let temp = tempfile::tempdir().unwrap();
-    let home = temp.path();
-    let fish_bin = home.join("fish-bin");
-    let nix_bin = home.join(".nix-profile/bin");
-    std::fs::create_dir_all(&fish_bin).unwrap();
-    std::fs::create_dir_all(&nix_bin).unwrap();
     let fish = home.join("fish");
-    std::fs::write(
-        &fish,
-        "#!/bin/sh\n\
-         [ \"$1\" = --login ] && [ \"$2\" = --command ] || exit 64\n\
-         printf 'fish startup chatter\\n'\n\
-         printf '__litter_path_start__%s/fish-bin__litter_path_end__\\n' \"$HOME\"\n",
-    )
-    .unwrap();
-    let mut permissions = std::fs::metadata(&fish).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&fish, permissions).unwrap();
+    std::fs::write(&fish, format!("#!/bin/sh\n{side_effect}")).unwrap();
+    std::fs::set_permissions(&fish, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
 
     let path = run_profile_init(home, &fish);
 
-    assert!(path_contains(&path, &fish_bin));
-    assert!(path_contains(&path, &nix_bin));
-    assert!(!path.contains("fish startup chatter"));
-}
-
-#[cfg(unix)]
-#[test]
-fn test_profile_init_keeps_posix_path_when_selected_fish_export_fails() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let temp = tempfile::tempdir().unwrap();
-    let home = temp.path();
-    let profile_bin = home.join("profile-bin");
-    std::fs::create_dir_all(&profile_bin).unwrap();
-    write_profile(&home.join(".profile"), &profile_bin);
-
-    let fish = home.join("fish");
-    std::fs::write(&fish, "#!/bin/sh\nexit 1\n").unwrap();
-    let mut permissions = std::fs::metadata(&fish).unwrap().permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&fish, permissions).unwrap();
-
-    let path = run_profile_init(home, &fish);
-
-    assert!(path_contains(&path, &profile_bin));
+    assert!(!home.join("unwanted-terminal").exists());
+    assert!(path_contains(&path, &bin));
+    assert!(path_contains(&path, std::path::Path::new("/usr/bin")));
+    assert!(path_contains(&path, std::path::Path::new("/bin")));
 }
 
 #[cfg(unix)]

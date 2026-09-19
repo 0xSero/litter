@@ -2,12 +2,12 @@
 
 [package]
 name = "kittylitter"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["The Alleycat Authors"]
-repository = "https://github.com/dnakov/litter"
-homepage = "https://github.com/dnakov/litter"
+repository = "https://github.com/0xSero/litter"
+homepage = "https://github.com/0xSero/litter"
 description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) for paired clients."
 readme = "README.md"
 
@@ -22,7 +22,7 @@ name = "kittylitter"
 path = "src/main.rs"
 
 [dependencies]
-alleycat = { git = "https://github.com/makyinmars/alleycat.git", rev = "5dd425f23bb321252ccfdedfae592c60c04f7366" }
+alleycat = { git = "https://github.com/0xSero/alleycat.git", rev = "7710c7a8e75908be82f907db206895a2195726b9" }
 anyhow = "1"
 
 # cargo-dist builds with `cargo build --profile dist`. Mirrors the

@@ -184,12 +184,12 @@ fun HomeDashboardScreen(
     val appVersionLabel = remember { "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" }
 
     val snap = snapshot
-    val servers = remember(snap) {
+    val servers = remember(snap?.servers, snap?.activeThread?.serverId) {
         snap?.let { HomeDashboardSupport.sortedConnectedServers(it) } ?: emptyList()
     }
     // Every session across connected servers — unlimited, used by the search
     // view so the user can pin any thread.
-    val allSessions = remember(snap) {
+    val allSessions = remember(snap?.servers, snap?.sessionSummaries) {
         snap?.let { HomeDashboardSupport.recentSessions(it, limit = Int.MAX_VALUE) } ?: emptyList()
     }
     // Fork lineage map computed from the unfiltered snapshot so a fork

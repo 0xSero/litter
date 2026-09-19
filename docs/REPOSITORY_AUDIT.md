@@ -14,12 +14,16 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-At audit time Litter's production pin was `417f2a9` while Alleycat `main` was
-`3f0f844`; their merge base was `3c6dfe2` and the production pin had 56 commits
-not present on `main`. **Alleycat `main` is therefore not the shipping source of
-truth.** Advancing Litter to it would regress the shipping bridge stack. Merge or
-replay the pinned lineage into Alleycat first, then advance Litter's revision
-through both mobile acceptance lanes.
+For 2.1.1 the production dependency is `0xSero/alleycat@7710c7a`, a
+single headless-launch fix on top of the previously shipping
+`makyinmars/alleycat@5dd425f`. It preserves that complete production lineage;
+it does not substitute the divergent Alleycat `main` branch.
+
+The new default avoids interactive login-shell startup during background
+agent launches. Shell-provided variables must be present in the daemon's
+inherited environment; project `mise`/`direnv` providers remain supported.
+Bridge-core tests pass, including a subprocess test that fails under the old
+default. Installed-daemon and both mobile release acceptance remain required.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
 bindings, and both mobile runtimes are verified.
