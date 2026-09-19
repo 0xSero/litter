@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +37,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -58,6 +62,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.core.bridge.GhosttyRendererBridge
@@ -212,6 +218,10 @@ fun TerminalScreen(
                 .weight(1f),
         )
 
+        if (!nativeRendererAvailable) {
+            BasicTerminalInput(controller)
+        }
+
         val appSnapshot by AppModel.shared.snapshot.collectAsState()
         val activeThreadKey = appSnapshot?.activeThread
         TerminalAccessoryRow(
@@ -243,6 +253,39 @@ fun TerminalScreen(
             onDismiss = { showConfigSheet = false },
         )
     }
+}
+
+@Composable
+private fun BasicTerminalInput(controller: TerminalSessionController) {
+    var command by remember { mutableStateOf("") }
+    val submit = {
+        if (controller.canSendInput) {
+            controller.sendLine(command)
+            command = ""
+        }
+    }
+    OutlinedTextField(
+        value = command,
+        onValueChange = { command = it },
+        enabled = controller.canSendInput,
+        singleLine = true,
+        label = { Text("Command · basic terminal") },
+        textStyle = TextStyle(fontFamily = LitterTheme.monoFont),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = LitterTheme.accent,
+            unfocusedTextColor = LitterTheme.accent,
+            focusedLabelColor = LitterTheme.accent,
+            unfocusedLabelColor = LitterTheme.accent,
+        ),
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Go),
+        keyboardActions = KeyboardActions(onGo = { submit() }),
+        trailingIcon = {
+            TextButton(onClick = { submit() }, enabled = controller.canSendInput) {
+                Text("Run", color = LitterTheme.accent)
+            }
+        },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

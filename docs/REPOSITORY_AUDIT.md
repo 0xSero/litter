@@ -53,6 +53,11 @@ but their network and SSH behavior still requires physical-device acceptance.
 
 ## P1 — incomplete user-visible behavior
 
+- Android Ghostty loads after the GLAD/EGL/GLES linking repair, but its OpenGL
+  4.3 renderer cannot create a surface on the tested Android 17 emulator's
+  OpenGL ES 3.1 context. The basic terminal command field supports line input
+  and output; native rendering, ANSI screen semantics, selection, and full-screen
+  terminal applications still require a proper OpenGL ES port and device QA.
 - Android's realtime speaker control updates a boolean but does not switch the
   physical audio route. `RealtimeWebRtcSession` forces speakerphone on at session
   start and restores the previous route at teardown; the toggle never reaches

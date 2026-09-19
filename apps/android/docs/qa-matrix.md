@@ -310,11 +310,16 @@ fragments when adding it. No Android execution was covered by this iOS change.
   path discovery remains covered. Real SSH and Kittylitter device acceptance
   is pending.
 - Android Ghostty selects epoll directly to avoid seccomp's fatal io_uring
+  probe (#354). Terminal open/input/close/reopen acceptance on Android hardware
+  is pending; compilation alone does not close this gate.
 - Android Ghostty now bundles GLAD and explicitly links EGL/GLESv3. Verify the
   native library actually loads: the older 2.1.0 APK fell back to text output
   after an unresolved `imgl3wProcs` symbol, masking native renderer failures.
-  probe (#354). Terminal open/input/close/reopen acceptance on Android hardware
-  is pending; compilation alone does not close this gate.
+- Android 17 / ARM64 / 16 KB emulator: libraries load, opening and reopening
+  Terminal does not trigger SIGSYS, and basic command input/output passes via
+  both Run and the keyboard action. Native surface creation fails on OpenGL ES
+  3.1. The fallback is line-oriented and does not provide full ANSI screen
+  semantics. Physical-device and native-renderer acceptance remain pending.
 - Home server/session projections are memoized by their actual inputs rather
   than the entire snapshot, avoiding repeated sorting on unrelated deltas.
 - Conversation rows use stable turn identities when earlier pages are inserted,
