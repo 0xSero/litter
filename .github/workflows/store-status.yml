@@ -3,6 +3,11 @@ name: Store Status
 on:
   workflow_dispatch:
     inputs:
+      ios_only:
+        description: "Read Apple state without opening a Google Play edit."
+        required: false
+        default: false
+        type: boolean
       ios_version:
         description: "iOS marketing version to inspect (blank = all versions)."
         required: false
@@ -26,6 +31,7 @@ concurrency:
 
 jobs:
   preflight:
+    if: ${{ !inputs.ios_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -51,6 +57,7 @@ jobs:
 
   asc-status:
     needs: preflight
+    if: ${{ always() && (needs.preflight.result == 'success' || (inputs.ios_only && needs.preflight.result == 'skipped')) }}
     runs-on: macos-26
     timeout-minutes: 10
     environment: release
@@ -120,6 +127,13 @@ jobs:
             asc versions list --app "$APP_ID" --platform IOS --output json > store-state/versions.json
           fi
 
+          if [ -n "${IOS_VERSION:-}" ]; then
+            version_id="$(jq -r '.data[0].id // empty' store-state/versions.json)"
+            if [ -n "$version_id" ]; then
+              asc localizations list --version "$version_id" --output json > store-state/localizations.json
+            fi
+          fi
+
           # App Review status (read-only; best-effort so an empty review queue
           # does not fail the read).
           asc review status --app "$APP_ID" --output json > store-state/review-status.json 2>/dev/null \
@@ -152,6 +166,7 @@ jobs:
 
   play-status:
     needs: preflight
+    if: ${{ !inputs.ios_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
