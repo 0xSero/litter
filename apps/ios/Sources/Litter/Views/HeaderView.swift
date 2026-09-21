@@ -230,9 +230,8 @@ struct HeaderView: View {
                 runtime: thread.agentRuntimeKind
             )
         }),
-           !model.supportedReasoningEfforts.isEmpty,
-           !model.defaultReasoningEffort.wireValue.isEmpty {
-            return model.defaultReasoningEffort.wireValue
+           let effort = model.supportedDefaultReasoningEffort {
+            return effort.wireValue
         }
 
         return "default"
@@ -504,7 +503,7 @@ func modelMatchesSelection(
 }
 
 private func defaultReasoningEffortSelection(for model: ModelInfo) -> String {
-    model.supportedReasoningEfforts.isEmpty ? "" : model.defaultReasoningEffort.wireValue
+    model.supportedDefaultReasoningEffort?.wireValue ?? ""
 }
 
 /// Allowlist of model "mode" names the runtime advertises (e.g. Amp's
@@ -663,10 +662,7 @@ private func modelCatalogNotice(
 }
 
 private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
-    guard let modes = visibleModeNames(for: model.agentRuntimeKind) else {
-        return true
-    }
-    return modes.contains(modeName(for: model))
+    !model.hidden
 }
 
 /// One pass of the model-list derivations the pickers need. Previously

@@ -85,6 +85,7 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
     let canonical = match candidate {
         "codex" => Some("codex"),
         "pi" | "pi.dev" | "pidev" => Some("pi"),
+        "omp" | "oh-my-pi" | "oh_my_pi" | "oh my pi" => Some("omp"),
         "amp" | "ampcode" | "amp-code" | "amp_code" => Some("amp"),
         "opencode" | "open-code" | "open_code" => Some("opencode"),
         "claude" | "claude-code" | "claude_code" => Some("claude"),
@@ -92,6 +93,7 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
         "hermes" => Some("hermes"),
         _ if display_name == "codex" => Some("codex"),
         _ if display_name == "pi" || display_name == "pi.dev" => Some("pi"),
+        _ if display_name == "omp" || display_name == "oh my pi" => Some("omp"),
         _ if display_name == "amp" || display_name == "amp code" => Some("amp"),
         _ if display_name == "opencode" || display_name == "open code" => Some("opencode"),
         _ if display_name == "claude" || display_name == "claude code" => Some("claude"),
@@ -450,11 +452,7 @@ pub fn parse_pair_payload(json: &str) -> Result<ParsedPairPayload, AlleycatError
     if wire.token.trim().is_empty() {
         return Err(AlleycatError::InvalidPayload("empty token".into()));
     }
-    let relay = wire
-        .relay
-        .as_deref()
-        .map(normalize_relay_url)
-        .transpose()?;
+    let relay = wire.relay.as_deref().map(normalize_relay_url).transpose()?;
     Ok(ParsedPairPayload {
         version: wire.v,
         node_id: wire.node_id,
@@ -465,9 +463,8 @@ pub fn parse_pair_payload(json: &str) -> Result<ParsedPairPayload, AlleycatError
 }
 
 fn normalize_relay_url(relay: &str) -> Result<String, AlleycatError> {
-    let mut parsed = url::Url::parse(relay).map_err(|error| {
-        AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
-    })?;
+    let mut parsed = url::Url::parse(relay)
+        .map_err(|error| AlleycatError::InvalidPayload(format!("invalid relay URL: {error}")))?;
     match parsed.host() {
         Some(url::Host::Domain(host)) if host.trim_end_matches('.').is_empty() => {
             return Err(AlleycatError::InvalidPayload(
@@ -483,7 +480,11 @@ fn normalize_relay_url(relay: &str) -> Result<String, AlleycatError> {
                 AlleycatError::InvalidPayload(format!("invalid relay URL host: {error}"))
             })?;
         }
-        None => return Err(AlleycatError::InvalidPayload("relay URL has no host".into())),
+        None => {
+            return Err(AlleycatError::InvalidPayload(
+                "relay URL has no host".into(),
+            ));
+        }
         _ => {}
     }
     Ok(parsed.to_string())
@@ -580,6 +581,7 @@ pub async fn connect_app_server_client(
         client_version: "1.0".to_string(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
+        mcp_server_openai_form_elicitation: false,
         channel_capacity: 256,
     };
     let stream = AlleycatStream::new(send, recv, seq_tracker);
@@ -999,10 +1001,7 @@ mod tests {
             key.public()
         );
         let parsed = parse_pair_payload(&json).expect("parse");
-        assert_eq!(
-            parsed.relay.as_deref(),
-            Some("https://relay.example.com./")
-        );
+        assert_eq!(parsed.relay.as_deref(), Some("https://relay.example.com./"));
     }
 
     #[test]
@@ -1050,6 +1049,10 @@ mod tests {
             Some("codex".to_string())
         );
         assert_eq!(agent_runtime_kind("pi.dev", "Pi"), Some("pi".to_string()));
+        assert_eq!(
+            agent_runtime_kind("oh-my-pi", "Oh My Pi"),
+            Some("omp".to_string())
+        );
         assert_eq!(agent_runtime_kind("amp", "Amp"), Some("amp".to_string()));
         assert_eq!(
             agent_runtime_kind("open-code", "opencode"),

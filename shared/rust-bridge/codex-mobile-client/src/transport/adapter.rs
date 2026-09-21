@@ -46,6 +46,7 @@ impl AppServerAdapter {
             client_version,
             experimental_api,
             opt_out_notification_methods: Vec::new(),
+            mcp_server_openai_form_elicitation: false,
             channel_capacity,
         };
 

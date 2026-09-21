@@ -1,8 +1,7 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
-index 458722b3a2..6a3a29ca7c 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
-@@ -977,6 +977,10 @@ pub struct ThreadReadParams {
+@@ -1679,6 +1679,10 @@
  #[ts(export_to = "v2/")]
  pub struct ThreadReadResponse {
      pub thread: Thread,
@@ -14,10 +13,9 @@ index 458722b3a2..6a3a29ca7c 100644
  
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 615e37f2c9..fda8f7feb7 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
-@@ -1905,7 +1905,21 @@ impl ThreadRequestProcessor {
+@@ -2872,7 +2872,21 @@
              .read_thread_view(thread_uuid, include_turns)
              .await
              .map_err(thread_read_view_error)?;

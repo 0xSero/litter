@@ -72,7 +72,7 @@ struct ConversationView: View {
         guard !supported.isEmpty else { return nil }
         return supported.contains(trimmed)
             ? trimmed
-            : selectedModel.defaultReasoningEffort.wireValue
+            : selectedModel.supportedDefaultReasoningEffort?.wireValue
     }
 
     private var pendingSelectedModel: ModelInfo? {
@@ -2718,6 +2718,10 @@ private func collaborationModeEffortLabel(_ effort: ReasoningEffort) -> String {
         return "Max"
     case .ultra:
         return "Ultra"
+    case .persistent:
+        return "Persistent"
+    case .custom(let value):
+        return value
     }
 }
 

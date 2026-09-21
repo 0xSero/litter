@@ -329,3 +329,20 @@ fragments when adding it. No Android execution was covered by this iOS change.
   login-shell tools and shell snapshots; shared Rust regression tests cover the
   three operations and preservation of unrelated settings and other runtimes.
 - App Store/Play release acceptance is tracked separately from build success.
+
+## Harness catalog and settings refresh (2.1.2)
+
+Implemented on both iOS and Android through shared Rust. Device acceptance is pending for this revision.
+
+| Check | Required result on both platforms |
+|---|---|
+| Cold model picker | Native catalog available before creating a thread; custom and plugin IDs preserved |
+| Refresh/reconnect | Catalog expires after 60 seconds, incomplete refresh retries after 5 seconds; failed runtime retains prior choices; old connection cannot publish into replacement |
+| Reasoning selection | Native supported values only; persistent and custom values round-trip |
+| OMP isolation | Separate runtime, model catalog, and config.yml; Pi settings are unchanged |
+| Harness settings | Searchable lazy list, typed edits, native source/scope, enforced read-only constraints, authoritative save read-back |
+| SSH settings | Claude/Pi/OMP values read and written on the remote host with credential fields preserved and redacted |
+| Streaming | Unchanged server/runtime projections do not invalidate the settings list |
+| Host execution | Discovery and settings launch headless processes without terminal windows or Dock helpers |
+
+Validation for the 2.1.2 candidate: shared Rust library tests passed (822 passed, 3 existing manual/live tests ignored); Android Kotlin compilation and all 58 unit tests passed against regenerated bindings. Full simulator/emulator UI acceptance and store release remain pending.

@@ -292,6 +292,11 @@ pub(super) async fn list_sessions_tool_output(
                 cwd: None,
                 search_term: None,
                 use_state_db_only: false,
+            originators: None,
+            section_id: None,
+            project_id: None,
+            parent_thread_id: None,
+            ancestor_thread_id: None,
             },
         )
         .await;

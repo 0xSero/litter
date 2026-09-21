@@ -6,8 +6,8 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$(cd "$IOS_DIR/../.." && pwd)"
 SUBMODULE_DIR="$REPO_DIR/shared/third_party/codex"
 PATCH_FILES=(
+    "$REPO_DIR/patches/codex/mobile-crypto-compat.patch"
     "$REPO_DIR/patches/codex/ios-exec-hook.patch"
-    "$REPO_DIR/patches/codex/mobile-code-mode-stub.patch"
     "$REPO_DIR/patches/codex/thread-read-permissions.patch"
     "$REPO_DIR/patches/codex/thread-list-fork-lineage.patch"
     "$REPO_DIR/patches/codex/mobile-shell-snapshot-timeout.patch"
@@ -16,7 +16,6 @@ PATCH_FILES=(
     "$REPO_DIR/patches/codex/android-installation-id-lock.patch"
     "$REPO_DIR/patches/codex/dynamic-tool-call-arguments-delta.patch"
     "$REPO_DIR/patches/codex/approval-timestamps-serde-default.patch"
-    "$REPO_DIR/patches/codex/reasoning-effort-max-ultra.patch"
     "$REPO_DIR/patches/codex/realtime-webrtc-env-apikey.patch"
     # Realtime multi-server orchestrator (split from old client-controlled-handoff.patch).
     # Apply order: server-hint adds the realtime_v2_session_tools helper consumed by dynamic-tools.

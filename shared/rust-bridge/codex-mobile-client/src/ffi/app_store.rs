@@ -52,6 +52,9 @@ mod tests {
             arguments: serde_json::from_value(json!({"path": "/tmp/file.txt"}))
                 .expect("json value should convert"),
             mcp_app_resource_uri: None,
+            app_context: None,
+            plugin_id: None,
+            read_only_hint: None,
             result: None,
             error: None,
             duration_ms: Some(42),

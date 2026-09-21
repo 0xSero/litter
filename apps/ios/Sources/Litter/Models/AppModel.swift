@@ -2092,7 +2092,7 @@ final class AppModel {
 
     func loadAvailableModelsIfNeeded(serverId: String, force: Bool = false) async {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
-        guard force || server.availableModels == nil else { return }
+        guard force || client.modelsNeedRefresh(serverId: serverId) else { return }
         guard !loadingModelServerIds.contains(serverId) else { return }
         loadingModelServerIds.insert(serverId)
         defer { loadingModelServerIds.remove(serverId) }

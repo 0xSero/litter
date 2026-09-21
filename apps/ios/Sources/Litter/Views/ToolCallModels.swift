@@ -152,7 +152,7 @@ extension AppOperationStatus {
             return .inProgress
         case .completed:
             return .completed
-        case .failed, .declined:
+        case .failed, .declined, .interrupted:
             return .failed
         case .unknown:
             return .unknown
@@ -173,6 +173,8 @@ extension AppOperationStatus {
             return "Failed"
         case .declined:
             return "Declined"
+        case .interrupted:
+            return "Interrupted"
         }
     }
 }

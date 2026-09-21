@@ -237,3 +237,6 @@ val AppThreadSnapshot.latestAssistantSnippet: String?
         }
         return null
     }
+
+internal val uniffi.codex_mobile_client.ModelInfo.supportedDefaultReasoningEffort: uniffi.codex_mobile_client.ReasoningEffort?
+    get() = defaultReasoningEffort.takeIf { effort -> supportedReasoningEfforts.any { it.reasoningEffort == effort } }

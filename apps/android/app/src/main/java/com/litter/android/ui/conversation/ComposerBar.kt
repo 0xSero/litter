@@ -93,6 +93,7 @@ import com.litter.android.state.ComposerFileAttachment
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.VoiceTranscriptionManager
 import com.litter.android.state.ampReasoningEffortLocked
+import com.litter.android.state.supportedDefaultReasoningEffort
 import com.litter.android.util.LLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -463,7 +464,7 @@ fun ComposerBar(
                     selectedModel == null -> requested
                     supported.isEmpty() -> null
                     requested != null && supported.contains(requested) -> requested
-                    else -> selectedModel.defaultReasoningEffort
+                    else -> selectedModel.supportedDefaultReasoningEffort
                 }
             }
             val tier = if (HeaderOverrides.pendingFastMode) ServiceTier.FAST else null
@@ -1421,17 +1422,8 @@ private fun queuedFollowUpUiStyle(kind: AppQueuedFollowUpKind): QueuedFollowUpUi
     }
 
 private fun reasoningEffortFromServerValue(value: String): ReasoningEffort? =
-    when (value.trim().lowercase()) {
-        "none" -> ReasoningEffort.NONE
-        "minimal" -> ReasoningEffort.MINIMAL
-        "low" -> ReasoningEffort.LOW
-        "medium" -> ReasoningEffort.MEDIUM
-        "high" -> ReasoningEffort.HIGH
-        "xhigh" -> ReasoningEffort.X_HIGH
-        "max" -> ReasoningEffort.MAX
-        "ultra" -> ReasoningEffort.ULTRA
-        else -> null
-    }
+    uniffi.codex_mobile_client.reasoningEffortFromWireValue(value)
+
 
 @Composable
 internal fun CollaborationModeChip(

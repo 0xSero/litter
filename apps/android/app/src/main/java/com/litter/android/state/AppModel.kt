@@ -572,7 +572,7 @@ class AppModel private constructor(context: android.content.Context) {
     suspend fun loadAvailableModelsIfNeeded(serverId: String, force: Boolean = false) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (!force && server.availableModels != null) return
+        if (!force && !client.modelsNeedRefresh(serverId)) return
         if (!loadingModelServerIds.add(serverId)) return
         modelCatalogErrorsByServer.remove(serverId)
         try {

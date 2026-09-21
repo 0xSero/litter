@@ -18,7 +18,7 @@ codex-shell-command = { path = "../third_party/codex/codex-rs/shell-command" }
 codex-apply-patch = { path = "../third_party/codex/codex-rs/apply-patch" }
 codex-arg0 = { path = "../third_party/codex/codex-rs/arg0" }
 codex-feedback = { path = "../third_party/codex/codex-rs/feedback" }
-codex-cloud-requirements = { path = "../third_party/codex/codex-rs/cloud-requirements" }
+codex-cloud-config = { path = "../third_party/codex/codex-rs/cloud-config" }
 codex-config = { path = "../third_party/codex/codex-rs/config" }
 codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolute-path" }
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
@@ -26,10 +26,10 @@ codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # and host share one immutable Alleycat release revision. All crates come from
 # the same source so the `Bridge` trait identity is consistent; forked until
 # the production-lineage OpenCode and Amp fixes land in the upstream release.
-alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "4ec496c5f392afda9c949a81ee8722ec5fc44e86" }
-alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "4ec496c5f392afda9c949a81ee8722ec5fc44e86" }
-alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "4ec496c5f392afda9c949a81ee8722ec5fc44e86" }
-alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "4ec496c5f392afda9c949a81ee8722ec5fc44e86" }
+alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
+alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
+alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
+alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
@@ -89,8 +89,11 @@ debug = 0
 codegen-units = 16
 
 [patch.crates-io]
-tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
-tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+# Upstream fix for Starlark's exact blake3 pin, which conflicts with iroh.
+starlark = { git = "https://github.com/facebook/starlark-rust", rev = "3bed1c40f93da22b8e251dd520dfb8d35bfe1fb7" }
+
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
 
 [patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
-tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }

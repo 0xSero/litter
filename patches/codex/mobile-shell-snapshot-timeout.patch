@@ -1,9 +1,8 @@
 diff --git a/codex-rs/core/src/shell_snapshot.rs b/codex-rs/core/src/shell_snapshot.rs
-index b328a977d7..cc2acd038c 100644
 --- a/codex-rs/core/src/shell_snapshot.rs
 +++ b/codex-rs/core/src/shell_snapshot.rs
-@@ -30,6 +30,11 @@ pub struct ShellSnapshot {
-     pub cwd: AbsolutePathBuf,
+@@ -101,6 +101,11 @@
+     authorized: bool,
  }
  
 +// On mobile (iOS/Android) the shell environment is minimal and snapshot

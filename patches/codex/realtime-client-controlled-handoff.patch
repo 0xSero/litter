@@ -1,19 +1,21 @@
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -166,6 +166,8 @@
-     pub transport: Option<ConversationStartTransport>,
-     #[serde(skip_serializing_if = "Option::is_none")]
+@@ -251,8 +251,8 @@
+     /// Overrides the configured realtime protocol version for this session only.
+     pub version: Option<RealtimeConversationVersion>,
      pub voice: Option<RealtimeVoice>,
-+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-+    pub client_controlled_handoff: bool,
-     #[serde(default, skip_serializing_if = "Option::is_none")]
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
      pub dynamic_tools: Option<Vec<crate::dynamic_tools::DynamicToolSpec>>,
++    pub client_controlled_handoff: bool,
  }
-@@ -426,6 +428,15 @@
+ 
+ #[derive(Debug, Clone, PartialEq)]
+@@ -625,6 +625,15 @@
+ 
      /// Close the running realtime conversation stream.
      RealtimeConversationClose,
- 
++
 +    /// Resolve a handoff request with tool output (client-controlled handoff).
 +    /// Sends `function_call_output` for the active handoff but does NOT trigger
 +    /// `response.create` — pair with `RealtimeConversationFinalizeHandoff` when
@@ -22,13 +24,12 @@ diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.
 +
 +    /// Finalize a resolved handoff: triggers `response.create` for V2.
 +    RealtimeConversationFinalizeHandoff,
-+
+ 
      /// Resolve a dynamic tool call from the realtime conversation with output text.
      /// The output is sent to the realtime API as `function_call_output` and a
-     /// `response.create` is queued so the model continues speaking.
-@@ -853,6 +864,10 @@
-             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
+@@ -955,6 +964,10 @@
              Self::RealtimeConversationText(_) => "realtime_conversation_text",
+             Self::RealtimeConversationSpeech(_) => "realtime_conversation_speech",
              Self::RealtimeConversationClose => "realtime_conversation_close",
 +            Self::RealtimeConversationResolveHandoff { .. } => {
 +                "realtime_conversation_resolve_handoff"
@@ -36,20 +37,28 @@ diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.
 +            Self::RealtimeConversationFinalizeHandoff => "realtime_conversation_finalize_handoff",
              Self::RealtimeResolveDynamicTool { .. } => "realtime_resolve_dynamic_tool",
              Self::RealtimeConversationListVoices => "realtime_conversation_list_voices",
-             Self::UserInput { .. } => "user_input",
+             Self::TurnInput { .. } => "turn_input",
+@@ -1989,7 +2002,6 @@
+     pub call_id: Option<String>,
+     pub delta: String,
+ }
+-
+ 
+ #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema)]
+ pub struct PlanDeltaEvent {
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
 --- a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs
-@@ -83,6 +83,8 @@
-     pub transport: Option<ThreadRealtimeStartTransport>,
-     #[ts(optional = nullable)]
-     pub voice: Option<RealtimeVoice>,
-+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-+    pub client_controlled_handoff: bool,
+@@ -264,6 +264,8 @@
      #[serde(default, skip_serializing_if = "Option::is_none")]
      #[ts(optional = nullable)]
-     pub dynamic_tools: Option<Vec<DynamicToolSpec>>,
-@@ -151,6 +153,35 @@
+     pub dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub client_controlled_handoff: bool,
+ }
+ 
+ /// EXPERIMENTAL - role-bearing text item included when a realtime V3 session starts.
+@@ -361,6 +363,35 @@
  #[ts(export_to = "v2/")]
  pub struct ThreadRealtimeStopResponse {}
  
@@ -88,10 +97,10 @@ diff --git a/codex-rs/app-server-protocol/src/protocol/v2/realtime.rs b/codex-rs
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -769,6 +769,18 @@
-         params: v2::ThreadRealtimeStopParams,
+@@ -1093,6 +1093,18 @@
+         params: v2::ThreadTimelineListParams,
          serialization: thread_id(params.thread_id),
-         response: v2::ThreadRealtimeStopResponse,
+         response: v2::ThreadTimelineListResponse,
 +    },
 +    #[experimental("thread/realtime/resolveHandoff")]
 +    ThreadRealtimeResolveHandoff => "thread/realtime/resolveHandoff" {
@@ -107,15 +116,49 @@ diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-
      },
      #[experimental("thread/realtime/listVoices")]
      ThreadRealtimeListVoices => "thread/realtime/listVoices" {
+@@ -3990,6 +4002,8 @@
+         let request = ClientRequest::ThreadRealtimeStart {
+             request_id: RequestId::Integer(9),
+             params: v2::ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: Some(true),
+                 delegation_ack_filler: Some(false),
+                 flush_transcript_tail_on_session_end: Some(true),
+@@ -4076,6 +4090,8 @@
+         let default_prompt_request = ClientRequest::ThreadRealtimeStart {
+             request_id: RequestId::Integer(9),
+             params: v2::ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: None,
+                 delegation_ack_filler: None,
+                 flush_transcript_tail_on_session_end: None,
+@@ -4128,6 +4144,8 @@
+         let null_prompt_request = ClientRequest::ThreadRealtimeStart {
+             request_id: RequestId::Integer(9),
+             params: v2::ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: None,
+                 delegation_ack_filler: None,
+                 flush_transcript_tail_on_session_end: None,
+@@ -4380,6 +4398,8 @@
+         let request = ClientRequest::ThreadRealtimeStart {
+             request_id: RequestId::Integer(1),
+             params: v2::ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: None,
+                 delegation_ack_filler: None,
+                 flush_transcript_tail_on_session_end: None,
 diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
 --- a/codex-rs/app-server/src/message_processor.rs
 +++ b/codex-rs/app-server/src/message_processor.rs
-@@ -1164,6 +1164,16 @@
-             ClientRequest::ThreadRealtimeStop { params, .. } => {
-                 self.turn_processor
-                     .thread_realtime_stop(&request_id, params)
-+                    .await
-+            }
+@@ -1673,6 +1673,16 @@
+             ClientRequest::ThreadTimelineList { params, .. } => {
+                 self.thread_processor.thread_timeline_list(params).await
+             }
 +            ClientRequest::ThreadRealtimeResolveHandoff { params, .. } => {
 +                self.turn_processor
 +                    .thread_realtime_resolve_handoff(&request_id, params)
@@ -124,27 +167,30 @@ diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/
 +            ClientRequest::ThreadRealtimeFinalizeHandoff { params, .. } => {
 +                self.turn_processor
 +                    .thread_realtime_finalize_handoff(&request_id, params)
-                     .await
-             }
++                    .await
++            }
              ClientRequest::ThreadRealtimeListVoices { params: _, .. } => {
+                 self.turn_processor.thread_realtime_list_voices().await
+             }
 diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
 --- a/codex-rs/app-server/src/request_processors.rs
 +++ b/codex-rs/app-server/src/request_processors.rs
-@@ -202,6 +202,10 @@
+@@ -253,7 +253,11 @@
+ use codex_app_server_protocol::ThreadRealtimeAppendSpeechResponse;
+ use codex_app_server_protocol::ThreadRealtimeAppendTextParams;
+ use codex_app_server_protocol::ThreadRealtimeAppendTextResponse;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse;
+ use codex_app_server_protocol::ThreadRealtimeListVoicesResponse;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse;
  use codex_app_server_protocol::ThreadRealtimeStartParams;
  use codex_app_server_protocol::ThreadRealtimeStartResponse;
  use codex_app_server_protocol::ThreadRealtimeStartTransport;
-+use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffParams;
-+use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse;
-+use codex_app_server_protocol::ThreadRealtimeResolveHandoffParams;
-+use codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse;
- use codex_app_server_protocol::ThreadRealtimeStopParams;
- use codex_app_server_protocol::ThreadRealtimeStopResponse;
- use codex_app_server_protocol::ThreadResumeParams;
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
-@@ -127,6 +127,26 @@
+@@ -320,6 +320,26 @@
          params: ThreadRealtimeStopParams,
      ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
          self.thread_realtime_stop_inner(request_id, params)
@@ -171,18 +217,20 @@ diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/code
              .await
              .map(|response| response.map(Into::into))
      }
-@@ -721,6 +741,7 @@
-                     }
-                 }),
+@@ -1269,6 +1289,7 @@
+                 version: params.version,
                  voice: params.voice,
-+                client_controlled_handoff: params.client_controlled_handoff,
                  dynamic_tools: params.dynamic_tools,
++                client_controlled_handoff: params.client_controlled_handoff,
              }),
          )
-@@ -800,6 +821,50 @@
+         .await
+@@ -1373,6 +1394,50 @@
+                 internal_error(format!("failed to stop realtime conversation: {err}"))
+             })?;
          Ok(Some(ThreadRealtimeStopResponse::default()))
-     }
- 
++    }
++
 +    async fn thread_realtime_resolve_handoff_inner(
 +        &self,
 +        request_id: &ConnectionRequestId,
@@ -225,144 +273,158 @@ diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/code
 +        .await
 +        .map_err(|err| internal_error(format!("failed to finalize realtime handoff: {err}")))?;
 +        Ok(Some(ThreadRealtimeFinalizeHandoffResponse::default()))
-+    }
-+
+     }
+ 
      fn build_review_turn(turn_id: String, display_text: &str) -> Turn {
-         let items = if display_text.is_empty() {
-             Vec::new()
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
 --- a/codex-rs/core/src/realtime_conversation.rs
 +++ b/codex-rs/core/src/realtime_conversation.rs
-@@ -198,12 +198,14 @@
-     handoff_state: RealtimeHandoffState,
-     session_kind: RealtimeSessionKind,
-     event_parser: RealtimeEventParser,
-+    finalize_rx: Receiver<()>,
- }
+@@ -27,16 +27,16 @@
+ use codex_api::RealtimeWebsocketConnection;
+ use codex_api::RealtimeWebsocketEvents;
+ use codex_api::RealtimeWebsocketWriter;
++use codex_api::SharedAuthProvider;
+ use codex_api::build_session_headers;
+ use codex_api::map_api_error;
+-use codex_api::SharedAuthProvider;
+-use codex_model_provider::BearerAuthProvider;
+ use codex_config::config_toml::RealtimeWsMode;
+ use codex_config::config_toml::RealtimeWsVersion;
+ use codex_login::CodexAuth;
+ use codex_login::default_client::add_originator_header;
+ use codex_login::default_client::default_headers;
+ use codex_login::read_openai_api_key_from_env;
++use codex_model_provider::BearerAuthProvider;
+ use codex_model_provider_info::ModelProviderInfo;
+ use codex_protocol::auth::AuthMode;
+ use codex_protocol::error::CodexErr;
+@@ -362,7 +362,15 @@
  
- struct RealtimeInputChannels {
-     user_text_rx: Receiver<String>,
-     handoff_output_rx: Receiver<HandoffOutput>,
-     audio_rx: Receiver<RealtimeAudioFrame>,
-+    finalize_rx: Receiver<()>,
- }
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ enum RealtimeOutbound {
+-    DynamicToolOutput { call_id: String, output_text: String },
++    ClientHandoffOutput {
++        handoff_id: String,
++        text: String,
++    },
++    FinalizeHandoff,
++    DynamicToolOutput {
++        call_id: String,
++        output_text: String,
++    },
+     StandaloneHandoff {
+         text: String,
+         phase: Option<MessagePhase>,
+@@ -1101,6 +1109,43 @@
+         }
+     }
  
- impl RealtimeHandoffState {
-@@ -226,6 +228,8 @@
-     input_task: JoinHandle<()>,
-     fanout_task: Option<JoinHandle<()>>,
-     realtime_active: Arc<AtomicBool>,
-+    client_controlled_handoff: bool,
-+    finalize_tx: Sender<()>,
- }
- 
- struct RealtimeStart {
-@@ -234,6 +238,7 @@
-     session_config: RealtimeSessionConfig,
-     model_client: ModelClient,
-     sdp: Option<String>,
-+    client_controlled_handoff: bool,
- }
- 
- struct RealtimeStartOutput {
-@@ -286,6 +291,7 @@
-             session_config,
-             model_client,
-             sdp,
-+            client_controlled_handoff,
-         } = start;
-         let event_parser = session_config.event_parser;
-         let session_kind = match event_parser {
-@@ -301,6 +307,7 @@
-             async_channel::bounded::<HandoffOutput>(HANDOFF_OUT_QUEUE_CAPACITY);
-         let (events_tx, events_rx) =
-             async_channel::bounded::<RealtimeEvent>(OUTPUT_EVENTS_QUEUE_CAPACITY);
-+        let (finalize_tx, finalize_rx) = async_channel::bounded::<()>(4);
- 
-         let realtime_active = Arc::new(AtomicBool::new(true));
-         let handoff = RealtimeHandoffState::new(handoff_output_tx, session_kind);
-@@ -308,6 +315,7 @@
-             user_text_rx,
-             handoff_output_rx,
-             audio_rx,
-+            finalize_rx,
-         };
- 
-         let client = RealtimeWebsocketClient::new(api_provider);
-@@ -351,6 +359,7 @@
-                 handoff_state: handoff.clone(),
-                 session_kind,
-                 event_parser,
-+                finalize_rx: input_channels.finalize_rx,
-             });
-             (task, None)
-         };
-@@ -364,6 +373,8 @@
-             input_task: task,
-             fanout_task: None,
-             realtime_active: Arc::clone(&realtime_active),
-+            client_controlled_handoff,
-+            finalize_tx,
-         });
-         Ok(RealtimeStartOutput {
-             realtime_active,
-@@ -494,11 +505,47 @@
-                 .send(HandoffOutput::DynamicToolOutput {
-                     call_id,
-                     output_text,
-+                })
++    pub(crate) async fn resolve_handoff(&self, text: String) {
++        let handoff = self
++            .state
++            .lock()
++            .await
++            .as_ref()
++            .map(|state| state.handoff.clone());
++        if let Some(handoff) = handoff {
++            let handoff_id = handoff
++                .stream
++                .lock()
++                .await
++                .active_handoff
++                .clone()
++                .unwrap_or_default();
++            let _ = handoff
++                .output_tx
++                .send(RealtimeOutbound::ClientHandoffOutput { handoff_id, text })
 +                .await;
 +        }
 +    }
 +
-+    pub(crate) async fn is_client_controlled_handoff(&self) -> bool {
-+        let guard = self.state.lock().await;
-+        guard
-+            .as_ref()
-+            .map(|s| s.client_controlled_handoff)
-+            .unwrap_or(false)
-+    }
-+
-+    pub(crate) async fn resolve_handoff(&self, tool_call_output: String) {
-+        let guard = self.state.lock().await;
-+        if let Some(state) = guard.as_ref() {
-+            let handoff_id = state
-+                .handoff
-+                .active_handoff
-+                .lock()
-+                .await
-+                .clone()
-+                .unwrap_or_default();
-+            let _ = state
-+                .handoff
-+                .output_tx
-+                .send(HandoffOutput::FinalUpdate {
-+                    handoff_id,
-+                    output_text: tool_call_output,
-                 })
-                 .await;
-         }
-     }
- 
 +    pub(crate) async fn finalize_handoff(&self) {
-+        let guard = self.state.lock().await;
-+        if let Some(state) = guard.as_ref() {
-+            let _ = state.finalize_tx.send(()).await;
++        let handoff = self
++            .state
++            .lock()
++            .await
++            .as_ref()
++            .map(|state| state.handoff.clone());
++        if let Some(handoff) = handoff {
++            let _ = handoff
++                .output_tx
++                .send(RealtimeOutbound::FinalizeHandoff)
++                .await;
 +        }
 +    }
 +
      pub(crate) async fn handoff_complete(&self) -> CodexResult<()> {
          let handoff = {
              let guard = self.state.lock().await;
-@@ -622,6 +669,7 @@
-     version: RealtimeWsVersion,
-     session_config: RealtimeSessionConfig,
-     transport: ConversationStartTransport,
-+    client_controlled_handoff: bool,
+@@ -1223,6 +1268,7 @@
  }
  
- async fn prepare_realtime_start(
-@@ -677,6 +725,7 @@
+ struct PreparedRealtimeConversationStart {
++    client_controlled_handoff: bool,
+     api_provider: ApiProvider,
+     webrtc_api_fallback: Option<(ApiProvider, SharedAuthProvider)>,
+     realtime_sideband_base_url: Option<String>,
+@@ -1333,12 +1379,20 @@
+     let originator = sess.originator().await;
+     let realtime_key = realtime_api_key(auth.as_ref(), &provider).ok();
+     let webrtc_api_fallback = if matches!(&transport, ConversationStartTransport::Webrtc { .. })
+-        && matches!(auth.as_ref().map(CodexAuth::auth_mode), Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::AgentIdentity)) {
+-        realtime_key.as_ref().map(|api_key| {
+-            let auth: SharedAuthProvider = Arc::new(BearerAuthProvider::new(api_key.clone()));
+-            realtime_webrtc_api_provider().map(|provider| (provider, auth))
+-        }).transpose()?
+-    } else { None };
++        && matches!(
++            auth.as_ref().map(CodexAuth::auth_mode),
++            Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::AgentIdentity)
++        ) {
++        realtime_key
++            .as_ref()
++            .map(|api_key| {
++                let auth: SharedAuthProvider = Arc::new(BearerAuthProvider::new(api_key.clone()));
++                realtime_webrtc_api_provider().map(|provider| (provider, auth))
++            })
++            .transpose()?
++    } else {
++        None
++    };
+     let mut extra_headers = match transport {
+         ConversationStartTransport::Websocket => {
+             let realtime_api_key = realtime_api_key(auth.as_ref(), &provider)?;
+@@ -1350,14 +1404,12 @@
+             )?
+         }
+         ConversationStartTransport::Webrtc { .. }
+-        | ConversationStartTransport::ExistingCall { .. } => {
+-            realtime_request_headers(
+-                requested_realtime_session_id.as_deref(),
+-                realtime_key.as_deref(),
+-                event_parser,
+-                originator.as_str(),
+-            )?
+-        }
++        | ConversationStartTransport::ExistingCall { .. } => realtime_request_headers(
++            requested_realtime_session_id.as_deref(),
++            realtime_key.as_deref(),
++            event_parser,
++            originator.as_str(),
++        )?,
+     }
+     .unwrap_or_default();
+     extra_headers.extend(build_session_headers(
+@@ -1377,7 +1429,7 @@
+         webrtc_api_fallback,
+         realtime_sideband_base_url,
+         extra_headers: Some(extra_headers),
+-        client_managed_handoffs: params.client_managed_handoffs,
++        client_managed_handoffs: params.client_managed_handoffs || params.client_controlled_handoff,
+         flush_transcript_tail_on_session_end: params.flush_transcript_tail_on_session_end,
+         codex_responses_as_items: params.codex_responses_as_items,
+         codex_response_item_prefix: params.codex_response_item_prefix,
+@@ -1390,6 +1442,7 @@
          version,
          session_config,
          transport,
@@ -370,110 +432,817 @@ diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/real
      })
  }
  
-@@ -800,6 +849,7 @@
-         version,
-         session_config,
-         transport,
+@@ -1518,6 +1571,18 @@
+         .or(config_voice)
+         .unwrap_or_else(|| default_realtime_voice(version));
+     validate_realtime_voice(version, voice)?;
++    if params.dynamic_tools.as_ref().is_some_and(|tools| {
++        tools.iter().any(|tool| {
++            matches!(
++                tool,
++                codex_protocol::dynamic_tools::DynamicToolSpec::Namespace(_)
++            )
++        })
++    }) {
++        return Err(CodexErr::InvalidRequest(
++            "realtime sessions require flat function tools; namespaces are unsupported".to_string(),
++        ));
++    }
+     Ok(RealtimeSessionConfig {
+         instructions: prompt,
+         initial_items: params.initial_items.clone(),
+@@ -1597,6 +1662,7 @@
+     prepared_start: PreparedRealtimeConversationStart,
+ ) -> CodexResult<()> {
+     let PreparedRealtimeConversationStart {
 +        client_controlled_handoff,
-     } = prepared_start;
-     info!("starting realtime conversation");
-     let sdp = match transport {
-@@ -812,6 +862,7 @@
-         session_config,
-         model_client: sess.services.model_client.clone(),
-         sdp,
-+        client_controlled_handoff,
-     };
-     let start_output = sess.conversation.start(start).await?;
- 
-@@ -864,16 +915,21 @@
-             if let RealtimeEvent::Error(_) = &event {
-                 end = RealtimeConversationEnd::Error;
-             }
--            let maybe_routed_text = match &event {
--                RealtimeEvent::HandoffRequested(handoff) => {
--                    realtime_delegation_from_handoff(handoff)
-+            // Skip auto-route when the client opted into client-controlled handoff:
-+            // the handoff event is forwarded to the client, which resolves it via
-+            // RealtimeConversationResolveHandoff/FinalizeHandoff.
-+            if !sess_clone.conversation.is_client_controlled_handoff().await {
-+                let maybe_routed_text = match &event {
-+                    RealtimeEvent::HandoffRequested(handoff) => {
-+                        realtime_delegation_from_handoff(handoff)
-+                    }
-+                    _ => None,
-+                };
-+                if let Some(text) = maybe_routed_text {
-+                    debug!(text = %text, "[realtime-text] realtime conversation text output");
-+                    let sess_for_routed_text = Arc::clone(&sess_clone);
-+                    sess_for_routed_text.route_realtime_text_input(text).await;
+         api_provider,
+         webrtc_api_fallback,
+         realtime_sideband_base_url,
+@@ -1699,7 +1765,7 @@
                  }
--                _ => None,
--            };
+                 _ => None,
+             };
 -            if let Some(text) = maybe_routed_text {
--                debug!(text = %text, "[realtime-text] realtime conversation text output");
--                let sess_for_routed_text = Arc::clone(&sess_clone);
--                sess_for_routed_text.route_realtime_text_input(text).await;
-             }
-             if !fanout_realtime_active.load(Ordering::Relaxed) {
++            if !client_controlled_handoff && let Some(text) = maybe_routed_text {
+                 // The routed text can contain spoken prompts or workspace secrets.
+                 debug!("[realtime-text] realtime conversation text output");
+                 handoff_error = route_handoffs.route(&sess_clone, text).await.err();
+@@ -1715,7 +1781,8 @@
                  break;
-@@ -1107,6 +1163,7 @@
-             handoff_state,
-             session_kind,
-             event_parser,
-+            finalize_rx: input_channels.finalize_rx,
-         })
-         .await;
-     })
-@@ -1123,6 +1180,7 @@
-         handoff_state,
-         session_kind,
-         event_parser,
-+        finalize_rx,
-     } = input;
- 
-     let mut output_audio_state: Option<OutputAudioState> = None;
-@@ -1169,6 +1227,25 @@
-                 handle_user_audio_input(user_audio_frame, &writer, &events_tx)
+             }
+         }
+-        if handoff_error.is_none()
++        if !client_controlled_handoff
++            && handoff_error.is_none()
+             && let Ok(text) = transcript_tail_rx.recv().await
+         {
+             handoff_error = route_handoffs.route(&sess_clone, text).await.err();
+@@ -2259,10 +2326,30 @@
+                     .send_conversation_item_create(text, ConversationTextRole::Developer)
                      .await
              }
-+            // Finalize signal: client-controlled handoff resolution complete; trigger response.create.
-+            finalize = finalize_rx.recv() => {
-+                if finalize.is_err() {
-+                    continue;
+-            RealtimeOutbound::DynamicToolOutput { call_id, output_text } => {
+-                writer.send_conversation_function_call_output(call_id, output_text).await?;
++            RealtimeOutbound::DynamicToolOutput {
++                call_id,
++                output_text,
++            } => {
++                writer
++                    .send_conversation_function_call_output(call_id, output_text)
++                    .await?;
+                 if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
+-                    return response_create_queue.request_create(writer, "dynamic_tool").await;
++                    return response_create_queue
++                        .request_create(writer, "dynamic_tool")
++                        .await;
 +                }
-+                if matches!(session_kind, RealtimeSessionKind::V2) {
-+                    if let Err(err) = response_create_queue
-+                        .request_create(&writer, &events_tx, "finalize_handoff")
-+                        .await
-+                    {
-+                        warn!("failed to send finalize response.create: {err}");
-+                        Err(err)
-+                    } else {
-+                        Ok(())
-+                    }
-+                } else {
-+                    Ok(())
-+                }
++                Ok(())
 +            }
-         };
-         if result.is_err() {
-             break;
++            RealtimeOutbound::ClientHandoffOutput { handoff_id, text } => {
++                writer
++                    .send_conversation_function_call_output(handoff_id, text)
++                    .await
++            }
++            RealtimeOutbound::FinalizeHandoff => {
++                if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
++                    return response_create_queue
++                        .request_create(writer, "finalize_handoff")
++                        .await;
+                 }
+                 Ok(())
+             }
+@@ -2333,10 +2420,30 @@
+                 .send_conversation_item_create(text, ConversationTextRole::Developer)
+                 .await
+             }
+-            RealtimeOutbound::DynamicToolOutput { call_id, output_text } => {
+-                writer.send_conversation_function_call_output(call_id, output_text).await?;
++            RealtimeOutbound::DynamicToolOutput {
++                call_id,
++                output_text,
++            } => {
++                writer
++                    .send_conversation_function_call_output(call_id, output_text)
++                    .await?;
+                 if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
+-                    return response_create_queue.request_create(writer, "dynamic_tool").await;
++                    return response_create_queue
++                        .request_create(writer, "dynamic_tool")
++                        .await;
++                }
++                Ok(())
++            }
++            RealtimeOutbound::ClientHandoffOutput { handoff_id, text } => {
++                writer
++                    .send_conversation_function_call_output(handoff_id, text)
++                    .await
++            }
++            RealtimeOutbound::FinalizeHandoff => {
++                if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
++                    return response_create_queue
++                        .request_create(writer, "finalize_handoff")
++                        .await;
+                 }
+                 Ok(())
+             }
+@@ -2413,10 +2520,30 @@
+                     .send_conversation_item_create(text, ConversationTextRole::Developer)
+                     .await
+             }
+-            RealtimeOutbound::DynamicToolOutput { call_id, output_text } => {
+-                writer.send_conversation_function_call_output(call_id, output_text).await?;
++            RealtimeOutbound::DynamicToolOutput {
++                call_id,
++                output_text,
++            } => {
++                writer
++                    .send_conversation_function_call_output(call_id, output_text)
++                    .await?;
+                 if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
+-                    return response_create_queue.request_create(writer, "dynamic_tool").await;
++                    return response_create_queue
++                        .request_create(writer, "dynamic_tool")
++                        .await;
++                }
++                Ok(())
++            }
++            RealtimeOutbound::ClientHandoffOutput { handoff_id, text } => {
++                writer
++                    .send_conversation_function_call_output(handoff_id, text)
++                    .await
++            }
++            RealtimeOutbound::FinalizeHandoff => {
++                if matches!(event_parser, RealtimeEventParser::RealtimeV2) {
++                    return response_create_queue
++                        .request_create(writer, "finalize_handoff")
++                        .await;
+                 }
+                 Ok(())
+             }
+@@ -2567,7 +2694,9 @@
+         RealtimeEvent::ToolCallRequested(_) => {
+             *output_audio_state = None;
+             if matches!(session_kind, RealtimeSessionKind::V2) {
+-                response_create_queue.mark_finished(writer, "tool_call").await?;
++                response_create_queue
++                    .mark_finished(writer, "tool_call")
++                    .await?;
+             }
+             false
+         }
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
 --- a/codex-rs/core/src/session/handlers.rs
 +++ b/codex-rs/core/src/session/handlers.rs
-@@ -752,6 +752,14 @@
-                 }
-                 Op::RealtimeConversationClose => {
+@@ -591,6 +591,14 @@
                      handle_realtime_conversation_close(&sess, sub.id.clone()).await;
-+                    false
-+                }
+                     false
+                 }
 +                Op::RealtimeConversationResolveHandoff { tool_call_output } => {
 +                    sess.conversation.resolve_handoff(tool_call_output).await;
 +                    false
 +                }
 +                Op::RealtimeConversationFinalizeHandoff => {
 +                    sess.conversation.finalize_handoff().await;
-                     false
-                 }
++                    false
++                }
                  Op::RealtimeResolveDynamicTool { call_id, output } => {
+                     sess.conversation
+                         .resolve_realtime_dynamic_tool(call_id, output)
+diff --git a/codex-rs/app-server/tests/suite/v2/experimental_api.rs b/codex-rs/app-server/tests/suite/v2/experimental_api.rs
+--- a/codex-rs/app-server/tests/suite/v2/experimental_api.rs
++++ b/codex-rs/app-server/tests/suite/v2/experimental_api.rs
+@@ -91,6 +91,8 @@
+ 
+     let request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -229,6 +231,8 @@
+ 
+     let request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+diff --git a/codex-rs/app-server/tests/suite/v2/realtime_conversation.rs b/codex-rs/app-server/tests/suite/v2/realtime_conversation.rs
+--- a/codex-rs/app-server/tests/suite/v2/realtime_conversation.rs
++++ b/codex-rs/app-server/tests/suite/v2/realtime_conversation.rs
+@@ -441,6 +441,8 @@
+         let start_request_id = self
+             .mcp
+             .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 thread_id: self.thread_id.clone(),
+                 client_managed_handoffs: None,
+                 delegation_ack_filler: None,
+@@ -480,6 +482,8 @@
+         let start_request_id = self
+             .mcp
+             .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 thread_id: self.thread_id.clone(),
+                 client_managed_handoffs: None,
+                 delegation_ack_filler: None,
+@@ -697,6 +701,8 @@
+         timeout(DEFAULT_TIMEOUT, mcp.read_response(thread_request)).await??;
+     let request = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             thread_id: thread.thread.id.clone(),
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+@@ -894,6 +900,8 @@
+ 
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -1463,6 +1471,8 @@
+ 
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -1560,6 +1570,8 @@
+ 
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -1737,6 +1749,8 @@
+ 
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -1810,6 +1824,8 @@
+     let start_request_id = harness
+         .mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             thread_id: harness.thread_id.clone(),
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+@@ -1945,6 +1961,8 @@
+     let thread_id = thread_start.thread.id;
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+@@ -2163,6 +2181,8 @@
+     let request_id = harness
+         .mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             thread_id: harness.thread_id.clone(),
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+@@ -2251,6 +2271,8 @@
+     )
+     .await?;
+     let mut params = ThreadRealtimeStartParams {
++        dynamic_tools: None,
++        client_controlled_handoff: false,
+         thread_id: harness.thread_id.clone(),
+         client_managed_handoffs: None,
+         delegation_ack_filler: None,
+@@ -3770,6 +3792,8 @@
+ 
+     let start_request_id = mcp
+         .send_thread_realtime_start_request(ThreadRealtimeStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: None,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: None,
+diff --git a/codex-rs/tui/src/app_server_session/realtime.rs b/codex-rs/tui/src/app_server_session/realtime.rs
+--- a/codex-rs/tui/src/app_server_session/realtime.rs
++++ b/codex-rs/tui/src/app_server_session/realtime.rs
+@@ -28,6 +28,8 @@
+             .request_typed(ClientRequest::ThreadRealtimeStart {
+                 request_id,
+                 params: ThreadRealtimeStartParams {
++                    dynamic_tools: None,
++                    client_controlled_handoff: false,
+                     thread_id: thread_id.to_string(),
+                     client_managed_handoffs: Some(true),
+                     delegation_ack_filler: None,
+diff --git a/codex-rs/core/tests/suite/compact_remote.rs b/codex-rs/core/tests/suite/compact_remote.rs
+--- a/codex-rs/core/tests/suite/compact_remote.rs
++++ b/codex-rs/core/tests/suite/compact_remote.rs
+@@ -96,6 +96,8 @@
+ async fn start_realtime_conversation(codex: &codex_core::CodexThread) -> Result<()> {
+     codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+diff --git a/codex-rs/core/tests/suite/realtime_sideband_endpoint.rs b/codex-rs/core/tests/suite/realtime_sideband_endpoint.rs
+--- a/codex-rs/core/tests/suite/realtime_sideband_endpoint.rs
++++ b/codex-rs/core/tests/suite/realtime_sideband_endpoint.rs
+@@ -60,6 +60,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+diff --git a/codex-rs/core/tests/suite/realtime_misalignment.rs b/codex-rs/core/tests/suite/realtime_misalignment.rs
+--- a/codex-rs/core/tests/suite/realtime_misalignment.rs
++++ b/codex-rs/core/tests/suite/realtime_misalignment.rs
+@@ -90,6 +90,8 @@
+     let test = builder.build_with_auto_env(&api_server).await?;
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+diff --git a/codex-rs/core/tests/suite/realtime_conversation.rs b/codex-rs/core/tests/suite/realtime_conversation.rs
+--- a/codex-rs/core/tests/suite/realtime_conversation.rs
++++ b/codex-rs/core/tests/suite/realtime_conversation.rs
+@@ -309,6 +309,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -490,6 +492,8 @@
+     for session_count in 1..=2 {
+         test.codex
+             .submit(Op::RealtimeConversationStart(ConversationStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: false,
+                 delegation_ack_filler: None,
+                 flush_transcript_tail_on_session_end: false,
+@@ -600,6 +604,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -695,6 +701,8 @@
+ 
+     codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -865,6 +873,8 @@
+ 
+     codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1026,6 +1036,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1390,6 +1402,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1461,6 +1475,7 @@
+     assert_eq!(
+         handoff,
+         RealtimeHandoffRequested {
++            server: None,
+             handoff_id: "handoff_reconnect".to_string(),
+             item_id: "handoff_reconnect".to_string(),
+             input_transcript: "hello world".to_string(),
+@@ -1545,6 +1560,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1650,6 +1667,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1717,6 +1736,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1794,6 +1815,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -1908,6 +1931,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2015,6 +2040,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2115,6 +2142,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2213,6 +2242,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end,
+@@ -2336,6 +2367,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2394,6 +2427,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2500,6 +2535,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2537,6 +2574,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2645,6 +2684,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2721,6 +2762,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2805,6 +2848,8 @@
+     ] {
+         test.codex
+             .submit(Op::RealtimeConversationStart(ConversationStartParams {
++                dynamic_tools: None,
++                client_controlled_handoff: false,
+                 client_managed_handoffs: false,
+                 delegation_ack_filler: None,
+                 flush_transcript_tail_on_session_end: false,
+@@ -2882,6 +2927,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -2951,6 +2998,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3008,6 +3057,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3066,6 +3117,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3150,6 +3203,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3228,6 +3283,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3299,6 +3356,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3426,6 +3485,8 @@
+ 
+     codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3545,6 +3606,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3616,6 +3679,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3720,6 +3785,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3860,6 +3927,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -3970,6 +4039,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4141,6 +4212,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4320,6 +4393,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4485,6 +4560,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4649,6 +4726,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4763,6 +4842,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -4896,6 +4977,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: true,
+@@ -4990,6 +5073,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -5124,6 +5209,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -5288,6 +5375,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -5441,6 +5530,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -5599,6 +5690,8 @@
+ 
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+diff --git a/codex-rs/core/tests/suite/turn_input_submission.rs b/codex-rs/core/tests/suite/turn_input_submission.rs
+--- a/codex-rs/core/tests/suite/turn_input_submission.rs
++++ b/codex-rs/core/tests/suite/turn_input_submission.rs
+@@ -258,6 +258,8 @@
+         .await?;
+     test.codex
+         .submit(Op::RealtimeConversationStart(ConversationStartParams {
++            dynamic_tools: None,
++            client_controlled_handoff: false,
+             client_managed_handoffs: false,
+             delegation_ack_filler: None,
+             flush_transcript_tail_on_session_end: false,
+@@ -282,6 +284,7 @@
+     for expected in [
+         EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
+             payload: RealtimeEvent::HandoffRequested(RealtimeHandoffRequested {
++                server: None,
+                 handoff_id: "rejected".to_string(),
+                 item_id: "rejected".to_string(),
+                 input_transcript: "must not start".to_string(),
+diff --git a/codex-rs/core/tests/suite/realtime_initial_items.rs b/codex-rs/core/tests/suite/realtime_initial_items.rs
+--- a/codex-rs/core/tests/suite/realtime_initial_items.rs
++++ b/codex-rs/core/tests/suite/realtime_initial_items.rs
+@@ -198,6 +198,8 @@
+ 
+ fn start_params(version: RealtimeConversationVersion) -> ConversationStartParams {
+     ConversationStartParams {
++        dynamic_tools: None,
++        client_controlled_handoff: false,
+         client_managed_handoffs: false,
+         delegation_ack_filler: None,
+         flush_transcript_tail_on_session_end: false,

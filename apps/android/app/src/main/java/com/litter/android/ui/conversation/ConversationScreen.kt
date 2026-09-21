@@ -908,6 +908,9 @@ fun ConversationScreen(
         }
 
         if (showModelSelector) {
+            LaunchedEffect(threadKey.serverId) {
+                appModel.loadAvailableModelsIfNeeded(threadKey.serverId)
+            }
             ModalBottomSheet(
                 onDismissRequest = { showModelSelector = false },
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -1127,7 +1130,7 @@ private fun fallbackCollaborationModePresets(): List<uniffi.codex_mobile_client.
             kind = uniffi.codex_mobile_client.AppModeKind.PLAN,
             name = "Plan",
             model = null,
-            reasoningEffort = uniffi.codex_mobile_client.ReasoningEffort.MEDIUM,
+            reasoningEffort = uniffi.codex_mobile_client.ReasoningEffort.Medium,
         ),
     )
 
@@ -1207,14 +1210,16 @@ private fun collaborationModeEffortLabel(
     effort: uniffi.codex_mobile_client.ReasoningEffort,
 ): String =
     when (effort) {
-        uniffi.codex_mobile_client.ReasoningEffort.NONE -> "None"
-        uniffi.codex_mobile_client.ReasoningEffort.MINIMAL -> "Minimal"
-        uniffi.codex_mobile_client.ReasoningEffort.LOW -> "Low"
-        uniffi.codex_mobile_client.ReasoningEffort.MEDIUM -> "Medium"
-        uniffi.codex_mobile_client.ReasoningEffort.HIGH -> "High"
-        uniffi.codex_mobile_client.ReasoningEffort.X_HIGH -> "XHigh"
-        uniffi.codex_mobile_client.ReasoningEffort.MAX -> "Max"
-        uniffi.codex_mobile_client.ReasoningEffort.ULTRA -> "Ultra"
+        uniffi.codex_mobile_client.ReasoningEffort.None -> "None"
+        uniffi.codex_mobile_client.ReasoningEffort.Minimal -> "Minimal"
+        uniffi.codex_mobile_client.ReasoningEffort.Low -> "Low"
+        uniffi.codex_mobile_client.ReasoningEffort.Medium -> "Medium"
+        uniffi.codex_mobile_client.ReasoningEffort.High -> "High"
+        uniffi.codex_mobile_client.ReasoningEffort.XHigh -> "XHigh"
+        uniffi.codex_mobile_client.ReasoningEffort.Max -> "Max"
+        uniffi.codex_mobile_client.ReasoningEffort.Ultra -> "Ultra"
+        uniffi.codex_mobile_client.ReasoningEffort.Persistent -> "Persistent"
+        is uniffi.codex_mobile_client.ReasoningEffort.Custom -> effort.value
     }
 
 private data class PinnedContextData(

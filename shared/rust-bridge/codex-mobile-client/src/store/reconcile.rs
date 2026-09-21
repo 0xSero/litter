@@ -65,8 +65,8 @@ impl MobileClient {
                     response,
                     params.include_turns,
                 )
-                    .map(|_| ())
-                    .map_err(RpcError::Deserialization)
+                .map(|_| ())
+                .map_err(RpcError::Deserialization)
             }
             "thread/resume" => {
                 let response = downcast_public_rpc_response::<upstream::ThreadResumeResponse>(
@@ -239,6 +239,7 @@ impl MobileClient {
             Some(response.model.clone()),
             response
                 .reasoning_effort
+                .clone()
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
             Some(response.approval_policy.into()),
@@ -323,6 +324,7 @@ impl MobileClient {
             Some(response.model.clone()),
             response
                 .reasoning_effort
+                .clone()
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
             Some(response.approval_policy.into()),
@@ -349,6 +351,7 @@ impl MobileClient {
             Some(response.model.clone()),
             response
                 .reasoning_effort
+                .clone()
                 .map(Into::into)
                 .map(crate::reasoning_effort_string),
             Some(response.approval_policy.into()),
@@ -733,6 +736,19 @@ mod tests {
 
     fn test_upstream_thread(id: &str) -> upstream::Thread {
         upstream::Thread {
+            environments: None,
+            extra: None,
+            parent_thread_id: None,
+            section: None,
+            section_entered_at: None,
+            project_id: None,
+            model: None,
+            reasoning_effort: None,
+            recency_at: None,
+            originator: None,
+            can_accept_direct_input: None,
+            daybreak_enabled: None,
+            history_mode: Default::default(),
             id: id.to_string(),
             session_id: format!("session-{id}"),
             forked_from_id: None,
@@ -773,7 +789,7 @@ mod tests {
 
         let response = upstream::GetAccountResponse {
             account: Some(upstream::Account::Chatgpt {
-                email: "user@example.com".into(),
+                email: Some("user@example.com".into()),
                 plan_type: codex_protocol::account::PlanType::Pro,
             }),
             requires_openai_auth: true,
@@ -826,8 +842,15 @@ mod tests {
                 }),
                 plan_type: Some(codex_protocol::account::PlanType::Plus),
                 rate_limit_reached_type: None,
+                individual_limit: None,
+                normal_model_slug: None,
+                spend_control_reached: None,
             },
             rate_limits_by_limit_id: None,
+            account_id: None,
+            ordinary_usage_allowed: None,
+            rate_limit_reset_credits: None,
+            rate_limit_upsell: None,
         };
 
         client
@@ -886,6 +909,9 @@ mod tests {
                 service_tiers: Vec::new(),
                 is_default: true,
                 availability_nux: None,
+                model_specialty: None,
+                multi_agent_version: None,
+                default_service_tier: None,
                 upgrade_info: None,
             }],
             next_cursor: None,
@@ -1163,7 +1189,8 @@ mod tests {
         thread.items = vec![
             live_user,
             assistant_item(None, "live-assistant-id", "partial"),
-        ].into();
+        ]
+        .into();
         let page = AppListThreadTurnsResponse {
             turns: vec![
                 item_with_turn("turn-1", "persisted-user-id"),
@@ -1187,7 +1214,8 @@ mod tests {
             assistant_item(Some("turn-0"), "older-assistant-id", "older final"),
             live_user,
             assistant_item(None, "live-assistant-id", "partial"),
-        ].into();
+        ]
+        .into();
         let page = AppListThreadTurnsResponse {
             turns: vec![
                 item_with_turn("turn-1", "persisted-user-id"),
@@ -1217,7 +1245,8 @@ mod tests {
         thread.items = vec![
             live_user,
             assistant_item(Some("active-turn"), "active-assistant-id", "partial"),
-        ].into();
+        ]
+        .into();
         let page = AppListThreadTurnsResponse {
             turns: vec![
                 item_with_turn("turn-1", "persisted-user-id"),
@@ -1242,7 +1271,8 @@ mod tests {
             item_with_turn("turn-1", "persisted-user-id"),
             assistant_item(Some("turn-1"), "persisted-assistant-id", "final"),
             assistant_item(Some("turn-1"), "late-stream-assistant-id", "late duplicate"),
-        ].into();
+        ]
+        .into();
         let page = AppListThreadTurnsResponse {
             turns: vec![
                 item_with_turn("turn-1", "persisted-user-id"),
@@ -1326,6 +1356,7 @@ mod tests {
             ServerHealthSnapshot::Connected,
         );
         let response = upstream::ThreadStartResponse {
+            multi_agent_mode: Default::default(),
             thread: test_upstream_thread("thread-1"),
             model: "gpt-5".to_string(),
             model_provider: "openai".to_string(),
@@ -1431,6 +1462,7 @@ mod tests {
             id: "turn-1".to_string(),
             status: upstream::TurnStatus::Completed,
             items: vec![upstream::ThreadItem::UserMessage {
+                client_id: None,
                 id: "server-user-item".to_string(),
                 content: vec![upstream::UserInput::Text {
                     text: "hi".to_string(),
@@ -1577,6 +1609,7 @@ mod tests {
             id: "unbounded-turn".to_string(),
             status: upstream::TurnStatus::Completed,
             items: vec![upstream::ThreadItem::UserMessage {
+                client_id: None,
                 id: "unbounded-item".to_string(),
                 content: vec![upstream::UserInput::Text {
                     text: "bridge returned history despite includeTurns=false".to_string(),

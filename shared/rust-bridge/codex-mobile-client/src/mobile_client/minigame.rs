@@ -247,15 +247,7 @@ pub(crate) async fn run_minigame(
     );
 
     let app_tool = show_widget_tool_spec();
-    let input_schema: serde_json::Value = serde_json::from_str(&app_tool.input_schema_json)
-        .map_err(|e| format!("parse show_widget input schema: {e}"))?;
-    let dynamic_tools = vec![upstream::DynamicToolSpec {
-        name: app_tool.name,
-        description: app_tool.description,
-        input_schema,
-        namespace: None,
-        defer_loading: app_tool.defer_loading,
-    }];
+    let dynamic_tools = vec![app_tool.try_into().map_err(|error: crate::RpcClientError| error.to_string())?];
 
     // 1. Start ephemeral thread
     let start_params = upstream::ThreadStartParams {
@@ -281,7 +273,7 @@ pub(crate) async fn run_minigame(
         dynamic_tools: Some(dynamic_tools),
         mock_experimental_field: None,
         experimental_raw_events: false,
-        persist_extended_history: false,
+        ..Default::default()
     };
 
     let thread_response: upstream::ThreadStartResponse = client
@@ -337,6 +329,7 @@ pub(crate) async fn run_minigame(
         personality: None,
         output_schema: None,
         collaboration_mode: None,
+        ..Default::default()
     };
 
     if let Err(e) = client

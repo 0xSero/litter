@@ -226,6 +226,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             .onChange(of: showModelSelector) { _, isPresented in
                 if isPresented {
                     modelSelectorDetent = .large
+                    Task { await appModel.loadAvailableModelsIfNeeded(serverId: snapshot.threadKey.serverId) }
                 }
             }
             .sheet(isPresented: $showPermissionsSheet) {

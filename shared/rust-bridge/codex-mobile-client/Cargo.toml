@@ -22,7 +22,7 @@ codex-exec-server = { workspace = true }
 codex-login = { workspace = true }
 codex-shell-command = { workspace = true }
 codex-config = { workspace = true }
-codex-cloud-requirements = { workspace = true }
+codex-cloud-config = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
 codex-feedback = { workspace = true }
 codex-arg0 = { workspace = true }
@@ -73,4 +73,4 @@ openssl-sys = { version = "0.9", features = ["vendored"] }
 portable-pty = "0.9"
 flate2 = "1"
 tar = "0.4"
-rusqlite = { version = "0.32.1", features = ["bundled"] }
+rusqlite = { version = "0.39.0", features = ["bundled"] }

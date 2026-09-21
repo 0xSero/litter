@@ -407,7 +407,7 @@ enum WatchProjection {
 
     private static func mapStatus(_ status: AppOperationStatus) -> WatchTaskStep.State {
         switch status {
-        case .completed, .failed, .declined: return .done
+        case .completed, .failed, .declined, .interrupted: return .done
         case .inProgress: return .active
         case .pending, .unknown: return .pending
         }

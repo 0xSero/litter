@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.litter.android.state.ampReasoningEffortLocked
+import com.litter.android.state.supportedDefaultReasoningEffort
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
@@ -197,12 +198,12 @@ fun ModelSelectorPanel(
                 ?.takeIf { current ->
                     supportedEfforts.any { effortLabel(it.reasoningEffort) == current }
                 }
-            ?: selectedModelDefinition?.defaultReasoningEffort?.let(::effortLabel)
+            ?: selectedModelDefinition?.supportedDefaultReasoningEffort?.let(::effortLabel)
     }
 
     LaunchedEffect(launchState.reasoningEffort, selectedModelDefinition, supportedEfforts, ampEffortLocked) {
         val pendingEffort = launchState.reasoningEffort.trim()
-        val defaultEffort = selectedModelDefinition?.defaultReasoningEffort
+        val defaultEffort = selectedModelDefinition?.supportedDefaultReasoningEffort
         if (pendingEffort.isEmpty()) {
             return@LaunchedEffect
         }
@@ -214,11 +215,8 @@ fun ModelSelectorPanel(
             appModel.launchState.updateReasoningEffort(null)
             return@LaunchedEffect
         }
-        if (defaultEffort == null) {
-            return@LaunchedEffect
-        }
         if (supportedEfforts.none { effortLabel(it.reasoningEffort) == pendingEffort }) {
-            appModel.launchState.updateReasoningEffort(effortLabel(defaultEffort))
+            appModel.launchState.updateReasoningEffort(defaultEffort?.let(::effortLabel))
         }
     }
 
@@ -501,21 +499,13 @@ fun ModelSelectorPanel(
     }
 }
 
-internal fun effortLabel(value: ReasoningEffort): String = when (value) {
-    ReasoningEffort.NONE -> "none"
-    ReasoningEffort.MINIMAL -> "minimal"
-    ReasoningEffort.LOW -> "low"
-    ReasoningEffort.MEDIUM -> "medium"
-    ReasoningEffort.HIGH -> "high"
-    ReasoningEffort.X_HIGH -> "xhigh"
-    ReasoningEffort.MAX -> "max"
-    ReasoningEffort.ULTRA -> "ultra"
-}
+internal fun effortLabel(value: ReasoningEffort): String =
+    uniffi.codex_mobile_client.reasoningEffortWireValue(value)
+
 
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
-    if (supportedReasoningEfforts.isEmpty()) null else effortLabel(defaultReasoningEffort)
+    supportedDefaultReasoningEffort?.let(::effortLabel)
 
-private val AmpVisibleModes = setOf("low", "medium", "high", "ultra")
 
 private fun normalizedAmpModeName(value: String): String =
     value.trim()
@@ -537,7 +527,7 @@ internal fun ModelInfo.modelPickerDisplayName(): String =
     }
 
 private fun ModelInfo.isVisibleModelOption(): Boolean =
-    agentRuntimeKind != "amp" || ampModeName() in AmpVisibleModes
+    !hidden
 
 private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,

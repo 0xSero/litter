@@ -63,26 +63,16 @@ impl TryFrom<AppDynamicToolSpec> for codex_protocol::dynamic_tools::DynamicToolS
     type Error = RpcClientError;
 
     fn try_from(value: AppDynamicToolSpec) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: value.name,
-            description: value.description,
-            input_schema: serde_json::from_str(&value.input_schema_json).map_err(|e| {
-                RpcClientError::Serialization(format!("invalid input_schema JSON: {e}"))
-            })?,
-            namespace: None,
-            defer_loading: value.defer_loading,
-        })
-    }
-}
-
-impl From<codex_protocol::dynamic_tools::DynamicToolSpec> for AppDynamicToolSpec {
-    fn from(value: codex_protocol::dynamic_tools::DynamicToolSpec) -> Self {
-        Self {
-            name: value.name,
-            description: value.description,
-            input_schema_json: serde_json::to_string(&value.input_schema).unwrap_or_default(),
-            defer_loading: value.defer_loading,
-        }
+        Ok(Self::Function(
+            codex_protocol::dynamic_tools::DynamicToolFunctionSpec {
+                name: value.name,
+                description: value.description,
+                input_schema: serde_json::from_str(&value.input_schema_json).map_err(|e| {
+                    RpcClientError::Serialization(format!("invalid input_schema JSON: {e}"))
+                })?,
+                defer_loading: value.defer_loading,
+            },
+        ))
     }
 }
 
@@ -240,7 +230,12 @@ impl From<codex_protocol::account::PlanType> for PlanType {
             codex_protocol::account::PlanType::Enterprise => Self::Enterprise,
             codex_protocol::account::PlanType::Edu => Self::Edu,
             codex_protocol::account::PlanType::Unknown => Self::Unknown,
-            codex_protocol::account::PlanType::ProLite => Self::Unknown,
+            codex_protocol::account::PlanType::ProLite => Self::Pro,
+            codex_protocol::account::PlanType::SelfServeBusinessProLite => Self::Business,
+            codex_protocol::account::PlanType::Ent26
+            | codex_protocol::account::PlanType::EnterpriseCbpAutomation => Self::Enterprise,
+            codex_protocol::account::PlanType::EduPlus
+            | codex_protocol::account::PlanType::EduPro => Self::Edu,
             codex_protocol::account::PlanType::SelfServeBusinessUsageBased => Self::Business,
             codex_protocol::account::PlanType::EnterpriseCbpUsageBased => Self::Enterprise,
         }
@@ -295,7 +290,6 @@ impl TryFrom<codex_protocol::config_types::ModeKind> for AppModeKind {
         match value {
             codex_protocol::config_types::ModeKind::Default => Ok(Self::Default),
             codex_protocol::config_types::ModeKind::Plan => Ok(Self::Plan),
-            other => Err(format!("unsupported collaboration mode: {:?}", other)),
         }
     }
 }
@@ -502,6 +496,13 @@ pub enum AuthMode {
     ChatgptAuthTokens,
     #[serde(rename = "agentIdentity")]
     AgentIdentity,
+    Headers,
+    #[serde(rename = "personalAccessToken")]
+    PersonalAccessToken,
+    #[serde(rename = "bedrockApiKey")]
+    BedrockApiKey,
+    #[serde(rename = "bedrockAccessKeys")]
+    BedrockAccessKeys,
 }
 
 impl From<upstream::AuthMode> for AuthMode {
@@ -511,6 +512,10 @@ impl From<upstream::AuthMode> for AuthMode {
             upstream::AuthMode::Chatgpt => Self::Chatgpt,
             upstream::AuthMode::ChatgptAuthTokens => Self::ChatgptAuthTokens,
             upstream::AuthMode::AgentIdentity => Self::AgentIdentity,
+            upstream::AuthMode::Headers => Self::Headers,
+            upstream::AuthMode::PersonalAccessToken => Self::PersonalAccessToken,
+            upstream::AuthMode::BedrockApiKey => Self::BedrockApiKey,
+            upstream::AuthMode::BedrockAccessKeys => Self::BedrockAccessKeys,
         }
     }
 }
@@ -674,6 +679,7 @@ pub enum PlanType {
 pub enum InputModality {
     Text,
     Image,
+    Audio,
 }
 
 impl From<codex_protocol::openai_models::InputModality> for InputModality {
@@ -681,6 +687,7 @@ impl From<codex_protocol::openai_models::InputModality> for InputModality {
         match value {
             codex_protocol::openai_models::InputModality::Text => Self::Text,
             codex_protocol::openai_models::InputModality::Image => Self::Image,
+            codex_protocol::openai_models::InputModality::Audio => Self::Audio,
         }
     }
 }
@@ -734,9 +741,11 @@ pub enum AppMergeStrategy {
     Upsert,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, uniffi::Enum)]
+#[serde(
+    from = "codex_protocol::openai_models::ReasoningEffort",
+    into = "codex_protocol::openai_models::ReasoningEffort"
+)]
 pub enum ReasoningEffort {
     None,
     Minimal,
@@ -747,21 +756,63 @@ pub enum ReasoningEffort {
     XHigh,
     Max,
     Ultra,
+    Persistent,
+    Custom {
+        value: String,
+    },
 }
-
 impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
     fn from(value: codex_protocol::openai_models::ReasoningEffort) -> Self {
+        use codex_protocol::openai_models::ReasoningEffort as Core;
         match value {
-            codex_protocol::openai_models::ReasoningEffort::None => Self::None,
-            codex_protocol::openai_models::ReasoningEffort::Minimal => Self::Minimal,
-            codex_protocol::openai_models::ReasoningEffort::Low => Self::Low,
-            codex_protocol::openai_models::ReasoningEffort::Medium => Self::Medium,
-            codex_protocol::openai_models::ReasoningEffort::High => Self::High,
-            codex_protocol::openai_models::ReasoningEffort::XHigh => Self::XHigh,
-            codex_protocol::openai_models::ReasoningEffort::Max => Self::Max,
-            codex_protocol::openai_models::ReasoningEffort::Ultra => Self::Ultra,
+            Core::None => Self::None,
+            Core::Minimal => Self::Minimal,
+            Core::Low => Self::Low,
+            Core::Medium => Self::Medium,
+            Core::High => Self::High,
+            Core::XHigh => Self::XHigh,
+            Core::Max => Self::Max,
+            Core::Ultra => Self::Ultra,
+            Core::Persistent => Self::Persistent,
+            Core::Custom(value) => Self::Custom { value },
         }
     }
+}
+impl From<ReasoningEffort> for codex_protocol::openai_models::ReasoningEffort {
+    fn from(value: ReasoningEffort) -> Self {
+        match value {
+            ReasoningEffort::None => Self::None,
+            ReasoningEffort::Minimal => Self::Minimal,
+            ReasoningEffort::Low => Self::Low,
+            ReasoningEffort::Medium => Self::Medium,
+            ReasoningEffort::High => Self::High,
+            ReasoningEffort::XHigh => Self::XHigh,
+            ReasoningEffort::Max => Self::Max,
+            ReasoningEffort::Ultra => Self::Ultra,
+            ReasoningEffort::Persistent => Self::Persistent,
+            ReasoningEffort::Custom { value } => Self::Custom(value),
+        }
+    }
+}
+/// Preserve model-defined wire identifiers exactly; do not lowercase custom efforts.
+#[uniffi::export]
+pub fn reasoning_effort_from_wire_value(value: Option<String>) -> Option<ReasoningEffort> {
+    let value = value?;
+    let normalized = value.trim().to_ascii_lowercase();
+    let wire = match normalized.as_str() {
+        "" => return None,
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+        | "persistent" => normalized.as_str(),
+        "x-high" => "xhigh",
+        _ => value.as_str(),
+    };
+    wire.parse::<codex_protocol::openai_models::ReasoningEffort>()
+        .ok()
+        .map(Into::into)
+}
+#[uniffi::export]
+pub fn reasoning_effort_wire_value(value: ReasoningEffort) -> String {
+    codex_protocol::openai_models::ReasoningEffort::from(value).to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -854,7 +905,6 @@ impl From<upstream::AskForApproval> for AppAskForApproval {
     fn from(value: upstream::AskForApproval) -> Self {
         match value {
             upstream::AskForApproval::UnlessTrusted => Self::UnlessTrusted,
-            upstream::AskForApproval::OnFailure => Self::OnFailure,
             upstream::AskForApproval::OnRequest => Self::OnRequest,
             upstream::AskForApproval::Granular {
                 sandbox_approval,
@@ -1137,9 +1187,9 @@ impl From<upstream::Account> for Account {
     fn from(value: upstream::Account) -> Self {
         match value {
             upstream::Account::ApiKey {} => Self::ApiKey,
-            upstream::Account::AmazonBedrock {} => Self::ApiKey,
+            upstream::Account::AmazonBedrock { .. } => Self::ApiKey,
             upstream::Account::Chatgpt { email, plan_type } => Self::Chatgpt {
-                email,
+                email: email.unwrap_or_default(),
                 plan_type: plan_type.into(),
             },
         }
@@ -1836,5 +1886,34 @@ mod tests {
         .expect("thread/read response should tolerate legacy fields");
 
         assert_eq!(response.thread.id, "thread-1");
+    }
+}
+
+#[cfg(test)]
+mod reasoning_effort_compatibility_tests {
+    use super::*;
+    #[test]
+    fn persistent_and_model_defined_efforts_round_trip_as_wire_strings() {
+        for wire in ["persistent", "provider/Adaptive-v2", "deep_2048"] {
+            let mobile: ReasoningEffort = serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(
+                serde_json::to_value(&mobile).unwrap(),
+                serde_json::json!(wire)
+            );
+            let upstream: codex_protocol::openai_models::ReasoningEffort = mobile.clone().into();
+            assert_eq!(upstream.as_str(), wire);
+            assert_eq!(ReasoningEffort::from(upstream), mobile);
+            assert_eq!(
+                reasoning_effort_wire_value(
+                    reasoning_effort_from_wire_value(Some(wire.into())).unwrap()
+                ),
+                wire
+            );
+        }
+        assert_eq!(
+            reasoning_effort_from_wire_value(Some(" HIGH ".into())),
+            Some(ReasoningEffort::High)
+        );
+        assert!(serde_json::from_str::<ReasoningEffort>("\"\"").is_err());
     }
 }

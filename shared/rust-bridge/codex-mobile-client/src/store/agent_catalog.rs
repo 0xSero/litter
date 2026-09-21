@@ -108,7 +108,11 @@ impl AgentCatalogEntry {
             is_beta: self.is_beta,
             sort_order: self.sort_order,
             description: Some(self.description.to_owned()),
-            aliases: self.aliases.iter().map(|alias| (*alias).to_owned()).collect(),
+            aliases: self
+                .aliases
+                .iter()
+                .map(|alias| (*alias).to_owned())
+                .collect(),
         }
     }
 
@@ -193,6 +197,24 @@ pub const CATALOG: &[AgentCatalogEntry] = &[
         reach: AgentReach::SshBridgeAndPairing,
         probe_style: ProbeStyle::Path,
         probe_commands: &["pi-coding-agent", "pi"],
+    },
+    AgentCatalogEntry {
+        name: "omp",
+        display_name: "Oh My Pi",
+        title: Some("Oh My Pi"),
+        is_beta: true,
+        sort_order: 2,
+        description: "Oh My Pi coding agent with its own models, settings and sessions.",
+        requirement: "install the `omp` CLI on the host",
+        aliases: &["oh-my-pi", "oh_my_pi", "oh my pi"],
+        locks_reasoning_effort_after_activity: false,
+        visible_modes: None,
+        uses_direct_codex_port: false,
+        supports_thread_permission_overrides: false,
+        reports_effective_thread_permissions: false,
+        reach: AgentReach::SshBridgeAndPairing,
+        probe_style: ProbeStyle::Path,
+        probe_commands: &["omp"],
     },
     AgentCatalogEntry {
         name: "amp",
@@ -346,14 +368,14 @@ pub const CATALOG: &[AgentCatalogEntry] = &[
 /// stable; [`tests::ssh_bridge_orders_match_catalog`] asserts it stays
 /// in sync with the `reach` flags.
 pub const SSH_BRIDGE_PROBE_ORDER: &[&str] =
-    &["local-studio", "claude", "pi", "opencode", "codex"];
+    &["local-studio", "claude", "pi", "omp", "opencode", "codex"];
 
 /// Same set, in the order automatic reconnect prefers when a saved
 /// server did not record which runtimes it had. Claude leads because
 /// it is the most common SSH-bootstrap target; Local Studio trails
 /// because it is only present on hosts running the desktop app.
 pub const SSH_BRIDGE_RECONNECT_ORDER: &[&str] =
-    &["claude", "pi", "opencode", "codex", "local-studio"];
+    &["claude", "pi", "omp", "opencode", "codex", "local-studio"];
 
 /// Resolve any spelling of an agent id — canonical name, manifest
 /// alias, or an alleycat `name`/`display_name` pair — to its catalog
@@ -364,9 +386,10 @@ pub fn entry(name: &str) -> Option<&'static AgentCatalogEntry> {
     if key.is_empty() {
         return None;
     }
-    if let Some(found) = CATALOG.iter().find(|entry| {
-        entry.name == key || entry.aliases.iter().any(|alias| *alias == key)
-    }) {
+    if let Some(found) = CATALOG
+        .iter()
+        .find(|entry| entry.name == key || entry.aliases.iter().any(|alias| *alias == key))
+    {
         return Some(found);
     }
     let canonical = crate::alleycat::agent_runtime_kind(&key, "")?;
@@ -480,7 +503,10 @@ mod tests {
             .map(|entry| entry.name)
             .collect::<HashSet<_>>();
         assert_eq!(
-            SSH_BRIDGE_PROBE_ORDER.iter().copied().collect::<HashSet<_>>(),
+            SSH_BRIDGE_PROBE_ORDER
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>(),
             expected,
             "SSH_BRIDGE_PROBE_ORDER drifted from the catalog `reach` flags"
         );
@@ -515,6 +541,7 @@ mod tests {
         assert_eq!(entry("factory-droid").map(|e| e.name), Some("droid"));
         assert_eq!(entry("local_studio").map(|e| e.name), Some("local-studio"));
         assert_eq!(entry("pi.dev").map(|e| e.name), Some("pi"));
+        assert_eq!(entry("oh-my-pi").map(|e| e.name), Some("omp"));
         assert_eq!(entry("  Opencode ").map(|e| e.name), Some("opencode"));
         assert_eq!(entry("nope-agent").map(|e| e.name), None);
         assert_eq!(entry("").map(|e| e.name), None);
@@ -532,10 +559,26 @@ mod tests {
 
     #[test]
     fn ssh_bridge_support_covers_claude_and_opencode_but_not_pairing_only_agents() {
-        for kind in ["codex", "claude", "claude-code", "pi", "opencode", "local-studio"] {
+        for kind in [
+            "codex",
+            "claude",
+            "claude-code",
+            "pi",
+            "omp",
+            "opencode",
+            "local-studio",
+        ] {
             assert!(supports_ssh_bridge(kind), "{kind} should be SSH-bridgeable");
         }
-        for kind in ["droid", "factory-droid", "devin", "amp", "hermes", "grok", "shell"] {
+        for kind in [
+            "droid",
+            "factory-droid",
+            "devin",
+            "amp",
+            "hermes",
+            "grok",
+            "shell",
+        ] {
             assert!(
                 !supports_ssh_bridge(kind),
                 "{kind} has no litter-side bridge and must stay pairing-only"
@@ -568,6 +611,7 @@ mod tests {
         let script = ssh_probe_script_lines();
         assert!(script.contains("probe_one claude claude"));
         assert!(script.contains("probe_one pi pi-coding-agent pi"));
+        assert!(script.contains("probe_one omp omp"));
         assert!(script.contains("probe_one_executes opencode opencode"));
         assert!(script.contains("probe_one codex codex"));
         // Local Studio has its own probe fragment and must not be
@@ -644,8 +688,7 @@ mod tests {
     /// cannot connect.
     #[test]
     fn probe_cannot_claim_ssh_bridge_support_litter_does_not_have() {
-        let reconciled =
-            reconcile_probe_metadata(probed("devin", Some(host_capabilities(true))));
+        let reconciled = reconcile_probe_metadata(probed("devin", Some(host_capabilities(true))));
         assert!(
             !reconciled
                 .capabilities
@@ -658,8 +701,7 @@ mod tests {
     /// bridge litter actually links.
     #[test]
     fn probe_cannot_hide_ssh_bridge_support_litter_does_have() {
-        let reconciled =
-            reconcile_probe_metadata(probed("claude", Some(host_capabilities(false))));
+        let reconciled = reconcile_probe_metadata(probed("claude", Some(host_capabilities(false))));
         assert!(
             reconciled
                 .capabilities
@@ -670,8 +712,7 @@ mod tests {
 
     #[test]
     fn probe_keeps_its_own_presentation_but_inherits_missing_blocks() {
-        let reconciled =
-            reconcile_probe_metadata(probed("claude", Some(host_capabilities(true))));
+        let reconciled = reconcile_probe_metadata(probed("claude", Some(host_capabilities(true))));
         let presentation = reconciled.presentation.expect("presentation");
         assert_eq!(presentation.sort_order, 99, "host presentation must win");
         assert_eq!(presentation.description.as_deref(), Some("host blurb"));
@@ -684,10 +725,7 @@ mod tests {
         });
         assert_eq!(legacy.display_name, "Claude");
         assert_eq!(
-            legacy
-                .presentation
-                .expect("seeded presentation")
-                .sort_order,
+            legacy.presentation.expect("seeded presentation").sort_order,
             4
         );
         assert!(

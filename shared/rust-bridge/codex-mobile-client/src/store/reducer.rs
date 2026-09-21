@@ -18,13 +18,13 @@ use crate::conversation_uniffi::{
 };
 use crate::session::connection::ServerConfig;
 use crate::session::events::UiEvent;
-use crate::types::{
-    AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
-    PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest,
-    PendingUserInputSeed, ThreadInfo, ThreadKey, ThreadSummaryStatus,
-};
 #[cfg(test)]
 use crate::types::PendingApprovalWithSeed;
+use crate::types::{
+    AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
+    PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest, PendingUserInputSeed,
+    ThreadInfo, ThreadKey, ThreadSummaryStatus,
+};
 use crate::types::{
     AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppThreadGoal,
     AppVoiceSessionPhase, AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
@@ -993,11 +993,10 @@ impl AppStoreReducer {
             .mutate_thread_with_result(key, |thread| {
                 let mut updated_item = None;
                 let mut needs_reprojection = false;
-                let pending_overlay_index =
-                    thread.local_overlay_items.iter().position(|item| {
-                        item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
-                            && item.source_turn_id.is_none()
-                    });
+                let pending_overlay_index = thread.local_overlay_items.iter().position(|item| {
+                    item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
+                        && item.source_turn_id.is_none()
+                });
                 if let Some(item) = pending_overlay_index
                     .and_then(|index| thread.local_overlay_items.get_mut(index))
                 {
@@ -1441,6 +1440,16 @@ impl AppStoreReducer {
         self.emit(AppStoreUpdateRecord::ServerChanged {
             server_id: server_id.to_string(),
         });
+    }
+
+    /// Read only the catalog rather than cloning conversation and terminal state.
+    pub(crate) fn server_models(&self, server_id: &str) -> Option<Vec<crate::types::ModelInfo>> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .servers
+            .get(server_id)
+            .and_then(|server| server.available_models.clone())
     }
 
     pub fn update_server_models(
@@ -2212,6 +2221,9 @@ impl AppStoreReducer {
                         codex_protocol::protocol::RealtimeConversationVersion::V2 => {
                             "v2".to_string()
                         }
+                        codex_protocol::protocol::RealtimeConversationVersion::V3 => {
+                            "v3".to_string()
+                        }
                     },
                 };
                 self.emit(AppStoreUpdateRecord::RealtimeStarted {
@@ -2254,8 +2266,7 @@ impl AppStoreReducer {
                         }
                         VoiceDerivedUpdate::HandoffRequest(request) => {
                             {
-                                let mut snapshot =
-                                    self.write_snapshot();
+                                let mut snapshot = self.write_snapshot();
                                 snapshot.voice_session.phase = Some(AppVoiceSessionPhase::Handoff);
                             }
                             self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
@@ -2266,8 +2277,7 @@ impl AppStoreReducer {
                         }
                         VoiceDerivedUpdate::SpeechStarted => {
                             {
-                                let mut snapshot =
-                                    self.write_snapshot();
+                                let mut snapshot = self.write_snapshot();
                                 snapshot.voice_session.phase =
                                     Some(AppVoiceSessionPhase::Listening);
                             }
@@ -3429,6 +3439,10 @@ fn render_user_input(inputs: &[upstream::UserInput]) -> (String, Vec<String>) {
             upstream::UserInput::LocalImage { path, .. } => {
                 images.push(format!("file://{}", path.display()));
             }
+            upstream::UserInput::Audio { .. } => text_parts.push("[Audio attachment]".to_string()),
+            upstream::UserInput::LocalAudio { path } => {
+                text_parts.push(format!("[Audio attachment] {}", path.display()))
+            }
             upstream::UserInput::Skill { name, path } => {
                 if !name.is_empty() && path != &PathBuf::new() {
                     text_parts.push(format!("[Skill] {} ({})", name, path.display()));
@@ -3910,7 +3924,9 @@ mod tests {
         }
         let scoped_us = start.elapsed().as_micros();
         assert_eq!(store.thread_snapshot(&key).unwrap().info.id, key.thread_id);
-        println!("snapshot benchmark: threads=1000 reads=200 global_us={global_us} scoped_us={scoped_us}");
+        println!(
+            "snapshot benchmark: threads=1000 reads=200 global_us={global_us} scoped_us={scoped_us}"
+        );
     }
 
     fn make_thread_info(id: &str) -> ThreadInfo {
@@ -3932,7 +3948,6 @@ mod tests {
             updated_at: None,
         }
     }
-
 
     // ── Derived-state cache invalidation ──────────────────────────────
     //
@@ -4216,7 +4231,10 @@ mod tests {
 
         let big = "x".repeat(200_000);
         let running = base(&big, AppOperationStatus::InProgress);
-        assert_eq!(item_fingerprint(&running), item_fingerprint(&running.clone()));
+        assert_eq!(
+            item_fingerprint(&running),
+            item_fingerprint(&running.clone())
+        );
 
         // Status change after a huge output body: same length, different
         // value — this is what the retained tail window is for.
@@ -5594,6 +5612,7 @@ mod tests {
         let _ = drain_updates(&mut update_receiver);
 
         let upstream_item = upstream::ThreadItem::UserMessage {
+            client_id: None,
             id: "server-user-item".to_string(),
             content: inputs.clone(),
         };
@@ -5638,6 +5657,19 @@ mod tests {
         // thread.turns. Build the equivalent ThreadSnapshot via the same
         // helper apply_thread_read_response uses, then upsert.
         let upstream_thread = upstream::Thread {
+            environments: None,
+            extra: None,
+            parent_thread_id: None,
+            section: None,
+            section_entered_at: None,
+            project_id: None,
+            model: None,
+            reasoning_effort: None,
+            recency_at: None,
+            originator: None,
+            can_accept_direct_input: None,
+            daybreak_enabled: None,
+            history_mode: Default::default(),
             id: "thread-1".to_string(),
             session_id: "session-1".to_string(),
             forked_from_id: None,
@@ -5661,6 +5693,7 @@ mod tests {
                 id: "turn-1".to_string(),
                 status: upstream::TurnStatus::Completed,
                 items: vec![upstream::ThreadItem::UserMessage {
+                    client_id: None,
                     id: "server-user-item".to_string(),
                     content: inputs.clone(),
                 }],
@@ -5784,15 +5817,13 @@ mod tests {
             server_id: "srv".to_string(),
             thread_id: "thread".to_string(),
         };
-        let item = |id: &str, content: HydratedConversationItemContent| {
-            HydratedConversationItem {
-                id: id.to_string(),
-                content,
-                source_turn_id: None,
-                source_turn_index: None,
-                timestamp: None,
-                is_from_user_turn_boundary: false,
-            }
+        let item = |id: &str, content: HydratedConversationItemContent| HydratedConversationItem {
+            id: id.to_string(),
+            content,
+            source_turn_id: None,
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
         };
         let mut live = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
         live.items.push(item(
@@ -6233,7 +6264,8 @@ mod tests {
                 timestamp: None,
                 is_from_user_turn_boundary: false,
             },
-        ].into();
+        ]
+        .into();
         reducer.upsert_thread_snapshot(existing);
 
         let mut incoming = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
@@ -6264,7 +6296,8 @@ mod tests {
                 timestamp: None,
                 is_from_user_turn_boundary: false,
             },
-        ].into();
+        ]
+        .into();
 
         let mut receiver = reducer.subscribe();
         assert!(drain_updates(&mut receiver).is_empty());
@@ -6300,7 +6333,8 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
-        }].into();
+        }]
+        .into();
         reducer.upsert_thread_snapshot(existing);
 
         let mut incoming = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
@@ -6316,7 +6350,8 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
-        }].into();
+        }]
+        .into();
 
         let mut receiver = reducer.subscribe();
         assert!(drain_updates(&mut receiver).is_empty());

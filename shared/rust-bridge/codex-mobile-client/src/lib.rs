@@ -158,6 +158,7 @@ pub mod reconnect;
 pub mod recorder;
 pub mod remote_path;
 pub mod saved_apps;
+pub mod runtime_settings;
 pub mod session;
 pub(crate) mod slingshot_url;
 pub mod ssh;

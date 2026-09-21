@@ -37,6 +37,7 @@ use codex_app_server_protocol as upstream;
 mod dynamic_tools;
 mod event_loop;
 pub(crate) mod minigame;
+mod model_catalog;
 mod store_listener;
 #[cfg(test)]
 mod tests;
@@ -85,6 +86,7 @@ pub struct MobileClient {
     direct_resumed_threads: Arc<StdMutex<HashSet<ThreadKey>>>,
     resume_locks: Arc<StdMutex<HashMap<ThreadKey, Weak<tokio::sync::Mutex<()>>>>>,
     thread_runtime_routes: Arc<StdMutex<HashMap<ThreadKey, AgentRuntimeKind>>>,
+    model_catalog_refreshes: StdMutex<HashMap<String, model_catalog::ModelCatalogRefresh>>,
     /// Single shared iroh `Endpoint` for all alleycat operations. iroh is
     /// designed for one-per-app reuse: `Endpoint::connect(&self, ...)`
     /// takes `&self` so it can be called many times to open new
@@ -120,8 +122,7 @@ pub struct MobileClient {
     pub(crate) terminal_sessions:
         Arc<StdMutex<HashMap<String, Arc<crate::terminal::TerminalSession>>>>,
     /// Platform-owned SSH host-key pins shared by server and terminal flows.
-    pub(crate) ssh_trust_store:
-        Arc<StdMutex<Option<Arc<crate::terminal::TerminalSshTrustStore>>>>,
+    pub(crate) ssh_trust_store: Arc<StdMutex<Option<Arc<crate::terminal::TerminalSshTrustStore>>>>,
 }
 
 /// State for a single in-flight guided SSH connect.
@@ -410,6 +411,15 @@ fn mcp_elicitation_response_json(
             RpcError::Deserialization(format!("deserialize MCP elicitation params: {error}"))
         })?;
     let response = match &params.request {
+        upstream::McpServerElicitationRequest::UserVerification { .. }
+        | upstream::McpServerElicitationRequest::OpenAiForm { .. }
+        | upstream::McpServerElicitationRequest::OpenAiElicitationForm { .. } => {
+            upstream::McpServerElicitationRequestResponse {
+                action: upstream::McpServerElicitationAction::Cancel,
+                content: None,
+                meta: None,
+            }
+        }
         upstream::McpServerElicitationRequest::Form {
             requested_schema, ..
         } if requested_schema.properties.is_empty() => {
@@ -782,6 +792,7 @@ impl MobileClient {
             direct_resumed_threads: Arc::new(StdMutex::new(HashSet::new())),
             resume_locks: Arc::new(StdMutex::new(HashMap::new())),
             thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
+            model_catalog_refreshes: StdMutex::new(HashMap::new()),
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -1829,14 +1840,12 @@ impl MobileClient {
         // keeps meaning "litter can launch this over SSH" rather than
         // "the alleycat host could".
         self.agent_metadata.upsert_all(agents.iter().map(|agent| {
-            crate::store::agent_catalog::reconcile_probe_metadata(
-                crate::store::AppAgentMetadata {
-                    name: agent.name.clone(),
-                    display_name: agent.display_name.clone(),
-                    presentation: agent.presentation.clone().map(Into::into),
-                    capabilities: agent.capabilities.clone().map(Into::into),
-                },
-            )
+            crate::store::agent_catalog::reconcile_probe_metadata(crate::store::AppAgentMetadata {
+                name: agent.name.clone(),
+                display_name: agent.display_name.clone(),
+                presentation: agent.presentation.clone().map(Into::into),
+                capabilities: agent.capabilities.clone().map(Into::into),
+            })
         }));
         Ok(agents)
     }
@@ -2335,9 +2344,7 @@ impl MobileClient {
                     } else {
                         "unknown-host"
                     };
-                    TransportError::ConnectionFailed(format!(
-                        "{marker}:{fingerprint}"
-                    ))
+                    TransportError::ConnectionFailed(format!("{marker}:{fingerprint}"))
                 }
                 other => map_ssh_transport_error(other),
             })?,
@@ -2346,7 +2353,8 @@ impl MobileClient {
             trust_store.as_ref(),
             pinned_fingerprint.as_ref(),
             accept_unknown_host,
-        ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone() {
+        ) && let Some(fingerprint) = observed_fingerprint.lock().await.clone()
+        {
             store.pin(normalized_host.clone(), ssh_credentials.port, fingerprint);
         }
         info!(
@@ -2704,6 +2712,8 @@ impl MobileClient {
 
         let params = upstream::LoginAccountParams::Chatgpt {
             codex_streamlined_login: false,
+            use_hosted_login_success_page: false,
+            app_brand: None,
         };
         let response = self
             .request_typed_for_server::<upstream::LoginAccountResponse>(
@@ -3370,7 +3380,7 @@ impl MobileClient {
                 thread,
                 AppModeKind::Plan,
                 params.model.clone(),
-                params.effort,
+                params.effort.clone(),
             );
         }
         if let Some(thread) = thread_snapshot.as_ref()
@@ -3434,6 +3444,7 @@ impl MobileClient {
                             input: direct_params.input.clone(),
                             responsesapi_client_metadata: None,
                             expected_turn_id: active_turn_id,
+                            ..Default::default()
                         },
                     },
                 )
@@ -3543,6 +3554,7 @@ impl MobileClient {
                         input: draft.inputs,
                         responsesapi_client_metadata: None,
                         expected_turn_id: active_turn_id,
+                        ..Default::default()
                     },
                 },
             )
@@ -4084,6 +4096,7 @@ impl MobileClient {
                 personality: None,
                 output_schema: None,
                 collaboration_mode,
+                ..Default::default()
             },
         )
         .await
