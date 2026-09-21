@@ -25,6 +25,7 @@ struct HarnessSettingsView: View {
                         } label: {
                             Text(runtime.displayLabel)
                         }
+                        .accessibilityIdentifier("harness.runtime.\(target.id).\(runtime)")
                     }
                 }
                 .listRowBackground(LitterTheme.surface)
@@ -36,6 +37,12 @@ struct HarnessSettingsView: View {
         .background(LitterTheme.backgroundGradient)
         .navigationTitle("Harnesses")
         .task {
+            #if DEBUG
+            if HarnessSettingsUITestFixture.isEnabled {
+                targets = [Target(id: "ui-test-settings-server", name: "UI Test Server", runtimes: ["pi"])]
+                return
+            }
+            #endif
             observer.start(appModel: appModel) {
                 let next = (appModel.snapshot?.servers ?? []).filter(\.isConnected).map { server in
                     Target(id: server.serverId, name: server.displayName,
@@ -86,6 +93,7 @@ private struct RuntimeSettingsView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("harness.setting.\(setting.key)")
                 .disabled(loading)
                 .listRowBackground(LitterTheme.surface)
             }
@@ -100,6 +108,20 @@ private struct RuntimeSettingsView: View {
         .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             if let setting = editing {
                 RuntimeSettingEditor(setting: setting) { value in
+                    #if DEBUG
+                    if HarnessSettingsUITestFixture.isEnabled {
+                        // Exercise the real editor and read-back rendering with an
+                        // isolated in-memory test transport, never a user's server.
+                        _ = try JSONSerialization.jsonObject(with: Data(value.utf8), options: .fragmentsAllowed)
+                        settings = settings.map { original in
+                            var updated = original
+                            if updated.key == setting.key { updated.valueJson = value }
+                            return updated
+                        }
+                        error = nil
+                        return
+                    }
+                    #endif
                     let result = try await appModel.client.setRuntimeSetting(
                         serverId: serverId, runtimeKind: runtime, key: setting.key, valueJson: value)
                     settings = result.settings
@@ -118,6 +140,12 @@ private struct RuntimeSettingsView: View {
         guard !loading else { return }
         loading = true
         defer { loading = false }
+        #if DEBUG
+        if HarnessSettingsUITestFixture.isEnabled {
+            settings = HarnessSettingsUITestFixture.settings
+            return
+        }
+        #endif
         do {
             let result = try await appModel.client.runtimeSettings(serverId: serverId, runtimeKind: runtime)
             guard !Task.isCancelled else { return }
@@ -162,6 +190,7 @@ private struct RuntimeSettingEditor: View {
                             if !setting.choices.map(choiceValue).contains(value) { Text(value).tag(value) }
                             ForEach(setting.choices, id: \.self) { Text($0).tag(choiceValue($0)) }
                         }
+                        .accessibilityIdentifier("harness.setting.choices")
                     } else {
                         TextField(setting.valueKind == .json ? "JSON value" : "Value", text: $value, axis: .vertical)
                             .lineLimit(3...20).autocorrectionDisabled().textInputAutocapitalization(.never)
@@ -201,3 +230,20 @@ private struct RuntimeSettingEditor: View {
         }
     }
 }
+
+#if DEBUG
+private enum HarnessSettingsUITestFixture {
+    static var isEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-test-harness-settings")
+    }
+
+    static let settings: [RuntimeSettingDescriptor] = [
+        RuntimeSettingDescriptor(key: "quietStartup", label: "Quiet startup", valueJson: "false", valueKind: .boolean,
+            choices: [], scope: "user", source: "UI test fixture", writable: true, readOnlyReason: nil),
+        RuntimeSettingDescriptor(key: "theme", label: "Theme", valueJson: "null", valueKind: .json,
+            choices: ["dark", "light"], scope: "user override (unset)", source: "UI test fixture", writable: true, readOnlyReason: nil),
+        RuntimeSettingDescriptor(key: "managedPolicy", label: "Managed policy", valueJson: "true", valueKind: .boolean,
+            choices: [], scope: "managed", source: "UI test fixture", writable: false, readOnlyReason: "Managed by administrator"),
+    ]
+}
+#endif

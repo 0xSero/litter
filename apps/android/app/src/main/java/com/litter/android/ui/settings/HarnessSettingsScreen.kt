@@ -135,7 +135,7 @@ private fun RuntimeSettingsScreen(target: HarnessTarget, onBack: () -> Unit) {
 }
 
 @Composable
-private fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: () -> Unit, save: suspend (String) -> Unit) {
+internal fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: () -> Unit, save: suspend (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var value by remember(setting) {
         mutableStateOf(if (setting.valueKind == RuntimeSettingValueKind.STRING) {

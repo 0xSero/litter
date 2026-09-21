@@ -67,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -201,6 +202,7 @@ private fun SettingsTopLevel(
 
     LazyColumn(
         modifier = Modifier
+            .testTag("settings.content")
             .fillMaxWidth()
             .imePadding()
             .padding(16.dp),

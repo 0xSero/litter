@@ -34,18 +34,50 @@ async fn rpc_runtime<T: serde::de::DeserializeOwned>(
         .map_err(|error| ClientError::Rpc(error.to_string()))
 }
 
+fn ensure_settings_session(
+    client: &MobileClient,
+    server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
+) -> Result<(), ClientError> {
+    let current = client
+        .get_session(server_id)
+        .map_err(|e| ClientError::Rpc(e.to_string()))?;
+    if !Arc::ptr_eq(&current, session) {
+        return Err(ClientError::Rpc(
+            "Connection changed while accessing settings; refresh before editing".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn settings_rpc(
+    client: &MobileClient,
+    server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
+    runtime_kind: types::AgentRuntimeKind,
+    request: upstream::ClientRequest,
+) -> Result<serde_json::Value, ClientError> {
+    ensure_settings_session(client, server_id, session)?;
+    session
+        .request_client_for_runtime(runtime_kind, request)
+        .await
+        .map_err(|e| ClientError::Rpc(e.to_string()))
+}
+
 async fn read_runtime_settings(
     client: &MobileClient,
     server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
     runtime_kind: types::AgentRuntimeKind,
 ) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
     let params = serde_json::from_value(serde_json::json!({"includeLayers":true}))
         .map_err(|e| ClientError::Serialization(e.to_string()))?;
     let mut response: serde_json::Value = tokio::time::timeout(
         Duration::from_secs(15),
-        rpc_runtime(
+        settings_rpc(
             client,
             server_id,
+            session,
             runtime_kind.clone(),
             upstream::ClientRequest::ConfigRead {
                 request_id: upstream::RequestId::Integer(next_request_id()),
@@ -62,12 +94,13 @@ async fn read_runtime_settings(
         };
         let requirements: serde_json::Value = tokio::time::timeout(
             Duration::from_secs(15),
-            rpc_runtime(client, server_id, runtime_kind.clone(), request),
+            settings_rpc(client, server_id, session, runtime_kind.clone(), request),
         )
         .await
         .map_err(|_| ClientError::Rpc("Runtime settings policy read timed out".into()))??;
         response["_requirements"] = requirements;
     }
+    ensure_settings_session(client, server_id, session)?;
     crate::runtime_settings::snapshot(runtime_kind, response).map_err(ClientError::Serialization)
 }
 
@@ -960,6 +993,10 @@ impl AppClient {
         blocking_async!(self.rt, self.inner, |c| {
             use futures::StreamExt;
 
+            // Forced refreshes after settings writes must fetch after the older
+            // catalog completes, rather than be dropped or race its publication.
+            let catalog_lock = c.model_catalog_lock(&server_id);
+            let _catalog_guard = catalog_lock.lock().await;
             let session = c
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?;
@@ -1296,7 +1333,10 @@ impl AppClient {
         runtime_kind: types::AgentRuntimeKind,
     ) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            read_runtime_settings(c.as_ref(), &server_id, runtime_kind).await
+            let session = c
+                .get_session(&server_id)
+                .map_err(|e| ClientError::Rpc(e.to_string()))?;
+            read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind).await
         })
     }
     pub async fn set_runtime_setting(
@@ -1307,12 +1347,16 @@ impl AppClient {
         value_json: String,
     ) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
+            let session = c
+                .get_session(&server_id)
+                .map_err(|e| ClientError::Rpc(e.to_string()))?;
             let value: serde_json::Value = serde_json::from_str(&value_json)
                 .map_err(|e| ClientError::Serialization(e.to_string()))?;
             crate::runtime_settings::validate_edit(&key, &value)
                 .map_err(ClientError::Serialization)?;
             let before =
-                read_runtime_settings(c.as_ref(), &server_id, runtime_kind.clone()).await?;
+                read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind.clone())
+                    .await?;
             let descriptor = before
                 .settings
                 .iter()
@@ -1335,9 +1379,10 @@ impl AppClient {
             .map_err(|e| ClientError::Serialization(e.to_string()))?;
             let _: serde_json::Value = tokio::time::timeout(
                 Duration::from_secs(15),
-                rpc_runtime(
+                settings_rpc(
                     c.as_ref(),
                     &server_id,
+                    &session,
                     runtime_kind.clone(),
                     req!(server_id, ConfigValueWrite, params),
                 ),
@@ -1348,7 +1393,8 @@ impl AppClient {
                     "Settings write timed out; refresh to verify whether it was applied".into(),
                 )
             })??;
-            let after = read_runtime_settings(c.as_ref(), &server_id, runtime_kind).await?;
+            let after =
+                read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind).await?;
             if !after.settings.iter().any(|s| {
                 s.key == key
                     && serde_json::from_str::<serde_json::Value>(&s.value_json)

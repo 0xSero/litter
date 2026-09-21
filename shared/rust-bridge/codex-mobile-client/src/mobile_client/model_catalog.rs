@@ -18,6 +18,20 @@ fn refresh_due(age: Duration, complete: bool) -> bool {
 }
 
 impl MobileClient {
+    pub(crate) fn model_catalog_lock(&self, server_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self
+            .model_catalog_locks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(server_id).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(server_id.to_owned(), Arc::downgrade(&lock));
+        lock
+    }
+
     pub(crate) fn models_need_refresh(&self, server_id: &str) -> bool {
         let Some(session) = self.sessions_read().get(server_id).cloned() else {
             return false;
@@ -392,6 +406,158 @@ mod tests {
         );
         let refreshes = client.model_catalog_refreshes.lock().unwrap();
         assert!(!refreshes.get("catalog-test").unwrap().complete);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn queued_catalog_refresh_fetches_after_inflight_catalog_finishes() {
+        use crate::session::connection::TestRequestHandler;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let client = Arc::new(MobileClient::new());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let started_tx = std::sync::Mutex::new(Some(started_tx));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let count = requests.clone();
+        let handler: TestRequestHandler = Arc::new(move |_| {
+            let n = count.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                started_tx.lock().unwrap().take().unwrap().send(()).unwrap();
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+            Ok(
+                serde_json::json!({"data":[serde_json::to_value(model("codex", if n == 0 {"old"} else {"new"})).unwrap()], "nextCursor":null}),
+            )
+        });
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config(),
+            vec![("codex".into(), handler)],
+        ));
+        client
+            .sessions
+            .write()
+            .unwrap()
+            .insert("catalog-test".into(), session);
+        client
+            .app_store
+            .upsert_server(&config(), crate::store::ServerHealthSnapshot::Connected);
+        let refresh = |client: Arc<MobileClient>| {
+            tokio::spawn(async move {
+                crate::ffi::AppClient {
+                    inner: client,
+                    rt: crate::ffi::shared::shared_runtime(),
+                }
+                .refresh_models(
+                    "catalog-test".into(),
+                    crate::types::AppRefreshModelsRequest {
+                        cursor: None,
+                        limit: None,
+                        include_hidden: None,
+                    },
+                )
+                .await
+            })
+        };
+        let first = refresh(client.clone());
+        started_rx.await.unwrap();
+        let queue = client.model_catalog_lock("catalog-test");
+        let second = refresh(client.clone());
+        // The test, first call, and queued call each own this lock. Wait for
+        // the second call to reach the queue, not an assumed scheduler delay.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while Arc::strong_count(&queue) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second refresh must queue behind the first");
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        release_tx.send(()).unwrap();
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            client.app_store.server_models("catalog-test").unwrap()[0].id,
+            "new"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn runtime_settings_reconnect_never_writes_to_replacement_session() {
+        use crate::session::connection::TestRequestHandler;
+        use codex_app_server_protocol::ClientRequest;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for replace_on_write in [false, true] {
+            let client = Arc::new(MobileClient::new());
+            let replacement_calls = Arc::new(AtomicUsize::new(0));
+            let calls = replacement_calls.clone();
+            let replacement = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config(),
+                vec![(
+                    "codex".into(),
+                    Arc::new(move |_| {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(serde_json::json!({"config":{"model":"new"}}))
+                    }),
+                )],
+            ));
+            let weak = Arc::downgrade(&client);
+            let writes = Arc::new(AtomicUsize::new(0));
+            let written = writes.clone();
+            let handler: TestRequestHandler = Arc::new(move |request| {
+                let response = match request {
+                    ClientRequest::ConfigRead { .. } => {
+                        serde_json::json!({"config":{"model":"old"}})
+                    }
+                    ClientRequest::ConfigRequirementsRead { .. } => {
+                        serde_json::json!({"requirements":null})
+                    }
+                    ClientRequest::ConfigValueWrite { .. } => {
+                        written.fetch_add(1, Ordering::SeqCst);
+                        serde_json::json!({"status":"ok"})
+                    }
+                    _ => panic!("unexpected settings request"),
+                };
+                if matches!(request, ClientRequest::ConfigValueWrite { .. }) == replace_on_write {
+                    weak.upgrade()
+                        .unwrap()
+                        .sessions
+                        .write()
+                        .unwrap()
+                        .insert("catalog-test".into(), replacement.clone());
+                }
+                Ok(response)
+            });
+            let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+                config(),
+                vec![("codex".into(), handler)],
+            ));
+            client
+                .sessions
+                .write()
+                .unwrap()
+                .insert("catalog-test".into(), session);
+            let app = crate::ffi::AppClient {
+                inner: client,
+                rt: crate::ffi::shared::shared_runtime(),
+            };
+            let error = app
+                .set_runtime_setting(
+                    "catalog-test".into(),
+                    "codex".into(),
+                    "model".into(),
+                    "\"new\"".into(),
+                )
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("Connection changed"));
+            assert_eq!(writes.load(Ordering::SeqCst), usize::from(replace_on_write));
+            assert_eq!(replacement_calls.load(Ordering::SeqCst), 0);
+        }
     }
 
     #[test]

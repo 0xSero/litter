@@ -140,7 +140,7 @@ final class AppModel {
 
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
-    @ObservationIgnored private var loadingModelServerIds: Set<String> = []
+    @ObservationIgnored private var loadingModelServerIds: [String: Int] = [:]
     @ObservationIgnored private var modelCatalogErrorsByServer: [String: String] = [:]
     @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
@@ -2093,9 +2093,15 @@ final class AppModel {
     func loadAvailableModelsIfNeeded(serverId: String, force: Bool = false) async {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
         guard force || client.modelsNeedRefresh(serverId: serverId) else { return }
-        guard !loadingModelServerIds.contains(serverId) else { return }
-        loadingModelServerIds.insert(serverId)
-        defer { loadingModelServerIds.remove(serverId) }
+        guard force || loadingModelServerIds[serverId, default: 0] == 0 else { return }
+        loadingModelServerIds[serverId, default: 0] += 1
+        defer {
+            if loadingModelServerIds[serverId, default: 0] <= 1 {
+                loadingModelServerIds.removeValue(forKey: serverId)
+            } else {
+                loadingModelServerIds[serverId, default: 0] -= 1
+            }
+        }
         modelCatalogErrorsByServer.removeValue(forKey: serverId)
         do {
             _ = try await client.refreshModels(

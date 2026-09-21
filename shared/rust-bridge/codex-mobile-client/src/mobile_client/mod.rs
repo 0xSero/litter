@@ -87,6 +87,7 @@ pub struct MobileClient {
     resume_locks: Arc<StdMutex<HashMap<ThreadKey, Weak<tokio::sync::Mutex<()>>>>>,
     thread_runtime_routes: Arc<StdMutex<HashMap<ThreadKey, AgentRuntimeKind>>>,
     model_catalog_refreshes: StdMutex<HashMap<String, model_catalog::ModelCatalogRefresh>>,
+    model_catalog_locks: StdMutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
     /// Single shared iroh `Endpoint` for all alleycat operations. iroh is
     /// designed for one-per-app reuse: `Endpoint::connect(&self, ...)`
     /// takes `&self` so it can be called many times to open new
@@ -793,6 +794,7 @@ impl MobileClient {
             resume_locks: Arc::new(StdMutex::new(HashMap::new())),
             thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
             model_catalog_refreshes: StdMutex::new(HashMap::new()),
+            model_catalog_locks: StdMutex::new(HashMap::new()),
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
