@@ -22,7 +22,7 @@ name = "kittylitter"
 path = "src/main.rs"
 
 [dependencies]
-alleycat = { git = "https://github.com/0xSero/alleycat.git", rev = "b1f3bb37a6aa2efd77bd20b13571b321089e1cb6" }
+alleycat = { git = "https://github.com/0xSero/alleycat.git", rev = "52815ddbdb8c454484b04e4e2a50ab4c2b5930a4" }
 anyhow = "1"
 
 # cargo-dist builds with `cargo build --profile dist`. Mirrors the
