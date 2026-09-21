@@ -1,11 +1,20 @@
 diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
+index 95b78eba..af644709 100644
 --- a/codex-rs/core/src/exec.rs
 +++ b/codex-rs/core/src/exec.rs
-@@ -57,6 +57,90 @@
- use codex_utils_path_uri::PathUri;
+@@ -3,7 +3,7 @@ use std::os::unix::process::ExitStatusExt;
+ 
+ use std::collections::HashMap;
+ use std::io;
+-#[cfg(target_os = "windows")]
++#[cfg(any(target_os = "windows", target_os = "ios"))]
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::process::ExitStatus;
+@@ -58,6 +58,90 @@ use codex_utils_path_uri::PathUri;
  use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
  use codex_utils_pty::process_group::kill_child_process_group;
-+
+ 
 +#[cfg(target_os = "ios")]
 +use std::sync::Arc;
 +#[cfg(any(target_os = "ios", target_os = "android"))]
@@ -89,10 +98,20 @@ diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
 +pub fn set_mobile_exec_preflight(f: fn(&mut Vec<String>)) {
 +    let _ = MOBILE_EXEC_PREFLIGHT.set(f);
 +}
- 
++
  pub const DEFAULT_EXEC_COMMAND_TIMEOUT_MS: u64 = 10_000;
  
-@@ -885,6 +969,7 @@
+ // Hardcode these since it does not seem worth including the libc crate just
+@@ -203,7 +287,7 @@ impl ExecExpiration {
+     }
+ 
+     /// If ExecExpiration is a timeout, returns the timeout in milliseconds.
+-    #[cfg(target_os = "windows")]
++    #[cfg(any(target_os = "windows", target_os = "ios"))]
+     pub(crate) fn timeout_ms(&self) -> Option<u64> {
+         match self {
+             ExecExpiration::Timeout(duration) => Some(duration.as_millis() as u64),
+@@ -885,6 +969,7 @@ fn aggregate_output(
  /// Note this command does not apply any sandboxing logic. The caller is
  /// responsible for constructing [ExecParams::command] to include any sandboxing
  /// wrapper args, as appropriate.
@@ -100,12 +119,10 @@ diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
  async fn exec(
      params: ExecParams,
      network_sandbox_policy: NetworkSandboxPolicy,
-@@ -915,6 +1000,56 @@
-             .map_err(|err| {
-                 network_proxy_environment_error(network_environment_id.as_deref(), err)
+@@ -917,6 +1002,56 @@ async fn exec(
              })?;
-+    }
-+
+     }
+ 
 +    #[cfg(any(target_os = "ios", target_os = "android"))]
 +    let mut command = command;
 +    #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -154,9 +171,11 @@ diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
 +        {
 +            command[0] = resolved;
 +        }
-     }
- 
++    }
++
      let (program, args) = command.split_first().ok_or_else(|| {
+         CodexErr::Io(io::Error::new(
+             io::ErrorKind::InvalidInput,
 diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
 --- a/codex-rs/core/src/unified_exec/async_watcher.rs
 +++ b/codex-rs/core/src/unified_exec/async_watcher.rs

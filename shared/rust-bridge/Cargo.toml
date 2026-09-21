@@ -26,10 +26,10 @@ codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
 # and host share one immutable Alleycat release revision. All crates come from
 # the same source so the `Bridge` trait identity is consistent; forked until
 # the production-lineage OpenCode and Amp fixes land in the upstream release.
-alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
-alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
-alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
-alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "188b33f872494cbc5fa0d5373f8fca2a3fe5064f" }
+alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "b1f3bb37a6aa2efd77bd20b13571b321089e1cb6" }
+alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "b1f3bb37a6aa2efd77bd20b13571b321089e1cb6" }
+alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "b1f3bb37a6aa2efd77bd20b13571b321089e1cb6" }
+alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "b1f3bb37a6aa2efd77bd20b13571b321089e1cb6" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

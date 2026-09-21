@@ -208,9 +208,10 @@ diff --git a/codex-rs/thread-store/src/local/helpers.rs b/codex-rs/thread-store/
          preview,
          name: None,
 diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-store/src/local/list_threads.rs
+index 015d35f4..e1f50987 100644
 --- a/codex-rs/thread-store/src/local/list_threads.rs
 +++ b/codex-rs/thread-store/src/local/list_threads.rs
-@@ -374,6 +374,7 @@
+@@ -374,6 +374,7 @@ mod tests {
      use crate::local::test_support::write_archived_session_file;
      use crate::local::test_support::write_session_file;
      use crate::local::test_support::write_session_file_with;
@@ -218,12 +219,10 @@ diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-s
  
      #[tokio::test]
      async fn list_threads_uses_default_provider_when_rollout_omits_provider() {
-@@ -411,6 +412,57 @@
- 
-         assert_eq!(page.items.len(), 1);
+@@ -413,6 +414,61 @@ mod tests {
          assert_eq!(page.items[0].model_provider, "test-provider");
-+    }
-+
+     }
+ 
 +    #[tokio::test]
 +    async fn cold_list_threads_preserves_fork_lineage_from_rollout() {
 +        let home = TempDir::new().expect("temp dir");
@@ -238,6 +237,7 @@ diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-s
 +            "Forked user message",
 +            Some("test-provider"),
 +            Some(parent_id),
++            ThreadHistoryMode::Legacy,
 +        )
 +        .expect("fork rollout");
 +        write_session_file(home.path(), "2025-01-02T12-00-00", plain_id).expect("plain rollout");
@@ -254,8 +254,11 @@ diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-s
 +                allowed_sources: Vec::new(),
 +                model_providers: None,
 +                cwd_filters: None,
++                section: None,
++                project_id: None,
 +                archived: false,
 +                search_term: None,
++                relation_filter: None,
 +                use_state_db_only: false,
 +            })
 +            .await
@@ -273,6 +276,8 @@ diff --git a/codex-rs/thread-store/src/local/list_threads.rs b/codex-rs/thread-s
 +            .find(|item| item.thread_id.to_string() == plain_id.to_string())
 +            .expect("plain thread listed");
 +        assert!(plain.forked_from_id.is_none());
-     }
- 
++    }
++
      #[tokio::test]
+     async fn list_threads_preserves_sqlite_title_search_results() {
+         let home = TempDir::new().expect("temp dir");
