@@ -52,6 +52,7 @@ pub(crate) enum PairWireMessage {
         ni_discovery_token_b64: String,
     },
     PairRequest {
+        #[serde(default, deserialize_with = "deserialize_distance")]
         distance_m: Option<f32>,
     },
     PairAccept {
@@ -65,8 +66,21 @@ pub(crate) enum PairWireMessage {
     /// affordances on the Mac (e.g., "iPhone 1.4m away" before the user
     /// asks to pair). Carries no decision.
     DistanceUpdate {
+        #[serde(deserialize_with = "deserialize_distance")]
         distance_m: f32,
     },
+}
+
+// Internally tagged enums buffer arbitrary-precision JSON numbers as maps.
+// Rebuild the JSON number before asking Serde for f32 (or Option<f32>), so
+// decimal and exponent distances survive feature unification with exec-server.
+fn deserialize_distance<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    serde_json::from_value(value).map_err(serde::de::Error::custom)
 }
 
 // ── UniFFI surface ───────────────────────────────────────────────────────
@@ -635,4 +649,49 @@ pub async fn pair_from_iphone(
         reader_task: Mutex::new(Some(reader_task)),
         writer_task: Mutex::new(Some(writer_task)),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_distances_decode_decimal_exponent_and_optional_values() {
+        for number in ["0.4", "2.5", "2.5e-1", "1e-20", "2"] {
+            let expected = number.parse::<f32>().unwrap();
+            let request = parse_wire(&format!(
+                r#"{{"type":"pair_request","distance_m":{number}}}"#
+            ))
+            .unwrap();
+            assert!(
+                matches!(request, PairWireMessage::PairRequest { distance_m: Some(value) } if value == expected)
+            );
+            let update = parse_wire(&format!(
+                r#"{{"type":"distance_update","distance_m":{number}}}"#
+            ))
+            .unwrap();
+            assert!(
+                matches!(update, PairWireMessage::DistanceUpdate { distance_m } if distance_m == expected)
+            );
+        }
+        for wire in [
+            r#"{"type":"pair_request"}"#,
+            r#"{"type":"pair_request","distance_m":null}"#,
+        ] {
+            assert!(matches!(
+                parse_wire(wire).unwrap(),
+                PairWireMessage::PairRequest { distance_m: None }
+            ));
+        }
+        for wire in [
+            r#"{"type":"distance_update"}"#,
+            r#"{"type":"distance_update","distance_m":null}"#,
+            r#"{"type":"pair_request","distance_m":"0.4"}"#,
+        ] {
+            assert!(
+                parse_wire(wire).is_err(),
+                "invalid distance accepted: {wire}"
+            );
+        }
+    }
 }
