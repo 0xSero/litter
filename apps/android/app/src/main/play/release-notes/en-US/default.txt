@@ -1,5 +1,6 @@
-Litter 2.0.0
-- Local Studio sessions stay visible and correctly labeled
-- New Local Studio conversations always use its built-in Pi runtime
-- Reliable reconnect and resume without sessions disappearing
-- Correct connection status without false OpenAI sign-in prompts
+Litter 2.1.2
+- Browse and edit native settings for connected coding agents
+- Discover current agent models with faster catalog updates
+- Use Oh My Pi with its own models and settings
+- Keep computer helpers in the background and preserve Local Studio connections during upgrades
+- Reduce unnecessary screen updates and improve conversation responsiveness
