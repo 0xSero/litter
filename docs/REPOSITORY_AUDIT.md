@@ -14,27 +14,31 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-The 2.1.2 candidate pins `0xSero/alleycat@85c3d1e`, preserving the shipping
+The 2.1.2 candidate pins `0xSero/alleycat@a5aaa9f6`, preserving the shipping
 headless-launch lineage rather than substituting the divergent Alleycat `main`.
 It refreshes native model/settings adapters, gives OMP an independent runtime,
 and preserves Local Studio's explicit data directory across daemon upgrades.
 Background launches avoid interactive login shells; bundled Local Studio Pi
 uses plain Node rather than registering Electron as a foreground Dock app.
 
-The preceding installed `52815dd` candidate advertised all 12 runtimes and
-returned 1,402 catalog entries across the 11 model-bearing runtimes. A three-minute
-process sample found no foreground worker registrations (88 valid samples,
-two inspection timeouts). The final `eef1375` adapter adds Devin/Grok native
-settings; its affected-crate tests passed (117), as did both live schema tests
-(25 Devin and 104 Grok descriptors). The `d6e396c` follow-up also restores discovery of the signed Local Studio
-bundle's native Pi settings metadata (60 documented fields; four helper and
-four launcher/isolation tests passed). The final `85c3d1e` revision additionally
-marks metadata helpers as utility commands and prevents an older CLI from
-replacing a newer daemon; the complete host library suite passed (103 tests).
+The installed `85c3d1e` candidate passed all 12 runtime routes on the first
+attempt, returning 1,402 native catalog entries, 2,442 settings descriptors,
+and 101 Codex configuration fields. Local Studio exposed 61 settings and 19
+models through its signed bundled Pi metadata. Devin/Grok adapter tests passed
+(117), as did both live published-schema tests and the full host library suite
+(103). A preceding three-minute process sample found no foreground worker
+registrations (88 valid samples, two inspection timeouts).
+
+The final `a5aaa9f6` follow-up stops reading Claude transcripts once session
+summary metadata is found and removes runtime initialization from offline
+status checks. Six focused regressions passed, including an unread 64 MiB
+invalid transcript tail. Final installed-host and mobile acceptance remain
+required before claiming the release complete.
+
 Local Studio prefers the AppSupport CLI before `~/.local/bin`, so installed
 upgrades must refresh both locations to avoid invoking an old pairing binary.
-Final installed-host and mobile acceptance
-remain required before claiming the release complete.
+The updated CLI preserves an equal or newer running daemon and retains the
+configured Local Studio data directory during upgrades.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
 bindings, and both mobile runtimes are verified.
@@ -125,9 +129,9 @@ blanket allows would erase useful architecture signals.
   automatic, distribution, TestFlight, and Play paths are distinct acceptance
   surfaces, but shared setup and artifact verification should be factored into
   reusable workflows.
-- `services/kittylitter` publishes v0.3.6 metadata. The release guard correctly
-  rejects changing that package after its tag; update it only with a coordinated
-  version bump.
+- `services/kittylitter` targets v0.3.10 alongside mobile 2.1.2. The release guard
+  rejects changing that package after its tag and rejects mismatched mobile
+  pairing URLs; future host changes require a coordinated version bump.
 - Android's three custom `buildConfigField`s (`RUNTIME_STARTUP_MODE`,
   `APP_RUNTIME_TRANSPORT`, `ENABLE_ON_DEVICE_BRIDGE`), the two matching
   `manifestPlaceholders`, and the two `<meta-data>` tags they feed form a closed
