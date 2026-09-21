@@ -38,7 +38,13 @@ final class LitterUITests: XCTestCase {
         let toggle = app.switches["Enabled"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String, "0")
-        toggle.tap()
+        // SwiftUI exposes the whole Form row as the switch accessibility frame.
+        // Tap the trailing switch itself, not the noninteractive row center.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"), object: toggle
+        )], timeout: 5), .completed, "The native toggle must change before saving")
+        XCTAssertTrue(app.buttons["Save"].isEnabled)
         app.buttons["Save"].tap()
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS %@", "true"), object: toggleRow
