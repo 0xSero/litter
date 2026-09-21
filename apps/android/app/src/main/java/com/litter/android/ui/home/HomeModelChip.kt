@@ -184,6 +184,9 @@ fun HomeModelChip(
     }
 
     if (showSheet) {
+        LaunchedEffect(serverId) {
+            serverId?.let { appModel.loadAvailableModelsIfNeeded(it) }
+        }
         ModalBottomSheet(
             onDismissRequest = { showSheet = false },
             sheetState = sheetState,

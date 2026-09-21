@@ -104,6 +104,9 @@ pub(super) fn queued_follow_up_text_from_inputs(inputs: &[upstream::UserInput]) 
             upstream::UserInput::Image { .. } | upstream::UserInput::LocalImage { .. } => {
                 attachment_count += 1;
             }
+            upstream::UserInput::Audio { .. } | upstream::UserInput::LocalAudio { .. } => {
+                text_parts.push("[Audio attachment]".to_string());
+            }
             upstream::UserInput::Skill { .. } | upstream::UserInput::Mention { .. } => {}
         }
     }
@@ -227,6 +230,7 @@ pub(super) fn queued_follow_up_message_json_from_inputs(
     let mut text_elements = Vec::new();
     let mut remote_image_urls = Vec::new();
     let mut local_images = Vec::new();
+    let mut audio_inputs = Vec::new();
     let mut mention_bindings = Vec::new();
     let mut skill_bindings = Vec::new();
 
@@ -252,6 +256,9 @@ pub(super) fn queued_follow_up_message_json_from_inputs(
                     "path": path,
                 }));
             }
+            upstream::UserInput::Audio { .. } | upstream::UserInput::LocalAudio { .. } => {
+                audio_inputs.push(serde_json::to_value(input).ok()?);
+            }
             upstream::UserInput::Mention { name, path } => {
                 mention_bindings.push(serde_json::json!({
                     "mention": name,
@@ -271,6 +278,7 @@ pub(super) fn queued_follow_up_message_json_from_inputs(
         && text_elements.is_empty()
         && remote_image_urls.is_empty()
         && local_images.is_empty()
+        && audio_inputs.is_empty()
         && mention_bindings.is_empty()
         && skill_bindings.is_empty()
     {
@@ -282,6 +290,7 @@ pub(super) fn queued_follow_up_message_json_from_inputs(
         "textElements": text_elements,
         "remoteImageUrls": remote_image_urls,
         "localImages": local_images,
+        "audioInputs": audio_inputs,
         "mentionBindings": mention_bindings,
         "skillBindings": skill_bindings,
     }))
@@ -409,53 +418,15 @@ pub(super) fn user_boundary_text_for_turn(
 }
 
 pub fn reasoning_effort_string(value: crate::types::ReasoningEffort) -> String {
-    match value {
-        crate::types::ReasoningEffort::None => "none".to_string(),
-        crate::types::ReasoningEffort::Minimal => "minimal".to_string(),
-        crate::types::ReasoningEffort::Low => "low".to_string(),
-        crate::types::ReasoningEffort::Medium => "medium".to_string(),
-        crate::types::ReasoningEffort::High => "high".to_string(),
-        crate::types::ReasoningEffort::XHigh => "xhigh".to_string(),
-        crate::types::ReasoningEffort::Max => "max".to_string(),
-        crate::types::ReasoningEffort::Ultra => "ultra".to_string(),
-    }
+    crate::types::reasoning_effort_wire_value(value)
 }
-
 pub fn reasoning_effort_from_string(value: &str) -> Option<crate::types::ReasoningEffort> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "none" => Some(crate::types::ReasoningEffort::None),
-        "minimal" => Some(crate::types::ReasoningEffort::Minimal),
-        "low" => Some(crate::types::ReasoningEffort::Low),
-        "medium" => Some(crate::types::ReasoningEffort::Medium),
-        "high" => Some(crate::types::ReasoningEffort::High),
-        "xhigh" => Some(crate::types::ReasoningEffort::XHigh),
-        "max" => Some(crate::types::ReasoningEffort::Max),
-        "ultra" => Some(crate::types::ReasoningEffort::Ultra),
-        _ => None,
-    }
+    crate::types::reasoning_effort_from_wire_value(Some(value.into()))
 }
-
 pub(super) fn core_reasoning_effort_from_mobile(
     value: crate::types::ReasoningEffort,
 ) -> codex_protocol::openai_models::ReasoningEffort {
-    match value {
-        crate::types::ReasoningEffort::None => codex_protocol::openai_models::ReasoningEffort::None,
-        crate::types::ReasoningEffort::Minimal => {
-            codex_protocol::openai_models::ReasoningEffort::Minimal
-        }
-        crate::types::ReasoningEffort::Low => codex_protocol::openai_models::ReasoningEffort::Low,
-        crate::types::ReasoningEffort::Medium => {
-            codex_protocol::openai_models::ReasoningEffort::Medium
-        }
-        crate::types::ReasoningEffort::High => codex_protocol::openai_models::ReasoningEffort::High,
-        crate::types::ReasoningEffort::XHigh => {
-            codex_protocol::openai_models::ReasoningEffort::XHigh
-        }
-        crate::types::ReasoningEffort::Max => codex_protocol::openai_models::ReasoningEffort::Max,
-        crate::types::ReasoningEffort::Ultra => {
-            codex_protocol::openai_models::ReasoningEffort::Ultra
-        }
-    }
+    value.into()
 }
 
 pub(super) fn collaboration_mode_from_thread(
@@ -773,5 +744,31 @@ pub(super) fn server_request_id_json(id: upstream::RequestId) -> serde_json::Val
     match id {
         upstream::RequestId::Integer(value) => serde_json::Value::Number(value.into()),
         upstream::RequestId::String(value) => serde_json::Value::String(value),
+    }
+}
+
+#[cfg(test)]
+mod audio_compat_tests {
+    use super::*;
+
+    #[test]
+    fn queued_audio_draft_retains_original_inputs_and_wire_payloads() {
+        let inputs = vec![
+            upstream::UserInput::Audio {
+                url: "data:audio/wav;base64,c2FtcGxl".into(),
+            },
+            upstream::UserInput::LocalAudio {
+                path: "/tmp/voice.wav".into(),
+            },
+        ];
+        assert!(
+            queued_follow_up_text_from_inputs(&inputs)
+                .unwrap()
+                .contains("Audio attachment")
+        );
+        let json = queued_follow_up_message_json_from_inputs(&inputs).unwrap();
+        let retained: Vec<upstream::UserInput> =
+            serde_json::from_value(json["audioInputs"].clone()).unwrap();
+        assert_eq!(retained, inputs);
     }
 }

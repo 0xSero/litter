@@ -9,6 +9,49 @@ mod mobile_client_tests {
     use std::sync::{Arc, Mutex as StdMutex};
 
     #[test]
+    fn unsupported_mcp_elicitations_always_cancel_without_accepting_fabricated_proof() {
+        for request in [
+            json!({"mode":"openai/userVerification", "title":"Verify", "description":"Approve", "challenge":"challenge"}),
+            json!({"mode":"openai/form", "message":"Approve", "requestedSchema":{"type":"object"}}),
+            json!({"mode":"openaiForm", "message":"Approve", "requestedSchema":{"type":"object"}}),
+        ] {
+            let mut raw_params = request;
+            raw_params["threadId"] = json!("thread");
+            raw_params["serverName"] = json!("test-mcp");
+            let seed = PendingUserInputSeed {
+                request_id: upstream::RequestId::Integer(1),
+                response_kind: PendingUserInputResponseKind::McpServerElicitation,
+                raw_params,
+            };
+            for answers in [
+                vec![],
+                vec![PendingUserInputAnswer {
+                    question_id: MCP_URL_ACTION_FIELD_ID.into(),
+                    answers: vec![MCP_URL_FINISHED_LABEL.into()],
+                }],
+                vec![PendingUserInputAnswer {
+                    question_id: MCP_APPROVAL_FIELD_ID.into(),
+                    answers: vec![
+                        MCP_APPROVAL_ACCEPT_ONCE_LABEL.into(),
+                        MCP_APPROVAL_ACCEPT_ALWAYS_LABEL.into(),
+                    ],
+                }],
+                vec![PendingUserInputAnswer {
+                    question_id: "proof".into(),
+                    answers: vec![r#"{"verified":true,"signature":"fabricated"}"#.into()],
+                }],
+            ] {
+                assert_eq!(
+                    mcp_elicitation_response_json(&seed, &answers).unwrap(),
+                    json!({
+                        "action": "cancel", "content": null, "_meta": null
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
     fn account_sync_warmup_only_runs_when_codex_runtime_is_present() {
         assert!(runtime_kinds_support_account_sync(&["codex".to_string()]));
         assert!(runtime_kinds_support_account_sync(&[
@@ -1081,7 +1124,7 @@ mod mobile_client_tests {
                 requests
                     .lock()
                     .expect("request log lock should not be poisoned")
-                    .push(request.method().to_string());
+                    .push(request.method_name().to_string());
                 match request {
                     upstream::ClientRequest::ThreadResume { .. } => {
                         Err(RpcError::Transport(TransportError::SendFailed(
@@ -1121,7 +1164,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -1191,7 +1234,7 @@ mod mobile_client_tests {
                 requests
                     .lock()
                     .expect("request log lock should not be poisoned")
-                    .push(format!("codex:{}", request.method()));
+                    .push(format!("codex:{}", request.method_name()));
                 Err(RpcError::Deserialization(
                     "no rollout found for thread id thread-1".to_string(),
                 ))
@@ -1203,7 +1246,7 @@ mod mobile_client_tests {
                 requests
                     .lock()
                     .expect("request log lock should not be poisoned")
-                    .push(format!("claude:{}", request.method()));
+                    .push(format!("claude:{}", request.method_name()));
                 match request {
                     upstream::ClientRequest::ThreadResume { .. } => {
                         serde_json::to_value(serde_json::json!({
@@ -1239,7 +1282,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -1305,7 +1348,7 @@ mod mobile_client_tests {
                 requests
                     .lock()
                     .expect("request log lock should not be poisoned")
-                    .push(request.method().to_string());
+                    .push(request.method_name().to_string());
                 match request {
                     upstream::ClientRequest::ThreadResume { .. } => {
                         serde_json::to_value(serde_json::json!({
@@ -1341,7 +1384,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -1402,7 +1445,7 @@ mod mobile_client_tests {
                         requests
                             .lock()
                             .expect("request log lock should not be poisoned")
-                            .push(other.method().to_string());
+                            .push(other.method_name().to_string());
                     }
                 }
                 match request {
@@ -1465,7 +1508,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -1618,7 +1661,7 @@ mod mobile_client_tests {
                 }
                 other => Err(RpcError::Deserialization(format!(
                     "unexpected request in test: {}",
-                    other.method()
+                    other.method_name()
                 ))),
             })
         };
@@ -1760,7 +1803,7 @@ mod mobile_client_tests {
                 }
                 other => Err(RpcError::Deserialization(format!(
                     "unexpected request in test: {}",
-                    other.method()
+                    other.method_name()
                 ))),
             })
         };
@@ -1887,7 +1930,7 @@ mod mobile_client_tests {
                 }
                 other => Err(RpcError::Deserialization(format!(
                     "unexpected request in test: {}",
-                    other.method()
+                    other.method_name()
                 ))),
             })
         };
@@ -2009,7 +2052,7 @@ mod mobile_client_tests {
                 }
                 other => Err(RpcError::Deserialization(format!(
                     "unexpected request in test: {}",
-                    other.method()
+                    other.method_name()
                 ))),
             })
         };
@@ -2149,7 +2192,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -2279,7 +2322,7 @@ mod mobile_client_tests {
                     }
                     other => Err(RpcError::Deserialization(format!(
                         "unexpected request in test: {}",
-                        other.method()
+                        other.method_name()
                     ))),
                 }
             })
@@ -2300,6 +2343,13 @@ mod mobile_client_tests {
             .start_turn(
                 server_id,
                 upstream::TurnStartParams {
+                    additional_context: None,
+                    client_user_message_id: None,
+                    cyber_access_program: None,
+                    turn_trigger: None,
+                    tool_output: None,
+                    service_tier_for_turn: None,
+                    multi_agent_mode: None,
                     thread_id: thread_id.to_string(),
                     input: vec![upstream::UserInput::Text {
                         text: "hello".to_string(),
@@ -2346,5 +2396,4 @@ mod mobile_client_tests {
             AppModeKind::Plan
         );
     }
-
 }

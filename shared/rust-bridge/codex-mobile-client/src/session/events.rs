@@ -248,7 +248,10 @@ impl EventProcessor {
     #[cfg(test)]
     pub fn resolve_approval(&self, request_id: &str) -> Option<PendingApproval> {
         let mut approvals = self.pending_approvals.lock().unwrap();
-        approvals.iter().position(|a| a.id == request_id).map(|pos| approvals.remove(pos))
+        approvals
+            .iter()
+            .position(|a| a.id == request_id)
+            .map(|pos| approvals.remove(pos))
     }
 
     pub fn emit_connection_state(&self, server_id: &str, health: &str) {
@@ -549,13 +552,14 @@ impl EventProcessor {
         params: &serde_json::Value,
     ) {
         if method == "item/tool/requestUserInput"
-            && let Some(request) = pending_user_input_request_from_raw(server_id, params) {
-                self.emit(UiEvent::UserInputRequested {
-                    request,
-                    seed: None,
-                });
-                return;
-            }
+            && let Some(request) = pending_user_input_request_from_raw(server_id, params)
+        {
+            self.emit(UiEvent::UserInputRequested {
+                request,
+                seed: None,
+            });
+            return;
+        }
         self.emit(UiEvent::RawNotification {
             server_id: server_id.to_string(),
             method: method.to_string(),
@@ -594,7 +598,7 @@ impl EventProcessor {
                     params.command.clone(),
                     None,
                     None,
-                    params.cwd.as_ref().map(|p| p.display().to_string()),
+                    params.cwd.as_ref().map(ToString::to_string),
                     params.reason.clone(),
                     request_id,
                     raw,
@@ -878,6 +882,23 @@ fn mcp_elicitation_questions(
     params: &codex_app_server_protocol::McpServerElicitationRequestParams,
 ) -> Vec<PendingUserInputQuestion> {
     match &params.request {
+        codex_app_server_protocol::McpServerElicitationRequest::UserVerification { .. }
+        | codex_app_server_protocol::McpServerElicitationRequest::OpenAiForm { .. }
+        | codex_app_server_protocol::McpServerElicitationRequest::OpenAiElicitationForm {
+            ..
+        } => {
+            vec![PendingUserInputQuestion {
+                id: MCP_URL_ACTION_FIELD_ID.to_string(),
+                header: Some(format!("MCP: {}", params.server_name)),
+                question: "This request needs a verification or form type that this client does not support.".to_string(),
+                is_other_allowed: false,
+                is_secret: false,
+                options: vec![PendingUserInputOption {
+                    label: MCP_APPROVAL_CANCEL_LABEL.to_string(),
+                    description: Some("Cancel this request.".to_string()),
+                }],
+            }]
+        }
         codex_app_server_protocol::McpServerElicitationRequest::Form {
             meta,
             message,
@@ -1268,6 +1289,8 @@ mod tests {
 
     fn make_item(id: &str) -> proto::ThreadItem {
         proto::ThreadItem::AgentMessage {
+            delivery: None,
+            questions: None,
             id: id.to_string(),
             text: String::new(),
             phase: None,
@@ -1276,24 +1299,7 @@ mod tests {
     }
 
     fn upstream_item_id(item: &proto::ThreadItem) -> &str {
-        match item {
-            proto::ThreadItem::UserMessage { id, .. }
-            | proto::ThreadItem::HookPrompt { id, .. }
-            | proto::ThreadItem::AgentMessage { id, .. }
-            | proto::ThreadItem::Plan { id, .. }
-            | proto::ThreadItem::Reasoning { id, .. }
-            | proto::ThreadItem::CommandExecution { id, .. }
-            | proto::ThreadItem::FileChange { id, .. }
-            | proto::ThreadItem::McpToolCall { id, .. }
-            | proto::ThreadItem::DynamicToolCall { id, .. }
-            | proto::ThreadItem::CollabAgentToolCall { id, .. }
-            | proto::ThreadItem::WebSearch { id, .. }
-            | proto::ThreadItem::ImageView { id, .. }
-            | proto::ThreadItem::ImageGeneration { id, .. }
-            | proto::ThreadItem::EnteredReviewMode { id, .. }
-            | proto::ThreadItem::ExitedReviewMode { id, .. }
-            | proto::ThreadItem::ContextCompaction { id, .. } => id,
-        }
+        item.id()
     }
 
     // ── EventProcessor basics ──────────────────────────────────────────
@@ -1322,6 +1328,19 @@ mod tests {
     fn thread_started() {
         let notification = ServerNotification::ThreadStarted(proto::ThreadStartedNotification {
             thread: proto::Thread {
+                environments: None,
+                extra: None,
+                parent_thread_id: None,
+                section: None,
+                section_entered_at: None,
+                project_id: None,
+                model: None,
+                reasoning_effort: None,
+                recency_at: None,
+                originator: None,
+                can_accept_direct_input: None,
+                daybreak_enabled: None,
+                history_mode: Default::default(),
                 id: "thr_1".to_string(),
                 session_id: "session_1".to_string(),
                 forked_from_id: None,
@@ -1332,7 +1351,7 @@ mod tests {
                 updated_at: 2,
                 status: proto::ThreadStatus::Idle,
                 path: None,
-                cwd: test_abs_path("/tmp"),
+                cwd: test_abs_path("/tmp").into(),
                 cli_version: "1.0.0".to_string(),
                 source: proto::SessionSource::Cli,
                 thread_source: None,
@@ -1723,6 +1742,7 @@ mod tests {
     fn error_notification() {
         let notification = ServerNotification::Error(proto::ErrorNotification {
             error: proto::TurnError {
+                misalignment: None,
                 message: "rate limited".to_string(),
                 codex_error_info: None,
                 additional_details: None,
@@ -1744,6 +1764,7 @@ mod tests {
     fn error_notification_with_thread() {
         let notification = ServerNotification::Error(proto::ErrorNotification {
             error: proto::TurnError {
+                misalignment: None,
                 message: "oops".to_string(),
                 codex_error_info: None,
                 additional_details: None,
@@ -1808,6 +1829,7 @@ mod tests {
                 turn_id: "turn_1".to_string(),
                 token_usage: proto::ThreadTokenUsage {
                     total: proto::TokenUsageBreakdown {
+                        cache_write_input_tokens: 0,
                         total_tokens: 5000,
                         input_tokens: 3000,
                         cached_input_tokens: 0,
@@ -1815,6 +1837,7 @@ mod tests {
                         reasoning_output_tokens: 0,
                     },
                     last: proto::TokenUsageBreakdown {
+                        cache_write_input_tokens: 0,
                         total_tokens: 150,
                         input_tokens: 100,
                         cached_input_tokens: 0,
@@ -1843,6 +1866,9 @@ mod tests {
         let notification = ServerNotification::AccountRateLimitsUpdated(
             proto::AccountRateLimitsUpdatedNotification {
                 rate_limits: proto::RateLimitSnapshot {
+                    normal_model_slug: None,
+                    individual_limit: None,
+                    spend_control_reached: None,
                     limit_id: Some("primary".to_string()),
                     limit_name: Some("Primary".to_string()),
                     primary: Some(proto::RateLimitWindow {
@@ -1909,6 +1935,19 @@ mod tests {
         let notifications = vec![
             ServerNotification::ThreadStarted(proto::ThreadStartedNotification {
                 thread: proto::Thread {
+                    environments: None,
+                    extra: None,
+                    parent_thread_id: None,
+                    section: None,
+                    section_entered_at: None,
+                    project_id: None,
+                    model: None,
+                    reasoning_effort: None,
+                    recency_at: None,
+                    originator: None,
+                    can_accept_direct_input: None,
+                    daybreak_enabled: None,
+                    history_mode: Default::default(),
                     id: "thr_1".to_string(),
                     session_id: "session_1".to_string(),
                     forked_from_id: None,
@@ -1919,7 +1958,7 @@ mod tests {
                     updated_at: 1,
                     status: proto::ThreadStatus::Idle,
                     path: None,
-                    cwd: test_abs_path("/tmp"),
+                    cwd: test_abs_path("/tmp").into(),
                     cli_version: "1.0.0".to_string(),
                     source: proto::SessionSource::Cli,
                     thread_source: None,
@@ -2039,6 +2078,8 @@ mod tests {
         let request = ServerRequest::CommandExecutionRequestApproval {
             request_id: proto::RequestId::Integer(42),
             params: proto::CommandExecutionRequestApprovalParams {
+                environment_id: None,
+                kind: Default::default(),
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),
@@ -2095,11 +2136,12 @@ mod tests {
         let request = ServerRequest::PermissionsRequestApproval {
             request_id: proto::RequestId::Integer(11),
             params: proto::PermissionsRequestApprovalParams {
+                environment_id: None,
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),
                 started_at_ms: 0,
-                cwd: test_abs_path("/tmp"),
+                cwd: test_abs_path("/tmp").into(),
                 reason: Some("need network access".to_string()),
                 permissions: proto::RequestPermissionProfile {
                     network: None,
@@ -2117,6 +2159,31 @@ mod tests {
                 );
             }
             other => panic!("expected ApprovalRequested, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unsupported_mcp_elicitations_offer_only_cancel() {
+        for request in [
+            json!({"mode":"openai/userVerification", "title":"Verify", "description":"Approve", "challenge":"challenge"}),
+            json!({"mode":"openai/form", "message":"Approve", "requestedSchema":{"type":"object"}}),
+            json!({"mode":"openaiForm", "message":"Approve", "requestedSchema":{"type":"object"}}),
+        ] {
+            let mut raw_params = request;
+            raw_params["threadId"] = json!("thread");
+            raw_params["serverName"] = json!("test-mcp");
+            let params = serde_json::from_value(raw_params).unwrap();
+            let (request, _) = mcp_elicitation_user_input_request_from_upstream(
+                "server",
+                &proto::RequestId::Integer(1),
+                &params,
+            )
+            .expect("unsupported requests must remain cancellable");
+            assert_eq!(request.questions.len(), 1);
+            let question = &request.questions[0];
+            assert!(!question.is_other_allowed);
+            assert_eq!(question.options.len(), 1);
+            assert_eq!(question.options[0].label, MCP_APPROVAL_CANCEL_LABEL);
         }
     }
 
@@ -2166,6 +2233,8 @@ mod tests {
         let request = ServerRequest::ToolRequestUserInput {
             request_id: proto::RequestId::Integer(13),
             params: proto::ToolRequestUserInputParams {
+                auto_resolution_ms: None,
+                is_blocking: true,
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),
@@ -2210,6 +2279,8 @@ mod tests {
         let request = ServerRequest::ToolRequestUserInput {
             request_id: proto::RequestId::Integer(14),
             params: proto::ToolRequestUserInputParams {
+                auto_resolution_ms: None,
+                is_blocking: true,
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),
@@ -2308,6 +2379,8 @@ mod tests {
         let req1 = ServerRequest::CommandExecutionRequestApproval {
             request_id: proto::RequestId::Integer(1),
             params: proto::CommandExecutionRequestApprovalParams {
+                environment_id: None,
+                kind: Default::default(),
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),
@@ -2346,6 +2419,8 @@ mod tests {
         let req1 = ServerRequest::CommandExecutionRequestApproval {
             request_id: proto::RequestId::Integer(1),
             params: proto::CommandExecutionRequestApprovalParams {
+                environment_id: None,
+                kind: Default::default(),
                 thread_id: "thr_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 item_id: "item_1".to_string(),

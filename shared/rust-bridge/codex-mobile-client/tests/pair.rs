@@ -16,9 +16,10 @@ async fn wait_for_host(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         if let Some(ev) = handle.poll_event().await
-            && want(&ev) {
-                return ev;
-            }
+            && want(&ev)
+        {
+            return ev;
+        }
         if tokio::time::Instant::now() >= deadline {
             panic!("timeout waiting for host event");
         }
@@ -33,9 +34,10 @@ async fn wait_for_client(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         if let Some(ev) = handle.poll_event().await
-            && want(&ev) {
-                return ev;
-            }
+            && want(&ev)
+        {
+            return ev;
+        }
         if tokio::time::Instant::now() >= deadline {
             panic!("timeout waiting for client event");
         }
@@ -189,14 +191,17 @@ async fn distance_update_surfaces_on_host() {
         matches!(ev, PairEvent::HostPeerConnected { .. })
     })
     .await;
-    client.submit_ni_distance(2.5).unwrap();
-    let ev = wait_for_host(host.as_ref(), |ev| {
-        matches!(ev, PairEvent::DistanceUpdate { .. })
-    })
-    .await;
-    match ev {
-        PairEvent::DistanceUpdate { distance_m } => assert!((distance_m - 2.5).abs() < 0.01),
-        other => panic!("unexpected: {other:?}"),
+    // Exercise decimal and exponent JSON numbers through the actual socket.
+    for expected in [2.5, 0.25, 1e-20] {
+        client.submit_ni_distance(expected).unwrap();
+        let ev = wait_for_host(host.as_ref(), |ev| {
+            matches!(ev, PairEvent::DistanceUpdate { .. })
+        })
+        .await;
+        match ev {
+            PairEvent::DistanceUpdate { distance_m } => assert_eq!(distance_m, expected),
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 
     host.stop().await;

@@ -1,1 +1,6 @@
-Litter 2.0.0: Local Studio-only routing for list, start, stream, tools, resume, and hydration; persistent Local Studio session identity; visible recent sessions alongside legacy pins; Pi full-access/no-approval defaults; and accurate non-OpenAI connection status.
+Litter 2.1.2
+- Browse and edit native settings for connected coding agents
+- Discover current agent models with faster catalog updates
+- Use Oh My Pi with its own models and settings
+- Keep computer helpers in the background and preserve Local Studio connections during upgrades
+- Reduce unnecessary screen updates and improve conversation responsiveness

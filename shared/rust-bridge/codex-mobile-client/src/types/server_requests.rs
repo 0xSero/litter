@@ -35,7 +35,8 @@ fn normalize_cwd(value: Option<String>) -> Option<String> {
 pub(crate) fn ask_for_approval_into_upstream(value: AppAskForApproval) -> upstream::AskForApproval {
     match value {
         AppAskForApproval::UnlessTrusted => upstream::AskForApproval::UnlessTrusted,
-        AppAskForApproval::OnFailure => upstream::AskForApproval::OnFailure,
+        // The removed on-failure policy migrates to explicit approval requests.
+        AppAskForApproval::OnFailure => upstream::AskForApproval::OnRequest,
         AppAskForApproval::OnRequest => upstream::AskForApproval::OnRequest,
         AppAskForApproval::Granular {
             sandbox_approval,
@@ -72,16 +73,7 @@ pub(crate) fn service_tier_into_upstream_string(value: ServiceTier) -> String {
 }
 
 pub(crate) fn reasoning_effort_into_upstream(value: ReasoningEffort) -> CoreReasoningEffort {
-    match value {
-        ReasoningEffort::None => CoreReasoningEffort::None,
-        ReasoningEffort::Minimal => CoreReasoningEffort::Minimal,
-        ReasoningEffort::Low => CoreReasoningEffort::Low,
-        ReasoningEffort::Medium => CoreReasoningEffort::Medium,
-        ReasoningEffort::High => CoreReasoningEffort::High,
-        ReasoningEffort::XHigh => CoreReasoningEffort::XHigh,
-        ReasoningEffort::Max => CoreReasoningEffort::Max,
-        ReasoningEffort::Ultra => CoreReasoningEffort::Ultra,
-    }
+    value.into()
 }
 
 fn network_access_into_upstream(value: super::AppNetworkAccess) -> upstream::NetworkAccess {
@@ -355,49 +347,24 @@ impl TryFrom<AppStartThreadRequest> for upstream::ThreadStartParams {
     fn try_from(value: AppStartThreadRequest) -> Result<Self, Self::Error> {
         Ok(Self {
             model: value.model,
-            model_provider: None,
-            service_tier: None,
+            // The legacy persist_extended_history flag was ignored by upstream.
+            history_mode: None,
             cwd: normalize_cwd(value.cwd),
-            runtime_workspace_roots: None,
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
-            approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permissions: None,
-            config: None,
-            service_name: None,
-            base_instructions: None,
             developer_instructions: value.developer_instructions,
-            personality: None,
             ephemeral: value.ephemeral,
-            session_start_source: None,
-            thread_source: None,
             dynamic_tools: value
                 .dynamic_tools
                 .map(|tools| {
                     tools
                         .into_iter()
-                        .map(|spec| {
-                            let input_schema: serde_json::Value =
-                                serde_json::from_str(&spec.input_schema_json).map_err(|e| {
-                                    RpcClientError::Serialization(format!(
-                                        "parse dynamic tool input_schema_json: {e}"
-                                    ))
-                                })?;
-                            Ok(upstream::DynamicToolSpec {
-                                name: spec.name,
-                                description: spec.description,
-                                input_schema,
-                                namespace: None,
-                                defer_loading: spec.defer_loading,
-                            })
-                        })
+                        .map(dynamic_tool_spec_into_upstream)
                         .collect::<Result<Vec<_>, RpcClientError>>()
                 })
                 .transpose()?,
-            environments: None,
-            mock_experimental_field: None,
             experimental_raw_events: false,
-            persist_extended_history: value.persist_extended_history,
+            ..Default::default()
         })
     }
 }
@@ -424,23 +391,13 @@ impl TryFrom<AppResumeThreadRequest> for upstream::ThreadResumeParams {
     fn try_from(value: AppResumeThreadRequest) -> Result<Self, Self::Error> {
         Ok(Self {
             thread_id: value.thread_id,
-            history: None,
-            path: None,
             model: value.model,
-            model_provider: None,
-            service_tier: None,
             cwd: normalize_cwd(value.cwd),
-            runtime_workspace_roots: None,
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
-            approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permissions: None,
-            config: None,
-            base_instructions: None,
             developer_instructions: value.developer_instructions,
-            personality: None,
             exclude_turns: value.exclude_turns,
-            persist_extended_history: value.persist_extended_history,
+            ..Default::default()
         })
     }
 }
@@ -467,23 +424,14 @@ impl TryFrom<AppForkThreadRequest> for upstream::ThreadForkParams {
     fn try_from(value: AppForkThreadRequest) -> Result<Self, Self::Error> {
         Ok(Self {
             thread_id: value.thread_id,
-            path: None,
             model: value.model,
-            model_provider: None,
-            service_tier: None,
             cwd: normalize_cwd(value.cwd),
-            runtime_workspace_roots: None,
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
-            approvals_reviewer: None,
             sandbox: value.sandbox.map(sandbox_mode_into_upstream),
-            permissions: None,
-            config: None,
-            base_instructions: None,
             developer_instructions: value.developer_instructions,
             ephemeral: false,
-            thread_source: None,
             exclude_turns: value.exclude_turns,
-            persist_extended_history: value.persist_extended_history,
+            ..Default::default()
         })
     }
 }
@@ -707,6 +655,11 @@ impl From<AppListThreadsRequest> for upstream::ThreadListParams {
             cwd: normalize_cwd(value.cwd).map(upstream::ThreadListCwdFilter::One),
             search_term: value.search_term,
             use_state_db_only: value.use_state_db_only,
+            originators: None,
+            section_id: None,
+            project_id: None,
+            parent_thread_id: None,
+            ancestor_thread_id: None,
         }
     }
 }
@@ -792,6 +745,7 @@ impl TryFrom<AppListPluginsRequest> for upstream::PluginListParams {
         Ok(Self {
             cwds,
             marketplace_kinds: None,
+            force_refetch: false,
         })
     }
 }
@@ -826,25 +780,17 @@ impl TryFrom<AppStartTurnRequest> for upstream::TurnStartParams {
                 .into_iter()
                 .map(user_input_into_upstream)
                 .collect::<Result<Vec<_>, _>>()?,
-            responsesapi_client_metadata: None,
-            cwd: None,
-            runtime_workspace_roots: None,
             approval_policy: value.approval_policy.map(ask_for_approval_into_upstream),
-            approvals_reviewer: None,
             sandbox_policy: value
                 .sandbox_policy
                 .map(sandbox_policy_into_upstream)
                 .transpose()?,
-            environments: None,
-            permissions: None,
             model: value.model,
             service_tier: value
                 .service_tier
                 .map(service_tier_into_upstream_string)
                 .map(Some),
             effort: value.effort.map(reasoning_effort_into_upstream),
-            summary: None,
-            personality: None,
             output_schema: value
                 .output_schema
                 .as_deref()
@@ -856,7 +802,7 @@ impl TryFrom<AppStartTurnRequest> for upstream::TurnStartParams {
                     })
                 })
                 .transpose()?,
-            collaboration_mode: None,
+            ..Default::default()
         })
     }
 }
@@ -896,6 +842,19 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
             transport: value.transport.map(Into::into),
             voice: value.voice.map(Into::into),
             client_controlled_handoff: value.client_controlled_handoff,
+            client_managed_handoffs: None,
+            delegation_ack_filler: None,
+            flush_transcript_tail_on_session_end: None,
+            codex_responses_as_items: None,
+            codex_response_item_prefix: None,
+            codex_response_handoff_mode: None,
+            codex_response_handoff_channel_prefixes: None,
+            model: None,
+            include_startup_context: None,
+            initial_items: None,
+            realtime_start_instructions: None,
+            realtime_end_instructions: None,
+            version: None,
             dynamic_tools: value
                 .dynamic_tools
                 .map(|tools| {
@@ -943,6 +902,7 @@ impl From<AppAppendRealtimeTextRequest> for upstream::ThreadRealtimeAppendTextPa
         Self {
             thread_id: value.thread_id,
             text: value.text,
+            role: Default::default(),
         }
     }
 }
@@ -1039,6 +999,8 @@ impl From<AppLoginAccountRequest> for upstream::LoginAccountParams {
             AppLoginAccountRequest::ApiKey { api_key } => Self::ApiKey { api_key },
             AppLoginAccountRequest::Chatgpt => Self::Chatgpt {
                 codex_streamlined_login: false,
+                use_hosted_login_success_page: false,
+                app_brand: None,
             },
             AppLoginAccountRequest::ChatgptAuthTokens {
                 access_token,

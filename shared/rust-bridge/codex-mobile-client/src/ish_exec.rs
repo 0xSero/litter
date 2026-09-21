@@ -56,7 +56,7 @@ pub(crate) fn run_command(
             };
             let result = runtime.block_on(codex_apply_patch::apply_patch(
                 patch,
-                &cwd_abs,
+                &cwd_abs.into(),
                 &mut stdout_buf,
                 &mut stderr_buf,
                 fs.as_ref(),

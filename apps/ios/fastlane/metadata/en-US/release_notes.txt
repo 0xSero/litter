@@ -1,8 +1,7 @@
-Litter 2.1.1 improves background connections and session responsiveness.
+Litter 2.1.2 brings current agent models and more complete settings.
 
-- Connect over SSH without running shell startup scripts that can open unwanted desktop windows.
-- Updated computer setup keeps background Local Studio tasks out of the Dock.
-- Reconnect more reliably to saved computers.
-- Reduce unnecessary work when updating session state.
-- Keep the model picker, conversation history and saved session modes more dependable.
-- Improve compatibility with Fish and Nix tool installation paths.
+- Browse and edit native settings for connected coding agents, including unset options and managed settings.
+- Discover current models from each agent with faster incremental catalog updates.
+- Use Oh My Pi as a separate agent with its own models and settings.
+- Keep computer helpers in the background and preserve Local Studio connections during upgrades.
+- Reduce unnecessary screen updates and improve conversation responsiveness.

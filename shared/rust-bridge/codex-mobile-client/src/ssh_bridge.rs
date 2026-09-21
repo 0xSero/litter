@@ -52,6 +52,26 @@ const OPENCODE_PORT_CANDIDATES: u16 = 4;
 const OPENCODE_REUSE_PROBE_ATTEMPTS: u32 = 5;
 const OPENCODE_REUSE_PROBE_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Keep OMP isolated from any inherited Pi agent directory/profile on the host.
+struct OmpLauncher {
+    inner: Arc<dyn ProcessLauncher>,
+    agent_dir: String,
+}
+impl ProcessLauncher for OmpLauncher {
+    fn launch(
+        &self,
+        mut spec: alleycat_bridge_core::ProcessSpec,
+    ) -> futures::future::BoxFuture<'_, io::Result<Box<dyn alleycat_bridge_core::ChildProcess>>>
+    {
+        spec.env
+            .retain(|(key, _)| key != "PI_CODING_AGENT_DIR" && key != "OMP_PROFILE");
+        spec.env
+            .push(("PI_CODING_AGENT_DIR".into(), self.agent_dir.clone().into()));
+        spec.env.push(("OMP_PROFILE".into(), "".into()));
+        self.inner.launch(spec)
+    }
+}
+
 #[derive(Clone)]
 struct StreamCloseHandle {
     state: Arc<StreamCloseState>,
@@ -508,7 +528,7 @@ async fn connect_bridge_runtime_via_ssh(
                 .await
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?
         }
-        "pi" | crate::local_studio::RUNTIME_KIND => {
+        "pi" | "omp" | crate::local_studio::RUNTIME_KIND => {
             let local_studio_runtime = if kind == crate::local_studio::RUNTIME_KIND {
                 Some(
                     crate::local_studio::resolve_runtime(&ssh, shell)
@@ -529,34 +549,59 @@ async fn connect_bridge_runtime_via_ssh(
                     resolve_remote_cli(
                         &ssh,
                         shell,
-                        &cli_candidates(&["pi-coding-agent", "pi"], bin_override.as_deref()),
+                        &cli_candidates(
+                            if kind == "omp" {
+                                &["omp"]
+                            } else {
+                                &["pi-coding-agent", "pi"]
+                            },
+                            bin_override.as_deref(),
+                        ),
                     )
                     .await?
                 }
             };
             info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
-            let local_studio_agent_dir = local_studio_runtime
-                .as_ref()
-                .map(|runtime| runtime.agent_dir.as_str());
-            let pi_launcher = match local_studio_runtime.as_ref() {
+            let omp_agent_dir = if kind == "omp" {
+                let result = ssh
+                    .exec_shell("printf '%s/.omp/agent\n' \"$HOME\"", shell)
+                    .await?;
+                let directory = result.stdout.trim().to_string();
+                if result.exit_code != 0 || !directory.starts_with('/') {
+                    return Err(SshBridgeError::BridgeStartupFailed(
+                        "Could not resolve the remote OMP home".into(),
+                    ));
+                }
+                Some(directory)
+            } else {
+                None
+            };
+            let agent_dir = omp_agent_dir.as_deref().or_else(|| {
+                local_studio_runtime
+                    .as_ref()
+                    .map(|runtime| runtime.agent_dir.as_str())
+            });
+            let pi_launcher: Arc<dyn ProcessLauncher> = match local_studio_runtime.as_ref() {
                 Some(runtime) => crate::local_studio::launcher(Arc::clone(&launcher), runtime),
+                None if kind == "omp" => Arc::new(OmpLauncher {
+                    inner: Arc::clone(&launcher),
+                    agent_dir: omp_agent_dir.clone().unwrap(),
+                }),
                 None => Arc::clone(&launcher),
             };
-            let hydrator =
-                match scan_remote_pi_sessions(&ssh, shell, local_studio_agent_dir).await
-                {
-                    Ok(sessions) => {
-                        info!(
-                            count = sessions.len(),
-                            "ssh bridge hydrated remote pi session scan"
-                        );
-                        PiHydrator::with_sessions(sessions)
-                    }
-                    Err(error) => {
-                        warn!("ssh bridge remote pi session scan failed: {error}");
-                        PiHydrator::with_sessions(Vec::new())
-                    }
-                };
+            let hydrator = match scan_remote_pi_sessions(&ssh, shell, agent_dir).await {
+                Ok(sessions) => {
+                    info!(
+                        count = sessions.len(),
+                        "ssh bridge hydrated remote pi session scan"
+                    );
+                    PiHydrator::with_sessions(sessions)
+                }
+                Err(error) => {
+                    warn!("ssh bridge remote pi session scan failed: {error}");
+                    PiHydrator::with_sessions(Vec::new())
+                }
+            };
             let builder = PiBridge::builder()
                 .agent_bin(bin)
                 .launcher(pi_launcher)
@@ -564,6 +609,11 @@ async fn connect_bridge_runtime_via_ssh(
                 .pool_capacity(4)
                 .trust_persisted_cwd(true)
                 .hydrator(hydrator);
+            let builder = if let Some(agent_dir) = omp_agent_dir {
+                builder.native_settings_path(PathBuf::from(agent_dir).join("config.yml"))
+            } else {
+                builder
+            };
             let builder = if kind == crate::local_studio::RUNTIME_KIND {
                 builder.model_provider_prefix(crate::local_studio::RUNTIME_KIND)
             } else {
@@ -584,9 +634,9 @@ async fn connect_bridge_runtime_via_ssh(
         // so the host has to run the bridge itself. Say exactly what the
         // user needs to do instead of failing with a bare id.
         _ => {
-            return Err(SshBridgeError::BridgeStartupFailed(
-                pairing_only_message(&kind),
-            ));
+            return Err(SshBridgeError::BridgeStartupFailed(pairing_only_message(
+                &kind,
+            )));
         }
     };
     connect_bridge_stream(bridge, kind).await
@@ -615,6 +665,7 @@ async fn connect_bridge_stream(
         client_version: "1.0".to_string(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
+        mcp_server_openai_form_elicitation: false,
         channel_capacity: 256,
     };
     let remote = codex_slingshot::json_line_wire::connect_json_line_stream(client_io, args, label)
@@ -644,6 +695,7 @@ async fn connect_codex_via_ssh(
         client_version: "1.0".to_string(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
+        mcp_server_openai_form_elicitation: false,
         channel_capacity: 256,
     };
     let client_result = match bootstrap.transport {
@@ -733,8 +785,7 @@ async fn connect_opencode_via_ssh(
         let session_id = "opencode";
         info!("ssh bridge opencode remote start bin={bin} port={port} session_id={session_id}");
         spawn_remote_opencode(&ssh, shell, &bin, port, session_id).await?;
-        if let Err(error) =
-            wait_until_remote_opencode_healthy(&ssh, shell, port, session_id).await
+        if let Err(error) = wait_until_remote_opencode_healthy(&ssh, shell, port, session_id).await
         {
             schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, port, session_id.to_string());
             return Err(error);
@@ -771,7 +822,12 @@ async fn connect_opencode_via_ssh(
         return match attach_opencode_bridge(state_dir, base_url).await {
             Ok(connected) => Ok(connected),
             Err(error) => {
-                schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, port, session_id.to_string());
+                schedule_remote_opencode_cleanup(
+                    Arc::clone(&ssh),
+                    shell,
+                    port,
+                    session_id.to_string(),
+                );
                 Err(error)
             }
         };
@@ -1341,6 +1397,7 @@ mod agent_registration_tests {
             "local-studio\t1\n",
             "claude\t/usr/local/bin/claude\n",
             "pi\t/usr/local/bin/pi-coding-agent\n",
+            "omp\t/usr/local/bin/omp\n",
             "opencode\t\n",
             "codex\t/usr/local/bin/codex\n",
         ));
@@ -1350,7 +1407,7 @@ mod agent_registration_tests {
             .collect::<Vec<_>>();
         assert_eq!(
             kinds,
-            vec!["local-studio", "claude", "pi", "opencode", "codex"]
+            vec!["local-studio", "claude", "pi", "omp", "opencode", "codex"]
         );
         assert_eq!(
             agents
@@ -1370,7 +1427,8 @@ mod agent_registration_tests {
 
     #[test]
     fn probe_parser_normalizes_aliases_to_canonical_kinds() {
-        let agents = parse_agent_probe("pi-coding-agent\t/usr/bin/pi\nclaude-code\t/usr/bin/claude\n");
+        let agents =
+            parse_agent_probe("pi-coding-agent\t/usr/bin/pi\nclaude-code\t/usr/bin/claude\n");
         assert_eq!(
             agents.iter().map(|a| a.kind.as_str()).collect::<Vec<_>>(),
             vec!["pi", "claude"]
@@ -1432,13 +1490,58 @@ mod agent_registration_tests {
 
     #[test]
     fn non_cli_errors_are_left_alone() {
-        let untouched = annotate_with_requirement(
-            SshBridgeError::WindowsRemoteNotYetSupported,
-            "claude",
-        );
+        let untouched =
+            annotate_with_requirement(SshBridgeError::WindowsRemoteNotYetSupported, "claude");
         assert!(matches!(
             untouched,
             SshBridgeError::WindowsRemoteNotYetSupported
         ));
+    }
+}
+
+#[cfg(test)]
+mod omp_runtime_tests {
+    use super::*;
+    use alleycat_bridge_core::{ChildProcess, ProcessSpec};
+    struct Capture(StdMutex<Option<ProcessSpec>>);
+    impl ProcessLauncher for Capture {
+        fn launch(
+            &self,
+            spec: ProcessSpec,
+        ) -> futures::future::BoxFuture<'_, io::Result<Box<dyn ChildProcess>>> {
+            *self.0.lock().unwrap() = Some(spec);
+            Box::pin(async { Err(io::Error::other("captured")) })
+        }
+    }
+    #[tokio::test]
+    async fn omp_launch_cannot_inherit_pi_sessions_or_an_unrelated_profile() {
+        let capture = Arc::new(Capture(StdMutex::new(None)));
+        let launcher = OmpLauncher {
+            inner: capture.clone(),
+            agent_dir: "/remote/user/.omp/agent".into(),
+        };
+        let mut spec = ProcessSpec::new("/remote/bin/omp");
+        spec.args = vec!["--mode".into(), "rpc".into()];
+        spec.env = vec![
+            ("PI_CODING_AGENT_DIR".into(), "/wrong/pi/agent".into()),
+            ("OMP_PROFILE".into(), "unrelated".into()),
+        ];
+        let _ = launcher.launch(spec).await;
+        let spec = capture.0.lock().unwrap().take().unwrap();
+        assert_eq!(spec.program, PathBuf::from("/remote/bin/omp"));
+        assert_eq!(
+            spec.env,
+            vec![
+                (
+                    "PI_CODING_AGENT_DIR".into(),
+                    "/remote/user/.omp/agent".into()
+                ),
+                ("OMP_PROFILE".into(), "".into())
+            ]
+        );
+        assert_eq!(
+            spec.args,
+            vec![std::ffi::OsString::from("--mode"), "rpc".into()]
+        );
     }
 }

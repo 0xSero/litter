@@ -1,20 +1,18 @@
 diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
-index 49a7a3b800..861945e369 100644
 --- a/codex-rs/app-server-client/src/lib.rs
 +++ b/codex-rs/app-server-client/src/lib.rs
-@@ -60,6 +60,7 @@ use tokio::time::timeout;
- use toml::Value as TomlValue;
+@@ -63,6 +63,7 @@
  use tracing::warn;
  
+ pub use crate::path::AppServerPath;
 +pub use crate::remote::JsonRpcWire;
  pub use crate::remote::RemoteAppServerClient;
  pub use crate::remote::RemoteAppServerConnectArgs;
  pub use crate::remote::RemoteAppServerEndpoint;
 diff --git a/codex-rs/app-server-client/src/remote.rs b/codex-rs/app-server-client/src/remote.rs
-index dd9c083e49..e35e15af60 100644
 --- a/codex-rs/app-server-client/src/remote.rs
 +++ b/codex-rs/app-server-client/src/remote.rs
-@@ -12,6 +12,7 @@ higher-level session logic.
+@@ -12,6 +12,7 @@
  
  use std::collections::HashMap;
  use std::collections::VecDeque;
@@ -22,7 +20,7 @@ index dd9c083e49..e35e15af60 100644
  use std::io::Error as IoError;
  use std::io::ErrorKind;
  use std::io::Result as IoResult;
-@@ -53,7 +54,6 @@ use tokio_tungstenite::MaybeTlsStream;
+@@ -52,7 +53,6 @@
  use tokio_tungstenite::WebSocketStream;
  use tokio_tungstenite::client_async_with_config;
  use tokio_tungstenite::connect_async_with_config;
@@ -30,8 +28,8 @@ index dd9c083e49..e35e15af60 100644
  use tokio_tungstenite::tungstenite::Message;
  use tokio_tungstenite::tungstenite::client::IntoClientRequest;
  use tokio_tungstenite::tungstenite::http::HeaderValue;
-@@ -158,38 +158,192 @@ pub struct RemoteAppServerRequestHandle {
-     command_tx: mpsc::Sender<RemoteClientCommand>,
+@@ -175,6 +175,107 @@
+     NonElevatedCurrentUser,
  }
  
 +/// Litter extension: trait abstraction over the wire that the remote app-server worker drives.
@@ -137,6 +135,11 @@ index dd9c083e49..e35e15af60 100644
 +
  impl RemoteAppServerClient {
      pub async fn connect(args: RemoteAppServerConnectArgs) -> IoResult<Self> {
+         Self::connect_with_policy(args, SocketPeerPolicy::ExplicitEndpoint).await
+@@ -197,23 +298,19 @@
+         args: RemoteAppServerConnectArgs,
+         peer_policy: SocketPeerPolicy,
+     ) -> IoResult<Self> {
 -        let channel_capacity = args.channel_capacity.max(1);
 -        let initialize_params = args.initialize_params();
 -        match args.endpoint {
@@ -152,12 +155,16 @@ index dd9c083e49..e35e15af60 100644
 +                Self::connect_with_wire(args, endpoint, WebSocketWire { stream }).await
              }
              RemoteAppServerEndpoint::UnixSocket { socket_path } => {
-                 let (endpoint, stream) = connect_unix_socket_endpoint(socket_path).await?;
+                 let (endpoint, stream) =
+                     connect_unix_socket_endpoint(socket_path, peer_policy).await?;
 -                Self::connect_with_stream(channel_capacity, endpoint, stream, initialize_params)
 -                    .await
 +                Self::connect_with_wire(args, endpoint, WebSocketWire { stream }).await
              }
          }
+     }
+@@ -234,16 +331,75 @@
+         self.metadata.platform_os.as_deref()
      }
  
 -    async fn connect_with_stream<S>(
@@ -183,12 +190,15 @@ index dd9c083e49..e35e15af60 100644
 +            } => (websocket_url.clone(), auth_token.clone()),
 +            RemoteAppServerEndpoint::UnixSocket { .. } => (label.clone(), None),
 +        };
-+        let mut request = handshake_url.as_str().into_client_request().map_err(|err| {
-+            IoError::new(
-+                ErrorKind::InvalidInput,
-+                format!("invalid websocket URL `{handshake_url}`: {err}"),
-+            )
-+        })?;
++        let mut request = handshake_url
++            .as_str()
++            .into_client_request()
++            .map_err(|err| {
++                IoError::new(
++                    ErrorKind::InvalidInput,
++                    format!("invalid websocket URL `{handshake_url}`: {err}"),
++                )
++            })?;
 +        if let Some(auth_token) = auth_token.as_deref() {
 +            let header_value =
 +                HeaderValue::from_str(&format!("Bearer {auth_token}")).map_err(|err| {
@@ -214,8 +224,7 @@ index dd9c083e49..e35e15af60 100644
 +        .map_err(|err| {
 +            IoError::other(format!("websocket handshake over `{label}` failed: {err}"))
 +        })?;
-+        Self::connect_with_wire(args, label, WebSocketWire { stream })
-+        .await
++        Self::connect_with_wire(args, label, WebSocketWire { stream }).await
 +    }
 +
 +    /// Litter extension: drive a remote app-server session over any caller-provided
@@ -233,10 +242,10 @@ index dd9c083e49..e35e15af60 100644
 +        let initialize_params = args.initialize_params();
 +        let endpoint = label;
 +        let mut stream = wire;
-         let pending_events = initialize_remote_connection(
+         let (pending_events, metadata) = initialize_remote_connection(
              &mut stream,
              &endpoint,
-@@ -208,7 +362,7 @@ impl RemoteAppServerClient {
+@@ -262,7 +418,7 @@
                  tokio::select! {
                      command = command_rx.recv() => {
                          let Some(command) = command else {
@@ -245,17 +254,17 @@ index dd9c083e49..e35e15af60 100644
                              break;
                          };
                          match command {
-@@ -222,8 +376,7 @@ impl RemoteAppServerClient {
+@@ -276,8 +432,7 @@
                                      continue;
                                  }
                                  pending_requests.insert(request_id.clone(), response_tx);
 -                                if let Err(err) = write_jsonrpc_message(
 -                                    &mut stream,
 +                                if let Err(err) = stream.send_message(
-                                     JSONRPCMessage::Request(jsonrpc_request_from_client_request(*request)),
+                                     JSONRPCMessage::Request(*request),
                                      &endpoint,
                                  )
-@@ -247,8 +400,7 @@ impl RemoteAppServerClient {
+@@ -301,8 +456,7 @@
                                  }
                              }
                              RemoteClientCommand::Notify { notification, response_tx } => {
@@ -265,7 +274,7 @@ index dd9c083e49..e35e15af60 100644
                                      JSONRPCMessage::Notification(
                                          jsonrpc_notification_from_client_notification(notification),
                                      ),
-@@ -262,8 +414,7 @@ impl RemoteAppServerClient {
+@@ -316,8 +470,7 @@
                                  result,
                                  response_tx,
                              } => {
@@ -275,7 +284,7 @@ index dd9c083e49..e35e15af60 100644
                                      JSONRPCMessage::Response(JSONRPCResponse {
                                          id: request_id,
                                          result,
-@@ -278,8 +429,7 @@ impl RemoteAppServerClient {
+@@ -332,8 +485,7 @@
                                  error,
                                  response_tx,
                              } => {
@@ -285,7 +294,7 @@ index dd9c083e49..e35e15af60 100644
                                      JSONRPCMessage::Error(JSONRPCError {
                                          error,
                                          id: request_id,
-@@ -290,13 +440,11 @@ impl RemoteAppServerClient {
+@@ -344,13 +496,11 @@
                                  let _ = response_tx.send(result);
                              }
                              RemoteClientCommand::Shutdown { response_tx } => {
@@ -302,7 +311,7 @@ index dd9c083e49..e35e15af60 100644
                                      }
                                  });
                                  let _ = response_tx.send(close_result);
-@@ -304,21 +452,21 @@ impl RemoteAppServerClient {
+@@ -358,21 +508,21 @@
                              }
                          }
                      }
@@ -330,7 +339,7 @@ index dd9c083e49..e35e15af60 100644
                                          if let Some(event) =
                                              app_server_event_from_notification(notification)
                                              && let Err(err) = deliver_event(
-@@ -330,7 +478,7 @@ impl RemoteAppServerClient {
+@@ -384,7 +534,7 @@
                                                  break;
                                              }
                                      }
@@ -339,7 +348,7 @@ index dd9c083e49..e35e15af60 100644
                                          let request_id = request.id.clone();
                                          let method = request.method.clone();
                                          match ServerRequest::try_from(request) {
-@@ -346,8 +494,7 @@ impl RemoteAppServerClient {
+@@ -400,8 +550,7 @@
                                              }
                                              Err(err) => {
                                                  warn!(%err, method, "rejecting unknown remote app-server request");
@@ -349,7 +358,7 @@ index dd9c083e49..e35e15af60 100644
                                                      JSONRPCMessage::Error(JSONRPCError {
                                                          error: JSONRPCErrorError {
                                                              code: -32601,
-@@ -379,48 +526,9 @@ impl RemoteAppServerClient {
+@@ -433,48 +582,9 @@
                                              }
                                          }
                                      }
@@ -399,7 +408,7 @@ index dd9c083e49..e35e15af60 100644
                                  let message = format!(
                                      "remote app server at `{endpoint}` transport failed: {err}"
                                  );
-@@ -430,10 +538,10 @@ impl RemoteAppServerClient {
+@@ -484,10 +594,10 @@
                                          message: message.clone(),
                                      },
                                  );
@@ -412,7 +421,7 @@ index dd9c083e49..e35e15af60 100644
                                  let message = format!(
                                      "remote app server at `{endpoint}` closed the connection"
                                  );
-@@ -788,19 +896,18 @@ fn remote_websocket_config() -> WebSocketConfig {
+@@ -841,20 +951,19 @@
          .max_message_size(Some(REMOTE_APP_SERVER_MAX_WEBSOCKET_MESSAGE_SIZE))
  }
  
@@ -423,20 +432,21 @@ index dd9c083e49..e35e15af60 100644
      endpoint: &str,
      params: InitializeParams,
      initialize_timeout: Duration,
- ) -> IoResult<Vec<AppServerEvent>>
+ ) -> IoResult<(Vec<AppServerEvent>, RemoteServerMetadata)>
  where
 -    S: AsyncRead + AsyncWrite + Unpin,
 +    W: JsonRpcWire,
  {
      let initialize_request_id = RequestId::String("initialize".to_string());
      let mut pending_events = Vec::new();
+     let mut metadata = RemoteServerMetadata::default();
 -    write_jsonrpc_message(
 -        stream,
 +    wire.send_message(
          JSONRPCMessage::Request(jsonrpc_request_from_client_request(
              ClientRequest::Initialize {
                  request_id: initialize_request_id.clone(),
-@@ -813,13 +920,8 @@ where
+@@ -867,13 +976,8 @@
  
      timeout(initialize_timeout, async {
          loop {
@@ -451,8 +461,8 @@ index dd9c083e49..e35e15af60 100644
 +                Ok(Some(message)) => {
                      match message {
                          JSONRPCMessage::Response(response) if response.id == initialize_request_id => {
-                             break Ok(());
-@@ -844,8 +946,7 @@ where
+                             metadata.server_version = response
+@@ -917,8 +1021,7 @@
                                  }
                                  Err(err) => {
                                      warn!(%err, method, "rejecting unknown remote app-server request during initialize");
@@ -462,7 +472,7 @@ index dd9c083e49..e35e15af60 100644
                                          JSONRPCMessage::Error(JSONRPCError {
                                              error: JSONRPCErrorError {
                                                  code: -32601,
-@@ -865,29 +966,8 @@ where
+@@ -938,29 +1041,8 @@
                          JSONRPCMessage::Response(_) | JSONRPCMessage::Error(_) => {}
                      }
                  }
@@ -494,7 +504,7 @@ index dd9c083e49..e35e15af60 100644
                      break Err(IoError::new(
                          ErrorKind::UnexpectedEof,
                          format!("remote app server at `{endpoint}` closed during initialize"),
-@@ -904,8 +984,7 @@ where
+@@ -977,8 +1059,7 @@
          )
      })??;
  
@@ -504,7 +514,7 @@ index dd9c083e49..e35e15af60 100644
          JSONRPCMessage::Notification(jsonrpc_notification_from_client_notification(
              ClientNotification::Initialized,
          )),
-@@ -963,34 +1042,11 @@ fn jsonrpc_notification_from_client_notification(
+@@ -1032,34 +1113,11 @@
      }
  }
  

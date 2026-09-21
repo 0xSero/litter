@@ -5,13 +5,13 @@ Distribution wrapper for the [alleycat](https://github.com/0xSero/alleycat) daem
 Install and pair the current host release:
 
 ```sh
-npx --yes https://github.com/0xSero/litter/releases/download/v0.3.9/kittylitter-npm-package.tar.gz
+npx --yes https://github.com/0xSero/litter/releases/download/v0.3.10/kittylitter-npm-package.tar.gz
 ```
 
 The GitHub release package supports the same platforms as the npm wrapper.
 Registry publishing currently fails because the `kittylitter` npm package is
 owned by another account; `npx kittylitter` still resolves the older 0.3.4 release.
-Use the pinned GitHub package above to receive the headless startup fix.
+Use the pinned GitHub package above for the matching Litter 2.1.2 host adapters.
 
 The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylitter")`. All daemon behavior lives in the alleycat crate; this crate exists so cargo-dist sees a `kittylitter` package name and produces correctly-named artifacts (`kittylitter-installer.sh`, `kittylitter.rb`, `kittylitter` on npm).
 

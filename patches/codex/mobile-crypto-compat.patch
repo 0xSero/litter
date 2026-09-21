@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -332,7 +332,7 @@
+ chrono = "0.4.43"
+ clap = "4"
+ clap_complete = "4"
+-clatter = { version = "2.2.0", default-features = false, features = [
++clatter = { git = "https://github.com/jmlepisto/clatter", rev = "9a8d15c4f80d5911ca0403aa22e0de99ea59df08", default-features = false, features = [
+     "alloc",
+     "getrandom",
+     "use-25519",

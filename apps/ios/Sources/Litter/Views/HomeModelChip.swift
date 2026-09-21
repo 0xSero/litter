@@ -208,6 +208,9 @@ struct HomeModelChip: View {
         }
         .onChange(of: showSheet) { _, isPresented in
             onSheetStateChange(isPresented)
+            if isPresented, let serverId {
+                Task { await appModel.loadAvailableModelsIfNeeded(serverId: serverId) }
+            }
         }
         .task(id: metadataLoadID) {
             guard let serverId else { return }

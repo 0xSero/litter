@@ -577,7 +577,7 @@ private struct QRScannerScreen: View {
     let pairingMode: AlleycatPairingMode
     let onScan: (String) -> Void
 
-    private static let pairCommand = "npx --yes https://github.com/0xSero/litter/releases/download/v0.3.9/kittylitter-npm-package.tar.gz"
+    private static let pairCommand = "npx --yes https://github.com/0xSero/litter/releases/download/v0.3.10/kittylitter-npm-package.tar.gz"
 
     @State private var copied = false
     @State private var isFinishing = false

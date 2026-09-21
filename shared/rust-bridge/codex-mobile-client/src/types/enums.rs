@@ -189,6 +189,7 @@ pub enum AppOperationStatus {
     Completed,
     Failed,
     Declined,
+    Interrupted,
 }
 
 impl AppOperationStatus {
@@ -200,6 +201,7 @@ impl AppOperationStatus {
             "completed" | "Completed" => Self::Completed,
             "failed" | "Failed" => Self::Failed,
             "declined" | "Declined" => Self::Declined,
+            "interrupted" | "Interrupted" => Self::Interrupted,
             _ => {
                 let normalized = trimmed.to_ascii_lowercase().replace(['_', ' '], "");
                 match normalized.as_str() {
@@ -210,6 +212,7 @@ impl AppOperationStatus {
                     }
                     "failed" | "fail" | "error" | "errored" | "denied" => Self::Failed,
                     "declined" | "rejected" => Self::Declined,
+                    "interrupted" | "cancelled" | "canceled" => Self::Interrupted,
                     _ => Self::Unknown,
                 }
             }

@@ -14,48 +14,66 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-For 2.1.1 the production dependency is `0xSero/alleycat@4ec496c`, two
-headless-launch fixes on top of the previously shipping
-`makyinmars/alleycat@5dd425f`. It preserves that complete production lineage;
-it does not substitute the divergent Alleycat `main` branch.
+The 2.1.2 candidate pins `0xSero/alleycat@dcda34d1`, preserving the shipping
+headless-launch lineage rather than substituting the divergent Alleycat `main`.
+It refreshes native model/settings adapters, gives OMP an independent runtime,
+and preserves Local Studio's explicit data directory across daemon upgrades.
+Background launches avoid interactive login shells; bundled Local Studio Pi
+uses plain Node rather than registering Electron as a foreground Dock app.
 
-The new default avoids interactive login-shell startup during background
-agent launches. Shell-provided variables must be present in the daemon's
-inherited environment; project `mise`/`direnv` providers remain supported.
-Bundled Local Studio Pi now uses a plain Node executable instead of the desktop
-Electron executable, which registered foreground Dock apps even in Node mode.
-If Node is absent, the bundled runtime is unavailable. Host tests pass (96),
-including a regression test verified against the old launcher. The installed
-0.3.9 daemon was restarted without runtime overrides on macOS: all six Pi
-workers registered as BackgroundOnly through Node, while the user's existing
-Local Studio window stayed running. Both mobile release acceptance checks
-remain required.
+The installed `85c3d1e` candidate passed all 12 runtime routes on the first
+attempt, returning 1,402 native catalog entries, 2,442 settings descriptors,
+and 101 Codex configuration fields. Local Studio exposed 61 settings and 19
+models through its signed bundled Pi metadata. Devin/Grok adapter tests passed
+(117), as did both live published-schema tests and the full host library suite
+(103). A preceding three-minute process sample found no foreground worker
+registrations (88 valid samples, two inspection timeouts).
+
+The `a5aaa9f6` follow-up stops reading Claude transcripts once session
+summary metadata is found and removes runtime initialization from offline
+status checks. Six focused regressions passed, including an unread 64 MiB
+invalid transcript tail. The installed follow-up restarted successfully in
+16 seconds with all 12 runtimes available, and a status read took 20 ms. Its
+three-minute process sample found no foreground worker registrations (81 valid
+samples, nine inspection timeouts). All catalogs passed, but Hermes settings
+and model requests intermittently timed out in separate attempts under host
+contention; the prior revision passed both together. This limitation and final
+mobile/store acceptance remain open. The `dcda34d1` follow-up matches Hermes'
+native GUI catalog options, avoiding probes of every saved custom endpoint
+while preserving current/custom model IDs and native background refresh. Its
+focused compatibility regression passed; final installed-host readback is pending.
+
+Local Studio prefers the AppSupport CLI before `~/.local/bin`, so installed
+upgrades must refresh both locations to avoid invoking an old pairing binary.
+The updated CLI preserves an equal or newer running daemon and retains the
+configured Local Studio data directory during upgrades.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
 bindings, and both mobile runtimes are verified.
 
 ## P0 — dependency security
 
-As of the audit, RustSec reported nine advisories for the shared mobile lock,
-two for Alleycat `main`, and four for the packaged `kittylitter` lock (which
-still follows Litter's older production Alleycat revision).
+RustSec was rerun on 2026-09-21 against both candidate lockfiles after updating
+Codex to 0.155.1 and applying compatible h2 0.4.16 and rustls 0.23.45 security
+patches. Five advisories remain in the shared mobile lock and four in the
+packaged Kittylitter lock. These are advisory counts, not affected-package counts.
 
-The unresolved advisories are rooted in dependency contracts that require
-coordinated upgrades rather than a lockfile-only refresh:
+- Mobile: Hickory 0.25.2 through upstream Rama DNS retains
+  `RUSTSEC-2026-0119` and `RUSTSEC-2026-0118`. Moving to Hickory 0.26 requires
+  an upstream dependency/API change.
+- Packaged host: Iroh 0.98.2 and iroh-relay 0.98.0 pin Hickory exactly to
+  0.26.0-beta.4, retaining `RUSTSEC-2026-0120` and `RUSTSEC-2026-0119`.
+- Both: plist 1.9.0 through netdev/netwatch retains quick-xml 0.39.2 and
+  `RUSTSEC-2026-0195` / `RUSTSEC-2026-0194`; the fixed quick-xml 0.41 line
+  requires a compatible upstream plist contract.
+- Mobile: RSA 0.10.0-rc.18 retains `RUSTSEC-2023-0071`, with no patched
+  release reported by RustSec.
 
-- upstream Codex 0.132 pins an older quick-xml, RMCP 0.15, and a Hickory 0.25
-  network-proxy chain;
-- Iroh 1.0.3 still reaches quick-xml 0.39 through the current plist contract;
-  the fixed quick-xml 0.41 line is not semver-compatible with that dependency;
-- two RSA versions have no fixed release in their current dependency lines.
-
-**Do not suppress these advisories.** The next release wave should upgrade
-Codex/RMCP and track the plist/quick-xml and RSA owners, rerun RustSec after each
-compatibility change, and finish with installed-device network, SSH, MCP, and
-pairing tests.
-
-Iroh 1.0.3 and Russh 0.62.6 are in place and their source/test gates are green,
-but their network and SSH behavior still requires physical-device acceptance.
+**Do not suppress these advisories.** Preserve these upstream upgrade tracks,
+rerun RustSec after compatibility changes, and verify network, SSH, MCP, and
+pairing on installed devices. A successful build is not physical-device network
+acceptance. Mobile uses Iroh 1.0.3 and Russh 0.62.6; the separately packaged host's
+Iroh version above must not be confused with the mobile dependency.
 
 ## P1 — incomplete user-visible behavior
 
@@ -119,9 +137,9 @@ blanket allows would erase useful architecture signals.
   automatic, distribution, TestFlight, and Play paths are distinct acceptance
   surfaces, but shared setup and artifact verification should be factored into
   reusable workflows.
-- `services/kittylitter` publishes v0.3.6 metadata. The release guard correctly
-  rejects changing that package after its tag; update it only with a coordinated
-  version bump.
+- `services/kittylitter` targets v0.3.10 alongside mobile 2.1.2. The release guard
+  rejects changing that package after its tag and rejects mismatched mobile
+  pairing URLs; future host changes require a coordinated version bump.
 - Android's three custom `buildConfigField`s (`RUNTIME_STARTUP_MODE`,
   `APP_RUNTIME_TRANSPORT`, `ENABLE_ON_DEVICE_BRIDGE`), the two matching
   `manifestPlaceholders`, and the two `<meta-data>` tags they feed form a closed

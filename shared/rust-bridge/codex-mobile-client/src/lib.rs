@@ -3,6 +3,9 @@
 //! This crate owns the single public UniFFI surface for mobile. Keep shared
 //! business logic here so Swift/Kotlin only compile one binding set.
 
+// Upstream app-server dispatch futures exceed the default layout query depth on iOS.
+#![recursion_limit = "256"]
+
 #[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
 pub mod ish_exec;
 
@@ -158,6 +161,7 @@ pub mod reconnect;
 pub mod recorder;
 pub mod remote_path;
 pub mod saved_apps;
+pub mod runtime_settings;
 pub mod session;
 pub(crate) mod slingshot_url;
 pub mod ssh;

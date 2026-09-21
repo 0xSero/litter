@@ -67,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -145,6 +146,7 @@ fun SettingsSheet(
     }
 
     when (subScreen) {
+        SettingsSubScreen.Harnesses -> HarnessSettingsScreen(onBack = { subScreen = null })
         SettingsSubScreen.Appearance -> AppearanceScreen(onBack = { subScreen = null })
         SettingsSubScreen.Experimental -> ExperimentalScreen(onBack = { subScreen = null })
         SettingsSubScreen.Pets -> PetsScreen(onBack = { subScreen = null })
@@ -152,6 +154,7 @@ fun SettingsSheet(
         SettingsSubScreen.Debug -> DebugScreen(onBack = { subScreen = null })
         null -> SettingsTopLevel(
             onDismiss = onDismiss,
+            onOpenHarnesses = { subScreen = SettingsSubScreen.Harnesses },
             onOpenAppearance = { subScreen = SettingsSubScreen.Appearance },
             onOpenExperimental = { subScreen = SettingsSubScreen.Experimental },
             onOpenPets = { subScreen = SettingsSubScreen.Pets },
@@ -165,11 +168,12 @@ fun SettingsSheet(
 
 enum class SettingsStartDestination { TopLevel, Pets }
 
-private enum class SettingsSubScreen { Appearance, Experimental, Pets, TipJar, Debug }
+private enum class SettingsSubScreen { Harnesses, Appearance, Experimental, Pets, TipJar, Debug }
 
 @Composable
 private fun SettingsTopLevel(
     onDismiss: () -> Unit,
+    onOpenHarnesses: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenExperimental: () -> Unit,
     onOpenPets: () -> Unit,
@@ -198,6 +202,7 @@ private fun SettingsTopLevel(
 
     LazyColumn(
         modifier = Modifier
+            .testTag("settings.content")
             .fillMaxWidth()
             .imePadding()
             .padding(16.dp),
@@ -366,6 +371,8 @@ private fun SettingsTopLevel(
                 SettingsRow(label = "Connect to a server first")
             }
         }
+
+        item { NavRow(Icons.Default.Computer, "Harnesses", onOpenHarnesses) }
 
         // ── Servers ──
         item { SectionHeader("Servers") }

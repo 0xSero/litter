@@ -34,6 +34,12 @@ struct SettingsView: View {
                     petSection
                     experimentalSection
                     accountSection
+                    Section {
+                        NavigationLink("Harnesses") { HarnessSettingsView() }
+                            .litterFont(.footnote)
+                            .foregroundStyle(LitterTheme.textPrimary)
+                            .listRowBackground(LitterTheme.surface.opacity(0.6))
+                    }
                     serversSection
                 }
                 .scrollContentBackground(.hidden)

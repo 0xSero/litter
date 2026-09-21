@@ -670,17 +670,8 @@ private fun homeComposerInsertionText(insertion: String, text: String, start: In
 }
 
 private fun reasoningEffortFromServerValue(value: String): ReasoningEffort? =
-    when (value.trim().lowercase()) {
-        "none" -> ReasoningEffort.NONE
-        "minimal" -> ReasoningEffort.MINIMAL
-        "low" -> ReasoningEffort.LOW
-        "medium" -> ReasoningEffort.MEDIUM
-        "high" -> ReasoningEffort.HIGH
-        "xhigh" -> ReasoningEffort.X_HIGH
-        "max" -> ReasoningEffort.MAX
-        "ultra" -> ReasoningEffort.ULTRA
-        else -> null
-    }
+    uniffi.codex_mobile_client.reasoningEffortFromWireValue(value)
+
 
 private sealed interface PickedComposerAttachment {
     data class Image(val attachment: ComposerImageAttachment) : PickedComposerAttachment

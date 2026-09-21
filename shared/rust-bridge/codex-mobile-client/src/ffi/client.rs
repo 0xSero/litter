@@ -34,6 +34,76 @@ async fn rpc_runtime<T: serde::de::DeserializeOwned>(
         .map_err(|error| ClientError::Rpc(error.to_string()))
 }
 
+fn ensure_settings_session(
+    client: &MobileClient,
+    server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
+) -> Result<(), ClientError> {
+    let current = client
+        .get_session(server_id)
+        .map_err(|e| ClientError::Rpc(e.to_string()))?;
+    if !Arc::ptr_eq(&current, session) {
+        return Err(ClientError::Rpc(
+            "Connection changed while accessing settings; refresh before editing".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn settings_rpc(
+    client: &MobileClient,
+    server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
+    runtime_kind: types::AgentRuntimeKind,
+    request: upstream::ClientRequest,
+) -> Result<serde_json::Value, ClientError> {
+    ensure_settings_session(client, server_id, session)?;
+    session
+        .request_client_for_runtime(runtime_kind, request)
+        .await
+        .map_err(|e| ClientError::Rpc(e.to_string()))
+}
+
+async fn read_runtime_settings(
+    client: &MobileClient,
+    server_id: &str,
+    session: &Arc<crate::session::connection::ServerSession>,
+    runtime_kind: types::AgentRuntimeKind,
+) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
+    let params = serde_json::from_value(serde_json::json!({"includeLayers":true}))
+        .map_err(|e| ClientError::Serialization(e.to_string()))?;
+    let mut response: serde_json::Value = tokio::time::timeout(
+        Duration::from_secs(15),
+        settings_rpc(
+            client,
+            server_id,
+            session,
+            runtime_kind.clone(),
+            upstream::ClientRequest::ConfigRead {
+                request_id: upstream::RequestId::Integer(next_request_id()),
+                params,
+            },
+        ),
+    )
+    .await
+    .map_err(|_| ClientError::Rpc("Runtime settings read timed out".into()))??;
+    if runtime_kind == "codex" {
+        let request = upstream::ClientRequest::ConfigRequirementsRead {
+            request_id: upstream::RequestId::Integer(next_request_id()),
+            params: None,
+        };
+        let requirements: serde_json::Value = tokio::time::timeout(
+            Duration::from_secs(15),
+            settings_rpc(client, server_id, session, runtime_kind.clone(), request),
+        )
+        .await
+        .map_err(|_| ClientError::Rpc("Runtime settings policy read timed out".into()))??;
+        response["_requirements"] = requirements;
+    }
+    ensure_settings_session(client, server_id, session)?;
+    crate::runtime_settings::snapshot(runtime_kind, response).map_err(ClientError::Serialization)
+}
+
 fn convert_params<M, U>(params: M) -> Result<U, ClientError>
 where
     M: TryInto<U, Error = crate::RpcClientError>,
@@ -52,33 +122,6 @@ macro_rules! req {
     };
 }
 
-const AMP_VISIBLE_MODES: [&str; 4] = ["low", "medium", "high", "ultra"];
-const CLAUDE_FAMILY_ALIASES: [(&str, &str, &str, bool); 4] = [
-    (
-        "fable",
-        "Fable",
-        "Anthropic's most capable model. Resolved by the claude CLI to the latest Fable revision.",
-        false,
-    ),
-    (
-        "opus",
-        "Opus",
-        "Deep reasoning, hard refactors, multi-step planning. Resolved by the claude CLI to the latest Opus revision.",
-        false,
-    ),
-    (
-        "sonnet",
-        "Sonnet",
-        "Balanced model for everyday coding work. Resolved by the claude CLI to the latest Sonnet revision.",
-        true,
-    ),
-    (
-        "haiku",
-        "Haiku",
-        "Lightest, fastest model for quick edits. Resolved by the claude CLI to the latest Haiku revision.",
-        false,
-    ),
-];
 const MODEL_LIST_RUNTIME_TIMEOUT: Duration = Duration::from_secs(20);
 const THREAD_LIST_HYDRATION_BUDGET: usize = 200;
 
@@ -108,173 +151,22 @@ fn thread_list_can_prune(params: &types::AppListThreadsRequest) -> bool {
         && params.archived != Some(true)
 }
 
-fn normalize_amp_mode_name(value: &str) -> String {
-    value
-        .trim()
-        .trim_start_matches("amp/")
-        .trim_start_matches("amp:")
-        .to_ascii_lowercase()
-}
-
-fn amp_mode_description(mode: &str) -> &'static str {
-    match mode {
-        "low" => "Fast, low-cost mode for small, well-defined tasks.",
-        "medium" => "Balanced intelligence, speed, and cost for most tasks.",
-        "high" => "Deep reasoning for hard tasks.",
-        "ultra" => "The most capable mode for hard, open-ended tasks.",
-        _ => "Amp agent mode.",
-    }
-}
-
-fn amp_mode_models() -> Vec<types::ModelInfo> {
-    AMP_VISIBLE_MODES
-        .into_iter()
-        .map(|mode| types::ModelInfo {
-            id: mode.to_string(),
-            model: mode.to_string(),
-            upgrade: None,
-            upgrade_model: None,
-            upgrade_copy: None,
-            model_link: None,
-            migration_markdown: None,
-            availability_nux_message: None,
-            display_name: mode.to_string(),
-            description: amp_mode_description(mode).to_string(),
-            hidden: false,
-            supported_reasoning_efforts: Vec::new(),
-            default_reasoning_effort: types::ReasoningEffort::None,
-            input_modalities: vec![types::InputModality::Text],
-            supports_personality: false,
-            is_default: mode == "medium",
-            agent_runtime_kind: "amp".to_string(),
-            provider_id: None,
-        })
-        .collect()
-}
-
-fn claude_family_models() -> Vec<types::ModelInfo> {
-    CLAUDE_FAMILY_ALIASES
-        .into_iter()
-        .map(|(alias, display_name, description, is_default)| {
-            types::ModelInfo {
-                id: alias.to_string(),
-                model: alias.to_string(),
-                upgrade: None,
-                upgrade_model: None,
-                upgrade_copy: None,
-                model_link: None,
-                migration_markdown: None,
-                availability_nux_message: None,
-                display_name: display_name.to_string(),
-                description: description.to_string(),
-                hidden: false,
-                // An alias can resolve to different models per host/provider.
-                // Only advertise effort controls returned by the host catalog.
-                supported_reasoning_efforts: Vec::new(),
-                default_reasoning_effort: types::ReasoningEffort::None,
-                input_modalities: vec![types::InputModality::Text, types::InputModality::Image],
-                supports_personality: false,
-                is_default,
-                agent_runtime_kind: "claude".to_string(),
-                provider_id: None,
-            }
-        })
-        .collect()
-}
-
-fn append_missing_claude_family_models(models: &mut Vec<types::ModelInfo>) {
-    // Host entries can carry provider deployment IDs and model-specific capabilities.
-    // Keep their default authoritative when supplementing older bridge catalogs.
-    let has_default = models
-        .iter()
-        .any(|model| model.agent_runtime_kind == "claude" && model.is_default);
-    for mut family_model in claude_family_models() {
-        if has_default {
-            family_model.is_default = false;
-        }
-        let alias = family_model.id.clone();
-        let prefixed_alias = format!("anthropic/{alias}");
-        let exists = models.iter().any(|existing| {
-            if existing.agent_runtime_kind != "claude" {
-                return false;
-            }
-            let id = existing.id.trim().to_ascii_lowercase();
-            let model = existing.model.trim().to_ascii_lowercase();
-            id == alias || id == prefixed_alias || model == alias || model == prefixed_alias
-        });
-        if !exists {
-            models.push(family_model);
-        }
-    }
-}
-
-fn append_missing_amp_mode_models(models: &mut Vec<types::ModelInfo>) {
-    for mode in amp_mode_models() {
-        let mode_name = mode.id.clone();
-        let prefixed_mode = format!("amp/{mode_name}");
-        let exists = models.iter().any(|existing| {
-            if existing.agent_runtime_kind != "amp" {
-                return false;
-            }
-            let id = existing.id.trim().to_ascii_lowercase();
-            let model = existing.model.trim().to_ascii_lowercase();
-            id == mode_name || id == prefixed_mode || model == mode_name || model == prefixed_mode
-        });
-        if !exists {
-            models.push(mode);
-        }
-    }
-}
-
 fn normalize_model_info_for_runtime(
     model_info: &mut types::ModelInfo,
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
-    let is_amp = runtime_kind == "amp";
-    let is_pi = matches!(runtime_kind.as_str(), "pi" | "local-studio");
     let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
     model_info.agent_runtime_kind = runtime_kind;
-    if is_amp {
-        let id_mode = normalize_amp_mode_name(&model_info.id);
-        let mode = if id_mode.is_empty() {
-            normalize_amp_mode_name(&model_info.model)
-        } else {
-            id_mode
-        };
-        if !AMP_VISIBLE_MODES.contains(&mode.as_str()) {
-            return false;
-        }
-        model_info.id = mode.clone();
-        model_info.model = mode.clone();
-        model_info.display_name = mode.clone();
-        model_info.description = amp_mode_description(&mode).to_string();
-        model_info.hidden = false;
-        model_info.supported_reasoning_efforts.clear();
-        model_info.default_reasoning_effort = types::ReasoningEffort::None;
-        model_info.is_default = mode == "medium";
-    } else if has_qualified_catalog
-        && let Some(provider_id) = derive_model_provider_id(&model_info.id)
-    {
+    if has_qualified_catalog && let Some(provider_id) = derive_model_provider_id(&model_info.id) {
         model_info.provider_id = Some(provider_id.to_string());
     }
-    if is_pi
-        && !model_info
-            .supported_reasoning_efforts
-            .iter()
-            .any(|option| option.reasoning_effort == types::ReasoningEffort::Max)
-    {
-        model_info
-            .supported_reasoning_efforts
-            .push(types::ReasoningEffortOption {
-                reasoning_effort: types::ReasoningEffort::Max,
-                description: "Maximum reasoning depth.".to_string(),
-            });
-    }
+    // Model IDs, defaults, plugin modes, and effort capabilities belong to the runtime.
+
     true
 }
 
 fn runtime_kind_uses_qualified_catalog(runtime_kind: &str) -> bool {
-    matches!(runtime_kind, "pi" | "local-studio" | "opencode")
+    matches!(runtime_kind, "pi" | "omp" | "local-studio" | "opencode")
 }
 
 fn derive_model_provider_id(id: &str) -> Option<&str> {
@@ -305,23 +197,6 @@ fn list_runtime_kinds(
     runtimes.sort();
     runtimes.dedup();
     runtimes
-}
-
-fn append_cached_models_for_failed_runtimes(
-    models: &mut Vec<types::ModelInfo>,
-    seen_model_ids: &mut HashSet<(types::AgentRuntimeKind, String)>,
-    cached_models: &[types::ModelInfo],
-    failed_runtime_kinds: &HashSet<types::AgentRuntimeKind>,
-) {
-    for model in cached_models {
-        if !failed_runtime_kinds.contains(&model.agent_runtime_kind) {
-            continue;
-        }
-        let dedupe_key = (model.agent_runtime_kind.clone(), model.id.clone());
-        if seen_model_ids.insert(dedupe_key) {
-            models.push(model.clone());
-        }
-    }
 }
 
 fn apply_thread_goal_to_store(
@@ -1106,110 +981,124 @@ impl AppClient {
 
     // ── Models & features ────────────────────────────────────────────────
 
+    pub fn models_need_refresh(&self, server_id: String) -> bool {
+        self.inner.models_need_refresh(&server_id)
+    }
+
     pub async fn refresh_models(
         &self,
         server_id: String,
         params: types::AppRefreshModelsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let mut runtime_kinds = c
+            use futures::StreamExt;
+
+            // Forced refreshes after settings writes must fetch after the older
+            // catalog completes, rather than be dropped or race its publication.
+            let catalog_lock = c.model_catalog_lock(&server_id);
+            let _catalog_guard = catalog_lock.lock().await;
+            let session = c
                 .get_session(&server_id)
-                .map_err(|error| ClientError::Rpc(error.to_string()))?
-                .runtime_kinds()
+                .map_err(|error| ClientError::Rpc(error.to_string()))?;
+            let catalog_runtimes = session.runtime_kinds();
+            let mut runtime_kinds = catalog_runtimes
+                .clone()
                 .into_iter()
                 .filter(|runtime_kind| runtime_exposes_model_choices(runtime_kind))
                 .collect::<Vec<_>>();
             runtime_kinds.sort();
             runtime_kinds.dedup();
-            let runtime_count = runtime_kinds.len();
-            let includes_claude = runtime_kinds.iter().any(|kind| kind == "claude");
             let params: upstream::ModelListParams = params.into();
-            let tasks = runtime_kinds.into_iter().map(|runtime_kind| {
-                let client = Arc::clone(c);
-                let server_id = server_id.clone();
-                let mut request_params = params.clone();
-                async move {
-                    let fetch = async {
-                        let mut models = Vec::new();
-                        loop {
-                            let page: upstream::ModelListResponse = rpc_runtime(
-                                client.as_ref(),
-                                &server_id,
-                                runtime_kind.clone(),
-                                req!(server_id, ModelList, request_params.clone()),
-                            )
-                            .await?;
-                            models.extend(page.data.into_iter().filter_map(|model| {
-                                let mut model = types::ModelInfo::from(model);
-                                normalize_model_info_for_runtime(&mut model, runtime_kind.clone())
+            let requested_runtimes = runtime_kinds.clone();
+            let mut tasks = runtime_kinds
+                .into_iter()
+                .map(|runtime_kind| {
+                    let client = Arc::clone(c);
+                    let server_id = server_id.clone();
+                    let mut request_params = params.clone();
+                    async move {
+                        let fetch = async {
+                            let mut models = Vec::new();
+                            let mut cursors = HashSet::new();
+                            if let Some(cursor) = &request_params.cursor {
+                                cursors.insert(cursor.clone());
+                            }
+                            loop {
+                                let page: upstream::ModelListResponse = rpc_runtime(
+                                    client.as_ref(),
+                                    &server_id,
+                                    runtime_kind.clone(),
+                                    req!(server_id, ModelList, request_params.clone()),
+                                )
+                                .await?;
+                                models.extend(page.data.into_iter().filter_map(|model| {
+                                    let mut model = types::ModelInfo::from(model);
+                                    normalize_model_info_for_runtime(
+                                        &mut model,
+                                        runtime_kind.clone(),
+                                    )
                                     .then_some(model)
-                            }));
-                            let Some(cursor) = page.next_cursor else {
-                                break;
-                            };
-                            request_params.cursor = Some(cursor);
-                        }
-                        Ok::<_, ClientError>(models)
-                    };
-                    let started = std::time::Instant::now();
-                    let result = tokio::time::timeout(MODEL_LIST_RUNTIME_TIMEOUT, fetch).await;
-                    tracing::info!(
-                        operation = "model_list",
-                        runtime_kind = %runtime_kind,
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        success = matches!(&result, Ok(Ok(_))),
-                        "mobile request timing"
-                    );
-                    (runtime_kind, result)
-                }
-            });
-            let mut models = Vec::new();
+                                }));
+                                let Some(cursor) = page.next_cursor else {
+                                    break;
+                                };
+                                if !cursors.insert(cursor.clone()) {
+                                    return Err(ClientError::Rpc(format!(
+                                        "{runtime_kind}: model/list repeated a cursor"
+                                    )));
+                                }
+                                request_params.cursor = Some(cursor);
+                            }
+                            Ok::<_, ClientError>(models)
+                        };
+                        let started = std::time::Instant::now();
+                        let result = tokio::time::timeout(MODEL_LIST_RUNTIME_TIMEOUT, fetch).await;
+                        tracing::info!(
+                            operation = "model_list",
+                            runtime_kind = %runtime_kind,
+                            elapsed_ms = started.elapsed().as_millis() as u64,
+                            success = matches!(&result, Ok(Ok(_))),
+                            "mobile request timing"
+                        );
+                        (runtime_kind, result)
+                    }
+                })
+                .collect::<futures::stream::FuturesUnordered<_>>();
             let mut failures = Vec::new();
-            let mut failed_runtime_kinds = HashSet::new();
-            for (runtime_kind, result) in futures::future::join_all(tasks).await {
+            while let Some((runtime_kind, result)) = tasks.next().await {
                 match result {
                     Ok(Ok(runtime_models)) => {
-                        models.extend(runtime_models);
-                        if runtime_kind == "amp" {
-                            append_missing_amp_mode_models(&mut models);
-                        }
+                        c.publish_model_catalog_runtime(
+                            &server_id,
+                            &session,
+                            &requested_runtimes,
+                            Some((&runtime_kind, runtime_models)),
+                        )
+                        .map_err(ClientError::Rpc)?;
                     }
-                    _ if runtime_kind == "amp" => append_missing_amp_mode_models(&mut models),
                     Ok(Err(error)) => {
-                        failed_runtime_kinds.insert(runtime_kind.clone());
                         failures.push(format!("{runtime_kind}: {error}"));
                     }
                     Err(_) => {
-                        failed_runtime_kinds.insert(runtime_kind.clone());
                         failures.push(format!("{runtime_kind}: model/list timed out"));
                     }
                 }
             }
-            let mut seen_model_ids = HashSet::new();
-            models.retain(|model| {
-                seen_model_ids.insert((model.agent_runtime_kind.clone(), model.id.clone()))
-            });
-            let cached = c
-                .app_store
-                .snapshot()
-                .servers
-                .get(&server_id)
-                .and_then(|server| server.available_models.clone());
-            if let Some(cached) = cached {
-                append_cached_models_for_failed_runtimes(
-                    &mut models,
-                    &mut seen_model_ids,
-                    &cached,
-                    &failed_runtime_kinds,
-                );
+            // Also prune removed runtimes when every request failed or no runtime
+            // exposes model choices. Failed and pending runtimes retain their cache.
+            c.publish_model_catalog_runtime(&server_id, &session, &requested_runtimes, None)
+                .map_err(ClientError::Rpc)?;
+            if !c.note_model_catalog_refresh(
+                &server_id,
+                &session,
+                catalog_runtimes,
+                failures.is_empty(),
+            ) {
+                return Err(ClientError::Rpc(
+                    "Connection changed while loading models; retry the catalog".into(),
+                ));
             }
-            // Restore failed-runtime catalogs first, so custom deployment IDs,
-            // capabilities, and the cached default take precedence over aliases.
-            if includes_claude {
-                append_missing_claude_family_models(&mut models);
-            }
-            c.app_store.update_server_models(&server_id, Some(models));
-            if failures.is_empty() || failed_runtime_kinds.len() < runtime_count {
+            if failures.is_empty() {
                 Ok(())
             } else {
                 Err(ClientError::Rpc(failures.join("; ")))
@@ -1435,6 +1324,87 @@ impl AppClient {
                 spritesheet_bytes,
             )
             .map_err(ClientError::Serialization)
+        })
+    }
+
+    pub async fn runtime_settings(
+        &self,
+        server_id: String,
+        runtime_kind: types::AgentRuntimeKind,
+    ) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let session = c
+                .get_session(&server_id)
+                .map_err(|e| ClientError::Rpc(e.to_string()))?;
+            read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind).await
+        })
+    }
+    pub async fn set_runtime_setting(
+        &self,
+        server_id: String,
+        runtime_kind: types::AgentRuntimeKind,
+        key: String,
+        value_json: String,
+    ) -> Result<crate::runtime_settings::RuntimeSettingsSnapshot, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let session = c
+                .get_session(&server_id)
+                .map_err(|e| ClientError::Rpc(e.to_string()))?;
+            let value: serde_json::Value = serde_json::from_str(&value_json)
+                .map_err(|e| ClientError::Serialization(e.to_string()))?;
+            crate::runtime_settings::validate_edit(&key, &value)
+                .map_err(ClientError::Serialization)?;
+            let before =
+                read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind.clone())
+                    .await?;
+            let descriptor = before
+                .settings
+                .iter()
+                .find(|s| s.key == key && s.writable)
+                .ok_or_else(|| {
+                    ClientError::Rpc("Setting is not advertised as writable by this runtime".into())
+                })?;
+            if !descriptor.choices.is_empty()
+                && !value
+                    .as_str()
+                    .is_some_and(|v| descriptor.choices.iter().any(|choice| choice == v))
+            {
+                return Err(ClientError::Rpc(
+                    "Setting value is outside the runtime's allowed choices".into(),
+                ));
+            }
+            let params = serde_json::from_value(
+                serde_json::json!({"keyPath":key,"value":value,"mergeStrategy":"replace"}),
+            )
+            .map_err(|e| ClientError::Serialization(e.to_string()))?;
+            let _: serde_json::Value = tokio::time::timeout(
+                Duration::from_secs(15),
+                settings_rpc(
+                    c.as_ref(),
+                    &server_id,
+                    &session,
+                    runtime_kind.clone(),
+                    req!(server_id, ConfigValueWrite, params),
+                ),
+            )
+            .await
+            .map_err(|_| {
+                ClientError::Rpc(
+                    "Settings write timed out; refresh to verify whether it was applied".into(),
+                )
+            })??;
+            let after =
+                read_runtime_settings(c.as_ref(), &server_id, &session, runtime_kind).await?;
+            if !after.settings.iter().any(|s| {
+                s.key == key
+                    && serde_json::from_str::<serde_json::Value>(&s.value_json)
+                        .ok()
+                        .as_ref()
+                        == Some(&value)
+            }) {
+                return Err(ClientError::Rpc("Runtime settings read-back differs from the requested value (a policy or project setting may override it)".into()));
+            }
+            Ok(after)
         })
     }
 
@@ -2412,7 +2382,6 @@ pub struct AppMinigameResult {
 const STRUCTURED_RESPONSE_TIMEOUT_SECS: u64 = 60;
 
 const SAVED_APP_UPDATE_TIMEOUT_SECS: u64 = 120;
-const SAVED_APP_UPDATE_DEFAULT_MODEL: &str = "gpt-5.3-codex-spark";
 
 fn is_stale_thread_error(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
@@ -2448,7 +2417,7 @@ async fn start_ephemeral_thread_for_structured(
         dynamic_tools: None,
         mock_experimental_field: None,
         experimental_raw_events: false,
-        persist_extended_history: false,
+        ..Default::default()
     };
     let response: upstream::ThreadStartResponse = client
         .request_typed_for_server(
@@ -2496,6 +2465,7 @@ async fn run_structured_turn(
         personality: None,
         output_schema: Some(output_schema),
         collaboration_mode: None,
+        ..Default::default()
     };
     let turn_outcome: Result<upstream::TurnStartResponse, _> = client
         .request_typed_for_server(
@@ -2664,7 +2634,7 @@ async fn perform_update_saved_app(
 
     // Inherit the origin thread's model / reasoning settings when the
     // thread is still known to the store. If the app has no recoverable
-    // origin settings, fall back to the fast saved-app update defaults.
+    // origin settings, let the native harness choose its current defaults.
     let inherited = inherited_settings_for_origin(
         client,
         &requested_server_id,
@@ -2676,18 +2646,6 @@ async fn perform_update_saved_app(
         inherited
     };
     let (model, reasoning_effort) = inherited;
-    let has_complete_inherited_settings = model.is_some() && reasoning_effort.is_some();
-    let model = model.unwrap_or_else(|| SAVED_APP_UPDATE_DEFAULT_MODEL.to_string());
-    let reasoning_effort = reasoning_effort.unwrap_or(crate::types::ReasoningEffort::Low);
-    let service_tier = if has_complete_inherited_settings {
-        None
-    } else {
-        Some(Some(
-            crate::types::server_requests::service_tier_into_upstream_string(
-                crate::types::ServiceTier::Fast,
-            ),
-        ))
-    };
 
     // Resolve the on-disk HTML path. saved_apps.rs writes at
     // `<directory>/html/<id>.html` directly (no extra `apps/` segment),
@@ -2721,9 +2679,9 @@ async fn perform_update_saved_app(
     //    editing tools (apply_patch, shell) to modify the HTML file on
     //    disk — no dynamic_tools, no show_widget round-trip.
     let start_params = upstream::ThreadStartParams {
-        model: Some(model.clone()),
+        model: model.clone(),
         model_provider: None,
-        service_tier: service_tier.clone(),
+        service_tier: None,
         cwd: Some(thread_cwd.clone()),
         runtime_workspace_roots: None,
         approval_policy: Some(upstream::AskForApproval::Never),
@@ -2742,7 +2700,7 @@ async fn perform_update_saved_app(
         dynamic_tools: None,
         mock_experimental_field: None,
         experimental_raw_events: false,
-        persist_extended_history: false,
+        ..Default::default()
     };
     let thread_response: upstream::ThreadStartResponse = match client
         .request_typed_for_server(
@@ -2784,15 +2742,14 @@ async fn perform_update_saved_app(
         sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
         environments: None,
         permissions: None,
-        model: Some(model),
-        service_tier,
-        effort: Some(
-            crate::types::server_requests::reasoning_effort_into_upstream(reasoning_effort),
-        ),
+        model,
+        service_tier: None,
+        effort: reasoning_effort.map(crate::types::server_requests::reasoning_effort_into_upstream),
         summary: None,
         personality: None,
         output_schema: None,
         collaboration_mode: None,
+        ..Default::default()
     };
     let turn_start_outcome: Result<upstream::TurnStartResponse, _> = client
         .request_typed_for_server(
@@ -3005,8 +2962,6 @@ fn inherited_settings_for_origin(
     server_id: &str,
     origin_thread_id: Option<&str>,
 ) -> InheritedSettings {
-    use crate::types::models::ReasoningEffort;
-
     let Some(thread_id) = origin_thread_id.and_then(|s| {
         let t = s.trim();
         if t.is_empty() {
@@ -3032,19 +2987,7 @@ fn inherited_settings_for_origin(
         .as_ref()
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty());
-    let effort = thread.reasoning_effort.as_deref().and_then(|raw| {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "none" => Some(ReasoningEffort::None),
-            "minimal" => Some(ReasoningEffort::Minimal),
-            "low" => Some(ReasoningEffort::Low),
-            "medium" => Some(ReasoningEffort::Medium),
-            "high" => Some(ReasoningEffort::High),
-            "xhigh" | "x-high" => Some(ReasoningEffort::XHigh),
-            "max" => Some(ReasoningEffort::Max),
-            "ultra" => Some(ReasoningEffort::Ultra),
-            _ => None,
-        }
-    });
+    let effort = crate::types::reasoning_effort_from_wire_value(thread.reasoning_effort.clone());
     (model, effort)
 }
 
@@ -3080,19 +3023,17 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageViewSource, THREAD_LIST_HYDRATION_BUDGET, append_cached_models_for_failed_runtimes,
-        append_missing_amp_mode_models, append_missing_claude_family_models,
-        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
-        list_runtime_kinds, normalize_model_info_for_runtime, normalized_image_path,
-        runtime_exposes_model_choices, splice_generative_ui_preamble, thread_list_can_prune,
-        thread_list_hydration_budget,
+        ImageViewSource, THREAD_LIST_HYDRATION_BUDGET, choose_saved_app_update_server_id,
+        image_read_command, is_mobile_hidden_skill, list_runtime_kinds,
+        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
+        splice_generative_ui_preamble, thread_list_can_prune, thread_list_hydration_budget,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
     use crate::types::models::{AbsolutePath, AppDynamicToolSpec, SkillMetadata, SkillScope};
     use crate::types::{AgentRuntimeKind, ModelInfo, ReasoningEffort};
     use crate::widget_guidelines::GENERATIVE_UI_PREAMBLE;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     fn show_widget_spec() -> AppDynamicToolSpec {
         AppDynamicToolSpec {
@@ -3185,11 +3126,7 @@ mod tests {
         let mut pi = test_model("openrouter/ai21/jamba", "pi".to_string());
         assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string()));
         assert_eq!(pi.provider_id.as_deref(), Some("ai21"));
-        assert!(
-            pi.supported_reasoning_efforts
-                .iter()
-                .any(|option| { option.reasoning_effort == ReasoningEffort::Max })
-        );
+        assert!(pi.supported_reasoning_efforts.is_empty());
         let mut codex = test_model("openai/gpt-6-codex", "codex".to_string());
         assert!(normalize_model_info_for_runtime(
             &mut codex,
@@ -3202,12 +3139,7 @@ mod tests {
             &mut local_studio,
             "local-studio".to_string()
         ));
-        assert!(
-            local_studio
-                .supported_reasoning_efforts
-                .iter()
-                .any(|option| option.reasoning_effort == ReasoningEffort::Max)
-        );
+        assert!(local_studio.supported_reasoning_efforts.is_empty());
     }
 
     #[test]
@@ -3228,10 +3160,8 @@ mod tests {
         ));
         assert_eq!(custom.agent_runtime_kind, "claude");
         assert_eq!(custom.provider_id.as_deref(), Some("bedrock"));
-        let mut models = vec![custom];
-        append_missing_claude_family_models(&mut models);
-        append_missing_claude_family_models(&mut models);
-        assert_eq!(models.len(), 5);
+        let models = vec![custom];
+        assert_eq!(models.len(), 1);
         assert_eq!(models.iter().filter(|model| model.is_default).count(), 1);
         assert_eq!(
             models.iter().find(|model| model.is_default).unwrap().id,
@@ -3298,140 +3228,25 @@ mod tests {
     }
 
     #[test]
-    fn claude_alias_fallback_preserves_advertised_capabilities() {
+    fn claude_catalog_preserves_advertised_capabilities() {
         let mut advertised = test_model("sonnet", "claude".to_string());
         advertised.description = "Host capabilities".to_string();
         advertised.supported_reasoning_efforts.clear();
-        let mut models = vec![advertised];
-        append_missing_claude_family_models(&mut models);
-        append_missing_claude_family_models(&mut models);
-        assert_eq!(models.len(), 4);
+        let models = vec![advertised];
+        assert_eq!(models.len(), 1);
         assert_eq!(models[0].description, "Host capabilities");
         assert!(models[0].supported_reasoning_efforts.is_empty());
     }
 
     #[test]
-    fn claude_failed_refresh_preserves_cached_default_before_alias_fallback() {
-        let mut custom = test_model("custom-deployment", "claude".to_string());
-        custom.is_default = true;
-        custom.description = "Host capability metadata".to_string();
-        let mut cached = vec![custom];
-        append_missing_claude_family_models(&mut cached);
-        let mut models = Vec::new();
-        append_cached_models_for_failed_runtimes(
-            &mut models,
-            &mut HashSet::new(),
-            &cached,
-            &HashSet::from(["claude".to_string()]),
-        );
-        append_missing_claude_family_models(&mut models);
-        assert_eq!(models.len(), 5);
-        let defaults = models.iter().filter(|model| model.is_default).collect::<Vec<_>>();
-        assert_eq!(defaults.len(), 1);
-        assert_eq!(defaults[0].id, "custom-deployment");
-        assert_eq!(defaults[0].description, "Host capability metadata");
-    }
-
-    #[test]
-    fn amp_mode_fallback_adds_builtin_modes() {
-        let mut models = vec![test_model("gpt-5.2", "codex".to_string())];
-
-        append_missing_amp_mode_models(&mut models);
-
-        let amp_ids = models
-            .iter()
-            .filter(|model| model.agent_runtime_kind == "amp")
-            .map(|model| model.id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(amp_ids, vec!["low", "medium", "high", "ultra"]);
-        assert_eq!(
-            models
-                .iter()
-                .find(|model| model.id == "medium")
-                .map(|model| model.is_default),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn amp_modes_retired_by_the_daemon_are_dropped_and_replaced_by_the_fallback() {
-        // A host still running the pre-alleycat#47 daemon advertises the
-        // retired smart/rush/deep modes; every one of them must be dropped
-        // by normalize_model_info_for_runtime and the fallback list appended
-        // in their place, so the picker never offers a mode the CLI rejects.
-        let mut models = vec!["smart", "rush", "deep"]
-            .into_iter()
-            .map(|mode| {
-                let mut model = test_model(mode, "amp".to_string());
-                model.is_default = mode == "smart";
-                model
-            })
-            .collect::<Vec<_>>();
-
-        models.retain_mut(|model| normalize_model_info_for_runtime(model, "amp".to_string()));
-        assert!(models.is_empty(), "retired modes must all be dropped");
-
-        append_missing_amp_mode_models(&mut models);
-
-        let amp_ids = models
-            .iter()
-            .map(|model| model.id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(amp_ids, vec!["low", "medium", "high", "ultra"]);
-        assert_eq!(
-            models.iter().filter(|model| model.is_default).count(),
-            1,
-            "exactly one default (medium) after replacement"
-        );
-    }
-
-    #[test]
-    fn amp_mode_fallback_preserves_advertised_modes() {
-        let mut models = vec![test_model("medium", "amp".to_string())];
-
-        append_missing_amp_mode_models(&mut models);
-        append_missing_amp_mode_models(&mut models);
-
-        let medium_count = models
-            .iter()
-            .filter(|model| {
-                model.agent_runtime_kind == "amp"
-                    && (model.id == "medium" || model.id == "amp/medium")
-            })
-            .count();
-        assert_eq!(medium_count, 1);
-        assert!(models.iter().any(|model| model.id == "low"));
-        assert!(models.iter().any(|model| model.id == "high"));
-        assert!(models.iter().any(|model| model.id == "ultra"));
-        assert!(!models.iter().any(|model| model.id == "smart"));
-    }
-
-    #[test]
-    fn amp_model_normalization_uses_current_mode_without_separate_effort() {
-        let mut model = test_model("amp/medium", "codex".to_string());
-        model.default_reasoning_effort = ReasoningEffort::Low;
-
-        assert!(normalize_model_info_for_runtime(
-            &mut model,
-            "amp".to_string()
-        ));
-
-        assert_eq!(model.agent_runtime_kind, "amp".to_string());
-        assert_eq!(model.id, "medium");
-        assert_eq!(model.display_name, "medium");
-        assert!(model.supported_reasoning_efforts.is_empty());
-        assert_eq!(model.default_reasoning_effort, ReasoningEffort::None);
+    fn amp_plugin_modes_preserve_native_identity_and_default() {
+        let mut model = test_model("my-plugin-mode", "amp".into());
+        model.display_name = "Team plugin".into();
+        model.is_default = true;
+        assert!(normalize_model_info_for_runtime(&mut model, "amp".into()));
+        assert_eq!(model.id, "my-plugin-mode");
+        assert_eq!(model.display_name, "Team plugin");
         assert!(model.is_default);
-    }
-
-    #[test]
-    fn amp_model_normalization_filters_deprecated_mode() {
-        let mut model = test_model("smart", "codex".to_string());
-
-        assert!(!normalize_model_info_for_runtime(
-            &mut model,
-            "amp".to_string()
-        ));
     }
 
     #[test]
@@ -3439,46 +3254,6 @@ mod tests {
         assert!(!runtime_exposes_model_choices("shell"));
         assert!(runtime_exposes_model_choices("amp"));
         assert!(runtime_exposes_model_choices("codex"));
-    }
-
-    #[test]
-    fn failed_runtime_cache_preserves_only_failed_runtime_models() {
-        let mut models = vec![test_model("medium", "amp".to_string())];
-        let mut seen_model_ids = models
-            .iter()
-            .map(|model| (model.agent_runtime_kind.clone(), model.id.clone()))
-            .collect::<HashSet<_>>();
-        let cached_models = vec![
-            test_model("opus", "claude".to_string()),
-            test_model("gpt-5.5", "codex".to_string()),
-            test_model("medium", "amp".to_string()),
-        ];
-        let failed_runtime_kinds = HashSet::from(["claude".to_string()]);
-
-        append_cached_models_for_failed_runtimes(
-            &mut models,
-            &mut seen_model_ids,
-            &cached_models,
-            &failed_runtime_kinds,
-        );
-
-        assert!(
-            models
-                .iter()
-                .any(|model| { model.agent_runtime_kind == "claude" && model.id == "opus" })
-        );
-        assert!(
-            !models
-                .iter()
-                .any(|model| { model.agent_runtime_kind == "codex" && model.id == "gpt-5.5" })
-        );
-        assert_eq!(
-            models
-                .iter()
-                .filter(|model| model.agent_runtime_kind == "amp" && model.id == "medium")
-                .count(),
-            1
-        );
     }
 
     #[test]
@@ -3628,6 +3403,8 @@ mod tests {
                 composer_icon_url: None,
                 logo: None,
                 logo_url: None,
+                logo_dark: None,
+                logo_url_dark: None,
                 screenshots: Vec::new(),
                 screenshot_urls: Vec::new(),
             }
@@ -3644,6 +3421,12 @@ mod tests {
             upstream::PluginSummary {
                 id: id.into(),
                 remote_plugin_id: None,
+                version: None,
+                installed_at: None,
+                disabled_reason: None,
+                eligible_plan_types: None,
+                install_policy_source: None,
+                must_show_installation_interstitial: None,
                 local_version: None,
                 name: name.into(),
                 share_context: None,

@@ -1,8 +1,17 @@
 diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
-index fd5cd7bcdc..a7cd3491fd 100644
+index 95b78eba..af644709 100644
 --- a/codex-rs/core/src/exec.rs
 +++ b/codex-rs/core/src/exec.rs
-@@ -48,6 +48,90 @@ use codex_utils_absolute_path::AbsolutePathBuf;
+@@ -3,7 +3,7 @@ use std::os::unix::process::ExitStatusExt;
+ 
+ use std::collections::HashMap;
+ use std::io;
+-#[cfg(target_os = "windows")]
++#[cfg(any(target_os = "windows", target_os = "ios"))]
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::process::ExitStatus;
+@@ -58,6 +58,90 @@ use codex_utils_path_uri::PathUri;
  use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
  use codex_utils_pty::process_group::kill_child_process_group;
  
@@ -93,7 +102,16 @@ index fd5cd7bcdc..a7cd3491fd 100644
  pub const DEFAULT_EXEC_COMMAND_TIMEOUT_MS: u64 = 10_000;
  
  // Hardcode these since it does not seem worth including the libc crate just
-@@ -912,6 +996,7 @@ fn aggregate_output(
+@@ -203,7 +287,7 @@ impl ExecExpiration {
+     }
+ 
+     /// If ExecExpiration is a timeout, returns the timeout in milliseconds.
+-    #[cfg(target_os = "windows")]
++    #[cfg(any(target_os = "windows", target_os = "ios"))]
+     pub(crate) fn timeout_ms(&self) -> Option<u64> {
+         match self {
+             ExecExpiration::Timeout(duration) => Some(duration.as_millis() as u64),
+@@ -885,6 +969,7 @@ fn aggregate_output(
  /// Note this command does not apply any sandboxing logic. The caller is
  /// responsible for constructing [ExecParams::command] to include any sandboxing
  /// wrapper args, as appropriate.
@@ -101,10 +119,10 @@ index fd5cd7bcdc..a7cd3491fd 100644
  async fn exec(
      params: ExecParams,
      network_sandbox_policy: NetworkSandboxPolicy,
-@@ -938,6 +1023,55 @@ async fn exec(
-     if let Some(network) = network.as_ref() {
-         network.apply_to_env(&mut env);
+@@ -917,6 +1002,56 @@ async fn exec(
+             })?;
      }
+ 
 +    #[cfg(any(target_os = "ios", target_os = "android"))]
 +    let mut command = command;
 +    #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -154,49 +172,85 @@ index fd5cd7bcdc..a7cd3491fd 100644
 +            command[0] = resolved;
 +        }
 +    }
- 
++
      let (program, args) = command.split_first().ok_or_else(|| {
          CodexErr::Io(io::Error::new(
+             io::ErrorKind::InvalidInput,
 diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
-index 33dbf843dc..8e2cd83393 100644
 --- a/codex-rs/core/src/unified_exec/async_watcher.rs
 +++ b/codex-rs/core/src/unified_exec/async_watcher.rs
-@@ -156,7 +156,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -48,7 +48,7 @@
+     call_id: String,
+ }
+ 
+-struct Buffer<const MAX_BYTES: usize = UNIFIED_EXEC_OUTPUT_DELTA_MAX_BYTES> {
++pub(crate) struct Buffer<const MAX_BYTES: usize = UNIFIED_EXEC_OUTPUT_DELTA_MAX_BYTES> {
+     pending: Vec<u8>,
+     transcript: Arc<Mutex<HeadTailBuffer>>,
+     emitter: Emitter,
+@@ -246,8 +246,27 @@
      });
  }
  
--async fn process_chunk(
-+pub(crate) async fn process_chunk(
-     pending: &mut Vec<u8>,
-     transcript: &Arc<Mutex<HeadTailBuffer>>,
-     call_id: &str,
++impl Buffer {
++    #[cfg(target_os = "ios")]
++    pub(crate) fn for_mobile(
++        context: &UnifiedExecContext,
++        transcript: Arc<Mutex<HeadTailBuffer>>,
++    ) -> Self {
++        Self {
++            pending: Vec::new(),
++            transcript,
++            emitter: Emitter {
++                remaining_deltas: MAX_EXEC_OUTPUT_DELTAS_PER_CALL,
++                session: Arc::clone(&context.session),
++                turn: Arc::clone(&context.step_context.turn),
++                call_id: context.call_id.clone(),
++            },
++        }
++    }
++}
++
+ impl<const MAX_BYTES: usize> Buffer<MAX_BYTES> {
+-    async fn push(&mut self, mut bytes: Vec<u8>) {
++    pub(crate) async fn push(&mut self, mut bytes: Vec<u8>) {
+         const {
+             assert!(
+                 MAX_BYTES >= char::MAX.len_utf8(),
+@@ -292,7 +311,7 @@
+         while emitter.emit(&mut next_chunk).await {}
+     }
+ 
+-    async fn finish(self) {
++    pub(crate) async fn finish(self) {
+         let Self {
+             pending,
+             transcript: _,
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
-index 4f85b1ddf7..5bf42ba58c 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager.rs
-@@ -41,6 +41,8 @@ use crate::unified_exec::WARNING_UNIFIED_EXEC_PROCESSES;
+@@ -55,6 +55,8 @@
+ use crate::unified_exec::UnifiedExecProcessManager;
+ use crate::unified_exec::WriteStdinInteractionEvent;
  use crate::unified_exec::WriteStdinRequest;
++#[cfg(target_os = "ios")]
++use crate::unified_exec::async_watcher::Buffer;
  use crate::unified_exec::async_watcher::emit_exec_end_for_unified_exec;
  use crate::unified_exec::async_watcher::emit_failed_exec_end_for_unified_exec;
-+#[cfg(target_os = "ios")]
-+use crate::unified_exec::async_watcher::process_chunk;
  use crate::unified_exec::async_watcher::spawn_exit_watcher;
- use crate::unified_exec::async_watcher::start_streaming_output;
- use crate::unified_exec::clamp_yield_time;
-@@ -372,6 +374,12 @@ impl UnifiedExecProcessManager {
-         context: &UnifiedExecContext,
+@@ -501,6 +503,11 @@
+         mut completion: Option<&mut Completion<'_>>,
      ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
          let cwd = request.cwd.clone();
 +        #[cfg(target_os = "ios")]
 +        {
 +            return self.exec_command_ios(&request, cwd, context).await;
 +        }
-+
 +        #[allow(unreachable_code)]
          let process = self
              .open_session_with_sandbox(&request, cwd.clone(), context)
              .await;
-@@ -591,6 +599,128 @@ impl UnifiedExecProcessManager {
+@@ -814,6 +821,123 @@
          Ok(response)
      }
  
@@ -204,7 +258,7 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +    async fn exec_command_ios(
 +        &self,
 +        request: &ExecCommandRequest,
-+        cwd: codex_utils_absolute_path::AbsolutePathBuf,
++        cwd: PathUri,
 +        context: &UnifiedExecContext,
 +    ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
 +        use crate::exec::IOS_EXEC_HOOK;
@@ -214,7 +268,8 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +
 +        let event_ctx = ToolEventCtx::new(
 +            context.session.as_ref(),
-+            context.turn.as_ref(),
++            context.step_context.turn.as_ref(),
++            &context.step_context.settings.model_info,
 +            &context.call_id,
 +            None,
 +        );
@@ -223,12 +278,13 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +            cwd.clone(),
 +            ExecCommandSource::UnifiedExecStartup,
 +            Some(request.process_id.to_string()),
++            None,
 +        );
 +        emitter.emit(event_ctx, ToolEventStage::Begin).await;
 +
 +        let env = create_env(
-+            &context.turn.shell_environment_policy,
-+            Some(context.session.conversation_id),
++            request.turn_environment.shell_environment_policy(),
++            Some(context.session.thread_id),
 +        );
 +        let start = Instant::now();
 +        let transcript = Arc::new(tokio::sync::Mutex::new(HeadTailBuffer::default()));
@@ -236,9 +292,12 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +        let output_handler: IosExecOutputHandler = Arc::new(move |chunk| {
 +            let _ = chunk_tx.send(chunk);
 +        });
++        let local_cwd = cwd
++            .to_abs_path()
++            .map_err(|error| UnifiedExecError::process_failed(error.to_string()))?;
 +        let mut join = tokio::task::spawn_blocking({
 +            let mut command = request.command.clone();
-+            let cwd = cwd.clone();
++            let cwd = local_cwd;
 +            let output_handler = Arc::clone(&output_handler);
 +            move || {
 +                if let Some(preflight) = MOBILE_EXEC_PREFLIGHT.get() {
@@ -255,65 +314,55 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +            }
 +        });
 +
-+        let mut pending = Vec::<u8>::new();
-+        let mut emitted_deltas: usize = 0;
++        let mut output = Buffer::for_mobile(context, Arc::clone(&transcript));
 +        let (exit_code, raw_output) = loop {
 +            tokio::select! {
-+                maybe_chunk = chunk_rx.recv() => {
-+                    if let Some(chunk) = maybe_chunk {
-+                        process_chunk(
-+                            &mut pending,
-+                            &transcript,
-+                            &context.call_id,
-+                            &context.session,
-+                            &context.turn,
-+                            &mut emitted_deltas,
-+                            chunk,
-+                        ).await;
-+                    }
-+                }
++                Some(chunk) = chunk_rx.recv() => output.push(chunk).await,
 +                result = &mut join => {
 +                    break result.unwrap_or((-1, b"spawn_blocking panicked\n".to_vec()));
 +                }
 +            }
 +        };
 +        while let Ok(chunk) = chunk_rx.try_recv() {
-+            process_chunk(
-+                &mut pending,
-+                &transcript,
-+                &context.call_id,
-+                &context.session,
-+                &context.turn,
-+                &mut emitted_deltas,
-+                chunk,
-+            )
-+            .await;
++            output.push(chunk).await;
 +        }
++        output.finish().await;
 +        let wall_time = Instant::now().saturating_duration_since(start);
 +
 +        let text = String::from_utf8_lossy(&raw_output).to_string();
 +        emit_exec_end_for_unified_exec(
 +            Arc::clone(&context.session),
-+            Arc::clone(&context.turn),
++            Arc::clone(&context.step_context.turn),
++            Arc::clone(&context.step_context.settings.model_info),
 +            context.call_id.clone(),
 +            request.command.clone(),
 +            cwd,
 +            Some(request.process_id.to_string()),
++            None,
 +            transcript,
 +            text.clone(),
 +            exit_code,
 +            wall_time,
++            false,
 +        )
 +        .await;
 +
 +        self.release_process_id(request.process_id).await;
 +
-+        let original_token_count = approx_token_count(&text);
++        let original_token_count =
++            usize::try_from(approx_tokens_from_byte_count(raw_output.len())).unwrap_or(usize::MAX);
 +        Ok(ExecCommandToolOutput {
 +            event_call_id: context.call_id.clone(),
 +            chunk_id: generate_chunk_id(),
 +            wall_time,
 +            raw_output,
++            truncation_policy: context
++                .step_context
++                .settings
++                .model_info
++                .truncation_policy
++                .into(),
++            output_omitted_bytes: None,
 +            max_output_tokens: request.max_output_tokens,
 +            process_id: None,
 +            exit_code: Some(exit_code),
@@ -324,4 +373,4 @@ index 4f85b1ddf7..5bf42ba58c 100644
 +
      pub(crate) async fn write_stdin(
          &self,
-         request: WriteStdinRequest<'_>,
+         context: &UnifiedExecContext,

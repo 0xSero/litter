@@ -4,23 +4,23 @@ Patches applied to `shared/third_party/codex` by `apps/ios/scripts/sync-codex.sh
 
 The patches are tightly coupled to the upstream codex source tree, so each codex tag bump tends to require a refresh. This README captures *intent* — what each patch does and which downstream code in this repo depends on it — so the next bump doesn't have to re-derive that from a 900-line diff.
 
-When a patch fails to apply, prefer `git apply --3way` first (handles line-number drift). If that conflicts on real semantic changes, refresh the affected hunks against the new upstream by editing the file directly, regenerating the patch with `git diff HEAD -- <file>`, and verifying with `git -C shared/third_party/codex apply --reverse --check`.
+When a patch fails to apply, prefer `git apply --3way` first (handles line-number drift). If that conflicts on real semantic changes, refresh the affected hunks against the new upstream by editing the file directly, regenerating the patch against its predecessor in apply order, and verifying sequential application to a pristine upstream checkout. Several patches touch the same files, so a diff against HEAD can accidentally include later patches. Also run the sync script twice to check idempotence.
 
 ---
 
 ## `ios-exec-hook.patch`
 Lets iOS install a function pointer that core's exec layer calls instead of `fork+exec` (forbidden in the App Store sandbox), and lets Android install an argv[0] resolver that maps `git` etc. to bundled `lib<tool>.so` paths in the app's nativeLibraryDir. Also installs an argv preflight that rewrites `/tmp/...` paths to the platform's real tempdir.
 
-Touches `core/src/exec.rs` and `core/src/unified_exec/process_manager.rs`.
+Touches `core/src/exec.rs` and `core/src/unified_exec/{async_watcher.rs,process_manager.rs}`. The mobile hook retains upstream output buffering and transcript recording.
 
 Consumed by `shared/rust-bridge/codex-mobile-client/src/ish_exec.rs` (`set_ios_exec_hook`), `android_exec.rs` (`set_android_tool_resolver`), and `shell_preflight.rs` (`set_mobile_exec_preflight`).
 
-## `mobile-code-mode-stub.patch`
-Replaces the V8 JavaScript runtime in `code-mode` with a stub on iOS, Android, and Linux. Mobile builds can't link `v8` (binary size, JIT entitlements), and the stub returns "exec is unavailable on mobile targets in this build" when invoked.
+## Upstream 0.155.1 changes
 
-Touches `code-mode/Cargo.toml`, `code-mode/src/lib.rs`, adds `code-mode/src/runtime_stub.rs` and `service_stub.rs`.
+Validated patch base: `rust-v0.155.1` (`be2951ea`). The former mobile code-mode stub is retired: upstream code-mode now uses a remote gRPC provider and no longer embeds V8. The reasoning-effort patch is retired because upstream now defines Max, Ultra, Persistent, and Custom values.
 
-When upstream changes the `runtime` or `service` API surface, audit the stubs to keep their type signatures in sync with the live (non-mobile) versions.
+## `mobile-crypto-compat.patch`
+Pins clatter 3.0 to upstream commit `9a8d15c4f80d5911ca0403aa22e0de99ea59df08`. This moves its ML-KEM implementation to the stable KEM API shared by the mobile SSH dependency; clatter 2.x requires an incompatible prerelease of the same KEM package.
 
 ## `thread-read-permissions.patch`
 Adds `approval_policy` and `sandbox` to `ThreadReadResponse` so mobile clients can render the live permission state of a thread without doing a separate config fetch.
@@ -57,7 +57,7 @@ Touches `core/src/installation_id.rs`.
 ## `dynamic-tool-call-arguments-delta.patch`
 Adds streaming delta notifications for dynamic tool-call argument JSON. The model emits `response.function_call_arguments.delta` SSE events; this patch surfaces them as `EventMsg::DynamicToolCallArgumentsDelta` and `ServerNotification::DynamicToolCallArgumentsDelta` so mobile clients can render partial tool-call output before the call finalizes.
 
-Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/{common.rs,event_mapping.rs,v2/item.rs}`, `app-server/src/bespoke_event_handling.rs`, `codex-api/src/sse/responses.rs`, `core/src/session/turn.rs`, `mcp-server/src/codex_tool_runner.rs`, `rollout-trace/src/protocol_event.rs`, `rollout/src/policy.rs`, `tui/src/app/app_server_event_targets.rs`, `tui/src/chatwidget/protocol.rs`.
+Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/{common.rs,event_mapping.rs,v2/item.rs}`, `app-server/src/bespoke_event_handling.rs`, `codex-api/src/sse/responses.rs`, `core/src/session/turn.rs`, `rollout-trace/src/protocol_event.rs`, `rollout/src/policy.rs`, `tui/src/app/app_server_event_targets.rs`, `tui/src/chatwidget/protocol.rs`.
 
 The TUI hunks are no-op match arms required only because upstream's `ServerNotification` matches are exhaustive. Upstream moved the consolidated `handle_server_notification` match from `tui/src/chatwidget.rs` into `tui/src/chatwidget/protocol.rs`; this patch targets the new location.
 
@@ -89,7 +89,7 @@ Lets the client inject arbitrary function tools into the realtime session and ro
 - Adds `dynamic_tools: Option<Vec<DynamicToolSpec>>` to `ConversationStartParams`, `ThreadRealtimeStartParams`, and `RealtimeSessionConfig`.
 - Adds `RealtimeEvent::ToolCallRequested(Value)` for completed `function_call` items whose name is not `background_agent`.
 - Routes those through `bespoke_event_handling.rs` to the existing `ServerRequestPayload::DynamicToolCall` flow.
-- Adds `Op::RealtimeResolveDynamicTool { call_id, output }` and `HandoffOutput::DynamicToolOutput` to push the result back to the realtime API as `function_call_output` followed by `response.create`.
+- Adds `Op::RealtimeResolveDynamicTool { call_id, output }` and `RealtimeOutbound::DynamicToolOutput` to push the result back to the realtime API as `function_call_output` followed by `response.create`.
 - Owns ALL `methods_v2.rs` changes: extracts `realtime_v2_session_tools(dynamic_tools: Option<Vec<DynamicToolSpec>>)` as a helper, adds the required `server` param to the `background_agent` schema (consumed by patch #1's `server` field), and replaces the inline `vec![...]` with a helper call.
 
 Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/v2/realtime.rs`, `app-server/src/{bespoke_event_handling.rs,request_processors/turn_processor.rs}`, `codex-api/src/endpoint/realtime_websocket/{methods.rs,methods_common.rs,methods_v2.rs,protocol.rs,protocol_v2.rs}`, `core/src/{realtime_conversation.rs,session/handlers.rs}`.
@@ -107,7 +107,7 @@ When `client_controlled_handoff: true`, suppresses upstream's automatic "route h
 - Adds `client_controlled_handoff: bool` to `ConversationStartParams` and `ThreadRealtimeStartParams`.
 - Adds RPCs `thread/realtime/resolveHandoff` (sends `function_call_output` for the active handoff but does NOT trigger `response.create`) and `thread/realtime/finalizeHandoff` (separately fires `response.create` so the client can stream multiple resolves before the model speaks).
 - Adds the corresponding `Op::RealtimeConversationResolveHandoff` and `Op::RealtimeConversationFinalizeHandoff`.
-- Plumbs a `finalize_tx`/`finalize_rx` async channel into `RealtimeInputChannels` so finalize signals reach `run_realtime_input_task`'s `tokio::select!` from outside the input task.
+- Sends resolution and finalization through upstream's existing `RealtimeOutbound` queue; no additional channel or task is needed.
 
 Touches `protocol/src/protocol.rs`, `app-server-protocol/src/protocol/{common.rs,v2/realtime.rs}`, `app-server/src/{message_processor.rs,request_processors.rs,request_processors/turn_processor.rs}`, `core/src/{realtime_conversation.rs,session/handlers.rs}`.
 

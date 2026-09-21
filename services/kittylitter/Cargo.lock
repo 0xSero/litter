@@ -67,7 +67,7 @@ dependencies = [
 [[package]]
 name = "alleycat"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-amp-bridge",
@@ -97,6 +97,7 @@ dependencies = [
  "qrcodegen",
  "rand 0.8.6",
  "reqwest 0.12.28",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -113,7 +114,7 @@ dependencies = [
 [[package]]
 name = "alleycat-acp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -136,7 +137,7 @@ dependencies = [
 [[package]]
 name = "alleycat-amp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-claude-bridge",
@@ -159,7 +160,7 @@ dependencies = [
 [[package]]
 name = "alleycat-bridge-core"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-codex-proto",
  "anyhow",
@@ -168,17 +169,21 @@ dependencies = [
  "chrono",
  "dashmap",
  "futures",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
 ]
 
 [[package]]
 name = "alleycat-claude-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -202,7 +207,7 @@ dependencies = [
 [[package]]
 name = "alleycat-codex-proto"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "chrono",
  "serde",
@@ -213,10 +218,11 @@ dependencies = [
 [[package]]
 name = "alleycat-devin-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
+ "alleycat-codex-proto",
  "anyhow",
  "async-trait",
  "rusqlite",
@@ -228,7 +234,7 @@ dependencies = [
 [[package]]
 name = "alleycat-droid-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -247,10 +253,11 @@ dependencies = [
 [[package]]
 name = "alleycat-grok-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
+ "alleycat-codex-proto",
  "anyhow",
  "async-trait",
  "chrono",
@@ -263,7 +270,7 @@ dependencies = [
 [[package]]
 name = "alleycat-hermes-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -288,7 +295,7 @@ dependencies = [
 [[package]]
 name = "alleycat-local-studio-proto"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "hex",
  "serde",
@@ -300,9 +307,10 @@ dependencies = [
 [[package]]
 name = "alleycat-opencode-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
+ "alleycat-codex-proto",
  "anyhow",
  "async-trait",
  "base64",
@@ -324,7 +332,7 @@ dependencies = [
 [[package]]
 name = "alleycat-pi-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -349,7 +357,7 @@ dependencies = [
 [[package]]
 name = "alleycat-shell-bridge"
 version = "0.1.0"
-source = "git+https://github.com/0xSero/alleycat.git?rev=4ec496c5f392afda9c949a81ee8722ec5fc44e86#4ec496c5f392afda9c949a81ee8722ec5fc44e86"
+source = "git+https://github.com/0xSero/alleycat.git?rev=dcda34d17d5d13d9e3c9949fdf9cb4d570652539#dcda34d17d5d13d9e3c9949fdf9cb4d570652539"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -1550,9 +1558,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.13"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f44da3a8150a6703ed5d34e164b875fd14c2cdab9af1252a9a1020bde2bdc54"
+checksum = "a9f37a958b41b3b19ee2707c06439c0e9e547e847223eb791ecb0cb821c65e27"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2316,7 +2324,7 @@ dependencies = [
 
 [[package]]
 name = "kittylitter"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "alleycat",
  "anyhow",
@@ -3527,9 +3535,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.40"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -3591,9 +3599,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -3759,6 +3767,19 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -4055,6 +4076,19 @@ name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.2",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "thiserror"
@@ -4520,6 +4554,12 @@ dependencies = [
  "crypto-common 0.1.7",
  "subtle",
 ]
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

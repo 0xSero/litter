@@ -10,6 +10,15 @@ if [[ -z "$version" ]]; then
 fi
 
 tag="v$version"
+for source in \
+  apps/ios/Sources/Litter/Views/AlleycatAddServerSheet.swift \
+  apps/android/app/src/main/java/com/litter/android/ui/discovery/AlleycatAddServerSheet.kt; do
+  if ! grep -Fq "/releases/download/$tag/kittylitter-npm-package.tar.gz" "$source"; then
+    echo "$source must pair with kittylitter $tag" >&2
+    exit 1
+  fi
+done
+
 if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
   exit 0
 fi

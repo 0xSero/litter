@@ -1,221 +1,167 @@
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
-@@ -518,6 +518,7 @@
-         &self,
-         sdp: String,
+@@ -586,6 +586,7 @@
          session_config: ApiRealtimeSessionConfig,
-+        api_fallback: Option<(ApiProvider, SharedAuthProvider)>,
          mut extra_headers: ApiHeaderMap,
+         api_provider_override: Option<ApiProvider>,
++        api_fallback: Option<(ApiProvider, SharedAuthProvider)>,
      ) -> Result<RealtimeWebrtcCallStart> {
          // Create the media call over HTTP first, then retain matching auth so realtime can attach
-@@ -531,11 +532,40 @@
-             client_setup.api_auth.as_ref(),
+         // the server-side control WebSocket to the call id from that HTTP response.
+@@ -599,10 +600,33 @@
          ));
-         let transport = ReqwestTransport::new(build_reqwest_client());
--        let response =
--            ApiRealtimeCallClient::new(transport, client_setup.api_provider, client_setup.api_auth)
--                .create_with_session_and_headers(sdp, session_config, extra_headers)
--                .await
--                .map_err(map_api_error)?;
-+        let response = match ApiRealtimeCallClient::new(
-+            transport,
-+            client_setup.api_provider,
-+            client_setup.api_auth,
-+        )
-+        .create_with_session_and_headers(
-+            sdp.clone(),
-+            session_config.clone(),
-+            extra_headers.clone(),
-+        )
-+        .await
-+        {
-+            Ok(response) => response,
-+            Err(err) => {
-+                let mapped_error = map_api_error(err);
-+                let Some((api_provider, api_auth)) = api_fallback else {
-+                    return Err(mapped_error);
-+                };
-+                warn!(
-+                    error = %mapped_error,
-+                    "realtime WebRTC call creation failed with current auth; retrying with API key"
-+                );
-+                let mut fallback_sideband_headers = extra_headers.clone();
-+                fallback_sideband_headers
-+                    .extend(sideband_websocket_auth_headers(api_auth.as_ref()));
-+                let transport = ReqwestTransport::new(build_reqwest_client());
-+                let response = ApiRealtimeCallClient::new(transport, api_provider, api_auth)
-+                    .create_with_session_and_headers(sdp, session_config, extra_headers)
-+                    .await
-+                    .map_err(map_api_error)?;
-+                sideband_headers = fallback_sideband_headers;
-+                response
-+            }
-+        };
+         let api_provider = api_provider_override.unwrap_or(client_setup.api_provider);
+         let transport = self.build_api_transport(&api_provider, REALTIME_CALLS_ENDPOINT)?;
+-        let response = ApiRealtimeCallClient::new(transport, api_provider, client_setup.api_auth)
+-            .create_with_session_and_headers(sdp, session_config, extra_headers)
+-            .await
+-            .map_err(|error| self.state.provider.map_api_error(error))?;
++        let response =
++            match ApiRealtimeCallClient::new(transport, api_provider, client_setup.api_auth)
++                .create_with_session_and_headers(
++                    sdp.clone(),
++                    session_config.clone(),
++                    extra_headers.clone(),
++                )
++                .await
++            {
++                Ok(response) => response,
++                Err(error) => {
++                    let mapped_error = self.state.provider.map_api_error(error);
++                    let Some((api_provider, api_auth)) = api_fallback else {
++                        return Err(mapped_error);
++                    };
++                    let mut fallback_headers = extra_headers.clone();
++                    fallback_headers.extend(sideband_websocket_auth_headers(api_auth.as_ref()));
++                    let transport =
++                        self.build_api_transport(&api_provider, REALTIME_CALLS_ENDPOINT)?;
++                    let response = ApiRealtimeCallClient::new(transport, api_provider, api_auth)
++                        .create_with_session_and_headers(sdp, session_config, extra_headers)
++                        .await
++                        .map_err(|error| self.state.provider.map_api_error(error))?;
++                    sideband_headers = fallback_headers;
++                    response
++                }
++            };
          Ok(RealtimeWebrtcCallStart {
              sdp: response.sdp,
              call_id: response.call_id,
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
 --- a/codex-rs/core/src/realtime_conversation.rs
 +++ b/codex-rs/core/src/realtime_conversation.rs
-@@ -19,6 +19,7 @@
- use codex_api::RealtimeWebsocketClient;
- use codex_api::RealtimeWebsocketEvents;
+@@ -29,6 +29,8 @@
  use codex_api::RealtimeWebsocketWriter;
-+use codex_api::SharedAuthProvider;
+ use codex_api::build_session_headers;
  use codex_api::map_api_error;
- use codex_app_server_protocol::AuthMode;
- use codex_config::config_toml::RealtimeWsMode;
-@@ -26,6 +27,7 @@
- use codex_login::CodexAuth;
- use codex_login::default_client::default_headers;
- use codex_login::read_openai_api_key_from_env;
++use codex_api::SharedAuthProvider;
 +use codex_model_provider::BearerAuthProvider;
- use codex_model_provider_info::ModelProviderInfo;
- use codex_protocol::error::CodexErr;
- use codex_protocol::error::Result as CodexResult;
-@@ -234,6 +236,7 @@
+ use codex_config::config_toml::RealtimeWsMode;
+ use codex_config::config_toml::RealtimeWsVersion;
+ use codex_login::CodexAuth;
+@@ -507,6 +509,7 @@
  
  struct RealtimeStart {
      api_provider: ApiProvider,
 +    webrtc_api_fallback: Option<(ApiProvider, SharedAuthProvider)>,
+     realtime_sideband_base_url: Option<String>,
      extra_headers: Option<HeaderMap>,
-     session_config: RealtimeSessionConfig,
-     model_client: ModelClient,
-@@ -287,6 +290,7 @@
+     client_managed_handoffs: bool,
+@@ -600,6 +603,7 @@
      async fn start_inner(&self, start: RealtimeStart) -> CodexResult<RealtimeStartOutput> {
          let RealtimeStart {
              api_provider,
 +            webrtc_api_fallback,
+             realtime_sideband_base_url,
              extra_headers,
-             session_config,
-             model_client,
-@@ -324,6 +328,7 @@
-                 .create_realtime_call_with_headers(
-                     sdp,
+             client_managed_handoffs,
+@@ -669,6 +673,7 @@
                      session_config.clone(),
-+                    webrtc_api_fallback,
                      extra_headers.unwrap_or_default(),
+                     realtime_call_api_provider,
++                    webrtc_api_fallback,
                  )
                  .await?;
-@@ -664,6 +669,7 @@
+             let task = spawn_webrtc_sideband_input_task(RealtimeWebrtcSidebandInputTask {
+@@ -1204,6 +1209,7 @@
  
  struct PreparedRealtimeConversationStart {
      api_provider: ApiProvider,
 +    webrtc_api_fallback: Option<(ApiProvider, SharedAuthProvider)>,
+     realtime_sideband_base_url: Option<String>,
      extra_headers: Option<HeaderMap>,
-     requested_realtime_session_id: Option<String>,
-     version: RealtimeWsVersion,
-@@ -702,23 +708,48 @@
-     )
-     .await?;
+     client_managed_handoffs: bool,
+@@ -1310,6 +1316,14 @@
      let requested_realtime_session_id = session_config.session_id.clone();
--    let extra_headers = match transport {
-+    let (extra_headers, webrtc_api_fallback) = match transport {
+     let event_parser = session_config.event_parser;
+     let originator = sess.originator().await;
++    let realtime_key = realtime_api_key(auth.as_ref(), &provider).ok();
++    let webrtc_api_fallback = if matches!(&transport, ConversationStartTransport::Webrtc { .. })
++        && matches!(auth.as_ref().map(CodexAuth::auth_mode), Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::AgentIdentity)) {
++        realtime_key.as_ref().map(|api_key| {
++            let auth: SharedAuthProvider = Arc::new(BearerAuthProvider::new(api_key.clone()));
++            realtime_webrtc_api_provider().map(|provider| (provider, auth))
++        }).transpose()?
++    } else { None };
+     let mut extra_headers = match transport {
          ConversationStartTransport::Websocket => {
              let realtime_api_key = realtime_api_key(auth.as_ref(), &provider)?;
--            realtime_request_headers(
--                requested_realtime_session_id.as_deref(),
--                Some(realtime_api_key.as_str()),
--            )?
-+            (
-+                realtime_request_headers(
-+                    requested_realtime_session_id.as_deref(),
-+                    Some(realtime_api_key.as_str()),
-+                )?,
-+                None,
-+            )
-         }
-         ConversationStartTransport::Webrtc { .. } => {
--            realtime_request_headers(
--                requested_realtime_session_id.as_deref(),
+@@ -1324,7 +1338,7 @@
+         | ConversationStartTransport::ExistingCall { .. } => {
+             realtime_request_headers(
+                 requested_realtime_session_id.as_deref(),
 -                /*api_key*/ None,
--            )?
-+            let realtime_api_key = realtime_api_key(auth.as_ref(), &provider).ok();
-+            let current_auth_uses_codex_backend = matches!(
-+                auth.as_ref().map(CodexAuth::auth_mode),
-+                Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens | AuthMode::AgentIdentity)
-+            );
-+            let webrtc_api_fallback = if current_auth_uses_codex_backend {
-+                realtime_api_key
-+                    .as_ref()
-+                    .map(|api_key| {
-+                        let api_auth: SharedAuthProvider =
-+                            Arc::new(BearerAuthProvider::new(api_key.clone()));
-+                        realtime_webrtc_api_provider()
-+                            .map(|api_provider| (api_provider, api_auth))
-+                    })
-+                    .transpose()?
-+            } else {
-+                None
-+            };
-+            (
-+                realtime_request_headers(
-+                    requested_realtime_session_id.as_deref(),
-+                    realtime_api_key.as_deref(),
-+                )?,
-+                webrtc_api_fallback,
-+            )
-         }
-     };
++                realtime_key.as_deref(),
+                 event_parser,
+                 originator.as_str(),
+             )?
+@@ -1345,6 +1359,7 @@
+     }
      Ok(PreparedRealtimeConversationStart {
          api_provider,
 +        webrtc_api_fallback,
-         extra_headers,
-         requested_realtime_session_id,
-         version,
-@@ -843,6 +874,7 @@
+         realtime_sideband_base_url,
+         extra_headers: Some(extra_headers),
+         client_managed_handoffs: params.client_managed_handoffs,
+@@ -1567,6 +1582,7 @@
  ) -> CodexResult<()> {
      let PreparedRealtimeConversationStart {
          api_provider,
 +        webrtc_api_fallback,
+         realtime_sideband_base_url,
          extra_headers,
-         requested_realtime_session_id,
-         version,
-@@ -857,6 +889,7 @@
+         client_managed_handoffs,
+@@ -1595,6 +1611,7 @@
      };
      let start = RealtimeStart {
          api_provider,
 +        webrtc_api_fallback,
+         realtime_sideband_base_url,
          extra_headers,
-         session_config,
-         model_client: sess.services.model_client.clone(),
-@@ -1067,6 +1100,11 @@ fn realtime_api_key(
+         client_managed_handoffs,
+@@ -1794,6 +1811,11 @@
+     Err(CodexErr::InvalidRequest(
+         "realtime conversation requires API key auth".to_string(),
      ))
- }
--
++}
 +
 +fn realtime_webrtc_api_provider() -> CodexResult<ApiProvider> {
 +    ModelProviderInfo::create_openai_provider(/*base_url*/ None)
 +        .to_api_provider(Some(AuthMode::ApiKey))
-+}
-+
+ }
+ 
  fn realtime_request_headers(
-     realtime_session_id: Option<&str>,
-     api_key: Option<&str>,
 diff --git a/codex-rs/core/src/realtime_conversation_tests.rs b/codex-rs/core/src/realtime_conversation_tests.rs
 --- a/codex-rs/core/src/realtime_conversation_tests.rs
 +++ b/codex-rs/core/src/realtime_conversation_tests.rs
-@@ -2,12 +2,21 @@
- use super::RealtimeSessionKind;
- use super::realtime_delegation_from_handoff;
- use super::realtime_text_from_handoff_request;
-+use super::realtime_webrtc_api_provider;
- use super::wrap_realtime_delegation_input;
- use async_channel::bounded;
- use codex_protocol::protocol::RealtimeHandoffRequested;
- use codex_protocol::protocol::RealtimeTranscriptEntry;
- use pretty_assertions::assert_eq;
--
+@@ -355,3 +355,10 @@
+         );
+     }
+ }
 +
 +#[test]
 +fn webrtc_api_key_fallback_uses_public_openai_endpoint() {
-+    let provider = realtime_webrtc_api_provider().expect("public realtime API provider");
-+
++    let provider = super::realtime_webrtc_api_provider().expect("public realtime API provider");
 +    assert_eq!(provider.base_url, "https://api.openai.com/v1");
 +    assert_eq!(provider.query_params, None);
 +}
-+
- #[test]
- fn prefers_handoff_input_transcript_over_active_transcript() {
-     let handoff = RealtimeHandoffRequested {

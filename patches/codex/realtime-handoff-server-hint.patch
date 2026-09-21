@@ -1,8 +1,7 @@
 diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
-index 64215566ee..5bd8385320 100644
 --- a/codex-rs/app-server/src/bespoke_event_handling.rs
 +++ b/codex-rs/app-server/src/bespoke_event_handling.rs
-@@ -474,6 +474,7 @@ pub(crate) async fn apply_bespoke_event_handling(
+@@ -615,6 +615,7 @@
                          "item_id": handoff.item_id,
                          "input_transcript": handoff.input_transcript,
                          "active_transcript": handoff.active_transcript,
@@ -11,10 +10,9 @@ index 64215566ee..5bd8385320 100644
                  };
                  outgoing
 diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
-index 3c1d25aed7..afc4c7e3fe 100644
 --- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
 +++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v1.rs
-@@ -79,6 +79,7 @@ pub(super) fn parse_realtime_event_v1(payload: &str) -> Option<RealtimeEvent> {
+@@ -80,6 +80,7 @@
                  item_id,
                  input_transcript,
                  active_transcript: Vec::new(),
@@ -23,10 +21,9 @@ index 3c1d25aed7..afc4c7e3fe 100644
          }
          "error" => parse_error_event(&parsed),
 diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
-index ee0bba9946..22aa7d8263 100644
 --- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
 +++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
-@@ -157,11 +157,24 @@ fn parse_handoff_requested_event(item: &JsonMap<String, Value>) -> Option<Realti
+@@ -157,11 +157,24 @@
          .to_string();
      let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("");
  
@@ -52,10 +49,9 @@ index ee0bba9946..22aa7d8263 100644
  }
  
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index 30e33abe43..529e6e8248 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -333,6 +333,8 @@ pub struct RealtimeHandoffRequested {
+@@ -403,6 +403,8 @@
      pub item_id: String,
      pub input_transcript: String,
      pub active_transcript: Vec<RealtimeTranscriptEntry>,
@@ -67,47 +63,65 @@ index 30e33abe43..529e6e8248 100644
 diff --git a/codex-rs/core/src/realtime_conversation_tests.rs b/codex-rs/core/src/realtime_conversation_tests.rs
 --- a/codex-rs/core/src/realtime_conversation_tests.rs
 +++ b/codex-rs/core/src/realtime_conversation_tests.rs
-@@ -31,7 +31,8 @@
-             RealtimeTranscriptEntry {
-                 role: "assistant".to_string(),
+@@ -44,6 +44,7 @@
                  text: "hi there".to_string(),
              },
          ],
 +        server: None,
      };
      assert_eq!(
-@@ -46,8 +47,9 @@
-         item_id: "item_1".to_string(),
-         input_transcript: String::new(),
-         active_transcript: vec![RealtimeTranscriptEntry {
+         realtime_text_from_handoff_request(&handoff),
+@@ -61,6 +62,7 @@
              role: "user".to_string(),
              text: "hello".to_string(),
          }],
 +        server: None,
      };
      assert_eq!(
-@@ -71,7 +73,8 @@
-             RealtimeTranscriptEntry {
-                 role: "assistant".to_string(),
+         realtime_text_from_handoff_request(&handoff),
+@@ -84,6 +86,7 @@
                  text: "hi there".to_string(),
              },
          ],
 +        server: None,
      };
      assert_eq!(
-@@ -88,6 +91,7 @@
-         handoff_id: "handoff_1".to_string(),
+         realtime_delegation_from_handoff(&handoff),
+@@ -101,6 +104,7 @@
          item_id: "item_1".to_string(),
          input_transcript: "ignored".to_string(),
          active_transcript: vec![],
 +        server: None,
      };
      assert_eq!(
-@@ -102,6 +106,7 @@
-         handoff_id: "handoff_1".to_string(),
+         realtime_text_from_handoff_request(&handoff),
+@@ -115,6 +119,7 @@
          item_id: "item_1".to_string(),
          input_transcript: String::new(),
          active_transcript: vec![],
 +        server: None,
      };
      assert_eq!(realtime_text_from_handoff_request(&handoff), None);
+ }
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi_tests.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi_tests.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi_tests.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi_tests.rs
+@@ -6,6 +6,7 @@
+ #[test]
+ fn legacy_and_frameless_delegations_decode_to_the_same_handoff() {
+     let expected = Some(RealtimeEvent::HandoffRequested(RealtimeHandoffRequested {
++        server: None,
+         handoff_id: "handoff-123".to_string(),
+         item_id: "handoff-123".to_string(),
+         input_transcript: "check the weather".to_string(),
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi.rs
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_frameless_bidi.rs
+@@ -91,6 +91,7 @@
+         item_id,
+         input_transcript,
+         active_transcript: Vec::new(),
++        server: None,
+     }))
+ }
+ 

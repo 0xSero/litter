@@ -19,6 +19,84 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
+    func testHarnessSettingsNavigationEditingAndReadOnlyPolicy() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launchArguments += ["--ui-test-open-settings", "--ui-test-harness-settings"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(findStaticText("Harnesses", in: app))
+        app.staticTexts["Harnesses"].tap()
+        XCTAssertTrue(app.navigationBars["Harnesses"].waitForExistence(timeout: 5))
+        let runtime = app.buttons["harness.runtime.ui-test-settings-server.pi"]
+        XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        runtime.tap()
+
+        let toggleRow = app.buttons["harness.setting.quietStartup"]
+        XCTAssertTrue(toggleRow.waitForExistence(timeout: 5))
+        toggleRow.tap()
+        let toggle = app.switches["Enabled"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String, "0")
+        // SwiftUI exposes the whole Form row as the switch accessibility frame.
+        // Tap the trailing switch itself, not the noninteractive row center.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"), object: toggle
+        )], timeout: 5), .completed, "The native toggle must change before saving")
+        XCTAssertTrue(app.buttons["Save"].isEnabled)
+        app.buttons["Save"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "true"), object: toggleRow
+        )], timeout: 5), .completed)
+
+        let themeRow = app.buttons["harness.setting.theme"]
+        themeRow.tap()
+        let choices = app.descendants(matching: .any)["harness.setting.choices"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 5))
+        choices.tap()
+        XCTAssertTrue(app.buttons["dark"].waitForExistence(timeout: 5))
+        app.buttons["dark"].tap()
+        app.buttons["Save"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "\"dark\""), object: themeRow
+        )], timeout: 5), .completed, "The unset enum must save a JSON string")
+
+        app.buttons["harness.setting.unsetName"].tap()
+        XCTAssertTrue(app.staticTexts["Unset"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save"].isEnabled)
+        let input = app.descendants(matching: .any)["harness.setting.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(input.value as? String, "null")
+        input.tap()
+        input.typeText("chosen")
+        app.buttons["Save"].tap()
+        let nameRow = app.buttons["harness.setting.unsetName"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "\"chosen\""), object: nameRow
+        )], timeout: 5), .completed)
+
+        app.buttons["harness.setting.unsetFlag"].tap()
+        XCTAssertTrue(app.staticTexts["Unset"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save"].isEnabled)
+        app.descendants(matching: .any)["harness.setting.choices"].tap()
+        app.buttons["Disabled"].tap()
+        app.buttons["Save"].tap()
+        let flagRow = app.buttons["harness.setting.unsetFlag"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "false"), object: flagRow
+        )], timeout: 5), .completed)
+
+        app.buttons["harness.setting.managedPolicy"].tap()
+        XCTAssertTrue(app.navigationBars["Edit setting"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Managed by administrator"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save"].isEnabled)
+        XCTAssertFalse(app.switches["Enabled"].isEnabled)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["harness.setting.managedPolicy"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testConversationDisplayExpandedModeShowsAllDetails() throws {
         let app = conversationDisplayHarnessApp(reasoning: "expanded", commands: "expanded", tools: "expanded")
         app.launch()

@@ -584,7 +584,7 @@ impl ServerSession {
         use codex_app_server::in_process::InProcessStartArgs;
         use codex_app_server_protocol::{ClientInfo, InitializeCapabilities, InitializeParams};
         use codex_arg0::Arg0DispatchPaths;
-        use codex_cloud_requirements::cloud_requirements_loader;
+        use codex_cloud_config::cloud_config_bundle_loader;
         use codex_config::LoaderOverrides;
         use codex_core::config::ConfigBuilder;
         use codex_feedback::CodexFeedback;
@@ -612,12 +612,13 @@ impl ServerSession {
         }
 
         if let Some(ref working_dir) = in_process.working_directory
-            && let Err(e) = std::env::set_current_dir(working_dir) {
-                return Err(TransportError::ConnectionFailed(format!(
-                    "failed to set working directory {:?}: {e}",
-                    working_dir
-                )));
-            }
+            && let Err(e) = std::env::set_current_dir(working_dir)
+        {
+            return Err(TransportError::ConnectionFailed(format!(
+                "failed to set working directory {:?}: {e}",
+                working_dir
+            )));
+        }
 
         let mut cli_overrides = vec![
             ("features.goals".to_string(), true.into()),
@@ -649,23 +650,22 @@ impl ServerSession {
             .await
             .map_err(|e| TransportError::ConnectionFailed(format!("config build failed: {e}")))?;
 
-        let auth_manager = AuthManager::shared(
-            base_config.codex_home.to_path_buf(),
-            false,
-            base_config.cli_auth_credentials_store_mode,
-            Some(base_config.chatgpt_base_url.clone()),
-        )
-        .await;
+        let auth_manager = AuthManager::shared_from_config(&base_config, false)
+            .await
+            .map_err(|e| {
+                TransportError::ConnectionFailed(format!("auth initialization failed: {e}"))
+            })?;
 
-        let cloud_requirements = cloud_requirements_loader(
+        let cloud_config_bundle = cloud_config_bundle_loader(
             auth_manager.clone(),
             base_config.chatgpt_base_url.clone(),
             base_config.codex_home.to_path_buf(),
+            base_config.http_client_factory(),
         );
 
         let mut resolved_builder = ConfigBuilder::default()
             .cli_overrides(cli_overrides.clone())
-            .cloud_requirements(cloud_requirements.clone());
+            .cloud_config_bundle(cloud_config_bundle.clone());
         if let Some(ref codex_home) = in_process.codex_home {
             resolved_builder = resolved_builder.codex_home(codex_home.clone());
         }
@@ -684,7 +684,7 @@ impl ServerSession {
             cli_overrides,
             loader_overrides: LoaderOverrides::default(),
             strict_config: false,
-            cloud_requirements,
+            cloud_config_bundle,
             feedback,
             log_db: None,
             state_db: None,
@@ -705,6 +705,7 @@ impl ServerSession {
                     experimental_api: true,
                     request_attestation: false,
                     opt_out_notification_methods: None,
+                    ..Default::default()
                 }),
             },
             channel_capacity: in_process.channel_capacity,
@@ -1180,6 +1181,7 @@ pub(crate) fn remote_connect_args(config: &ServerConfig) -> (String, RemoteAppSe
         client_version: "1.0".to_string(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
+        mcp_server_openai_form_elicitation: false,
         channel_capacity: 256,
     };
 
@@ -1756,7 +1758,7 @@ fn route_app_server_event(
             info!("remote event notification {}", notification);
             let _ = event_tx.send(ServerEvent::Notification {
                 runtime_kind,
-                notification: notification.clone(),
+                notification: (**notification).clone(),
             });
         }
         AppServerEvent::ServerRequest(request) => {
@@ -1764,7 +1766,7 @@ fn route_app_server_event(
             append_android_debug_log(&format!("server_request={request:?}"));
             let _ = event_tx.send(ServerEvent::Request {
                 runtime_kind,
-                request: request.clone(),
+                request: (**request).clone(),
             });
         }
         AppServerEvent::Lagged { skipped } => {
@@ -1788,13 +1790,13 @@ fn route_in_process_event(
         InProcessServerEvent::ServerNotification(notification) => {
             let _ = event_tx.send(ServerEvent::Notification {
                 runtime_kind: "codex".to_string(),
-                notification,
+                notification: *notification,
             });
         }
         InProcessServerEvent::ServerRequest(request) => {
             let _ = event_tx.send(ServerEvent::Request {
                 runtime_kind: "codex".to_string(),
-                request,
+                request: *request,
             });
         }
         InProcessServerEvent::Lagged { skipped } => {
@@ -1968,6 +1970,7 @@ mod tests {
             client_version: "0".to_string(),
             experimental_api: true,
             opt_out_notification_methods: Vec::new(),
+            mcp_server_openai_form_elicitation: false,
             channel_capacity: 16,
         }
     }

@@ -50,6 +50,7 @@
 		0F7F71135A48FD54EAF3C257 /* brand_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 17BD69B0550C63596995AC18 /* brand_logo.png */; };
 		0FA2D55FE17D4AD9A910FB74 /* gruvbox-light-hard.json in Resources */ = {isa = PBXBuildFile; fileRef = 9AF7E00FF3D6A3D37B161855 /* gruvbox-light-hard.json */; };
 		0FEE6C68E9A49D3AAB2859FD /* LitterComplicationEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4578B3ADA4BFFC01A6910404 /* LitterComplicationEntry.swift */; };
+		104D7ACC2AC0056957BA1C60 /* HarnessSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA8E4A2207A671D10A81CB6 /* HarnessSettingsView.swift */; };
 		1101AAA61DF5B949EE2BB0AF /* StreamingRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */; };
 		1129DC9B38650FC49541690E /* BerkeleyMono-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3BD63CCD80D9E1F66879EF97 /* BerkeleyMono-Bold.otf */; };
 		123438277614AD5D2F7CDBC4 /* OpenAIApiKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */; };
@@ -544,6 +545,7 @@
 		CFA5E4B56537F480AFECC903 /* DirectoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318F2F8563E91AB97950F5DA /* DirectoryPickerView.swift */; };
 		CFB261D6AD3FA1F74A2AC301 /* studio-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 956AADB9A19C381E7C4E56D7 /* studio-light.json */; };
 		D07B503DB96496A43AE6FC20 /* VideoWallpaperProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 554F4A83699FF91F38D1E4CE /* VideoWallpaperProcessor.swift */; };
+		D080F3E283D4389B6A988CC6 /* HarnessSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA8E4A2207A671D10A81CB6 /* HarnessSettingsView.swift */; };
 		D11EFBC1C0D250134F354DC5 /* AlleycatCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4658068D198E8F82A23FF04 /* AlleycatCredentialStore.swift */; };
 		D14830D3F4040B9E9895A46D /* TranscriptScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E08E63A195E01B3163642D /* TranscriptScreen.swift */; };
 		D1C2C119E9801D3921F44146 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 87C57BE485A2C3DCC39C7368 /* Nuke */; };
@@ -1017,6 +1019,7 @@
 		ACD06DF72574CDDF16E1E41B /* BerkeleyMono-Oblique.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Oblique.otf"; sourceTree = "<group>"; };
 		ADE3C405C5BF7CFDD59604A0 /* absolutely-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "absolutely-light.json"; sourceTree = "<group>"; };
 		AE86DDCDD1BEC770EAE330A9 /* cat_transmission_03.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = cat_transmission_03.png; sourceTree = "<group>"; };
+		AEA8E4A2207A671D10A81CB6 /* HarnessSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessSettingsView.swift; sourceTree = "<group>"; };
 		AEFDEDEF73BC5E33C2F2E3B1 /* AppSpecificTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSpecificTypes.swift; sourceTree = "<group>"; };
 		AF409B64E0082FC6B68379EA /* dracula-soft.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dracula-soft.json"; sourceTree = "<group>"; };
 		B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Regular.otf"; sourceTree = "<group>"; };
@@ -1669,6 +1672,7 @@
 				77D950991BD0F0199209EB68 /* ExperimentalFeaturesView.swift */,
 				C0C2B3DB9D57EA3A2A8608C6 /* FormattedText.swift */,
 				0894A8F2B3DA66F879AEA4EE /* GhosttyTerminalView.swift */,
+				AEA8E4A2207A671D10A81CB6 /* HarnessSettingsView.swift */,
 				817117A5E16EBD02388DBBE1 /* HeaderView.swift */,
 				6C2A455B0E2E7C8B6EE59A93 /* HomeBottomBar.swift */,
 				6A12222458304DD9CA8D4593 /* HomeComposerView.swift */,
@@ -1943,12 +1947,12 @@
 			projectRoot = "";
 			targets = (
 				A3D84F588EDBC1EA550D6691 /* Litter */,
-				4D58398238C075D3A3A3AB9B /* LitterLiveActivity */,
 				6EBBC661C017816B2D4245DF /* LitterMac */,
-				DA07A1EAC6173D09F6FB99D9 /* LitterTests */,
-				7BB0106D190F10717D781234 /* LitterUITests */,
+				4D58398238C075D3A3A3AB9B /* LitterLiveActivity */,
 				3B991C03E72B1546CAD35698 /* LitterWatch */,
 				C0C98C6012493B73CDD5AD6E /* LitterWatchComplications */,
+				DA07A1EAC6173D09F6FB99D9 /* LitterTests */,
+				7BB0106D190F10717D781234 /* LitterUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -2382,6 +2386,7 @@
 				9C135E21A7D18E46E9E7B064 /* GhosttyBridge.m in Sources */,
 				224410A7740CDA9CF18FC1A4 /* GhosttyRendererBackendBridge.swift in Sources */,
 				BA1027048577556040076C7C /* GhosttyTerminalView.swift in Sources */,
+				D080F3E283D4389B6A988CC6 /* HarnessSettingsView.swift in Sources */,
 				CD03B7391871A06D022D42BA /* HeaderView.swift in Sources */,
 				B115856D13BD0B2380256374 /* HomeAnchor.swift in Sources */,
 				40F262594905BCA726B1DF88 /* HomeBottomBar.swift in Sources */,
@@ -2569,6 +2574,7 @@
 				81EDE80D456A85034D7F2AD5 /* GhosttyBridge.m in Sources */,
 				503463B52E06A546E127F063 /* GhosttyRendererBackendBridge.swift in Sources */,
 				2DF4732DBDB57688B178041E /* GhosttyTerminalView.swift in Sources */,
+				104D7ACC2AC0056957BA1C60 /* HarnessSettingsView.swift in Sources */,
 				8B506726FBE5E741B48A1C07 /* HeaderView.swift in Sources */,
 				52830FCFF8417E724A15555F /* HomeAnchor.swift in Sources */,
 				65023FCDB8DC6F4A4617F3CB /* HomeBottomBar.swift in Sources */,
@@ -2893,7 +2899,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 210010005;
+				CURRENT_PROJECT_VERSION = 210020001;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -2910,7 +2916,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.1;
+				MARKETING_VERSION = 2.1.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -3037,7 +3043,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 210010005;
+				CURRENT_PROJECT_VERSION = 210020001;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3060,7 +3066,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.1;
+				MARKETING_VERSION = 2.1.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3132,7 +3138,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 210010005;
+				CURRENT_PROJECT_VERSION = 210020001;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = TZ447KHNZL;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -3149,7 +3155,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.1;
+				MARKETING_VERSION = 2.1.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";

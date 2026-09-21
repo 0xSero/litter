@@ -203,7 +203,7 @@ class AppModel private constructor(context: android.content.Context) {
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
-    private val loadingModelServerIds = mutableSetOf<String>()
+    private val loadingModelServerIds = mutableMapOf<String, Int>()
     private val modelCatalogErrorsByServer = mutableMapOf<String, String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
@@ -572,8 +572,9 @@ class AppModel private constructor(context: android.content.Context) {
     suspend fun loadAvailableModelsIfNeeded(serverId: String, force: Boolean = false) {
         val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
         if (!server.isConnected) return
-        if (!force && server.availableModels != null) return
-        if (!loadingModelServerIds.add(serverId)) return
+        if (!force && !client.modelsNeedRefresh(serverId)) return
+        if (!force && loadingModelServerIds.getOrDefault(serverId, 0) > 0) return
+        loadingModelServerIds[serverId] = loadingModelServerIds.getOrDefault(serverId, 0) + 1
         modelCatalogErrorsByServer.remove(serverId)
         try {
             client.refreshModels(
@@ -586,7 +587,9 @@ class AppModel private constructor(context: android.content.Context) {
             modelCatalogErrorsByServer[serverId] = e.message ?: "Models could not be loaded."
             refreshSnapshot()
         } finally {
-            loadingModelServerIds.remove(serverId)
+            val remaining = loadingModelServerIds.getOrDefault(serverId, 1) - 1
+            if (remaining == 0) loadingModelServerIds.remove(serverId)
+            else loadingModelServerIds[serverId] = remaining
         }
     }
 
