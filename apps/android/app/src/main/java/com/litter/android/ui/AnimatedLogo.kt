@@ -1,12 +1,12 @@
 package com.litter.android.ui
 
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -29,25 +29,21 @@ import kotlin.math.sin
  */
 @Composable
 fun AnimatedLogo(size: Dp = 44.dp) {
-    val frameTime = remember { mutableLongStateOf(0L) }
-    val startTime = remember { System.nanoTime() }
-
+    val elapsedMillis = remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
+        val startedAt = withInfiniteAnimationFrameMillis { it }
         while (true) {
-            withFrameMillis { frameTime.longValue = it }
+            withInfiniteAnimationFrameMillis { elapsedMillis.longValue = it - startedAt }
         }
     }
-
-    @Suppress("UNUSED_VARIABLE")
-    val currentFrame = frameTime.longValue
-    val elapsed = (System.nanoTime() - startTime) / 1_000_000_000.0
 
     Canvas(modifier = Modifier.size(size)) {
         val s = min(this.size.width, this.size.height)
         val scale = s / 500f
         val ox = (this.size.width - s) / 2f
         val oy = (this.size.height - s) / 2f
-        val anim = LogoAnimState(elapsed)
+        // Observe animation time only while drawing, so the header stays composed.
+        val anim = LogoAnimState(elapsedMillis.longValue / 1_000.0)
 
         drawLogoLeftKitten(scale, ox, oy, anim)
         drawLogoRightKitten(scale, ox, oy, anim)

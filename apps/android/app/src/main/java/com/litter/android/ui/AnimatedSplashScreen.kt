@@ -1,5 +1,6 @@
 package com.litter.android.ui
 
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -7,17 +8,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,22 +51,15 @@ import kotlin.math.sin
  */
 @Composable
 fun AnimatedSplashScreen() {
-    // Frame clock for continuous animation
-    val frameTime = remember { mutableLongStateOf(0L) }
-    val startTime = remember { System.nanoTime() }
-
+    val elapsedMillis = remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
+        val startedAt = withInfiniteAnimationFrameMillis { it }
         while (true) {
-            withFrameMillis {
-                frameTime.longValue = it
-            }
+            withInfiniteAnimationFrameMillis { elapsedMillis.longValue = it - startedAt }
         }
     }
-
-    // Force recomposition every frame by reading frameTime
-    @Suppress("UNUSED_VARIABLE")
-    val currentFrame = frameTime.longValue
-    val elapsed = (System.nanoTime() - startTime) / 1_000_000_000.0
+    // Read the clock in drawing/layer scopes: animation must not recompose
+    // the splash layout, text, and provider images on every frame.
 
     Box(
         modifier = Modifier
@@ -77,7 +72,7 @@ fun AnimatedSplashScreen() {
             val scale = s / 500f
             val ox = (size.width - s) / 2f
             val oy = (size.height - s) / 2f - size.height * 0.05f
-            val anim = KittenAnimState(elapsed)
+            val anim = KittenAnimState(elapsedMillis.longValue / 1_000.0)
 
             drawLeftKitten(scale, ox, oy, anim)
             drawRightKitten(scale, ox, oy, anim)
@@ -92,7 +87,7 @@ fun AnimatedSplashScreen() {
                 .padding(bottom = 80.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SpinningProviderCarousel(elapsed = elapsed)
+            SpinningProviderCarousel(elapsedMillis = elapsedMillis)
             Text(
                 text = " on your phone",
                 color = LitterTheme.textMuted,
@@ -123,9 +118,9 @@ private val SplashProviders = listOf(
 )
 
 @Composable
-private fun SpinningProviderCarousel(elapsed: Double) {
+private fun SpinningProviderCarousel(elapsedMillis: State<Long>) {
     val itemHeight = 18f
-    val phase = providerCarouselPhase(elapsed)
+    val density = LocalDensity.current
     val cycleHeight = itemHeight * SplashProviders.size
 
     Box(
@@ -135,17 +130,23 @@ private fun SpinningProviderCarousel(elapsed: Double) {
         contentAlignment = Alignment.CenterEnd,
     ) {
         SplashProviders.forEachIndexed { index, provider ->
-            val raw = (index - phase).toFloat() * itemHeight
-            val y = wrapCarouselOffset(raw, cycleHeight)
-            val dist = min(abs(y) / itemHeight, 1f)
-            val selected = dist < 0.35f
-            val alpha = if (selected) 1f else max(0.18f, 1f - dist * 0.7f)
+            val selected by remember(index, elapsedMillis) {
+                derivedStateOf {
+                    val phase = providerCarouselPhase(elapsedMillis.value / 1_000.0)
+                    abs(wrapCarouselOffset((index - phase).toFloat() * itemHeight, cycleHeight)) / itemHeight < 0.35f
+                }
+            }
 
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .offset(y = y.dp)
-                    .graphicsLayer(alpha = alpha),
+                    .graphicsLayer {
+                        val phase = providerCarouselPhase(elapsedMillis.value / 1_000.0)
+                        val y = wrapCarouselOffset((index - phase).toFloat() * itemHeight, cycleHeight)
+                        val dist = min(abs(y) / itemHeight, 1f)
+                        translationY = with(density) { y.dp.toPx() }
+                        alpha = if (dist < 0.35f) 1f else max(0.18f, 1f - dist * 0.7f)
+                    },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Image(
