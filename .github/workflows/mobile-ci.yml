@@ -402,6 +402,32 @@ jobs:
             -only-testing:LitterTests \
             test-without-building
 
+      - name: Test harness settings and conversation input
+        timeout-minutes: 10
+        run: |
+          xcodebuild \
+            -project apps/ios/Litter.xcodeproj \
+            -scheme Litter \
+            -configuration Debug \
+            -destination "id=$IOS_SIMULATOR_UDID" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/harness-ui.xcresult" \
+            -only-testing:LitterUITests/LitterUITests/testHarnessSettingsNavigationEditingAndReadOnlyPolicy \
+            -only-testing:LitterUITests/LitterUITests/testConversationDisplaySettingsRowsAreReachable \
+            -only-testing:LitterUITests/LitterUITests/testConversationComposerAcceptsSimulatorKeyboardInput \
+            -only-testing:LitterUITests/LitterUITests/testConversationComposerPreservesRapidKeyboardInput \
+            test-without-building
+
+      - name: Upload harness UI test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-harness-ui-results
+          path: ${{ runner.temp }}/harness-ui.xcresult
+          if-no-files-found: ignore
+
       # Runtime smoke test: install the freshly built app, launch it, and
       # assert the process survives. Unit tests never boot the embedded iSH
       # guest runtime, so they cannot catch silently-broken embeds (e.g.

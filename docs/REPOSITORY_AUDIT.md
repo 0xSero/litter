@@ -14,7 +14,7 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-The 2.1.2 candidate pins `0xSero/alleycat@d6e396c`, preserving the shipping
+The 2.1.2 candidate pins `0xSero/alleycat@85c3d1e`, preserving the shipping
 headless-launch lineage rather than substituting the divergent Alleycat `main`.
 It refreshes native model/settings adapters, gives OMP an independent runtime,
 and preserves Local Studio's explicit data directory across daemon upgrades.
@@ -28,7 +28,12 @@ two inspection timeouts). The final `eef1375` adapter adds Devin/Grok native
 settings; its affected-crate tests passed (117), as did both live schema tests
 (25 Devin and 104 Grok descriptors). The `d6e396c` follow-up also restores discovery of the signed Local Studio
 bundle's native Pi settings metadata (60 documented fields; four helper and
-four launcher/isolation tests passed). Final installed-host and mobile acceptance
+four launcher/isolation tests passed). The final `85c3d1e` revision additionally
+marks metadata helpers as utility commands and prevents an older CLI from
+replacing a newer daemon; the complete host library suite passed (103 tests).
+Local Studio prefers the AppSupport CLI before `~/.local/bin`, so installed
+upgrades must refresh both locations to avoid invoking an old pairing binary.
+Final installed-host and mobile acceptance
 remain required before claiming the release complete.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
