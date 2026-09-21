@@ -32,8 +32,13 @@ registrations (88 valid samples, two inspection timeouts).
 The final `a5aaa9f6` follow-up stops reading Claude transcripts once session
 summary metadata is found and removes runtime initialization from offline
 status checks. Six focused regressions passed, including an unread 64 MiB
-invalid transcript tail. Final installed-host and mobile acceptance remain
-required before claiming the release complete.
+invalid transcript tail. The installed follow-up restarted successfully in
+16 seconds with all 12 runtimes available, and a status read took 20 ms. Its
+three-minute process sample found no foreground worker registrations (81 valid
+samples, nine inspection timeouts). All catalogs passed, but Hermes settings
+and model requests intermittently timed out in separate attempts under host
+contention; the prior revision passed both together. This limitation and final
+mobile/store acceptance remain open.
 
 Local Studio prefers the AppSupport CLI before `~/.local/bin`, so installed
 upgrades must refresh both locations to avoid invoking an old pairing binary.
