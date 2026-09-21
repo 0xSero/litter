@@ -345,4 +345,4 @@ Implemented on both iOS and Android through shared Rust. Device acceptance is pe
 | Streaming | Unchanged server/runtime projections do not invalidate the settings list |
 | Host execution | Discovery and settings launch headless processes without terminal windows or Dock helpers |
 
-Validation for the 2.1.2 candidate: shared Rust library tests passed (822 passed, 3 existing manual/live tests ignored); Android Kotlin compilation and all 58 unit tests passed against regenerated bindings. Full simulator/emulator UI acceptance and store release remain pending.
+Validation for the 2.1.2 candidate: shared Rust library tests passed (823 passed, 3 existing manual/live tests ignored); Android Kotlin compilation and all 58 unit tests passed against regenerated bindings. Five Android settings-editor instrumentation cases passed on Android 17, including unset strings/booleans and managed policy. The unchanged MainActivity Settings → Harnesses navigation test also passed after moving logo/splash animation state into draw/layer scopes and the standard Compose infinite-animation clock. iOS simulator UI acceptance, final artifact validation, and store release remain pending.

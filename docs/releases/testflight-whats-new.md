@@ -4,6 +4,7 @@ Summary
 - Model catalogs refresh from each connected harness, including custom models and plugin modes. Failed refreshes keep the last successful catalog.
 - Added searchable harness settings with native value types, source information, and save verification on iOS and Android.
 - OMP has its own runtime identity and configuration, separate from Pi.
+- Android logo and splash animations avoid recomposing their layout on every frame.
 - Model and reasoning selections use each harness's advertised capabilities.
 
 What to test
