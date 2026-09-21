@@ -274,7 +274,7 @@ jobs:
   ios:
     needs: shared-prep
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       SCCACHE_BUCKET: rust-cache
