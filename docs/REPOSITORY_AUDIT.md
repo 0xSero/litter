@@ -14,48 +14,47 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-For 2.1.1 the production dependency is `0xSero/alleycat@4ec496c`, two
-headless-launch fixes on top of the previously shipping
-`makyinmars/alleycat@5dd425f`. It preserves that complete production lineage;
-it does not substitute the divergent Alleycat `main` branch.
+The 2.1.2 candidate pins `0xSero/alleycat@eef1375`, preserving the shipping
+headless-launch lineage rather than substituting the divergent Alleycat `main`.
+It refreshes native model/settings adapters, gives OMP an independent runtime,
+and preserves Local Studio's explicit data directory across daemon upgrades.
+Background launches avoid interactive login shells; bundled Local Studio Pi
+uses plain Node rather than registering Electron as a foreground Dock app.
 
-The new default avoids interactive login-shell startup during background
-agent launches. Shell-provided variables must be present in the daemon's
-inherited environment; project `mise`/`direnv` providers remain supported.
-Bundled Local Studio Pi now uses a plain Node executable instead of the desktop
-Electron executable, which registered foreground Dock apps even in Node mode.
-If Node is absent, the bundled runtime is unavailable. Host tests pass (96),
-including a regression test verified against the old launcher. The installed
-0.3.9 daemon was restarted without runtime overrides on macOS: all six Pi
-workers registered as BackgroundOnly through Node, while the user's existing
-Local Studio window stayed running. Both mobile release acceptance checks
-remain required.
+The preceding installed `52815dd` candidate advertised all 12 runtimes and
+returned 1,402 catalog entries across the 11 model-bearing runtimes. A three-minute
+process sample found no foreground worker registrations (88 valid samples,
+two inspection timeouts). The final `eef1375` adapter adds Devin/Grok native
+settings; its affected-crate tests passed (117), as did both live schema tests
+(25 Devin and 104 Grok descriptors). Final installed-host and mobile acceptance
+remain required before claiming the release complete.
 
 An Alleycat change is not in Litter until the revision, lockfile, generated
 bindings, and both mobile runtimes are verified.
 
 ## P0 — dependency security
 
-As of the audit, RustSec reported nine advisories for the shared mobile lock,
-two for Alleycat `main`, and four for the packaged `kittylitter` lock (which
-still follows Litter's older production Alleycat revision).
+RustSec was rerun on 2026-09-21 against both candidate lockfiles after updating
+Codex to 0.155.1 and applying compatible h2 0.4.16 and rustls 0.23.45 security
+patches. Five advisories remain in the shared mobile lock and four in the
+packaged Kittylitter lock. These are advisory counts, not affected-package counts.
 
-The unresolved advisories are rooted in dependency contracts that require
-coordinated upgrades rather than a lockfile-only refresh:
+- Mobile: Hickory 0.25.2 through upstream Rama DNS retains
+  `RUSTSEC-2026-0119` and `RUSTSEC-2026-0118`. Moving to Hickory 0.26 requires
+  an upstream dependency/API change.
+- Packaged host: Iroh 0.98.2 and iroh-relay 0.98.0 pin Hickory exactly to
+  0.26.0-beta.4, retaining `RUSTSEC-2026-0120` and `RUSTSEC-2026-0119`.
+- Both: plist 1.9.0 through netdev/netwatch retains quick-xml 0.39.2 and
+  `RUSTSEC-2026-0195` / `RUSTSEC-2026-0194`; the fixed quick-xml 0.41 line
+  requires a compatible upstream plist contract.
+- Mobile: RSA 0.10.0-rc.18 retains `RUSTSEC-2023-0071`, with no patched
+  release reported by RustSec.
 
-- upstream Codex 0.132 pins an older quick-xml, RMCP 0.15, and a Hickory 0.25
-  network-proxy chain;
-- Iroh 1.0.3 still reaches quick-xml 0.39 through the current plist contract;
-  the fixed quick-xml 0.41 line is not semver-compatible with that dependency;
-- two RSA versions have no fixed release in their current dependency lines.
-
-**Do not suppress these advisories.** The next release wave should upgrade
-Codex/RMCP and track the plist/quick-xml and RSA owners, rerun RustSec after each
-compatibility change, and finish with installed-device network, SSH, MCP, and
-pairing tests.
-
-Iroh 1.0.3 and Russh 0.62.6 are in place and their source/test gates are green,
-but their network and SSH behavior still requires physical-device acceptance.
+**Do not suppress these advisories.** Preserve these upstream upgrade tracks,
+rerun RustSec after compatibility changes, and verify network, SSH, MCP, and
+pairing on installed devices. A successful build is not physical-device network
+acceptance. Mobile uses Iroh 1.0.3 and Russh 0.62.6; the separately packaged host's
+Iroh version above must not be confused with the mobile dependency.
 
 ## P1 — incomplete user-visible behavior
 
