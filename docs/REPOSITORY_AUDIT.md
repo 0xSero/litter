@@ -14,7 +14,7 @@ should be re-measured, not trusted, before acting on them.
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
 Git revision, and that revision is the production dependency surface.
 
-The 2.1.2 candidate pins `0xSero/alleycat@a5aaa9f6`, preserving the shipping
+The 2.1.2 candidate pins `0xSero/alleycat@dcda34d1`, preserving the shipping
 headless-launch lineage rather than substituting the divergent Alleycat `main`.
 It refreshes native model/settings adapters, gives OMP an independent runtime,
 and preserves Local Studio's explicit data directory across daemon upgrades.
@@ -29,7 +29,7 @@ models through its signed bundled Pi metadata. Devin/Grok adapter tests passed
 (103). A preceding three-minute process sample found no foreground worker
 registrations (88 valid samples, two inspection timeouts).
 
-The final `a5aaa9f6` follow-up stops reading Claude transcripts once session
+The `a5aaa9f6` follow-up stops reading Claude transcripts once session
 summary metadata is found and removes runtime initialization from offline
 status checks. Six focused regressions passed, including an unread 64 MiB
 invalid transcript tail. The installed follow-up restarted successfully in
@@ -38,7 +38,10 @@ three-minute process sample found no foreground worker registrations (81 valid
 samples, nine inspection timeouts). All catalogs passed, but Hermes settings
 and model requests intermittently timed out in separate attempts under host
 contention; the prior revision passed both together. This limitation and final
-mobile/store acceptance remain open.
+mobile/store acceptance remain open. The `dcda34d1` follow-up matches Hermes'
+native GUI catalog options, avoiding probes of every saved custom endpoint
+while preserving current/custom model IDs and native background refresh. Its
+focused compatibility regression passed; final installed-host readback is pending.
 
 Local Studio prefers the AppSupport CLI before `~/.local/bin`, so installed
 upgrades must refresh both locations to avoid invoking an old pairing binary.
