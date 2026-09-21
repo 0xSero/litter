@@ -163,6 +163,7 @@ private struct RuntimeSettingEditor: View {
     let save: (String) async throws -> Void
     @State private var value: String
     @State private var saving = false
+    @State private var edited = false
     @State private var error: String?
 
     init(setting: RuntimeSettingDescriptor, save: @escaping (String) async throws -> Void) {
@@ -170,7 +171,8 @@ private struct RuntimeSettingEditor: View {
         self.save = save
         let string = setting.valueKind == .string
             ? (try? JSONDecoder().decode(String.self, from: Data(setting.valueJson.utf8))) : nil
-        _value = State(initialValue: string ?? setting.valueJson)
+        _value = State(initialValue: setting.valueKind == .string && setting.valueJson == "null"
+            ? "" : string ?? setting.valueJson)
     }
 
     // Choice values are strings even when an unset descriptor uses JSON/null.
@@ -183,7 +185,15 @@ private struct RuntimeSettingEditor: View {
         NavigationStack {
             Form {
                 Section(setting.label) {
-                    if setting.valueKind == .boolean {
+                    if setting.valueJson == "null" && !edited { Text("Unset") }
+                    if setting.valueKind == .boolean && setting.valueJson == "null" {
+                        Picker("Value", selection: $value) {
+                            Text("Unset").tag("null")
+                            Text("Enabled").tag("true")
+                            Text("Disabled").tag("false")
+                        }
+                        .accessibilityIdentifier("harness.setting.choices")
+                    } else if setting.valueKind == .boolean {
                         Toggle("Enabled", isOn: Binding(get: { value == "true" }, set: { value = $0 ? "true" : "false" }))
                     } else if !setting.choices.isEmpty {
                         Picker("Value", selection: $value) {
@@ -194,9 +204,11 @@ private struct RuntimeSettingEditor: View {
                     } else {
                         TextField(setting.valueKind == .json ? "JSON value" : "Value", text: $value, axis: .vertical)
                             .lineLimit(3...20).autocorrectionDisabled().textInputAutocapitalization(.never)
+                            .accessibilityIdentifier("harness.setting.input")
                     }
                 }
                 .disabled(!setting.writable || saving)
+                .onChange(of: value) { _, _ in edited = true }
                 Section("Source") {
                     Text(setting.source)
                     Text("Scope: \(setting.scope)")
@@ -223,7 +235,7 @@ private struct RuntimeSettingEditor: View {
                                 dismiss()
                             } catch { self.error = error.localizedDescription }
                         }
-                    }.disabled(!setting.writable || saving || value == setting.valueJson && setting.valueKind != .string)
+                    }.disabled(!setting.writable || saving || !edited || value == setting.valueJson && setting.valueKind != .string)
                 }
             }
             .interactiveDismissDisabled(saving)
@@ -242,6 +254,10 @@ private enum HarnessSettingsUITestFixture {
             choices: [], scope: "user", source: "UI test fixture", writable: true, readOnlyReason: nil),
         RuntimeSettingDescriptor(key: "theme", label: "Theme", valueJson: "null", valueKind: .json,
             choices: ["dark", "light"], scope: "user override (unset)", source: "UI test fixture", writable: true, readOnlyReason: nil),
+        RuntimeSettingDescriptor(key: "unsetName", label: "Unset name", valueJson: "null", valueKind: .string,
+            choices: [], scope: "user override (unset)", source: "UI test fixture", writable: true, readOnlyReason: nil),
+        RuntimeSettingDescriptor(key: "unsetFlag", label: "Unset flag", valueJson: "null", valueKind: .boolean,
+            choices: [], scope: "user override (unset)", source: "UI test fixture", writable: true, readOnlyReason: nil),
         RuntimeSettingDescriptor(key: "managedPolicy", label: "Managed policy", valueJson: "true", valueKind: .boolean,
             choices: [], scope: "managed", source: "UI test fixture", writable: false, readOnlyReason: "Managed by administrator"),
     ]

@@ -138,11 +138,13 @@ private fun RuntimeSettingsScreen(target: HarnessTarget, onBack: () -> Unit) {
 internal fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: () -> Unit, save: suspend (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var value by remember(setting) {
-        mutableStateOf(if (setting.valueKind == RuntimeSettingValueKind.STRING) {
+        mutableStateOf(if (setting.valueKind == RuntimeSettingValueKind.STRING && setting.valueJson == "null") ""
+        else if (setting.valueKind == RuntimeSettingValueKind.STRING) {
             runCatching { JSONTokener(setting.valueJson).nextValue() as String }.getOrDefault(setting.valueJson)
         } else setting.valueJson)
     }
     var saving by remember { mutableStateOf(false) }
+    var edited by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
@@ -150,13 +152,21 @@ internal fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: 
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
-                    if (setting.valueKind == RuntimeSettingValueKind.BOOLEAN) {
+                    if (setting.valueJson == "null" && !edited) Text("Unset")
+                    if (setting.valueKind == RuntimeSettingValueKind.BOOLEAN && setting.valueJson == "null") {
+                        if (edited) Text(if (value == "true") "Selected: Enabled" else "Selected: Disabled")
+                        Row {
+                            listOf("Enabled" to "true", "Disabled" to "false").forEach { (label, json) ->
+                                TextButton(onClick = { value = json; edited = true }, enabled = setting.writable && !saving) { Text(label) }
+                            }
+                        }
+                    } else if (setting.valueKind == RuntimeSettingValueKind.BOOLEAN) {
                         Row {
                             Text("Enabled", modifier = Modifier.weight(1f))
-                            Switch(checked = value == "true", onCheckedChange = { value = it.toString() }, enabled = setting.writable && !saving)
+                            Switch(checked = value == "true", onCheckedChange = { value = it.toString(); edited = true }, enabled = setting.writable && !saving)
                         }
                     } else {
-                        OutlinedTextField(value = value, onValueChange = { value = it },
+                        OutlinedTextField(value = value, onValueChange = { value = it; edited = true },
                             label = { Text(if (setting.valueKind == RuntimeSettingValueKind.JSON) "JSON value" else "Value") },
                             enabled = setting.writable && !saving, minLines = 3, maxLines = 12)
                     }
@@ -164,6 +174,7 @@ internal fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: 
                 items(setting.choices) { choice ->
                     TextButton(onClick = {
                         value = if (setting.valueKind == RuntimeSettingValueKind.STRING) choice else JSONObject.quote(choice)
+                        edited = true
                     }, enabled = setting.writable && !saving) { Text(choice) }
                 }
                 item {
@@ -176,7 +187,7 @@ internal fun RuntimeSettingEditor(setting: RuntimeSettingDescriptor, onDismiss: 
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
         confirmButton = {
-            TextButton(enabled = setting.writable && !saving, onClick = {
+            TextButton(enabled = setting.writable && !saving && edited, onClick = {
                 saving = true
                 scope.launch {
                     try {

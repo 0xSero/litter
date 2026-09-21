@@ -8,6 +8,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -48,6 +54,28 @@ class HarnessSettingsEditorTest {
         compose.onNode(isToggleable()).assertIsNotEnabled()
         compose.onNodeWithText("Cancel").performClick()
         compose.onNodeWithText("Cancelled").assertIsDisplayed()
+    }
+
+    @Test
+    fun unsetStringStartsBlankAndSavesOnlyAfterEditing() {
+        showEditor(setting("name", "null", RuntimeSettingValueKind.STRING))
+        compose.onNodeWithText("Unset").assertIsDisplayed()
+        compose.onNodeWithText("Save").assertIsNotEnabled()
+        compose.onNode(hasSetTextAction()).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        compose.onNode(hasSetTextAction()).performTextInput("chosen")
+        compose.onNodeWithText("Save").performClick()
+        compose.onNodeWithText("Saved: \"chosen\"").assertIsDisplayed()
+    }
+
+    @Test
+    fun unsetBooleanCanExplicitlyChooseFalse() {
+        showEditor(setting("flag", "null", RuntimeSettingValueKind.BOOLEAN))
+        compose.onNodeWithText("Unset").assertIsDisplayed()
+        compose.onNodeWithText("Save").assertIsNotEnabled()
+        compose.onNodeWithText("Disabled").performClick()
+        compose.onNodeWithText("Selected: Disabled").assertIsDisplayed()
+        compose.onNodeWithText("Save").performClick()
+        compose.onNodeWithText("Saved: false").assertIsDisplayed()
     }
 
     private fun showEditor(setting: RuntimeSettingDescriptor) {

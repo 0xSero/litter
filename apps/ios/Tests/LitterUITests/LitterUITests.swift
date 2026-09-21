@@ -56,6 +56,31 @@ final class LitterUITests: XCTestCase {
             predicate: NSPredicate(format: "label CONTAINS %@", "\"dark\""), object: themeRow
         )], timeout: 5), .completed, "The unset enum must save a JSON string")
 
+        app.buttons["harness.setting.unsetName"].tap()
+        XCTAssertTrue(app.staticTexts["Unset"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save"].isEnabled)
+        let input = app.descendants(matching: .any)["harness.setting.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(input.value as? String, "null")
+        input.tap()
+        input.typeText("chosen")
+        app.buttons["Save"].tap()
+        let nameRow = app.buttons["harness.setting.unsetName"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "\"chosen\""), object: nameRow
+        )], timeout: 5), .completed)
+
+        app.buttons["harness.setting.unsetFlag"].tap()
+        XCTAssertTrue(app.staticTexts["Unset"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save"].isEnabled)
+        app.descendants(matching: .any)["harness.setting.choices"].tap()
+        app.buttons["Disabled"].tap()
+        app.buttons["Save"].tap()
+        let flagRow = app.buttons["harness.setting.unsetFlag"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "false"), object: flagRow
+        )], timeout: 5), .completed)
+
         app.buttons["harness.setting.managedPolicy"].tap()
         XCTAssertTrue(app.navigationBars["Edit setting"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Managed by administrator"].waitForExistence(timeout: 5))
