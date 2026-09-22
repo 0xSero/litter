@@ -150,6 +150,16 @@ Android lives under `apps/android/app/src/main/java/com/litter/android`:
 `apps/android/core/bridge` contains JNI bootstrap only. Android has exactly two
 Gradle modules: `:app` and `:core:bridge`.
 
+Both platforms render a streaming assistant message through a per-item cache that
+keeps the already-rendered segments and re-renders only a bounded tail:
+`Views/StreamingAssistantRenderCache.swift` on iOS and
+`ui/conversation/StreamingTextCoordinator.kt` on Android. Both fold a plain-text
+append into the cached final chunk and re-parse only when the append could move a
+markdown block boundary, so a streaming tick costs O(appended), not O(message
+length). Neither cache owns conversation state: it is a render-only projection over
+the text the Rust store already accumulated, and both must produce exactly what a
+cold parse of the same text produces.
+
 ## Generated and vendored code
 
 - `apps/ios/project.yml` is the Xcode project source of truth.

@@ -28,6 +28,10 @@ object StreamingTextCoordinator {
         val stablePrefix: String,
         val stableBlocks: List<AppMessageRenderBlock>,
         val frontierBlocks: List<AppMessageRenderBlock>,
+        /** Whether the frontier's final block can absorb appended plain text. */
+        val frontierCanAbsorbAppend: Boolean,
+        /** Whether [fullText] contains a bare-URL scheme that linkify rewrites. */
+        val containsUrlScheme: Boolean,
     )
 
     /** How many characters of tail text we target for the frontier. */
@@ -38,6 +42,16 @@ object StreamingTextCoordinator {
 
     /** Minimum stable prefix length before we bother caching it. */
     private const val MIN_REUSABLE_PREFIX = 256
+
+    /** Bytes compared at the splice point to confirm the caller's text is an append. */
+    private const val SPLICE_CHECK_CHARS = 64
+
+    /** Bytes that can move a markdown block boundary when appended to a line in progress. */
+    private val APPEND_BOUNDARY_CHARS = "\n\r|`~$\\:/".toSet()
+
+    /** Bytes a line can consist of and still be a prefix of a thematic break, an ordered-list
+     *  marker, or a fence opener. Such a line can still change kind, so it is not extended. */
+    private val MARKER_ONLY_CHARS = "0123456789.-)_*+`~ \t\r".toSet()
 
     private val cache = LruCache<String, CachedEntry>(128)
 
@@ -57,26 +71,47 @@ object StreamingTextCoordinator {
             )
         }
 
-        // Can we reuse the existing stable prefix?
-        if (existing != null &&
-            existing.stablePrefix.isNotEmpty() &&
-            text.startsWith(existing.stablePrefix)
-        ) {
-            val tailText = text.substring(existing.stablePrefix.length)
-            if (tailText.length <= MAX_TAIL_CHARS) {
-                val frontierBlocks = parser.extractRenderBlocksTyped(tailText)
-                val entry = CachedEntry(
-                    fullText = text,
-                    stablePrefix = existing.stablePrefix,
-                    stableBlocks = existing.stableBlocks,
-                    frontierBlocks = frontierBlocks,
-                )
-                cache.put(itemId, entry)
-                return StreamingTextState(
-                    stableBlocks = entry.stableBlocks,
-                    frontierBlocks = entry.frontierBlocks,
-                    fullText = text,
-                )
+        // Can we reuse the existing stable prefix, or extend the frontier in place?
+        if (existing != null) {
+            val reusablePrefix = existing.stablePrefix.isNotEmpty() &&
+                text.startsWith(existing.stablePrefix)
+            val tailStart = if (reusablePrefix) existing.stablePrefix.length else 0
+            if (text.length - tailStart <= MAX_TAIL_CHARS) {
+                // Streaming appends are the hot path: extending the frontier's
+                // final block keeps the tick O(appended) instead of re-parsing
+                // the whole tail through Rust.
+                val appended = appendedPlainText(existing, text)
+                if (appended != null) {
+                    val extended = extendFrontier(existing, text, appended)
+                    if (extended != null) {
+                        cache.put(itemId, extended)
+                        return StreamingTextState(
+                            stableBlocks = extended.stableBlocks,
+                            frontierBlocks = extended.frontierBlocks,
+                            fullText = text,
+                        )
+                    }
+                }
+
+                if (reusablePrefix) {
+                    val frontierBlocks = parser.extractRenderBlocksTyped(
+                        text.substring(tailStart)
+                    )
+                    val entry = CachedEntry(
+                        fullText = text,
+                        stablePrefix = existing.stablePrefix,
+                        stableBlocks = existing.stableBlocks,
+                        frontierBlocks = frontierBlocks,
+                        frontierCanAbsorbAppend = frontierCanAbsorbAppend(frontierBlocks),
+                        containsUrlScheme = containsUrlScheme(text),
+                    )
+                    cache.put(itemId, entry)
+                    return StreamingTextState(
+                        stableBlocks = entry.stableBlocks,
+                        frontierBlocks = entry.frontierBlocks,
+                        fullText = text,
+                    )
+                }
             }
         }
 
@@ -97,6 +132,8 @@ object StreamingTextCoordinator {
             stablePrefix = prefixText,
             stableBlocks = stableBlocks,
             frontierBlocks = frontierBlocks,
+            frontierCanAbsorbAppend = frontierCanAbsorbAppend(frontierBlocks),
+            containsUrlScheme = containsUrlScheme(text),
         )
         cache.put(itemId, entry)
 
@@ -106,6 +143,78 @@ object StreamingTextCoordinator {
             fullText = text,
         )
     }
+
+    /**
+     * The appended run when [text] is a pure append of plain text to [existing], or null when the
+     * caller must re-parse.
+     *
+     * Appending never moves a line start, so heading, blockquote, list-item, and fence markers are
+     * decided by the cached text alone. A newline starts a new line, a pipe can turn a paragraph into
+     * a table, a backtick or tilde can open a fence, a dollar or backslash can close a math span, and
+     * a colon or slash can complete a bare-URL autolink. Any of those means re-parse.
+     */
+    private fun appendedPlainText(existing: CachedEntry, text: String): String? {
+        if (!existing.frontierCanAbsorbAppend) return null
+        if (existing.containsUrlScheme) return null
+        val cachedLength = existing.fullText.length
+        if (text.length <= cachedLength) return null
+
+        // The caller's text is a pure append only if it still ends with the cached text. Compare a
+        // bounded window at the splice point so the check stays O(1) instead of O(message length).
+        val anchor = (cachedLength - SPLICE_CHECK_CHARS).coerceAtLeast(0)
+        val checked = cachedLength - anchor
+        if (!text.regionMatches(anchor, existing.fullText, anchor, checked)) return null
+
+        val appended = text.substring(cachedLength)
+        for (char in appended) {
+            if (char.code >= 0x80 || char in APPEND_BOUNDARY_CHARS) return null
+        }
+        return appended
+    }
+
+    /** Extends the frontier's final markdown block by [appended], or null when it is not markdown. */
+    private fun extendFrontier(
+        existing: CachedEntry,
+        text: String,
+        appended: String,
+    ): CachedEntry? {
+        val last = existing.frontierBlocks.lastOrNull() ?: return null
+        if (last !is AppMessageRenderBlock.Markdown) return null
+
+        val markdown = last.markdown + appended
+        val frontierBlocks = existing.frontierBlocks.dropLast(1) +
+            AppMessageRenderBlock.Markdown(markdown)
+        return CachedEntry(
+            fullText = text,
+            stablePrefix = existing.stablePrefix,
+            stableBlocks = existing.stableBlocks,
+            frontierBlocks = frontierBlocks,
+            frontierCanAbsorbAppend = lineCanAbsorbAppend(markdown),
+            containsUrlScheme = false,
+        )
+    }
+
+    /** Whether the final block is markdown whose last line can absorb appended plain text. */
+    private fun frontierCanAbsorbAppend(blocks: List<AppMessageRenderBlock>): Boolean {
+        val last = blocks.lastOrNull() as? AppMessageRenderBlock.Markdown ?: return false
+        return lineCanAbsorbAppend(last.markdown)
+    }
+
+    /** Whether [markdown]'s final line can absorb appended text without changing its line kind. */
+    private fun lineCanAbsorbAppend(markdown: String): Boolean {
+        var scanned = 0
+        for (index in markdown.indices.reversed()) {
+            val char = markdown[index]
+            if (char == '\n') return false
+            if (char !in MARKER_ONLY_CHARS) return true
+            scanned += 1
+            if (scanned >= SPLICE_CHECK_CHARS) return false
+        }
+        return false
+    }
+
+    private fun containsUrlScheme(text: String): Boolean =
+        text.contains("http://") || text.contains("https://")
 
     /** Evict a specific item when streaming ends and the final result gets cached normally. */
     fun evict(itemId: String) {
