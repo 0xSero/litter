@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
 import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.PetOverlayController
+import com.litter.android.state.PerfTrace
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.SavedThreadsStore
@@ -193,7 +194,11 @@ fun LitterApp(
             { if (navStack.size > 1) navStack = navStack.dropLast(1) }
         }
         val navigateToConversation = remember {
-            { key: ThreadKey -> navStack = listOf(Route.Home, Route.Conversation(key)) }
+            { key: ThreadKey ->
+                // Closed by `ConversationScreen` on its first composition.
+                PerfTrace.beginInterval("OpenThread", PerfTrace.intervalKey(key))
+                navStack = listOf(Route.Home, Route.Conversation(key))
+            }
         }
         val connectedServerOptions = remember(snapshot) {
             snapshot?.let { snap ->

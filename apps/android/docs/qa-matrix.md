@@ -14,11 +14,8 @@ Run the unit-test suite for the single hybrid runtime:
 
 Current automated checks:
 
-- `RuntimeFlavorConfigTest`
-  - validates startup mode/build config parity (`ENABLE_ON_DEVICE_BRIDGE`, `RUNTIME_STARTUP_MODE`)
-  - validates canonical app runtime transport declaration (`APP_RUNTIME_TRANSPORT`)
-- `SavedServerTransportTest` and `SessionsDerivationTests`
-  - validate persisted transport selection and session-list projection
+- `SavedServerTransportTest`
+  - validate persisted transport selection
 - `AppComposerPayloadTest`, `SnapshotExtensionsTest`, and conversation UI tests
   - validate typed composer inputs, snapshot projection, markdown sizing, slash commands, math, and response errors
 - `RealtimeWebRtcTransportTest` and `RealtimeWebRtcSessionTest`
@@ -204,6 +201,7 @@ for the matching state.
 | Swipe reply | Right-swipe on home row reveals reply affordance (`SessionReplySwipe` via `SwipeableRow.leadingAction`); past commit threshold opens `QuickReplySheet` modal; send path resumes the thread before `startTurn` to avoid "thread cannot be found" on cold launches. Left-swipe reveals hide (trailingAction). |
 | SavedProjectStore | Last-selected server + project persist across app restart via Rust `preferencesSetHomeSelection` / `HomeSelection`. Wired through `LitterApp.kt`. |
 | StreamingMarkdownView bodySize | Optional `bodySize` parameter thread through to TextView font size; opt-in by response preview and by direct consumers that need parametric sizing. |
+| Streaming render cost | Both platforms extend the cached final markdown chunk for a plain-text append (`StreamingAssistantRenderCache.extendEntry` / `StreamingTextCoordinator.extendFrontier`) and re-parse otherwise. A streamed message must render exactly what a cold parse of the same text renders: iOS asserts this in `StreamingAssistantRenderCacheTests`; on Android, compare the frontier blocks against a `MessageParser.extractRenderBlocksTyped(text)` call on the same text after `StreamingTextCoordinator.clear()`. The fast path only applies when the message has no `http://` / `https://` URL, so a URL split across tokens still autolinks. |
 
 ## Tool Call Card Parity Matrix (iOS + Android)
 
@@ -242,7 +240,7 @@ Generative UI is permanent (no flag). Local-server threads register `show_widget
 | Bootstrap | `AppClient.setSavedAppsDirectory(MobilePreferencesDirectory.path(context))` is called once in `AppModel.init`, before any thread starts. Without this, the Rust `show_widget` finalize hook is a silent no-op. |
 | Auto-upsert | When the model finalizes a `show_widget` with `app_id = "fitness-tracker"` on a local-server thread, the Rust hook calls `saved_app_upsert(directory, originThreadId, appId, title, html, w, h, schema)` and writes to `{filesDir}/LitterPreferences/apps/saved_apps.json` + `html/<uuid>.html`. No Kotlin-initiated promote call is needed. |
 | Saved-as chip | Finalized `WidgetRow` whose `HydratedWidgetData.appId` is non-null renders a compact "Saved as `<slug>`" chip below the WebView (11sp mono, accent slug). Tap resolves `SavedAppsStore.appForSlug(slug, threadId)` to a UUID and pushes `Route.SavedApp`. Chip is absent when `appId == null` or the widget isn't finalized. |
-| Home-row takeover | **Not wired.** `HomeDashboardScreen` builds a `savedAppsByThread` map keyed by `originThreadId` (reloaded via `SavedAppsStore.reload` on every snapshot tick) and a per-session `sessionApps` list, but the row always renders `SessionCanvasRow`. `HomeAppTakeoverRow` exists and is never called. Saved apps are reachable only via the Saved-as chip and the Apps list. |
+| Home-row takeover | **Removed.** The takeover row and its `savedAppsByThread` / per-session `sessionApps` feeder pipeline were deleted; no `Takeover` symbol remains under `apps/android`. Saved apps are reachable only via the Saved-as chip and the Apps list. |
 | Apps list entry | Settings sheet "Apps → Saved Apps" row is always visible (no flag gate). Pushes `Route.Apps`. |
 | Apps list | `AppsListScreen` renders apps newest-updated-first: monogram tile + title + relative timestamp. Swipe-to-dismiss cascades `savedAppDelete`. Empty state explains that saved apps are created automatically. |
 | Detail relaunch | Tapping a row (or a Saved-as chip, or a home-row takeover) pushes `Route.SavedApp(uuid)`. `SavedAppScreen` calls `savedAppGet(dir, uuid)` on enter, hydrates the WebView with `wrapWidgetHtml(html, AppStateInjection(stateJson, schemaVersion))`, and registers `__LitterAppBridge` via `addJavascriptInterface`. |
@@ -253,7 +251,7 @@ Generative UI is permanent (no flag). Local-server threads register `show_widget
 | Origin server routing | Update RPC prefers `originThreadId`'s server → active thread's server → any local server → any connected. No connected server → clear error message. |
 | View Conversation | Top bar has a chat-bubble icon (`Icons.AutoMirrored.Filled.Chat`) that pushes `Route.Conversation(originThreadKey)`. Only rendered when `originThreadId` still resolves to a `ThreadKey` in the current snapshot — gone otherwise. |
 | Rename / delete | Top bar title tap → rename dialog → `savedAppRename`. Overflow "Delete" → destructive confirmation → `savedAppDelete` → pop back to list. |
-| Same slug in two threads | Model emitting `app_id = "fitness-tracker"` in two different origin threads creates two independent saved apps (distinct UUIDs, separate state files). The Apps list shows both; home-row takeover on each thread points at its own. |
+| Same slug in two threads | Model emitting `app_id = "fitness-tracker"` in two different origin threads creates two independent saved apps (distinct UUIDs, separate state files). The Apps list shows both. |
 | Regression: timeline widgets with no slug | A `show_widget` call that omits `app_id` (or is pre-R2) renders with the baseline `wrapWidgetHtml(html)` shell, does not trigger auto-save, and shows no Saved-as chip. |
 | Regression: thread delete | Deleting an `originThreadId` thread does not affect saved apps; the `View Conversation` button becomes hidden for those apps but update/state flows still work. |
 

@@ -788,6 +788,10 @@ class AppModel private constructor(context: android.content.Context) {
         key: ThreadKey,
         payload: AppComposerPayload,
     ) {
+        // Closed by the first assistant delta for this thread, or by the
+        // turn-finished branch of `handleUpdate` when the turn streams no
+        // assistant text.
+        PerfTrace.beginInterval("SendMessage", PerfTrace.intervalKey(key))
         restoreStoredLocalAuthIfNeeded(key.serverId, reason = "startTurn")
 
         try {
@@ -1065,7 +1069,17 @@ class AppModel private constructor(context: android.content.Context) {
             is AppStoreUpdateRecord.ThreadUpserted ->
                 applyThreadUpsert(update.thread, update.sessionSummary, update.agentDirectoryVersion)
             is AppStoreUpdateRecord.ThreadMetadataChanged ->
-                applyThreadStateUpdated(update.state, update.sessionSummary, update.agentDirectoryVersion)
+                run {
+                    // Fallback close for the send interval. Only a finished
+                    // turn clears `activeTurnId`, so a metadata update for any
+                    // other reason (a status change mid-turn, a queued
+                    // follow-up edit) must not close an interval that is still
+                    // open.
+                    if (update.state.activeTurnId == null) {
+                        PerfTrace.endInterval("SendMessage", PerfTrace.intervalKey(update.state.key))
+                    }
+                    applyThreadStateUpdated(update.state, update.sessionSummary, update.agentDirectoryVersion)
+                }
             is AppStoreUpdateRecord.ThreadItemChanged -> {
                 if (!applyThreadItemChanged(update.key, update.item)) {
                     recoverThreadDeltaApplication(update.key)
@@ -1078,6 +1092,12 @@ class AppModel private constructor(context: android.content.Context) {
                 applySessionSummary(update.sessionSummary)
             }
             is AppStoreUpdateRecord.ThreadStreamingDelta -> {
+                // First assistant token for this thread closes the interval
+                // opened by `startTurn`. A no-op when no interval is pending
+                // (deltas can arrive for a turn this device did not start).
+                if (update.kind == ThreadStreamingDeltaKind.ASSISTANT_TEXT) {
+                    PerfTrace.endInterval("SendMessage", PerfTrace.intervalKey(update.key))
+                }
                 if (!applyThreadStreamingDelta(update.key, update.itemId, update.kind, update.text)) {
                     recoverThreadDeltaApplication(update.key)
                 }
