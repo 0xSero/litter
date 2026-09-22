@@ -11,6 +11,11 @@ on:
         description: "Specific build number. Defaults to latest build for the version."
         required: false
         type: string
+      cancel_in_flight:
+        description: "Cancel any open review submission and delete superseded draft versions first, freeing the single in-flight version slot."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +71,7 @@ jobs:
           APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
           MARKETING_VERSION: ${{ inputs.marketing_version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
+          CANCEL_IN_FLIGHT: ${{ inputs.cancel_in_flight && '1' || '0' }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
