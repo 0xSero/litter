@@ -27,6 +27,11 @@ validate_fastlane_metadata "$FASTLANE_METADATA_DIR"
 
 APP_STORE_APP_ID="$(resolve_app_store_app_id "$APP_STORE_APP_ID" "$APP_BUNDLE_ID")"
 
+if [[ "${CANCEL_IN_FLIGHT:-0}" == "1" ]]; then
+    echo "==> Clearing the in-flight App Store version slot for $MARKETING_VERSION"
+    cancel_in_flight_submissions "$APP_STORE_APP_ID" "$MARKETING_VERSION"
+fi
+
 if [[ -n "$BUILD_NUMBER" ]]; then
     echo "==> Looking up build $MARKETING_VERSION ($BUILD_NUMBER)"
     BUILD_ID="$(find_build_id "$APP_STORE_APP_ID" "$MARKETING_VERSION" "$BUILD_NUMBER" 50)"

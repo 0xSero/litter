@@ -246,3 +246,45 @@ validate_fastlane_metadata() {
 
     asc migrate validate --fastlane-dir "$fastlane_dir" --output json >/dev/null
 }
+
+# Clear the single in-flight App Store version slot for $2.
+#
+# App Store Connect allows one in-flight version per platform. While another
+# version sits in WAITING_FOR_REVIEW/IN_REVIEW, `versions create` fails with
+# "You cannot create a new version of the App in the current state", and a
+# leftover PREPARE_FOR_SUBMISSION draft holds the same slot. Cancel every
+# submission that is still open, then delete superseded draft versions.
+cancel_in_flight_submissions() {
+    local app_store_app_id="$1"
+    local marketing_version="$2"
+
+    local submissions_json
+    submissions_json="$(asc review submissions-list --app "$app_store_app_id" --platform IOS --output json)"
+
+    while IFS=$'\t' read -r submission_id submission_state; do
+        [[ -z "$submission_id" ]] && continue
+        case "$submission_state" in
+            READY_FOR_REVIEW | WAITING_FOR_REVIEW | IN_REVIEW | UNRESOLVED_ISSUES) ;;
+            *) continue ;;
+        esac
+        echo "    Cancelling review submission $submission_id ($submission_state)"
+        asc review submissions-update \
+            --id "$submission_id" \
+            --canceled=true \
+            --confirm \
+            --output json >/dev/null
+    done < <(printf '%s' "$submissions_json" |
+        jq -r '.data[]? | [.id, (.attributes.state // "unknown")] | @tsv')
+
+    local versions_json
+    versions_json="$(asc versions list --app "$app_store_app_id" --platform IOS --output json)"
+
+    while IFS=$'\t' read -r version_id version state; do
+        [[ -z "$version_id" ]] && continue
+        [[ "$version" == "$marketing_version" ]] && continue
+        [[ "$state" == "PREPARE_FOR_SUBMISSION" ]] || continue
+        echo "    Deleting superseded draft version $version ($version_id)"
+        asc versions delete --version-id "$version_id" --confirm --output json >/dev/null
+    done < <(printf '%s' "$versions_json" |
+        jq -r '.data[]? | [.id, .attributes.version, (.attributes.appStoreState // "?")] | @tsv')
+}
