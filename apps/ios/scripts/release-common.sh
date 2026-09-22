@@ -247,16 +247,18 @@ validate_fastlane_metadata() {
     asc migrate validate --fastlane-dir "$fastlane_dir" --output json >/dev/null
 }
 
-# Clear the single in-flight App Store version slot for $2.
+# Make the single in-flight App Store version slot available for $2.
 #
-# App Store Connect allows one in-flight version per platform. While another
-# version sits in WAITING_FOR_REVIEW/IN_REVIEW, `versions create` fails with
-# "You cannot create a new version of the App in the current state", and a
-# leftover PREPARE_FOR_SUBMISSION draft holds the same slot. Cancel every
-# submission that is still open, then delete superseded draft versions.
-cancel_in_flight_submissions() {
+# App Store Connect allows one in-flight version per platform, so `versions create`
+# fails with "You cannot create a new version of the App in the current state"
+# while another version holds the slot. Cancel any open review submission, then
+# reuse the version that held it by renaming it to $2. Deleting is not an escape
+# hatch here: Apple only permits deleting the first version of a platform. A version
+# that is still under review is waited on rather than renamed.
+clear_in_flight_version() {
     local app_store_app_id="$1"
     local marketing_version="$2"
+    local attempts="${3:-12}"
 
     local submissions_json
     submissions_json="$(asc review submissions-list --app "$app_store_app_id" --platform IOS --output json)"
@@ -276,21 +278,24 @@ cancel_in_flight_submissions() {
     done < <(printf '%s' "$submissions_json" |
         jq -r '.data[]? | [.id, (.attributes.state // "unknown")] | @tsv')
 
-    local attempts="${3:-12}"
     local attempt blocking version_id version_string state
-
     for ((attempt = 1; attempt <= attempts; attempt++)); do
         blocking=""
+
         local versions_json
         versions_json="$(asc versions list --app "$app_store_app_id" --platform IOS --output json)"
 
         while IFS=$'\t' read -r version_id version_string state; do
             [[ -z "$version_id" ]] && continue
-            [[ "$version_string" == "$marketing_version" ]] && continue
+            [[ "$version_string" == "$marketing_version" ]] && return 0
             case "$state" in
                 PREPARE_FOR_SUBMISSION | DEVELOPER_REJECTED)
-                    echo "    Deleting superseded $state version $version_string ($version_id)"
-                    asc versions delete --version-id "$version_id" --confirm --output json >/dev/null
+                    echo "    Reusing $state version $version_string as $marketing_version ($version_id)"
+                    asc versions update \
+                        --version-id "$version_id" \
+                        --version "$marketing_version" \
+                        --output json >/dev/null
+                    return 0
                     ;;
                 WAITING_FOR_REVIEW | IN_REVIEW | READY_FOR_REVIEW | UNRESOLVED_ISSUES)
                     blocking="$version_string $state"
