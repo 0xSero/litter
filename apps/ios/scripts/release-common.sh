@@ -276,15 +276,35 @@ cancel_in_flight_submissions() {
     done < <(printf '%s' "$submissions_json" |
         jq -r '.data[]? | [.id, (.attributes.state // "unknown")] | @tsv')
 
-    local versions_json
-    versions_json="$(asc versions list --app "$app_store_app_id" --platform IOS --output json)"
+    local attempts="${3:-12}"
+    local attempt blocking version_id version state
 
-    while IFS=$'\t' read -r version_id version state; do
-        [[ -z "$version_id" ]] && continue
-        [[ "$version" == "$marketing_version" ]] && continue
-        [[ "$state" == "PREPARE_FOR_SUBMISSION" ]] || continue
-        echo "    Deleting superseded draft version $version ($version_id)"
-        asc versions delete --version-id "$version_id" --confirm --output json >/dev/null
-    done < <(printf '%s' "$versions_json" |
-        jq -r '.data[]? | [.id, .attributes.version, (.attributes.appStoreState // "?")] | @tsv')
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        blocking=""
+        local versions_json
+        versions_json="$(asc versions list --app "$app_store_app_id" --platform IOS --output json)"
+
+        while IFS=$'\t' read -r version_id version state; do
+            [[ -z "$version_id" ]] && continue
+            [[ "$version" == "$marketing_version" ]] && continue
+            case "$state" in
+                PREPARE_FOR_SUBMISSION)
+                    echo "    Deleting superseded draft version $version ($version_id)"
+                    asc versions delete --version-id "$version_id" --confirm --output json >/dev/null || true
+                    ;;
+                WAITING_FOR_REVIEW | IN_REVIEW | READY_FOR_REVIEW | UNRESOLVED_ISSUES)
+                    blocking="$version $state"
+                    ;;
+            esac
+        done < <(printf '%s' "$versions_json" |
+            jq -r '.data[]? | [.id, .attributes.version, (.attributes.appStoreState // "?")] | @tsv')
+
+        [[ -z "$blocking" ]] && return 0
+
+        echo "    Waiting for $blocking to clear (attempt $attempt/$attempts)"
+        sleep 10
+    done
+
+    echo "Version $blocking still holds the in-flight App Store slot" >&2
+    exit 1
 }
