@@ -29,7 +29,7 @@ APP_STORE_APP_ID="$(resolve_app_store_app_id "$APP_STORE_APP_ID" "$APP_BUNDLE_ID
 
 if [[ "${CANCEL_IN_FLIGHT:-0}" == "1" ]]; then
     echo "==> Clearing the in-flight App Store version slot for $MARKETING_VERSION"
-    cancel_in_flight_version "$APP_STORE_APP_ID" "$MARKETING_VERSION"
+    clear_in_flight_version "$APP_STORE_APP_ID" "$MARKETING_VERSION"
 fi
 
 if [[ -n "$BUILD_NUMBER" ]]; then
