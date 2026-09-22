@@ -277,27 +277,27 @@ cancel_in_flight_submissions() {
         jq -r '.data[]? | [.id, (.attributes.state // "unknown")] | @tsv')
 
     local attempts="${3:-12}"
-    local attempt blocking version_id version state
+    local attempt blocking version_id version_string state
 
     for ((attempt = 1; attempt <= attempts; attempt++)); do
         blocking=""
         local versions_json
         versions_json="$(asc versions list --app "$app_store_app_id" --platform IOS --output json)"
 
-        while IFS=$'\t' read -r version_id version state; do
+        while IFS=$'\t' read -r version_id version_string state; do
             [[ -z "$version_id" ]] && continue
-            [[ "$version" == "$marketing_version" ]] && continue
+            [[ "$version_string" == "$marketing_version" ]] && continue
             case "$state" in
-                PREPARE_FOR_SUBMISSION)
-                    echo "    Deleting superseded draft version $version ($version_id)"
-                    asc versions delete --version-id "$version_id" --confirm --output json >/dev/null || true
+                PREPARE_FOR_SUBMISSION | DEVELOPER_REJECTED)
+                    echo "    Deleting superseded $state version $version_string ($version_id)"
+                    asc versions delete --version-id "$version_id" --confirm --output json >/dev/null
                     ;;
                 WAITING_FOR_REVIEW | IN_REVIEW | READY_FOR_REVIEW | UNRESOLVED_ISSUES)
-                    blocking="$version $state"
+                    blocking="$version_string $state"
                     ;;
             esac
         done < <(printf '%s' "$versions_json" |
-            jq -r '.data[]? | [.id, .attributes.version, (.attributes.appStoreState // "?")] | @tsv')
+            jq -r '.data[]? | [.id, (.attributes.versionString // "?"), (.attributes.appStoreState // "?")] | @tsv')
 
         [[ -z "$blocking" ]] && return 0
 
