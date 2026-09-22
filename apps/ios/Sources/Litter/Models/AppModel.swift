@@ -974,6 +974,13 @@ final class AppModel {
             // pending streamed text for this thread first so the final
             // token is never lost behind the coalescer window.
             flushPendingStreamingDeltas(for: state.key)
+            // Fallback close for the send interval. Only a finished turn
+            // clears `activeTurnId`, so a metadata update for any other
+            // reason (a status change mid-turn, a queued follow-up edit)
+            // must not close an interval that is still open.
+            if state.activeTurnId == nil {
+                PerfTracker.endInterval("SendMessage", key: PerfTracker.intervalKey(state.key))
+            }
             if shouldBatchLiveThreadStateUpdate(for: state.key) {
                 enqueueThreadStateUpdate(
                     state,
@@ -1008,6 +1015,11 @@ final class AppModel {
             // is coalesced below so the rest of the UI (home, overlays,
             // composer) only re-renders ~8 fps instead of per token.
             if kind == .assistantText {
+                // First streamed token for this thread closes the send
+                // interval opened by `startTurn`. `endInterval` is a no-op
+                // when no interval is pending (deltas can arrive for a
+                // turn this device did not start).
+                PerfTracker.endInterval("SendMessage", key: PerfTracker.intervalKey(key))
                 StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
             }
             enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
@@ -2132,6 +2144,10 @@ final class AppModel {
 
     func startTurn(key: ThreadKey, payload: AppComposerPayload) async throws {
         let start = DispatchTime.now()
+        // Closed by the first assistant delta for this thread, or by the
+        // turn-finished branch of `handleStoreUpdate` when the turn
+        // produces no streamed text.
+        PerfTracker.beginInterval("SendMessage", key: PerfTracker.intervalKey(key))
         await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "startTurn")
 
         do {

@@ -231,6 +231,7 @@ $(shell mkdir -p $(STAMPS))
 	ios-build ios-build-sim ios-build-sim-fast ios-build-device ios-build-device-fast \
 	watch watch-sim watch-sim-run watch-device watch-typecheck watch-register \
 	test test-rust test-ios test-android \
+	measure-latency measure-latency-ios-tests measure-latency-ios-log measure-latency-android \
 	ios-release-prep mac-release-prep testflight mac-testflight mac-direct-dist appstore-release play-upload play-release \
 	clean clean-rust clean-ios clean-android prune-dev-cache prune-ios-sim-only \
 	rebuild-bindings kittylitter kittylitter-restart tui tui-run help
@@ -562,6 +563,10 @@ help:
 		'make android-release    Android build using release Rust profile and ARM64 output' \
 		'make rust-check         host cargo check for shared crates' \
 		'make rust-test          host cargo test for shared crates' \
+		'make measure-latency     report interaction latency from the newest device logs' \
+		'make measure-latency-ios-tests  build + run the XCTest latency suites and report them' \
+		'make measure-latency-ios-log    parse a saved simulator console log for perf intervals' \
+		'make measure-latency-android    frame stats, cold start, and perf lines from a device' \
 		'make prune-dev-cache    remove rebuildable Rust incremental output and the legacy KittyLitter target tree' \
 		'make prune-ios-sim-only remove device/Catalyst iOS outputs; retain the simulator staticlib and generated headers'
 
@@ -847,6 +852,26 @@ test-ios: rust-ios-sim-fast alpine-fs xcgen
 test-android: $(MATERIAL_SCHEMES_OUTPUT) $(STAMP_BINDINGS_K)
 	@echo "==> Running Android tests..."
 	@cd $(ANDROID_DIR) && ./gradlew :app:testDebugUnitTest
+
+# Interaction latency. The app records the pieces (`perf` signposts and
+# `PerfTracker`/`PerfTrace` log lines on both platforms, plus Rust
+# `mobile request timing` events); these targets run the interactions and
+# join them into one report under artifacts/interaction-latency/.
+#   measure-latency           parse whatever the newest device logs contain
+#   measure-latency-ios-tests build + run the XCTest latency suites
+#   measure-latency-ios-run   build + run the app, then parse its console log
+#   measure-latency-android   frame stats + cold start + `perf` logcat lines
+measure-latency:
+	@$(ROOT)/tools/scripts/measure-interaction-latency.sh all
+
+measure-latency-ios-tests:
+	@$(ROOT)/tools/scripts/measure-interaction-latency.sh ios-tests
+
+measure-latency-ios-log:
+	@$(ROOT)/tools/scripts/measure-interaction-latency.sh ios-log
+
+measure-latency-android:
+	@$(ROOT)/tools/scripts/measure-interaction-latency.sh android
 
 ios-release-prep: rust-ios-device-release alpine-fs xcgen
 

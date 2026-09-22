@@ -179,6 +179,10 @@ struct ConversationView: View {
             guard !hasLoggedFirstRender else { return }
             hasLoggedFirstRender = true
             os_signpost(.event, log: conversationViewSignpostLog, name: "ConversationFirstRender")
+            // Pairs with the `beginInterval` in the home navigation tap so
+            // Instruments reports "tap → conversation rendered" as one
+            // duration in the `perf` signpost track.
+            PerfTracker.endInterval("OpenThread", key: PerfTracker.intervalKey(activeThreadKey))
             appState.hydratePermissions(from: thread)
         }
         .onChange(of: appModel.pendingHandoffTurnErrors[activeThreadKey]) { _, _ in

@@ -9,6 +9,12 @@ Clippy, shellcheck, link, and RustSec results. A search hit or line count alone
 was not treated as proof of dead code. Counts below are dated to that audit and
 should be re-measured, not trusted, before acting on them.
 
+Re-measured 2026-09-22 by source inspection: the two Android dead-subtree items,
+the Android build-config loop, the `RuntimeFlavorConfigTest` claim, and the
+`kittylitter` version are resolved and corrected in place below. The P0 advisory
+counts and the strict-Clippy finding count were **not** re-measured — both need a
+full `cargo` build and `RustSec` run, so treat them as unverified until rerun.
+
 ## Alleycat dependency boundary
 
 Alleycat is not a Litter submodule. Litter consumes selected bridge crates by
@@ -102,14 +108,12 @@ Iroh version above must not be confused with the mobile dependency.
   ACP session projection; it does not clone complete server-side history.
 - Several Pi/Claude bridge status/config/skills/MCP responses are intentionally
   synthesized or empty and require live conformance coverage before expansion.
-- Android's `Route.Sessions` screen subtree (`SessionsScreen`, `SessionsUiState`,
-  `SessionsDerivation`, and the `Route.ServerInfo` /
-  `Route.ServerWallpaper*` branches nested under it) still compiles but is
-  unreachable: `Route.Sessions` is never constructed. Either re-wire an entry
-  point or delete the subtree; do not QA it as shipping behavior.
-- Android's `HomeAppTakeoverRow` and its `savedAppsByThread` / `sessionApps`
-  feeder pipeline are built but never rendered. The grouping work runs on every
-  home snapshot tick to populate an unread local.
+- Android's `Route.Sessions` screen subtree and the `HomeAppTakeoverRow` /
+  `savedAppsByThread` / `sessionApps` feeder pipeline were removed. Re-measured
+  2026-09-22: no `Route.Sessions`, `SessionsScreen`, `SessionsUiState`,
+  `SessionsDerivation`, or `HomeAppTakeoverRow` symbol exists anywhere under
+  `apps/android`; the `apps/android/docs/qa-matrix.md` text that still described
+  them was corrected too, so no stale reference remains.
 
 Each voice item is device-gated. A green unit test is not proof that speaker
 routing, metering, Bluetooth, interruption, or handoff works on hardware.
@@ -140,16 +144,17 @@ blanket allows would erase useful architecture signals.
 - `services/kittylitter` targets v0.3.10 alongside mobile 2.1.2. The release guard
   rejects changing that package after its tag and rejects mismatched mobile
   pairing URLs; future host changes require a coordinated version bump.
-- Android's three custom `buildConfigField`s (`RUNTIME_STARTUP_MODE`,
-  `APP_RUNTIME_TRANSPORT`, `ENABLE_ON_DEVICE_BRIDGE`), the two matching
-  `manifestPlaceholders`, and the two `<meta-data>` tags they feed form a closed
-  loop: no production Kotlin reads any of them, and no code calls
-  `PackageManager.GET_META_DATA`. `RuntimeFlavorConfigTest` asserts these
-  constants against values hardcoded in the same Gradle file, so it tests the
-  build system rather than the app.
-- Historical Git objects still contain a roughly 82 MB shared-library object,
-  leaving a roughly 130 MB pack. Removing it requires a coordinated history
-  rewrite and is intentionally outside routine cleanup.
+- Android's custom `buildConfigField`s, `manifestPlaceholders`, and their
+  `<meta-data>` tags were removed from `apps/android/app/build.gradle.kts`.
+  Re-measured 2026-09-22: no `buildConfigField`, no
+  `RUNTIME_STARTUP_MODE` / `APP_RUNTIME_TRANSPORT` / `ENABLE_ON_DEVICE_BRIDGE`
+  reference survives anywhere under `apps/android`, and `RuntimeFlavorConfigTest`
+  no longer exists.
+- Historical Git objects still contain a 78.2 MB
+  `apps/android/app/src/main/jniLibs/arm64-v8a/libcodex.so`, plus 11.0 MB and
+  10.0 MB `home_cat_entrance.png` / `home_cat.png` predecessors, in a 146 MB
+  pack. Removing them requires a coordinated history rewrite and is
+  intentionally outside routine cleanup.
 - The iOS and Android `home_cat.webp` / `home_cat_entrance.webp` pairs are
   byte-identical across platforms (~4.5 MB of tracked duplication). No other
   tracked asset justifies a conversion-only cleanup wave.
@@ -188,12 +193,15 @@ deliberately:
    native WebRTC adapters, add the typed existing-thread handoff contract in
    Rust, and validate interruption/Bluetooth/speaker behavior on iOS and Android
    devices.
-4. **Android reachability.** Decide the fate of the `Route.Sessions` subtree and
-   the saved-app home takeover, then remove the dead runtime-flavor build config
-   loop.
-5. **Conversation decomposition.** Capture replay fixtures and profiling first;
-   then extract render-only sections, hydration boundaries, and reducer domains
-   without creating native shadow state.
+4. **Android reachability.** Done: the `Route.Sessions` subtree, the saved-app
+   home takeover, and the runtime-flavor build config loop are removed. Keep the
+   remaining `apps/android/docs/qa-matrix.md` text honest when it changes.
+5. **Conversation decomposition.** Profiling is done: `testStreamingRenderCachePerformance_1000Tokens`
+   streams a growing paragraph in 1000 appends and now measures 25 ms, down from 3.56 s
+   before the append fast path, and the interaction latency markers are in place
+   (`make measure-latency`). Next, capture replay fixtures, then extract render-only
+   sections, hydration boundaries, and reducer domains without creating native shadow
+   state.
 6. **Release reuse.** Extract shared workflow setup and artifact assertions,
    keeping store ownership, signing, installed runtime, and live endpoint gates
    distinct.

@@ -114,6 +114,35 @@ Sync/apply (idempotent):
 Pass `--recorded-gitlink` to reset the submodule to the commit recorded in the
 superproject.
 
+## Reclaim Build Output
+
+The repository directory is dominated by gitignored build output, not source. Measured
+2026-09-22 on the primary development machine, the whole checkout was 73 GB while
+the tracked working tree was 36 MB, excluding the 151 MB of submodule checkouts:
+
+| Path | Size | What it is |
+|---|---|---|
+| `shared/rust-bridge/target/` | 61 GB | Cargo output for every target and profile, 28 GB of it `incremental` |
+| `apps/ios/GeneratedRust/` | 5.2 GB | Raw device and simulator staticlibs |
+| `apps/android/` | 4.2 GB | Gradle caches and build directories |
+| `artifacts/` | 1.8 GB | Test artifacts, `.xcresult` bundles, store snapshots |
+
+None of it is source, and all of it is gitignored. Reclaim it per lane, cheapest
+first:
+
+```bash
+make prune-dev-cache       # drops Cargo `incremental` dirs only; next build stays incremental-free but reuses `deps`
+make prune-ios-sim-only    # drops the device/macabi iOS staticlibs the active simulator lane cannot use
+rm -rf artifacts/*         # test artifacts and store snapshots; every one is regenerated on demand
+make clean-android         # Gradle build dirs and copied JNI libs
+make clean                 # everything, including the stamp cache; costs a full Rust rebuild
+```
+
+Keep `artifacts/mobile-triage/triage-state.json` if you still need the triage
+ledger; everything else under `artifacts/` is disposable. `make clean-rust`
+respects a shared `RUST_TARGET` and leaves it in place rather than deleting a
+cache other worktrees are using.
+
 ## Build the Rust Bridge
 
 ```bash
@@ -159,6 +188,90 @@ make test-android                      # generate bindings and run unit tests
 make android                           # full Rust/JNI + debug APK pipeline
 make android-emulator-fast             # host emulator ABI only
 ```
+
+## Measure Interaction Latency
+
+Three interactions decide whether the app feels fast, and each has a different
+measurement path. Nothing here runs in Release: every marker is debug-only, so a
+Release build pays nothing for them.
+
+| Interaction | Start marker | End marker |
+|---|---|---|
+| Tap a session → conversation visible | `PerfTracker.beginInterval("OpenThread", key:)` in `HomeNavigationView.openConversation` (iOS) / `PerfTrace.beginInterval` in `LitterApp.navigateToConversation` (Android) | first `onAppear` of `ConversationView` (iOS) / first `LaunchedEffect` of `ConversationScreen` (Android) |
+| Send a message → first streamed token | `PerfTracker.beginInterval("SendMessage", key:)` in `AppModel.startTurn` | first `assistantText` `threadStreamingDelta` (iOS `handleStoreUpdate`, Android `handleUpdate`) |
+| Turn finish | — | `PerfTracker.endInterval("SendMessage", key:)` on `threadMetadataChanged`, which closes a turn that streamed no text |
+
+Both platforms write the same shape, so one parser reads both:
+
+```
+[LLog][INFO][perf] SendMessage latency key=srv/thr 1432.55ms   # iOS
+perf: SendMessage latency key=srv/thr 1432.55ms                  # Android
+```
+
+Server-side cost is already timed in Rust and needs no platform change:
+`codex-mobile-client` emits `mobile request timing` with `operation` and
+`elapsed_ms` per request, and `AppModel.startTurn` logs the `turn/start`
+round-trip as `startTurn completed in <ms>ms`.
+
+```bash
+make measure-latency             # parse the newest simulator/device logs
+make measure-latency-ios-log     # parse a saved simulator console log only
+make measure-latency-android     # frame stats, cold start, and perf logcat lines
+make measure-latency-ios-tests   # build + run the XCTest latency suites
+./tools/scripts/measure-interaction-latency.sh ios-trace <profile.trace>  # signpost intervals
+```
+
+Reports land in `artifacts/interaction-latency/<timestamp>/`. `ios-trace` exports
+the `os-signpost` table and pairs `begin`/`end` by signpost id, which is the only
+way to get frame-accurate tap→render numbers; a simulator console log gives the
+same intervals as log lines without the trace overhead.
+
+Two existing baselines are worth knowing before optimizing:
+
+- `InteractionTimingTests` and `PerformanceMeasurementTests` measure the transcript
+  pipeline in isolation (`make measure-latency-ios-tests`). They do **not** measure
+  a tap or a send: they time `TranscriptTurn.build`, the projection, and the
+  streaming render cache at scale.
+- `testStreamingRenderCachePerformance_1000Tokens` streams a single growing
+  paragraph in 1000 appends. It measured 3.56s before the append fast path
+  described below, 0.42s once the fast path existed, and 0.025s once the fast path
+  stopped re-walking the whole chunk to hash and measure it. That is the number to
+  attack first for "sending the next message feels slow", and it is also the
+  regression gate for the fast path.
+
+### Streaming render cost
+
+Both platforms keep a per-item cache of the segments already rendered and re-parse only
+a tail, so a tick is not quadratic. The tail is still re-parsed in full whenever the
+anchor cannot advance, which for a single growing paragraph is the whole message: the
+measured 3.56ms/token came from re-running the Rust block builder,
+`splitMarkdownBlocks`, the tail copy, and several `String.count` grapheme walks over
+the entire message on every token.
+
+Both caches now fold a plain-text append into the cached final chunk instead, which is
+O(appended). `StreamingAssistantRenderCache.extendEntry` (iOS) and
+`StreamingTextCoordinator.extendFrontier` (Android) take that path only when the
+append cannot change segmentation, and re-parse otherwise:
+
+- the text is a pure append — the cached text is still a prefix, checked by the
+  sampled signature plus a bounded comparison at the splice point;
+- the final segment is a markdown chunk, not a code fence or an image, and its last
+  line is not still only marker characters, which could still become a thematic break,
+  an ordered-list marker, or a fence opener;
+- the message contains no `http://` or `https://`, since `linkify_bare_web_urls`
+  rewrites the block text and cannot be reproduced by appending;
+- the appended bytes are ASCII and contain none of ``\n \r | ` ~ $ \ : /``, each of
+  which can move a markdown block boundary.
+
+The chunk's identity and length are carried forward too. Recomputing either means
+walking the whole chunk again, which cost another 17x on top of the fold itself, so
+the extended chunk gets an incremental FNV-1a hash and an incremental length
+instead of a fresh `Hasher` and `String.count`.
+
+Anything else falls back to the previous re-parse, so the path is a pure speedup.
+`StreamingAssistantRenderCacheTests.testAppendOnlyStreamMatchesColdParse` and
+`testStructuralAppendsMatchColdParse` assert that a streamed message renders exactly
+what a cold parse of the same text renders.
 
 ## TestFlight (iOS)
 
