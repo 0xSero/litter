@@ -549,9 +549,25 @@ pub(super) async fn read_thread_response_from_app_server_runtime(
 pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     app_store: &AppStoreReducer,
     server_id: &str,
-    mut response: upstream::ThreadReadResponse,
+    response: upstream::ThreadReadResponse,
     include_turns: bool,
 ) -> Result<(), RpcError> {
+    let snapshot = thread_snapshot_from_app_server_read_response(
+        app_store,
+        server_id,
+        response,
+        include_turns,
+    )?;
+    app_store.upsert_thread_snapshot(snapshot);
+    Ok(())
+}
+
+pub(super) fn thread_snapshot_from_app_server_read_response(
+    app_store: &AppStoreReducer,
+    server_id: &str,
+    mut response: upstream::ThreadReadResponse,
+    include_turns: bool,
+) -> Result<ThreadSnapshot, RpcError> {
     if !include_turns {
         response.thread.turns.clear();
     }
@@ -575,8 +591,7 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     }
     crate::store::reconcile::apply_pagination_merge(existing.as_ref(), &mut snapshot, &turns);
     reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
-    app_store.upsert_thread_snapshot(snapshot);
-    Ok(())
+    Ok(snapshot)
 }
 
 pub(super) fn thread_snapshot_from_upstream_thread_state(

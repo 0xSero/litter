@@ -773,10 +773,41 @@ impl AppStoreReducer {
         }
     }
 
-    pub fn upsert_thread_snapshot(&self, mut thread: ThreadSnapshot) {
+    pub fn upsert_thread_snapshot(&self, thread: ThreadSnapshot) {
+        self.upsert_thread_snapshot_guarded(thread, None);
+    }
+
+    /// An idle repair is a read started before a possible follow-up. Check
+    /// its preconditions under the same lock as replacement so newer events,
+    /// optimistic sends and history pagination cannot be overwritten.
+    pub(crate) fn upsert_idle_thread_snapshot_if_unchanged(
+        &self,
+        thread: ThreadSnapshot,
+        items_revision: u64,
+        overlays_revision: u64,
+    ) -> bool {
+        self.upsert_thread_snapshot_guarded(thread, Some((items_revision, overlays_revision)))
+    }
+
+    fn upsert_thread_snapshot_guarded(
+        &self,
+        mut thread: ThreadSnapshot,
+        expected_idle_revisions: Option<(u64, u64)>,
+    ) -> bool {
         let key = thread.key.clone();
         {
             let mut snapshot = self.write_snapshot();
+            if let Some((items_revision, overlays_revision)) = expected_idle_revisions {
+                let unchanged = snapshot.threads.get(&key).is_some_and(|current| {
+                    current.active_turn_id.is_none()
+                        && current.info.status == ThreadSummaryStatus::Idle
+                        && current.items.revision() == items_revision
+                        && current.local_overlay_items.revision() == overlays_revision
+                });
+                if !unchanged {
+                    return false;
+                }
+            }
             if self
                 .pending_local_studio_thread_routes
                 .write()
@@ -816,6 +847,7 @@ impl AppStoreReducer {
             snapshot.threads.insert(key.clone(), thread);
         }
         self.emit_thread_upsert(&key);
+        true
     }
 
     pub fn mark_thread_resumed(&self, key: &ThreadKey, is_resumed: bool) {
@@ -1777,6 +1809,16 @@ impl AppStoreReducer {
             UiEvent::TurnCompleted { key, turn_id, .. } => {
                 if self
                     .mutate_thread_with_result(key, |thread| {
+                        // Completion for an older turn may arrive after the
+                        // next turn starts. It must not stop the new turn or
+                        // clear its plan, input responses or queued steers.
+                        if thread
+                            .active_turn_id
+                            .as_ref()
+                            .is_some_and(|id| id != turn_id)
+                        {
+                            return false;
+                        }
                         thread.active_turn_id = None;
                         thread.active_plan_progress = None;
                         thread.info.status = ThreadSummaryStatus::Idle;
@@ -1808,8 +1850,9 @@ impl AppStoreReducer {
                         {
                             thread.pending_plan_implementation_turn_id = Some(turn_id.to_string());
                         }
+                        true
                     })
-                    .is_some()
+                    .unwrap_or(false)
                 {
                     self.emit_thread_metadata_changed(key);
                 }
@@ -6020,6 +6063,116 @@ mod tests {
         assert_eq!(thread.active_turn_id.as_deref(), Some("turn-2"));
         assert_eq!(thread.queued_follow_ups.len(), 1);
         assert_eq!(thread.queued_follow_ups[0].id, "queued-2");
+    }
+
+    #[test]
+    fn late_turn_completion_preserves_follow_up_and_history() {
+        let reducer = AppStoreReducer::new();
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        let key = thread.key.clone();
+        thread
+            .items
+            .push(assistant_item_named("answer-1", "first answer"));
+        reducer.upsert_thread_snapshot(thread);
+        reducer.apply_ui_event(&UiEvent::TurnStarted {
+            key: key.clone(),
+            turn_id: "turn-2".into(),
+        });
+        reducer.enqueue_thread_follow_up_preview(
+            &key,
+            AppQueuedFollowUpPreview {
+                id: "steer-2".into(),
+                kind: super::super::snapshot::AppQueuedFollowUpKind::PendingSteer,
+                text: "also check this".into(),
+            },
+        );
+        reducer.apply_ui_event(&UiEvent::TurnCompleted {
+            key: key.clone(),
+            turn_id: "turn-1".into(),
+            error: None,
+        });
+        let current = reducer.thread_snapshot(&key).unwrap();
+        assert_eq!(current.active_turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(current.info.status, ThreadSummaryStatus::Active);
+        assert_eq!(current.items[0].id, "answer-1");
+        assert_eq!(current.queued_follow_ups.len(), 1);
+
+        reducer.apply_ui_event(&UiEvent::TurnCompleted {
+            key: key.clone(),
+            turn_id: "turn-2".into(),
+            error: None,
+        });
+        let current = reducer.thread_snapshot(&key).unwrap();
+        assert_eq!(current.active_turn_id, None);
+        assert_eq!(current.info.status, ThreadSummaryStatus::Idle);
+        assert_eq!(current.items[0].id, "answer-1");
+        assert!(current.queued_follow_ups.is_empty());
+    }
+
+    #[test]
+    fn idle_history_repair_rejects_new_turn_overlay_and_content_changes() {
+        // Each change can race an in-flight thread/read. Validate the atomic
+        // replacement guard, including a turn that finishes before the read.
+        for change in [
+            "started", "finished", "overlay", "content", "removed", "none",
+        ] {
+            let reducer = AppStoreReducer::new();
+            let mut stale = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+            let key = stale.key.clone();
+            stale
+                .items
+                .push(assistant_item_named("answer-1", "first answer"));
+            reducer.upsert_thread_snapshot(stale.clone());
+            let before = reducer.thread_snapshot(&key).unwrap();
+            match change {
+                "started" | "finished" => {
+                    reducer.apply_ui_event(&UiEvent::TurnStarted {
+                        key: key.clone(),
+                        turn_id: "turn-2".into(),
+                    });
+                    if change == "finished" {
+                        let mut item = assistant_item_named("answer-2", "second answer");
+                        item.source_turn_id = Some("turn-2".into());
+                        reducer.apply_item_update(&key, item);
+                        reducer.apply_ui_event(&UiEvent::TurnCompleted {
+                            key: key.clone(),
+                            turn_id: "turn-2".into(),
+                            error: None,
+                        });
+                    }
+                }
+                "overlay" => {
+                    reducer.stage_local_user_message_overlay(
+                        &key,
+                        &[upstream::UserInput::Text {
+                            text: "follow-up".into(),
+                            text_elements: Vec::new(),
+                        }],
+                    );
+                }
+                "content" => {
+                    reducer.apply_item_update(
+                        &key,
+                        assistant_item_named("answer-1", "updated answer"),
+                    );
+                }
+                "removed" => reducer.remove_thread(&key),
+                _ => {}
+            }
+            let mut updates = reducer.subscribe();
+            let applied = reducer.upsert_idle_thread_snapshot_if_unchanged(
+                stale,
+                before.items.revision(),
+                before.local_overlay_items.revision(),
+            );
+            assert_eq!(applied, change == "none", "{change}");
+            if !applied {
+                assert!(drain_updates(&mut updates).is_empty(), "{change}");
+            }
+            if change == "finished" {
+                assert_eq!(reducer.thread_snapshot(&key).unwrap().items.len(), 2);
+            }
+        }
     }
 
     #[test]

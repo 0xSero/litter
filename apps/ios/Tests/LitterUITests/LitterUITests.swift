@@ -6,6 +6,46 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
+    func testFollowUpKeepsPreviousTurnVisible() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launchArguments += ["--ui-test-multiturn", "-collapseTurns", "YES"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["HISTORY_MESSAGE_2"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["multiturn.followup"].isHittable)
+        app.buttons["multiturn.followup"].tap()
+        XCTAssertTrue(app.staticTexts["FOLLOWUP_ANSWER_1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["HISTORY_MESSAGE_2"].exists)
+        app.buttons["Finish"].tap()
+        XCTAssertTrue(app.buttons["multiturn.followup"].isHittable)
+        app.buttons["multiturn.followup"].tap()
+        XCTAssertTrue(app.staticTexts["FOLLOWUP_ANSWER_2"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["FOLLOWUP_ANSWER_1"].exists)
+        XCTAssertFalse(app.buttons["Show Less"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testLongTurnRemainsScrollableAfterFollowUp() throws {
+        let app = conversationDisplayHarnessApp()
+        app.launchArguments += ["--ui-test-multiturn", "--ui-test-long-turn", "-collapseTurns", "NO"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["HISTORY_MESSAGE_499"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["multiturn.followup"].isHittable)
+        app.buttons["multiturn.followup"].tap()
+        XCTAssertTrue(app.staticTexts["FOLLOWUP_ANSWER_1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["HISTORY_MESSAGE_499"].exists)
+        app.scrollViews.firstMatch.swipeDown()
+        let history = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "HISTORY_MESSAGE_"))
+        XCTAssertTrue(history.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Show Less"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     func testConversationDisplaySettingsRowsAreReachable() throws {
         let app = conversationDisplayHarnessApp()
         app.launchArguments.append("--ui-test-open-settings")

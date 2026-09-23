@@ -34,10 +34,25 @@ struct ConversationTurnTimeline: View {
 
         return LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                rowView(
-                    row,
+                ConversationTimelineRow(
+                    isLive: isLive,
+                    serverId: serverId,
+                    originThreadId: originThreadId,
+                    agentDirectoryVersion: agentDirectoryVersion,
+                    messageActionsDisabled: messageActionsDisabled,
+                    resolveTargetLabel: resolveTargetLabel,
+                    resolveThreadKey: resolveThreadKey,
+                    resolveLiveStatus: resolveLiveStatus,
+                    onWidgetPrompt: onWidgetPrompt,
+                    onEditUserItem: onEditUserItem,
+                    onForkFromUserItem: onForkFromUserItem,
+                    onOpenConversation: onOpenConversation,
+                    row: row,
                     isLastRow: index == rows.indices.last,
-                    streamingAssistantItemId: streamingItemId
+                    streamingAssistantItemId: streamingItemId,
+                    reasoningDisplayMode: reasoningDisplayMode,
+                    commandDisplayMode: commandDisplayMode,
+                    toolDisplayMode: toolDisplayMode
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
@@ -71,16 +86,49 @@ struct ConversationTurnTimeline: View {
         ConversationDetailDisplayMode.resolve(toolDisplayModeRaw)
     }
 
+}
+
+struct ConversationTimelineRow: View, Equatable {
+    let isLive: Bool
+    let serverId: String
+    let originThreadId: String?
+    let agentDirectoryVersion: UInt64
+    let messageActionsDisabled: Bool
+    let resolveTargetLabel: (String) -> String?
+    let resolveThreadKey: (String) -> ThreadKey?
+    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
+    let onWidgetPrompt: (String) -> Void
+    let onEditUserItem: (ConversationItem) -> Void
+    let onForkFromUserItem: (ConversationItem) -> Void
+    var onOpenConversation: ((ThreadKey) -> Void)? = nil
+
+    let row: ConversationTimelineRowDescriptor
+    let isLastRow: Bool
+    let streamingAssistantItemId: String?
+    let reasoningDisplayMode: ConversationDetailDisplayMode
+    let commandDisplayMode: ConversationDetailDisplayMode
+    let toolDisplayMode: ConversationDetailDisplayMode
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row &&
+            lhs.isLive == rhs.isLive &&
+            lhs.isLastRow == rhs.isLastRow &&
+            (lhs.row.id == lhs.streamingAssistantItemId) == (rhs.row.id == rhs.streamingAssistantItemId) &&
+            lhs.serverId == rhs.serverId &&
+            lhs.originThreadId == rhs.originThreadId &&
+            lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
+            lhs.messageActionsDisabled == rhs.messageActionsDisabled &&
+            lhs.reasoningDisplayMode == rhs.reasoningDisplayMode &&
+            lhs.commandDisplayMode == rhs.commandDisplayMode &&
+            lhs.toolDisplayMode == rhs.toolDisplayMode
+    }
+
     // Returns AnyView rather than `some View` with @ViewBuilder so the result
     // type doesn't fan out to Group<_ConditionalContent<_ConditionalContent<…>, …>>.
     // Time Profiler showed 44% of main-thread CPU in `outlined destroy` of that
     // nested union; AnyView's per-node diff overhead is cheaper than destroying
     // the union every SwiftUI pass.
-    private func rowView(
-        _ row: ConversationTimelineRowDescriptor,
-        isLastRow: Bool,
-        streamingAssistantItemId: String?
-    ) -> AnyView {
+    var body: AnyView {
         switch row {
         case .item(let item):
             return AnyView(
@@ -129,7 +177,7 @@ struct ConversationTurnTimeline: View {
     }
 }
 
-private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
+enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
     case item(ConversationItem)
     case exploration(id: String, items: [ConversationItem])
     case subagentGroup(id: String, merged: ConversationMultiAgentActionData, sourceItems: [ConversationItem])
@@ -307,7 +355,7 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
 /// The key is a digest over item identity + `renderDigest`, so a cache hit is
 /// exact: any content change produces a different key.
 @MainActor
-private final class ConversationTimelineRowCache {
+final class ConversationTimelineRowCache {
     static let shared = ConversationTimelineRowCache()
 
     private struct Key: Hashable {
@@ -325,7 +373,7 @@ private final class ConversationTimelineRowCache {
     private var accessStamps: [Key: UInt64] = [:]
     private var accessCounter: UInt64 = 0
 
-    fileprivate func rows(
+    func rows(
         for items: [ConversationItem],
         reasoningDisplayMode: ConversationDetailDisplayMode,
         commandDisplayMode: ConversationDetailDisplayMode,
@@ -2528,5 +2576,84 @@ private extension ToolCallStatus {
         case .unknown:
             return LitterTheme.textSecondary
         }
+    }
+}
+
+/// Flat scroll targets let the outer lazy stack virtualize individual messages,
+/// including very long agent turns. Only changed turns rebuild their row models.
+struct ConversationTranscriptProjection {
+    struct Entry: Identifiable {
+        enum Content {
+            case row(ConversationTimelineRowDescriptor, isLast: Bool, streamingItemID: String?)
+            case collapsed
+            case footer
+        }
+        let turn: TranscriptTurn
+        let content: Content
+
+        var id: String {
+            switch content {
+            case .row(let row, _, _): "row/\(row.id)"
+            case .collapsed: "\(turn.id)/summary"
+            case .footer: "\(turn.id)/footer"
+            }
+        }
+    }
+
+    private struct CachedRows {
+        let digest: Int
+        let rows: [ConversationTimelineRowDescriptor]
+    }
+
+    private(set) var entries: [Entry] = []
+    private(set) var turnIDByEntryID: [String: String] = [:]
+    private var cachedRows: [String: CachedRows] = [:]
+    private var displayModes: [ConversationDetailDisplayMode] = []
+
+    @MainActor
+    mutating func update(
+        turns: [TranscriptTurn],
+        expandedTurnIDs: Set<String>,
+        reasoning: ConversationDetailDisplayMode,
+        commands: ConversationDetailDisplayMode,
+        tools: ConversationDetailDisplayMode
+    ) {
+        let modes = [reasoning, commands, tools]
+        if modes != displayModes {
+            cachedRows.removeAll()
+            displayModes = modes
+        }
+        let turnIDs = Set(turns.map(\.id))
+        cachedRows = cachedRows.filter { turnIDs.contains($0.key) }
+        var result: [Entry] = []
+        for turn in turns {
+            if !turn.isLive && turn.isCollapsedByDefault && !expandedTurnIDs.contains(turn.id) {
+                result.append(Entry(turn: turn, content: .collapsed))
+                continue
+            }
+            let rows: [ConversationTimelineRowDescriptor]
+            if let cached = cachedRows[turn.id], cached.digest == turn.renderDigest {
+                rows = cached.rows
+            } else {
+                rows = ConversationTimelineRowCache.shared.rows(
+                    for: turn.items,
+                    reasoningDisplayMode: reasoning,
+                    commandDisplayMode: commands,
+                    toolDisplayMode: tools
+                )
+                cachedRows[turn.id] = CachedRows(digest: turn.renderDigest, rows: rows)
+            }
+            let streamingItemID = turn.isLive ? turn.items.last(where: \.isAssistantItem)?.id : nil
+            for (index, row) in rows.enumerated() {
+                result.append(Entry(turn: turn, content: .row(
+                    row, isLast: index == rows.count - 1, streamingItemID: streamingItemID
+                )))
+            }
+            if turn.isLive || turn.isCollapsedByDefault {
+                result.append(Entry(turn: turn, content: .footer))
+            }
+        }
+        entries = result
+        turnIDByEntryID = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0.turn.id) })
     }
 }

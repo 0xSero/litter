@@ -4,7 +4,7 @@ import XCTest
 /// Performance measurement tests using XCTest `measure {}` blocks.
 /// These establish baselines for the critical paths we optimized:
 /// - TranscriptTurn.build (conversation rendering)
-/// - TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering
+/// - TranscriptTurn.renderableTurns
 /// - StreamingAssistantRenderCache (per-token streaming)
 /// - ConversationScreenModel projection (snapshot → transcript)
 /// - relativeDate formatter (home card rendering)
@@ -45,7 +45,7 @@ final class PerformanceMeasurementTests: XCTestCase {
             expandedRecentTurnCount: .max
         )
         measure {
-            _ = TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
+            _ = TranscriptTurn.renderableTurns(turns)
         }
     }
 

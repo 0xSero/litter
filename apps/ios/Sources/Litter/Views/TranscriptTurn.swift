@@ -1,22 +1,11 @@
 import Foundation
 
 enum ConversationTurnCollapsePolicy {
-    /// Rendering every message/tool view in a large restored page can exhaust
-    /// SwiftUI's layout budget and leave the conversation surface blank.
-    static let automaticItemThreshold = 200
-
-    static func shouldCollapse(
-        preferenceEnabled: Bool,
-        itemCount: Int
-    ) -> Bool {
-        preferenceEnabled || itemCount >= automaticItemThreshold
-    }
-
     static func expandedRecentTurnCount(
         preferenceEnabled: Bool,
         itemCount: Int
     ) -> Int {
-        shouldCollapse(preferenceEnabled: preferenceEnabled, itemCount: itemCount) ? 1 : .max
+        preferenceEnabled ? 1 : .max
     }
 }
 
@@ -92,7 +81,7 @@ struct TranscriptTurn: Identifiable, Equatable {
         } else {
             isStreaming = false
         }
-        let groupedItems = mergeTrailingStreamingGroups(in: group(items), isStreaming: isStreaming)
+        let groupedItems = group(items)
         guard !groupedItems.isEmpty else { return [] }
 
         let lastIndex = groupedItems.index(before: groupedItems.endIndex)
@@ -141,34 +130,48 @@ struct TranscriptTurn: Identifiable, Equatable {
         )
     }
 
-    static func mergeConsecutiveExplorationTurnsForRendering(
+    static func renderableTurns(
         _ turns: [TranscriptTurn]
     ) -> [TranscriptTurn] {
-        var merged: [TranscriptTurn] = []
-        var explorationBuffer: [TranscriptTurn] = []
+        turns.compactMap(renderableTurn)
+    }
 
-        func flushExplorationBuffer() {
-            guard !explorationBuffer.isEmpty else { return }
-            if explorationBuffer.count == 1, let single = explorationBuffer.first {
-                merged.append(single)
-            } else if let mergedTurn = mergedExplorationTurn(from: explorationBuffer) {
-                merged.append(mergedTurn)
-            }
-            explorationBuffer.removeAll(keepingCapacity: true)
+    /// A server acknowledgement can replace an optimistic first item. Match
+    /// that turn by authoritative provenance only when the source is unique;
+    /// repeated source IDs across explicit user boundaries remain distinct.
+    static func previousTurnIDs(in nextTurns: [TranscriptTurn], from previousTurns: [TranscriptTurn]) -> [String: String] {
+        let previousIDs = Set(previousTurns.map(\.id))
+        func sourceID(_ turn: TranscriptTurn) -> String? {
+            turn.items.first(where: { $0.sourceTurnId != nil })?.sourceTurnId
         }
-
-        for turn in turns {
-            guard let renderableTurn = renderableTurn(from: turn) else { continue }
-            if renderableTurn.items.allSatisfy(\.isExplorationCommandItem) {
-                explorationBuffer.append(renderableTurn)
-            } else {
-                flushExplorationBuffer()
-                merged.append(renderableTurn)
+        let oldBySource = Dictionary(grouping: previousTurns.compactMap { turn in
+            sourceID(turn).map { ($0, turn.id) }
+        }, by: { $0.0 })
+        let newBySource = Dictionary(grouping: nextTurns.compactMap { turn in
+            sourceID(turn).map { ($0, turn.id) }
+        }, by: { $0.0 })
+        var matches: [String: String] = [:]
+        for turn in nextTurns {
+            if previousIDs.contains(turn.id) {
+                matches[turn.id] = turn.id
+            } else if let source = sourceID(turn),
+                      oldBySource[source]?.count == 1, newBySource[source]?.count == 1 {
+                matches[turn.id] = oldBySource[source]?.first?.1
             }
         }
+        return matches
+    }
 
-        flushExplorationBuffer()
-        return merged
+    static func preservingCollapseState(
+        in nextTurns: [TranscriptTurn],
+        from previousTurns: [TranscriptTurn]
+    ) -> [TranscriptTurn] {
+        let previous = Dictionary(uniqueKeysWithValues: previousTurns.map { ($0.id, $0.isCollapsedByDefault) })
+        let matches = previousTurnIDs(in: nextTurns, from: previousTurns)
+        return nextTurns.map { turn in
+            guard let oldID = matches[turn.id], let wasCollapsed = previous[oldID] else { return turn }
+            return turn.withCollapsedByDefault(wasCollapsed)
+        }
     }
 
     private static func group(_ items: [ConversationItem]) -> [[ConversationItem]] {
@@ -212,28 +215,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         return groups
     }
 
-    private static func mergeTrailingStreamingGroups(
-        in groups: [[ConversationItem]],
-        isStreaming: Bool
-    ) -> [[ConversationItem]] {
-        guard isStreaming, groups.count > 1 else { return groups }
-        guard let liveTurnStartIndex = groups.lastIndex(where: containsLiveTurnBoundary) else {
-            return groups
-        }
-        guard liveTurnStartIndex < groups.index(before: groups.endIndex) else {
-            return groups
-        }
-
-        let mergedLiveTurn = groups[liveTurnStartIndex...].flatMap { $0 }
-        return Array(groups[..<liveTurnStartIndex]) + [mergedLiveTurn]
-    }
-
-    private static func containsLiveTurnBoundary(_ items: [ConversationItem]) -> Bool {
-        items.contains { item in
-            item.isFromUserTurnBoundary || item.isUserItem
-        }
-    }
-
     private static func renderableTurn(from turn: TranscriptTurn) -> TranscriptTurn? {
         let visibleItems = turn.items.filter { !$0.isVisuallyEmptyNeutralItem }
         guard !visibleItems.isEmpty else { return nil }
@@ -241,27 +222,8 @@ struct TranscriptTurn: Identifiable, Equatable {
         return turn.replacingRenderableItems(visibleItems)
     }
 
-    private static func mergedExplorationTurn(from turns: [TranscriptTurn]) -> TranscriptTurn? {
-        guard let last = turns.last else { return nil }
-        let items = turns.flatMap(\.items)
-        let isLive = turns.contains(where: \.isLive)
-        return TranscriptTurn(
-            // Anchor the merged row to its newest constituent turn. Older
-            // pages prepend to this run, so its identity remains stable and
-            // SwiftUI can preserve the visible scroll position.
-            id: "exploration-turn-\(last.id)",
-            items: items,
-            isLive: isLive,
-            isCollapsedByDefault: turns.allSatisfy(\.isCollapsedByDefault),
-            renderDigest: makeRenderDigest(from: items, isLive: isLive)
-        )
-    }
-
     private static func turnIdentifier(for items: [ConversationItem], ordinal: Int) -> String {
         if let first = items.first {
-            if let sourceTurnId = items.first(where: { $0.sourceTurnId != nil })?.sourceTurnId {
-                return "turn-\(sourceTurnId)-\(first.id)"
-            }
             return "turn-\(first.id)"
         }
         return "turn-\(ordinal)"

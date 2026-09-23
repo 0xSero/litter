@@ -73,10 +73,21 @@ fn maybe_reconcile_idle_thread(
                 return;
             }
 
-            let runtime_kind = app_store
-                .thread_snapshot(&key)
-                .map(|thread| thread.agent_runtime_kind.clone())
-                .unwrap_or_else(|| "codex".to_string());
+            let Some(before) = app_store.thread_snapshot(&key) else {
+                return;
+            };
+            if before.active_turn_id.is_some() || before.info.status != ThreadSummaryStatus::Idle {
+                return;
+            }
+            let items_revision = before.items.revision();
+            let overlays_revision = before.local_overlay_items.revision();
+            let latest_turn_id = before
+                .items
+                .iter()
+                .rev()
+                .find_map(|item| item.source_turn_id.clone());
+            let runtime_kind = before.agent_runtime_kind.clone();
+            drop(before);
             match read_thread_response_from_app_server_runtime(
                 Arc::clone(&session),
                 runtime_kind,
@@ -89,26 +100,46 @@ fn maybe_reconcile_idle_thread(
                     if !session_is_current(&sessions, &key.server_id, &session) {
                         return;
                     }
-                    let durable_turn_is_complete =
-                        !response.thread.turns.is_empty()
-                            && response.thread.turns.iter().all(|turn| {
-                                !matches!(turn.status, upstream::TurnStatus::InProgress)
-                            });
-                    if let Err(error) = upsert_thread_snapshot_from_app_server_read_response(
+                    let durable_turn_is_complete = !response.thread.turns.is_empty()
+                        && response
+                            .thread
+                            .turns
+                            .iter()
+                            .all(|turn| !matches!(turn.status, upstream::TurnStatus::InProgress))
+                        && latest_turn_id.as_ref().is_none_or(|id| {
+                            response.thread.turns.iter().any(|turn| {
+                                &turn.id == id && turn.items_view == upstream::TurnItemsView::Full
+                            })
+                        });
+                    // The idle event can precede the durable write. Applying
+                    // that older InProgress snapshot would resurrect a
+                    // finished turn and cancel the next repair attempt. A
+                    // reply omitting the most recently observed turn is
+                    // also stale even when all older turns are completed.
+                    if !durable_turn_is_complete {
+                        continue;
+                    }
+                    let repaired = match thread_snapshot_from_app_server_read_response(
                         &app_store,
                         &key.server_id,
                         response,
                         true,
                     ) {
-                        warn!(
-                            "MobileClient: failed to reconcile idle thread for server={} thread={}: {}",
-                            key.server_id, key.thread_id, error
-                        );
-                        continue;
-                    }
-                    if durable_turn_is_complete {
-                        return;
-                    }
+                        Ok(repaired) => repaired,
+                        Err(error) => {
+                            warn!(
+                                "MobileClient: failed to reconcile idle thread for server={} thread={}: {}",
+                                key.server_id, key.thread_id, error
+                            );
+                            continue;
+                        }
+                    };
+                    app_store.upsert_idle_thread_snapshot_if_unchanged(
+                        repaired,
+                        items_revision,
+                        overlays_revision,
+                    );
+                    return;
                 }
                 Err(error) => {
                     warn!(
@@ -352,7 +383,229 @@ pub(super) async fn maybe_send_next_local_queued_follow_up(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::connection::TestRequestHandler;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
+
+    fn idle_repair_response(status: &str) -> serde_json::Value {
+        serde_json::json!({
+            "thread": {
+                "id": "thread", "sessionId": "session", "preview": "history",
+                "ephemeral": false, "modelProvider": "openai",
+                "createdAt": 1, "updatedAt": 2, "status": { "type": "idle" },
+                "path": "/tmp/thread", "cwd": "/tmp", "cliVersion": "1.0.0",
+                "source": "cli", "agentNickname": null, "agentRole": null,
+                "gitInfo": null, "name": "thread",
+                "turns": [{
+                    "id": "turn-1", "status": status, "itemsView": "full",
+                    "items": [{ "type": "agentMessage", "id": "answer-1", "text": "durable answer" }],
+                    "error": null, "startedAt": 1, "completedAt": 2, "durationMs": 1
+                }]
+            }
+        })
+    }
+
+    fn start_idle_repair_test(
+        app_store: Arc<AppStoreReducer>,
+        handler: TestRequestHandler,
+        initial_turns: Vec<upstream::Turn>,
+    ) {
+        let mut response: upstream::ThreadReadResponse =
+            serde_json::from_value(idle_repair_response("completed")).unwrap();
+        response.thread.turns = initial_turns;
+        let snapshot = thread_snapshot_from_upstream_thread_with_overrides(
+            "srv",
+            response.thread,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let key = snapshot.key.clone();
+        app_store.upsert_thread_snapshot(snapshot);
+        let config = ServerConfig {
+            server_id: "srv".into(),
+            display_name: "srv".into(),
+            host: "127.0.0.1".into(),
+            port: 0,
+            websocket_url: None,
+            is_local: false,
+            tls: false,
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            Some(handler),
+            None,
+            None,
+        ));
+        let sessions = Arc::new(RwLock::new(HashMap::from([("srv".into(), session)])));
+        maybe_reconcile_idle_thread(
+            app_store,
+            sessions,
+            &UiEvent::ThreadStatusChanged {
+                key,
+                notification: upstream::ThreadStatusChangedNotification {
+                    thread_id: "thread".into(),
+                    status: upstream::ThreadStatus::Idle,
+                },
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn idle_repair_retries_in_progress_read_without_resurrecting_turn() {
+        let store = Arc::new(AppStoreReducer::new());
+        let reads = Arc::new(AtomicUsize::new(0));
+        let handler: TestRequestHandler = {
+            let store = Arc::clone(&store);
+            let reads = Arc::clone(&reads);
+            Arc::new(move |request| {
+                let upstream::ClientRequest::ThreadRead { params, .. } = request else {
+                    panic!("idle repair must only read the thread");
+                };
+                assert!(params.include_turns);
+                let current = store
+                    .thread_snapshot(&ThreadKey {
+                        server_id: "srv".into(),
+                        thread_id: "thread".into(),
+                    })
+                    .unwrap();
+                assert_eq!(current.active_turn_id, None);
+                assert_eq!(current.info.status, ThreadSummaryStatus::Idle);
+                let read = reads.fetch_add(1, Ordering::SeqCst);
+                Ok(idle_repair_response(if read == 0 {
+                    "inProgress"
+                } else {
+                    "completed"
+                }))
+            })
+        };
+        start_idle_repair_test(Arc::clone(&store), handler, vec![]);
+        let mut updates = store.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(3), updates.recv())
+            .await
+            .expect("completed repair must publish within retry window")
+            .expect("store update channel must remain open");
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        let current = store
+            .thread_snapshot(&ThreadKey {
+                server_id: "srv".into(),
+                thread_id: "thread".into(),
+            })
+            .unwrap();
+        assert_eq!(current.active_turn_id, None);
+        assert_eq!(current.info.status, ThreadSummaryStatus::Idle);
+        assert_eq!(current.items.len(), 1);
+        assert_eq!(current.items[0].id, "answer-1");
+    }
+
+    #[tokio::test]
+    async fn idle_repair_rejects_read_when_follow_up_starts_before_reply() {
+        let store = Arc::new(AppStoreReducer::new());
+        let key = ThreadKey {
+            server_id: "srv".into(),
+            thread_id: "thread".into(),
+        };
+        let handler: TestRequestHandler = {
+            let store = Arc::clone(&store);
+            let key = key.clone();
+            Arc::new(move |request| {
+                assert!(matches!(
+                    request,
+                    upstream::ClientRequest::ThreadRead { .. }
+                ));
+                // The request has captured idle revisions; deliver a new turn
+                // before returning its now-stale durable response.
+                store.apply_ui_event(&UiEvent::TurnStarted {
+                    key: key.clone(),
+                    turn_id: "turn-2".into(),
+                });
+                Ok(idle_repair_response("completed"))
+            })
+        };
+        start_idle_repair_test(Arc::clone(&store), handler, vec![]);
+        let mut updates = store.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(3), updates.recv())
+            .await
+            .expect("follow-up must start")
+            .expect("store update channel must remain open");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(250), updates.recv())
+                .await
+                .is_err(),
+            "rejected stale read must not publish a replacement"
+        );
+        let current = store.thread_snapshot(&key).unwrap();
+        assert_eq!(current.active_turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(current.info.status, ThreadSummaryStatus::Active);
+        assert!(
+            current.items.is_empty(),
+            "stale answer must not replace live state"
+        );
+    }
+
+    #[tokio::test]
+    async fn idle_repair_retries_when_latest_completed_turn_is_not_durable_yet() {
+        let store = Arc::new(AppStoreReducer::new());
+        let reads = Arc::new(AtomicUsize::new(0));
+        let key = ThreadKey {
+            server_id: "srv".into(),
+            thread_id: "thread".into(),
+        };
+        let mut complete_response = idle_repair_response("completed");
+        let mut second_turn = complete_response["thread"]["turns"][0].clone();
+        second_turn["id"] = serde_json::json!("turn-2");
+        second_turn["items"][0]["id"] = serde_json::json!("answer-2");
+        complete_response["thread"]["turns"]
+            .as_array_mut()
+            .unwrap()
+            .push(second_turn);
+        let initial: upstream::ThreadReadResponse =
+            serde_json::from_value(complete_response.clone()).unwrap();
+        let handler: TestRequestHandler = {
+            let store = Arc::clone(&store);
+            let reads = Arc::clone(&reads);
+            let key = key.clone();
+            Arc::new(move |request| {
+                assert!(matches!(
+                    request,
+                    upstream::ClientRequest::ThreadRead { .. }
+                ));
+                let current = store.thread_snapshot(&key).unwrap();
+                assert_eq!(current.info.status, ThreadSummaryStatus::Idle);
+                assert_eq!(
+                    current.items.len(),
+                    2,
+                    "older durable reply must not erase completed follow-up"
+                );
+                assert_eq!(current.items[1].source_turn_id.as_deref(), Some("turn-2"));
+                let read = reads.fetch_add(1, Ordering::SeqCst);
+                Ok(if read == 0 {
+                    idle_repair_response("completed")
+                } else {
+                    complete_response.clone()
+                })
+            })
+        };
+        start_idle_repair_test(Arc::clone(&store), handler, initial.thread.turns);
+        let mut updates = store.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(3), updates.recv())
+            .await
+            .expect("repair must retry until latest turn is durable")
+            .expect("store update channel must remain open");
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        let current = store.thread_snapshot(&key).unwrap();
+        assert_eq!(current.active_turn_id, None);
+        assert_eq!(
+            current
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["answer-1", "answer-2"]
+        );
+    }
 
     #[test]
     fn item_completed_plan_persists_plan_mode() {

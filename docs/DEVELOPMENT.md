@@ -226,6 +226,26 @@ the `os-signpost` table and pairs `begin`/`end` by signpost id, which is the onl
 way to get frame-accurate tap→render numbers; a simulator console log gives the
 same intervals as log lines without the trace overhead.
 
+For live host/agent request timings, use the installed Kittylitter probe:
+
+```bash
+bun tools/scripts/profile-agent-requests.mjs
+AGENTS=codex,pi METHODS=thread/list,model/list REPEATS=10 bun tools/scripts/profile-agent-requests.mjs
+```
+
+This runs sequential read-only probes over real Iroh connections and saves raw
+timestamped frames, individual results, and percentile summaries under
+`artifacts/request-latency/`. `KITTYLITTER_BIN` selects the binary and
+`TIMEOUT_SECONDS` bounds each entire probe. A missing response or RPC error fails
+the run. Shell exposes PTY methods rather than agent methods and is excluded.
+
+`rpcMs` measures request-to-response; `responseMs` measures process launch through
+response. `totalMs` also includes endpoint teardown, so it is **not** app action
+latency. Each probe opens a fresh connection while retaining its agent's client
+identity. These are connection and RPC measurements, not warm mobile tap-to-render
+or model-generation benchmarks. The default three samples are a smoke check;
+increase `REPEATS` and avoid concurrent builds for stable percentile comparisons.
+
 Two existing baselines are worth knowing before optimizing:
 
 - `InteractionTimingTests` and `PerformanceMeasurementTests` measure the transcript

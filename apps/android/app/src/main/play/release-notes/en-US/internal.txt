@@ -1,6 +1,5 @@
-Litter 2.1.2
-- Browse and edit native settings for connected coding agents
-- Discover current agent models with faster catalog updates
-- Use Oh My Pi with its own models and settings
-- Keep computer helpers in the background and preserve Local Studio connections during upgrades
-- Reduce unnecessary screen updates and improve conversation responsiveness
+Litter 2.1.4
+- Verify follow-ups retain earlier messages and expansion state
+- Verify long conversations scroll smoothly while streaming
+- Verify model/settings requests do not delay unrelated actions
+- Verify reconnect and disconnect during active requests
