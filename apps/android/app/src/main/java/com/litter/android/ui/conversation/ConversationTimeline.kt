@@ -58,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -353,7 +354,7 @@ private fun UserMessageRow(
 @Composable
 private fun LimitedUserMessageText(text: String) {
     val isLong = text.length > UserMessageTextPreviewLimit
-    var expanded by remember(text) { mutableStateOf(false) }
+    var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val display = remember(text, expanded) {
         if (isLong && !expanded) text.take(UserMessageTextPreviewLimit) else text
     }
@@ -664,7 +665,8 @@ private fun CommandExecutionRow(
     data: uniffi.codex_mobile_client.HydratedCommandExecutionData,
     keepExpanded: Boolean,
 ) {
-    var expanded by remember(data.command) { mutableStateOf(keepExpanded) }
+    var expanded by rememberSaveable(data.command) { mutableStateOf(keepExpanded) }
+    var previousKeepExpanded by rememberSaveable(data.command) { mutableStateOf(keepExpanded) }
     val outputScrollState = rememberScrollState()
     val outputText =
         data.output
@@ -680,7 +682,10 @@ private fun CommandExecutionRow(
     val collapsedCommand = remember(data.command) { collapseCommandText(data.command) }
 
     LaunchedEffect(keepExpanded) {
-        expanded = keepExpanded
+        if (keepExpanded != previousKeepExpanded) {
+            expanded = keepExpanded
+            previousKeepExpanded = keepExpanded
+        }
     }
 
     LaunchedEffect(outputText, outputScrollState.maxValue, expanded) {
@@ -1000,7 +1005,7 @@ private fun ScreenshotPreview(bytes: ByteArray) {
 
 @Composable
 private fun AccessibilityTreeSection(text: String) {
-    var expanded by remember(text) { mutableStateOf(false) }
+    var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val lines = remember(text) { text.split('\n') }
     val previewLineCount = 6
     val display = if (expanded || lines.size <= previewLineCount) {
@@ -1266,7 +1271,7 @@ private fun GeneratedImageLoadingTile() {
 
 @Composable
 private fun RevisedPromptSection(prompt: String) {
-    var expanded by remember(prompt) { mutableStateOf(false) }
+    var expanded by rememberSaveable(prompt) { mutableStateOf(false) }
     val isLong = prompt.length > 220 || prompt.count { it == '\n' } >= 4
     val display = if (expanded || !isLong) prompt else prompt.take(220).trimEnd() + "…"
 
@@ -2153,7 +2158,7 @@ private fun ToolCardShell(
     defaultExpanded: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    var expanded by remember(summary, status) {
+    var expanded by rememberSaveable(summary, status) {
         mutableStateOf(defaultExpanded || status == AppOperationStatus.FAILED)
     }
 
@@ -2410,7 +2415,7 @@ private fun LimitedToolTextBlock(
     body: @Composable (String) -> Unit,
 ) {
     val isLong = content.length > ToolCallTextPreviewLimit
-    var expanded by remember(content, previewFromTail) { mutableStateOf(false) }
+    var expanded by rememberSaveable(content, previewFromTail) { mutableStateOf(false) }
     val display = remember(content, expanded, previewFromTail) {
         if (isLong && !expanded) {
             if (previewFromTail) content.takeLast(ToolCallTextPreviewLimit) else content.take(ToolCallTextPreviewLimit)

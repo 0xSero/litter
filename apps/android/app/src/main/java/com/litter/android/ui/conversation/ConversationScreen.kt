@@ -174,6 +174,10 @@ fun ConversationScreen(
         displayedTurns.isNotEmpty()
     var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
+    val turnCollapseState = remember(threadKey, collapseTurns) { TranscriptPresentationState() }
+    val transcriptRows = remember(transcriptTurns, turnCollapseState, expandedTurnIds) {
+        buildTranscriptRows(transcriptTurns, turnCollapseState, expandedTurnIds)
+    }
     var streamingRenderTick by remember(threadKey) { mutableStateOf(0) }
     var followScrollToken by remember(threadKey) { mutableStateOf(0) }
     var hasPositionedInitialTail by remember(threadKey) { mutableStateOf(false) }
@@ -188,10 +192,6 @@ fun ConversationScreen(
     } == true
     val isWaitingForData = items.isEmpty() && threadHasServerData && !waitingForDataExpired
     var lastObservedUpdatedAt by remember(threadKey) { mutableStateOf<Long?>(null) }
-    LaunchedEffect(transcriptTurns.map { it.id to it.isCollapsedByDefault }) {
-        val validIds = transcriptTurns.mapTo(mutableSetOf()) { it.id }
-        expandedTurnIds = expandedTurnIds.intersect(validIds)
-    }
     LaunchedEffect(thread?.info?.updatedAt, isThinking) {
         val updatedAt = thread?.info?.updatedAt
         if (updatedAt != null && updatedAt != lastObservedUpdatedAt && isThinking) {
@@ -323,12 +323,20 @@ fun ConversationScreen(
         }
     }
 
+    // Only reparse diffs when context items change, not on each assistant token.
+    val contextItems = remember(items) {
+        items.filter {
+            it.content is HydratedConversationItemContent.TodoList ||
+                it.content is HydratedConversationItemContent.FileChange ||
+                it.content is HydratedConversationItemContent.TurnDiff
+        }
+    }
     // Pinned context: latest TODO progress + combined session diff summary
-    val pinnedContext = remember(items) {
+    val pinnedContext = remember(contextItems) {
         var todoProgress: String? = null
         val rawDiffSections = mutableListOf<SessionDiffSection>()
-        for (i in items.indices.reversed()) {
-            when (val c = items[i].content) {
+        for (i in contextItems.indices.reversed()) {
+            when (val c = contextItems[i].content) {
                 is HydratedConversationItemContent.TodoList -> {
                     if (todoProgress == null) {
                         val done = c.v1.steps.count {
@@ -385,10 +393,11 @@ fun ConversationScreen(
         }
     }
 
-    val displayedTurnCount = displayedTurns.size + (if (hasMoreTurnsAbove) 1 else 0)
-    LaunchedEffect(threadKey, displayedTurnCount, transcriptTailSignature, followScrollToken, streamingRenderTick) {
+    val bottomAnchorIndex = transcriptRows.size +
+        (if (hasMoreTurnsAbove) 1 else 0) +
+        (if (isWaitingForData || isInitialTurnsLoading) 1 else 0)
+    LaunchedEffect(threadKey, bottomAnchorIndex, transcriptTailSignature, followScrollToken, streamingRenderTick) {
         if (shouldFollowTail && displayedTurns.isNotEmpty()) {
-            val bottomAnchorIndex = conversationBottomAnchorIndex(displayedTurnCount)
             if (!hasPositionedInitialTail || isThinking) {
                 listState.scrollToItem(bottomAnchorIndex)
                 hasPositionedInitialTail = true
@@ -421,6 +430,7 @@ fun ConversationScreen(
                     LazyColumn(
                         state = listState,
                         contentPadding = PaddingValues(top = 68.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp)
@@ -499,120 +509,87 @@ fun ConversationScreen(
                             }
                         }
 
-                        items(
-                            items = displayedTurns,
-                            key = { turn -> turn.id },
-                        ) { turn ->
-                            val isExpanded = !turn.isCollapsedByDefault || expandedTurnIds.contains(turn.id)
-                            val streamingAssistantItemId = remember(turn.items, turn.isActiveTurn) {
-                                if (!turn.isActiveTurn) {
-                                    null
-                                } else {
-                                    turn.items.lastOrNull {
-                                        it.content is HydratedConversationItemContent.Assistant
-                                    }?.id
-                                }
-                            }
-                            if (isExpanded) {
-                                val timelineEntries = remember(turn.items, turn.isActiveTurn) {
-                                    buildTimelineEntries(turn.items, turn.isActiveTurn)
-                                }
-                                val latestCommandExecutionItemId = remember(timelineEntries) {
-                                    timelineEntries.asReversed().firstNotNullOfOrNull { entry ->
-                                        when (entry) {
-                                            is TimelineEntry.Single -> {
-                                                if (entry.item.content is HydratedConversationItemContent.CommandExecution) {
-                                                    entry.item.id
-                                                } else {
-                                                    null
+                        transcriptRows(transcriptRows) { row ->
+                            when (row) {
+                                is TranscriptRow.Entry -> when (val entry = row.entry) {
+                                    is TimelineEntry.Single -> {
+                                        ConversationTimelineItem(
+                                            item = entry.item,
+                                            serverId = threadKey.serverId,
+                                            threadId = threadKey.threadId,
+                                            threadCwd = thread?.info?.cwd,
+                                            agentDirectoryVersion = agentDirectoryVersion,
+                                            latestCommandExecutionItemId = row.latestCommandExecutionItemId,
+                                            isLiveTurn = row.isActiveTurn,
+                                            isStreamingMessage = entry.item.id == row.streamingAssistantItemId,
+                                            onStreamingSnapshotRendered = if (entry.item.id == row.streamingAssistantItemId) {
+                                                { streamingRenderTick += 1 }
+                                            } else {
+                                                null
+                                            },
+                                            onEditMessage = { messageId ->
+                                                // Resolve the user-message position in the
+                                                // currently-loaded transcript. The Rust
+                                                // `editMessage` / `forkThreadFromMessage` APIs
+                                                // expect an index into `thread.items` filtered
+                                                // to user messages — recomputing here keeps
+                                                // the index correct under pagination, where a
+                                                // cached `sourceTurnIndex` from a prior hydrate
+                                                // would be stale.
+                                                loadedUserItemIndex(items, messageId)?.let { turnIndex ->
+                                                    scope.launch {
+                                                        val prefill = appModel.store.editMessage(threadKey, turnIndex)
+                                                        appModel.queueComposerPrefill(threadKey, prefill)
+                                                    }
                                                 }
-                                            }
-
-                                            is TimelineEntry.Exploration -> null
-                                        }
+                                            },
+                                            onForkFromMessage = { messageId ->
+                                                loadedUserItemIndex(items, messageId)?.let { turnIndex ->
+                                                    scope.launch {
+                                                        try {
+                                                            val newKey = appModel.store.forkThreadFromMessage(
+                                                                threadKey,
+                                                                turnIndex,
+                                                                appModel.launchState.forkThreadFromMessageRequest(
+                                                                    cwdOverride = thread.info.cwd,
+                                                                    threadKey = threadKey,
+                                                                ),
+                                                            )
+                                                            appModel.store.setActiveThread(newKey)
+                                                            appModel.refreshThreadSnapshot(newKey)
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                }
+                                            },
+                                            onOpenSavedApp = onOpenSavedApp,
+                                            onWidgetPrompt = { text ->
+                                                scope.launch {
+                                                    try {
+                                                        val payload = com.litter.android.state.AppComposerPayload(
+                                                            text = text,
+                                                            additionalInputs = emptyList(),
+                                                            approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
+                                                            sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
+                                                            model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
+                                                            reasoningEffort = null,
+                                                            serviceTier = null,
+                                                        )
+                                                        appModel.startTurn(threadKey, payload)
+                                                    } catch (_: Exception) {}
+                                                }
+                                            },
+                                        )
                                     }
+                                    is TimelineEntry.Exploration -> ExplorationGroupRow(
+                                        group = entry.group,
+                                        showsCollapsedPreview = row.isLastEntry,
+                                    )
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    timelineEntries.forEachIndexed { index, entry ->
-                                        when (entry) {
-                                            is TimelineEntry.Single -> {
-                                                ConversationTimelineItem(
-                                                    item = entry.item,
-                                                    serverId = threadKey.serverId,
-                                                    threadId = threadKey.threadId,
-                                                    threadCwd = thread?.info?.cwd,
-                                                    agentDirectoryVersion = agentDirectoryVersion,
-                                                    latestCommandExecutionItemId = latestCommandExecutionItemId,
-                                                    isLiveTurn = turn.isActiveTurn,
-                                                    isStreamingMessage = entry.item.id == streamingAssistantItemId,
-                                                    onStreamingSnapshotRendered = if (entry.item.id == streamingAssistantItemId) {
-                                                        { streamingRenderTick += 1 }
-                                                    } else {
-                                                        null
-                                                    },
-                                                    onEditMessage = { messageId ->
-                                                        // Resolve the user-message position in the
-                                                        // currently-loaded transcript. The Rust
-                                                        // `editMessage` / `forkThreadFromMessage` APIs
-                                                        // expect an index into `thread.items` filtered
-                                                        // to user messages — recomputing here keeps
-                                                        // the index correct under pagination, where a
-                                                        // cached `sourceTurnIndex` from a prior hydrate
-                                                        // would be stale.
-                                                        loadedUserItemIndex(items, messageId)?.let { turnIndex ->
-                                                            scope.launch {
-                                                                val prefill = appModel.store.editMessage(threadKey, turnIndex)
-                                                                appModel.queueComposerPrefill(threadKey, prefill)
-                                                            }
-                                                        }
-                                                    },
-                                                    onForkFromMessage = { messageId ->
-                                                        loadedUserItemIndex(items, messageId)?.let { turnIndex ->
-                                                            scope.launch {
-                                                                try {
-                                                                    val newKey = appModel.store.forkThreadFromMessage(
-                                                                        threadKey,
-                                                                        turnIndex,
-                                                                        appModel.launchState.forkThreadFromMessageRequest(
-                                                                            cwdOverride = thread.info.cwd,
-                                                                            threadKey = threadKey,
-                                                                        ),
-                                                                    )
-                                                                    appModel.store.setActiveThread(newKey)
-                                                                    appModel.refreshThreadSnapshot(newKey)
-                                                                } catch (_: Exception) {}
-                                                            }
-                                                        }
-                                                    },
-                                                    onOpenSavedApp = onOpenSavedApp,
-                                                    onWidgetPrompt = { text ->
-                                                        scope.launch {
-                                                            try {
-                                                                val payload = com.litter.android.state.AppComposerPayload(
-                                                                    text = text,
-                                                                    additionalInputs = emptyList(),
-                                                                    approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
-                                                                    sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
-                                                                    model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
-                                                                    reasoningEffort = null,
-                                                                    serviceTier = null,
-                                                                )
-                                                                appModel.startTurn(threadKey, payload)
-                                                            } catch (_: Exception) {}
-                                                        }
-                                                    },
-                                                )
-                                            }
-
-                                            is TimelineEntry.Exploration -> {
-                                                ExplorationGroupRow(
-                                                    group = entry.group,
-                                                    showsCollapsedPreview = index == timelineEntries.lastIndex,
-                                                )
-                                            }
-                                        }
-                                    }
-
+                                is TranscriptRow.Collapsed -> CollapsedTurnCard(turn = row.turn) {
+                                    expandedTurnIds = expandedTurnIds + row.expansionId
+                                }
+                                is TranscriptRow.Footer -> Column {
+                                    val turn = row.turn
                                     // Debug turn metrics
                                     if (com.litter.android.state.DebugSettings.enabled && com.litter.android.state.DebugSettings.showTurnMetrics) {
                                         val metricsText = remember(turn.items) {
@@ -638,31 +615,20 @@ fun ConversationScreen(
                                             modifier = Modifier.padding(top = 2.dp, start = 4.dp),
                                         )
                                     }
-
-                                    if (turn.isActiveTurn) {
-                                        StreamingCursor()
-                                    }
-
-                                    if (turn.isCollapsedByDefault) {
+                                    if (turn.isActiveTurn) StreamingCursor()
+                                    if (row.canCollapse) {
                                         Text(
                                             text = "Show less",
                                             color = LitterTheme.textMuted,
                                             fontSize = LitterTextStyle.caption2.scaled,
                                             fontWeight = FontWeight.Medium,
                                             modifier = Modifier
-                                                .clickable {
-                                                    expandedTurnIds = expandedTurnIds - turn.id
-                                                }
+                                                .clickable { expandedTurnIds = expandedTurnIds - row.expansionId }
                                                 .padding(top = 2.dp),
                                         )
                                     }
                                 }
-                            } else {
-                                CollapsedTurnCard(turn = turn) {
-                                    expandedTurnIds = expandedTurnIds + turn.id
-                                }
                             }
-                            Spacer(Modifier.height(4.dp))
                         }
 
                         item { Spacer(Modifier.height(80.dp)) }
@@ -674,7 +640,7 @@ fun ConversationScreen(
                     SmallFloatingActionButton(
                         onClick = {
                             scope.launch {
-                                listState.animateScrollToItem(conversationBottomAnchorIndex(displayedTurnCount))
+                                listState.animateScrollToItem(bottomAnchorIndex)
                             }
                         },
                         modifier = Modifier
@@ -1279,7 +1245,6 @@ private fun uniffi.codex_mobile_client.AppThreadSnapshot.composerContextPercent(
         .coerceIn(0, 100)
 }
 
-private fun conversationBottomAnchorIndex(turnCount: Int): Int = turnCount + 1
 
 @Composable
 private fun PlanContextBadge(progress: String) {

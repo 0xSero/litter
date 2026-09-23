@@ -35,10 +35,12 @@ Current automated checks:
 | SSH changed identity (guided connect) | Both platforms route a changed host key from guided connect (probe, bootstrap, and SSH bridge paths) to the confirm modal instead of raw marker text; Replace syncs saved servers first so re-pinning works for servers saved this session. A changed key on a never-saved discovery target shows the confirm modal but Replace cannot reconnect it until the server is saved (tracked follow-up). Device acceptance pending. |
 | Local transport drop | Reconnect and one-time reinitialize before the next non-initialize RPC |
 | Remote transport drop | Reconnect behavior via Rust `AppStore` updates and resumed RPC notifications |
+| Slow remote RPC | Shared Rust regression verifies that a 300 ms catalog response does not block unrelated requests or notifications; concurrent transport failures reconnect once, and shutdown drops pending replies. Applies to both platforms. Physical-device tap-to-render validation remains separate. |
 | Saved Alleycat relay identity | Shared Rust canonicalizes DNS relay URLs, including older saved pairings. Android 17 ARM64 16K emulator: relay-only cold restarts produced duplicate-endpoint eviction on 2/2 baseline runs; candidate Rust produced 0/3 evictions and connected in 5.5s, 2.4s, and 2.2s. Controlled native-library replacement retained the signed baseline shell and pairing; final signed-artifact and physical-device acceptance remain separate gates. |
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when Linux sandboxing is unavailable |
 | Thread turn pagination (v0.125+ remote) | Conversation opens with the last 5 turns; "Load earlier messages" fetches older 5-turn pages via `thread/turns/list` |
 | Thread turn pagination fallback (v0.124 remote) | Capability flips off via response inspection; embedded turns load fully; "Load earlier" is hidden |
+| Multi-turn history and rendering | Follow-ups retain existing expansion; authoritative turn boundaries and late provenance are covered by unit tests. Expanded message/tool-group entries use individual lazy rows, with a 500-message fixture. Shared Rust covers stale reads, partial hydration and late completion. See [review and validation contract](../../../docs/MULTI_TURN_REVIEW.md); production-device latency remains a separate acceptance check. |
 
 ## Terminal UX Matrix
 

@@ -124,15 +124,8 @@ impl AppServerAdapter {
         let value: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| RpcError::Deserialization(format!("invalid JSON: {e}")))?;
 
-        let id = match &value["id"] {
-            serde_json::Value::Number(n) => RequestId::Integer(n.as_i64().unwrap_or(0)),
-            serde_json::Value::String(s) => RequestId::String(s.clone()),
-            _ => {
-                return Err(RpcError::Deserialization(
-                    "invalid or missing 'id' field".to_string(),
-                ));
-            }
-        };
+        let id: RequestId = serde_json::from_value(value["id"].clone())
+            .map_err(|error| RpcError::Deserialization(format!("invalid request id: {error}")))?;
 
         let has_result = value.get("result").is_some();
         let has_error = value.get("error").is_some();

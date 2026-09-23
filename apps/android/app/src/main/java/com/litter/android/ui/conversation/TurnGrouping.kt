@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,9 +108,8 @@ data class TranscriptTurn(
 }
 
 /**
- * Groups a flat list of hydrated items into UI turns with the same boundary rules
- * as iOS: explicit user turn boundaries split turns, and streaming tails merge
- * back into the live turn instead of rendering as separate groups.
+ * Groups a flat list of hydrated items by explicit user boundaries and server
+ * turn IDs. Items without provenance remain with the preceding turn.
  */
 fun buildTranscriptTurns(
     items: List<HydratedConversationItem>,
@@ -115,9 +118,7 @@ fun buildTranscriptTurns(
 ): List<TranscriptTurn> {
     if (items.isEmpty()) return emptyList()
 
-    val groupedItems = mergeConsecutiveExplorationGroups(
-        mergeTrailingStreamingGroups(groupItems(items), isStreaming),
-    )
+    val groupedItems = groupItems(items)
     val collapseBoundary = maxOf(0, groupedItems.size - expandedRecentTurnCount)
     val lastIndex = groupedItems.lastIndex
 
@@ -168,67 +169,116 @@ private fun groupItems(items: List<HydratedConversationItem>): List<List<Hydrate
     return groups
 }
 
-private fun mergeTrailingStreamingGroups(
-    groups: List<List<HydratedConversationItem>>,
-    isStreaming: Boolean,
-): List<List<HydratedConversationItem>> {
-    if (!isStreaming || groups.size <= 1) return groups
-
-    val liveTurnStartIndex = groups.indexOfLast { containsLiveTurnBoundary(it) }
-    if (liveTurnStartIndex == -1 || liveTurnStartIndex >= groups.lastIndex) return groups
-
-    val mergedLiveTurn = groups.subList(liveTurnStartIndex, groups.size).flatten()
-    return buildList {
-        addAll(groups.subList(0, liveTurnStartIndex))
-        add(mergedLiveTurn)
-    }
+private fun turnIdentifier(items: List<HydratedConversationItem>, ordinal: Int): String {
+    val first = items.firstOrNull() ?: return "turn-$ordinal"
+    return "turn-${first.id}"
 }
 
-private fun mergeConsecutiveExplorationGroups(
-    groups: List<List<HydratedConversationItem>>,
-): List<List<HydratedConversationItem>> {
-    val merged = mutableListOf<List<HydratedConversationItem>>()
-    val explorationBuffer = mutableListOf<HydratedConversationItem>()
+/** Collapse is an initial presentation choice, not a reaction to sending a turn. */
+internal class TranscriptPresentationState {
+    private val defaults = mutableMapOf<String, Boolean>()
+    private val presentationIds = mutableMapOf<String, String>()
+    private var uniqueSourceAliases = emptyMap<String, String>()
 
-    fun flushExplorationBuffer() {
-        if (explorationBuffer.isEmpty()) return
-        merged += explorationBuffer.toList()
-        explorationBuffer.clear()
+    fun update(turns: List<TranscriptTurn>) {
+        entryCache.keys.retainAll(turns.map { it.id }.toSet())
+        val sourceCounts = turns.mapNotNull { it.turnId }.groupingBy { it }.eachCount()
+        turns.forEach { turn ->
+            val presentationId = presentationIds.getOrPut(turn.id) {
+                turn.turnId?.takeIf { sourceCounts[it] == 1 }?.let(uniqueSourceAliases::get) ?: turn.id
+            }
+            defaults.getOrPut(presentationId) { turn.isCollapsedByDefault && !turn.isActiveTurn }
+        }
+        // Explicit user boundaries can split one source turn into several UI
+        // groups; only unambiguous server IDs may transfer presentation state.
+        uniqueSourceAliases = turns.mapNotNull { turn ->
+            turn.turnId?.takeIf { sourceCounts[it] == 1 }?.let { it to presentationId(turn) }
+        }.toMap()
     }
 
-    groups.forEach { group ->
-        if (group.isExplorationGroup()) {
-            explorationBuffer += group
-        } else {
-            flushExplorationBuffer()
-            merged += group
+    private data class CachedEntries(
+        val items: List<HydratedConversationItem>,
+        val isActive: Boolean,
+        val rows: List<TranscriptRow.Entry>,
+    )
+
+    private val entryCache = mutableMapOf<String, CachedEntries>()
+
+    fun entries(turn: TranscriptTurn): List<TranscriptRow.Entry> {
+        val cached = entryCache[turn.id]
+        if (cached != null && cached.isActive == turn.isActiveTurn && cached.items == turn.items) {
+            return cached.rows
+        }
+        return projectEntries(turn).also {
+            entryCache[turn.id] = CachedEntries(turn.items, turn.isActiveTurn, it)
         }
     }
 
-    flushExplorationBuffer()
-    return merged
-}
-
-private fun containsLiveTurnBoundary(items: List<HydratedConversationItem>): Boolean {
-    return items.any { item ->
-        item.isFromUserTurnBoundary || item.content is HydratedConversationItemContent.User
+    private fun projectEntries(turn: TranscriptTurn): List<TranscriptRow.Entry> {
+        val entries = buildTimelineEntries(turn.items, turn.isActiveTurn)
+        val streamingAssistantId = if (turn.isActiveTurn) {
+            turn.items.lastOrNull { it.content is HydratedConversationItemContent.Assistant }?.id
+        } else null
+        val latestCommandId = entries.asReversed().firstNotNullOfOrNull { entry ->
+            (entry as? TimelineEntry.Single)?.item
+                ?.takeIf { it.content is HydratedConversationItemContent.CommandExecution }?.id
+        }
+        return entries.mapIndexed { index, entry ->
+            TranscriptRow.Entry(entry, turn.isActiveTurn, streamingAssistantId, latestCommandId, index == entries.lastIndex)
+        }
     }
+
+    fun presentationId(turn: TranscriptTurn): String = presentationIds[turn.id] ?: turn.id
+
+    fun isCollapsedByDefault(turn: TranscriptTurn): Boolean = defaults[presentationId(turn)] == true
 }
 
-private fun List<HydratedConversationItem>.isExplorationGroup(): Boolean {
-    return isNotEmpty() && all { item ->
-        val content = item.content as? HydratedConversationItemContent.CommandExecution
-        content?.v1?.isPureExploration() == true
-    }
+/** Each message/tool group is its own lazy item, even inside a very long turn. */
+internal sealed class TranscriptRow(val key: String, val contentType: String) {
+    class Entry(
+        val entry: TimelineEntry,
+        val isActiveTurn: Boolean,
+        val streamingAssistantItemId: String?,
+        val latestCommandExecutionItemId: String?,
+        val isLastEntry: Boolean,
+    ) : TranscriptRow(
+        when (entry) {
+            is TimelineEntry.Single -> "item-${entry.item.id}"
+            is TimelineEntry.Exploration -> entry.group.id
+        },
+        when (entry) {
+            is TimelineEntry.Single -> entry.item.content.javaClass.simpleName
+            is TimelineEntry.Exploration -> "exploration"
+        },
+    )
+
+    class Collapsed(val turn: TranscriptTurn, val expansionId: String) : TranscriptRow("collapsed-${turn.id}", "collapsed")
+    class Footer(val turn: TranscriptTurn, val canCollapse: Boolean, val expansionId: String) :
+        TranscriptRow("footer-${turn.id}", "footer")
 }
 
-private fun turnIdentifier(items: List<HydratedConversationItem>, ordinal: Int): String {
-    val first = items.firstOrNull() ?: return "turn-$ordinal"
-    val sourceTurnId = items.firstNotNullOfOrNull { it.sourceTurnId }
-    return if (sourceTurnId != null) {
-        "turn-$sourceTurnId-${first.id}"
-    } else {
-        "turn-${first.id}"
+internal fun LazyListScope.transcriptRows(
+    rows: List<TranscriptRow>,
+    content: @Composable LazyItemScope.(TranscriptRow) -> Unit,
+) {
+    items(rows, key = { it.key }, contentType = { it.contentType }, itemContent = content)
+}
+
+internal fun buildTranscriptRows(
+    turns: List<TranscriptTurn>,
+    collapseState: TranscriptPresentationState,
+    expandedTurnIds: Set<String>,
+): List<TranscriptRow> = buildList {
+    collapseState.update(turns)
+    turns.forEach { turn ->
+        val canCollapse = collapseState.isCollapsedByDefault(turn)
+        val expansionId = collapseState.presentationId(turn)
+        if (canCollapse && expansionId !in expandedTurnIds && !turn.isActiveTurn) {
+            add(TranscriptRow.Collapsed(turn, expansionId))
+        } else {
+            addAll(collapseState.entries(turn))
+            add(TranscriptRow.Footer(turn, canCollapse, expansionId))
+        }
     }
 }
 
@@ -370,7 +420,7 @@ fun ExplorationGroupRow(
     showsCollapsedPreview: Boolean,
 ) {
     val textScale = LocalTextScale.current
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val entries = remember(group.items) { group.explorationEntries() }
     val isActive = remember(entries) { entries.any { it.isInProgress } }
     val previewScrollState = rememberScrollState()

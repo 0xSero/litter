@@ -570,7 +570,7 @@ private struct ConversationScrollLayout: Equatable {
     let viewportHeight: CGFloat
 }
 
-private struct ConversationMessageList: View {
+struct ConversationMessageList: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let items: [ConversationItem]
     let threadStatus: ConversationStatus
@@ -601,41 +601,24 @@ private struct ConversationMessageList: View {
     @State private var transcriptTurns: [TranscriptTurn] = []
     @State private var transcriptBuildKey: Int?
     @State private var renderedTurns: [TranscriptTurn] = []
-    @State private var renderedTurnsBuildKey: Int?
+    @State private var timelineProjection = ConversationTranscriptProjection()
     @State private var expandedTurnIDs: Set<String> = []
-    @State private var pendingAnimatedTurns: [TranscriptTurn]?
-    @State private var turnInsertionAnimationInFlight = false
     @State private var visibleTurnIDs: [String] = []
     @State private var requestedOlderTurnsCursor: String?
     @State private var requestedOlderTurnsThreadKey: ThreadKey?
     @State private var showOlderPageLoader = false
     @AppStorage("collapseTurns") private var collapseTurns = false
+    @AppStorage(ConversationDisplayPreferenceKey.reasoning) private var reasoningMode = ConversationDetailDisplayMode.collapsed.rawValue
+    @AppStorage(ConversationDisplayPreferenceKey.commands) private var commandMode = ConversationDetailDisplayMode.collapsed.rawValue
+    @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolMode = ConversationDetailDisplayMode.collapsed.rawValue
     private static let latestButtonShowDistance: CGFloat = 48
     private static let nearBottomRestoreDistance: CGFloat = 12
-
-    private var shouldCollapseTurns: Bool {
-        ConversationTurnCollapsePolicy.shouldCollapse(
-            preferenceEnabled: collapseTurns,
-            itemCount: items.count
-        )
-    }
 
     private var expandedRecentTurnCount: Int {
         ConversationTurnCollapsePolicy.expandedRecentTurnCount(
             preferenceEnabled: collapseTurns,
             itemCount: items.count
         )
-    }
-
-    private var sourceTurns: [TranscriptTurn] {
-        if transcriptTurns.isEmpty {
-            return TranscriptTurn.build(
-                from: items,
-                threadStatus: threadStatus,
-                expandedRecentTurnCount: expandedRecentTurnCount
-            )
-        }
-        return transcriptTurns
     }
 
     private var messageActionsDisabled: Bool {
@@ -665,57 +648,16 @@ private struct ConversationMessageList: View {
         return false
     }
 
-    private var mergedRenderableTurns: [TranscriptTurn] {
-        // `renderedTurns` is already kept in sync by `applyTranscriptTurns`
-        // / `syncTranscriptTurns` whenever the transcript changes. Computing
-        // the build key here would be an O(n) hash across the entire
-        // transcript on every body evaluation (including every scroll frame),
-        // defeating the purpose of the cache. Fall back to source-derived
-        // merge only when the cache is empty (e.g. first render before
-        // `.onAppear` fires `syncTranscriptTurns`).
-        if !renderedTurns.isEmpty { return renderedTurns }
-        let turns = sourceTurns
-        return TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
-    }
-
     var body: some View {
         let _ = PerfTracker.event("ConversationMessageList.body")
-        let turns = mergedRenderableTurns
-        let lastTurnID = turns.last?.id
+        let turns = renderedTurns
         GeometryReader { viewport in
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            ForEach(turns) { turn in
-                                let isLastTurn = turn.id == lastTurnID
-                                ConversationTurnRow(
-                                    turn: turn,
-                                    isExpanded: isTurnExpanded(turn),
-                                    canCollapse: turn.isCollapsedByDefault,
-                                    isLastTurn: isLastTurn,
-                                    viewportHeight: viewport.size.height,
-                                    showTypingIndicator: isLastTurn && {
-                                        if case .thinking = threadStatus { return true }
-                                        return false
-                                    }(),
-                                    serverId: activeThreadKey.serverId,
-                                    originThreadId: activeThreadKey.threadId,
-                                    agentDirectoryVersion: agentDirectoryVersion,
-                                    messageActionsDisabled: messageActionsDisabled,
-                                    onToggleExpansion: {
-                                        toggleTurnExpansion(turn)
-                                    },
-                                    resolveTargetLabel: resolveTargetLabel,
-                                    resolveThreadKey: resolveThreadKey,
-                                    resolveLiveStatus: resolveLiveStatus,
-                                    onWidgetPrompt: onWidgetPrompt,
-                                    onEditUserItem: onEditUserItem,
-                                    onForkFromUserItem: onForkFromUserItem,
-                                    onOpenConversation: onOpenConversation
-                                )
-                                .equatable()
-                                .turnDebugOverlay(turnId: turn.id)
+                            ForEach(timelineProjection.entries) { entry in
+                                transcriptRow(entry)
                             }
 
                         }
@@ -742,8 +684,9 @@ private struct ConversationMessageList: View {
                 .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
                 .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { turnIDs in
-                    visibleTurnIDs = turnIDs
-                    prefetchOlderTurnsIfNeeded(visibleTurnIDs: turnIDs, turns: turns)
+                    let visibleTurns = turnIDs.compactMap { timelineProjection.turnIDByEntryID[$0] }
+                    visibleTurnIDs = visibleTurns
+                    prefetchOlderTurnsIfNeeded(visibleTurnIDs: visibleTurns, turns: turns)
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
@@ -799,7 +742,7 @@ private struct ConversationMessageList: View {
                     try? await Task.sleep(for: .seconds(1))
                     waitingForDataExpired = true
                 }
-                .onChange(of: items) { _, _ in
+                .onChange(of: transcriptRenderDigest) { _, _ in
                     syncTranscriptTurns()
                 }
                 .onChange(of: olderTurnsCursor) { oldCursor, newCursor in
@@ -810,12 +753,15 @@ private struct ConversationMessageList: View {
                     DispatchQueue.main.async {
                         prefetchOlderTurnsIfNeeded(
                             visibleTurnIDs: visibleTurnIDs,
-                            turns: mergedRenderableTurns
+                            turns: renderedTurns
                         )
                     }
                 }
                 .onChange(of: collapseTurns) {
                     syncTranscriptTurns(resetExpansion: true)
+                }
+                .onChange(of: [reasoningMode, commandMode, toolMode]) {
+                    rebuildTimelineProjection()
                 }
                 .onChange(of: sendScrollToken) {
                     isFollowingBottom = true
@@ -856,8 +802,55 @@ private struct ConversationMessageList: View {
         }
     }
 
-    private func isTurnExpanded(_ turn: TranscriptTurn) -> Bool {
-        !turn.isCollapsedByDefault || expandedTurnIDs.contains(turn.id)
+    @ViewBuilder
+    private func transcriptRow(_ entry: ConversationTranscriptProjection.Entry) -> some View {
+        switch entry.content {
+        case .collapsed:
+            ConversationTurnSummary(turn: entry.turn) { toggleTurnExpansion(entry.turn) }
+                .equatable()
+        case .footer:
+            VStack(alignment: .leading, spacing: 12) {
+                if entry.turn.isLive { TypingIndicator() }
+                if !entry.turn.isLive && entry.turn.isCollapsedByDefault {
+                    Button("Show Less", systemImage: "chevron.up") { toggleTurnExpansion(entry.turn) }
+                        .litterFont(.caption, weight: .semibold)
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .buttonStyle(.plain)
+                }
+            }
+        case .row(let row, let isLast, let streamingItemID):
+            ConversationTimelineRow(
+                isLive: entry.turn.isLive,
+                serverId: activeThreadKey.serverId,
+                originThreadId: activeThreadKey.threadId,
+                agentDirectoryVersion: agentDirectoryVersion,
+                messageActionsDisabled: messageActionsDisabled,
+                resolveTargetLabel: resolveTargetLabel,
+                resolveThreadKey: resolveThreadKey,
+                resolveLiveStatus: resolveLiveStatus,
+                onWidgetPrompt: onWidgetPrompt,
+                onEditUserItem: onEditUserItem,
+                onForkFromUserItem: onForkFromUserItem,
+                onOpenConversation: onOpenConversation,
+                row: row,
+                isLastRow: isLast,
+                streamingAssistantItemId: streamingItemID,
+                reasoningDisplayMode: .resolve(reasoningMode),
+                commandDisplayMode: .resolve(commandMode),
+                toolDisplayMode: .resolve(toolMode)
+            )
+            .equatable()
+        }
+    }
+
+    private func rebuildTimelineProjection() {
+        timelineProjection.update(
+            turns: renderedTurns,
+            expandedTurnIDs: expandedTurnIDs,
+            reasoning: .resolve(reasoningMode),
+            commands: .resolve(commandMode),
+            tools: .resolve(toolMode)
+        )
     }
 
     private func toggleTurnExpansion(_ turn: TranscriptTurn) {
@@ -868,6 +861,7 @@ private struct ConversationMessageList: View {
             } else {
                 expandedTurnIDs.insert(turn.id)
             }
+            rebuildTimelineProjection()
         }
     }
 
@@ -885,9 +879,11 @@ private struct ConversationMessageList: View {
     }
 
     private func followBottom() {
-        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.9)) {
-            scrollPosition.scrollTo(edge: .bottom)
-        }
+        // Streaming changes height repeatedly. Restarting a spring on every
+        // update makes scrolling chase an ever-moving destination.
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { scrollPosition.scrollTo(edge: .bottom) }
     }
 
 
@@ -946,7 +942,10 @@ private struct ConversationMessageList: View {
     private func syncTranscriptTurns(resetExpansion: Bool = false) {
         let nextBuildKey = makeTranscriptBuildKey()
         if transcriptBuildKey == nextBuildKey, !transcriptTurns.isEmpty {
-            if resetExpansion { expandedTurnIDs.removeAll() }
+            if resetExpansion {
+                expandedTurnIDs.removeAll()
+                rebuildTimelineProjection()
+            }
             return
         }
 
@@ -956,18 +955,6 @@ private struct ConversationMessageList: View {
             expandedRecentTurnCount: expandedRecentTurnCount
         )
         transcriptBuildKey = nextBuildKey
-        if shouldAnimateNewTurnInsertion(from: transcriptTurns, to: nextTurns, resetExpansion: resetExpansion) {
-            pendingAnimatedTurns = nextTurns
-            guard !turnInsertionAnimationInFlight else { return }
-            startNewTurnInsertionAnimation(from: transcriptTurns)
-            return
-        }
-
-        if turnInsertionAnimationInFlight {
-            pendingAnimatedTurns = nextTurns
-            return
-        }
-
         applyTranscriptTurns(nextTurns, resetExpansion: resetExpansion)
     }
 
@@ -975,27 +962,8 @@ private struct ConversationMessageList: View {
         var hasher = Hasher()
         hasher.combine(expandedRecentTurnCount)
         hasher.combine(transcriptRenderDigest)
-        return hasher.finalize()
-    }
-
-    private func makeRenderedTurnsBuildKey(for turns: [TranscriptTurn]) -> Int {
-        var hasher = Hasher()
-        hasher.combine(turns.count)
-        for turn in turns {
-            hasher.combine(turn.id)
-            hasher.combine(turn.renderDigest)
-            hasher.combine(turn.isLive)
-            hasher.combine(turn.isCollapsedByDefault)
-        }
-        return hasher.finalize()
-    }
-
-    private func layoutSignature(for turn: TranscriptTurn) -> Int {
-        var hasher = Hasher()
-        hasher.combine(turn.id)
-        hasher.combine(turn.renderDigest)
-        hasher.combine(turn.isLive)
-        hasher.combine(turn.isCollapsedByDefault)
+        hasher.combine(activeThreadKey)
+        hasher.combine(isStreaming)
         return hasher.finalize()
     }
 
@@ -1041,160 +1009,45 @@ private struct ConversationMessageList: View {
         pinchAppliedDelta = 0
     }
 
-    private func shouldAnimateNewTurnInsertion(
-        from currentTurns: [TranscriptTurn],
-        to nextTurns: [TranscriptTurn],
-        resetExpansion: Bool
-    ) -> Bool {
-        guard shouldCollapseTurns,
-              !resetExpansion,
-              !currentTurns.isEmpty,
-              nextTurns.count == currentTurns.count + 1,
-              currentTurns.last?.id != nextTurns.last?.id,
-              let lastTurn = nextTurns.last,
-              lastTurn.items.first?.isUserItem == true,
-              lastTurn.items.first?.isFromUserTurnBoundary == true else {
-            return false
-        }
-
-        for (currentTurn, nextTurn) in zip(currentTurns, nextTurns) {
-            guard currentTurn.id == nextTurn.id else { return false }
-        }
-
-        return true
-    }
-
-    private func startNewTurnInsertionAnimation(from currentTurns: [TranscriptTurn]) {
-        guard let previousLastTurnID = currentTurns.last?.id else {
-            if let pendingAnimatedTurns {
-                applyTranscriptTurns(pendingAnimatedTurns)
-                self.pendingAnimatedTurns = nil
-            }
-            return
-        }
-
-        turnInsertionAnimationInFlight = true
-        let collapsedTurns = currentTurns.map { turn in
-            turn.id == previousLastTurnID ? turn.withCollapsedByDefault(true) : turn
-        }
-
-        withAnimation(.snappy(duration: 0.16, extraBounce: 0)) {
-            applyTranscriptTurns(
-                collapsedTurns,
-                removeExpandedTurnID: previousLastTurnID
-            )
-        } completion: {
-            let turnsToInsert = pendingAnimatedTurns ?? collapsedTurns
-            withAnimation(.smooth(duration: 0.2)) {
-                applyTranscriptTurns(turnsToInsert)
-            } completion: {
-                turnInsertionAnimationInFlight = false
-                let latestTurns = pendingAnimatedTurns ?? turnsToInsert
-                pendingAnimatedTurns = nil
-                if latestTurns.map(layoutSignature(for:)) != transcriptTurns.map(layoutSignature(for:)) {
-                    applyTranscriptTurns(latestTurns)
-                }
-            }
-        }
-    }
-
     private func applyTranscriptTurns(
         _ nextTurns: [TranscriptTurn],
-        resetExpansion: Bool = false,
-        removeExpandedTurnID: String? = nil
+        resetExpansion: Bool = false
     ) {
+        // A follow-up never changes the expansion state of an existing turn.
+        // Apply the preference only to newly loaded turns or an explicit reset.
+        if !resetExpansion {
+            let previousIDs = TranscriptTurn.previousTurnIDs(in: nextTurns, from: transcriptTurns)
+            expandedTurnIDs = Set(previousIDs.compactMap { newID, oldID in
+                expandedTurnIDs.contains(oldID) ? newID : nil
+            })
+        }
+        let nextTurns = resetExpansion ? nextTurns : TranscriptTurn.preservingCollapseState(
+            in: nextTurns, from: transcriptTurns
+        )
         let nextTurnIDs = Set(nextTurns.map(\.id))
-        let nextRenderedTurns = TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(nextTurns)
+        let nextRenderedTurns = TranscriptTurn.renderableTurns(nextTurns)
         transcriptTurns = nextTurns
         renderedTurns = nextRenderedTurns
-        renderedTurnsBuildKey = makeRenderedTurnsBuildKey(for: nextTurns)
         if resetExpansion {
             expandedTurnIDs.removeAll()
         } else {
             expandedTurnIDs.formIntersection(nextTurnIDs)
         }
-        if let removeExpandedTurnID {
-            expandedTurnIDs.remove(removeExpandedTurnID)
-        }
+        rebuildTimelineProjection()
     }
 
 }
 
-private struct ConversationTurnRow: View, Equatable {
+private struct ConversationTurnSummary: View, Equatable {
     let turn: TranscriptTurn
-    let isExpanded: Bool
-    let canCollapse: Bool
-    let isLastTurn: Bool
-    let viewportHeight: CGFloat
-    let showTypingIndicator: Bool
-    let serverId: String
-    let originThreadId: String?
-    let agentDirectoryVersion: UInt64
-    @Environment(\.textScale) private var textScale
-    let messageActionsDisabled: Bool
     let onToggleExpansion: () -> Void
-    let resolveTargetLabel: (String) -> String?
-    let resolveThreadKey: (String) -> ThreadKey?
-    let resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
-    let onWidgetPrompt: (String) -> Void
-    let onEditUserItem: (ConversationItem) -> Void
-    let onForkFromUserItem: (ConversationItem) -> Void
-    var onOpenConversation: ((ThreadKey) -> Void)? = nil
+    @Environment(\.textScale) private var textScale
 
-    static func == (lhs: ConversationTurnRow, rhs: ConversationTurnRow) -> Bool {
-        lhs.turn.id == rhs.turn.id &&
-            lhs.turn.renderDigest == rhs.turn.renderDigest &&
-            lhs.turn.isLive == rhs.turn.isLive &&
-            lhs.isExpanded == rhs.isExpanded &&
-            lhs.canCollapse == rhs.canCollapse &&
-            lhs.isLastTurn == rhs.isLastTurn &&
-            lhs.viewportHeight == rhs.viewportHeight &&
-            lhs.showTypingIndicator == rhs.showTypingIndicator &&
-            lhs.serverId == rhs.serverId &&
-            lhs.originThreadId == rhs.originThreadId &&
-            lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
-            lhs.messageActionsDisabled == rhs.messageActionsDisabled
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.turn == rhs.turn
     }
 
-    var body: some View {
-        if isExpanded {
-            expandedContent
-        } else {
-            collapsedCard
-        }
-    }
-
-    private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ConversationTurnTimeline(
-                items: turn.items,
-                isLive: turn.isLive,
-                serverId: serverId,
-                originThreadId: originThreadId,
-                agentDirectoryVersion: agentDirectoryVersion,
-                messageActionsDisabled: messageActionsDisabled,
-                resolveTargetLabel: resolveTargetLabel,
-                resolveThreadKey: resolveThreadKey,
-                resolveLiveStatus: resolveLiveStatus,
-                onWidgetPrompt: onWidgetPrompt,
-                onEditUserItem: onEditUserItem,
-                onForkFromUserItem: onForkFromUserItem,
-                onOpenConversation: onOpenConversation
-            )
-
-            TypingIndicator()
-                .opacity(showTypingIndicator ? 1 : 0)
-                .animation(nil, value: showTypingIndicator)
-
-            if canCollapse {
-                Button("Show Less", systemImage: "chevron.up", action: onToggleExpansion)
-                    .litterFont(.caption, weight: .semibold)
-                    .foregroundColor(LitterTheme.textSecondary)
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-            }
-        }
-    }
+    var body: some View { collapsedCard }
 
     private var collapsedCard: some View {
         // `turn.preview` is derived from the turn's items on access, so bind it

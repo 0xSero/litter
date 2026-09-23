@@ -1,7 +1,6 @@
-Litter 2.1.2 brings current agent models and more complete settings.
+Litter 2.1.4 makes conversations more responsive and reliable.
 
-- Browse and edit native settings for connected coding agents, including unset options and managed settings.
-- Discover current models from each agent with faster incremental catalog updates.
-- Use Oh My Pi as a separate agent with its own models and settings.
-- Keep computer helpers in the background and preserve Local Studio connections during upgrades.
-- Reduce unnecessary screen updates and improve conversation responsiveness.
+- Keep earlier messages visible and expanded when sending follow-up questions.
+- Render long conversations in smaller rows so scrolling stays smooth.
+- Keep other actions responsive while a model or settings request is slow.
+- Recover cleanly when a connection changes or disconnects.

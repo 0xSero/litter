@@ -24,6 +24,14 @@ struct ConversationDisplayUITestHarnessView: View {
     }
 
     var body: some View {
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-multiturn") {
+            ConversationMultiTurnUITestHarnessView()
+        } else {
+            displayHarness
+        }
+    }
+
+    private var displayHarness: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -191,5 +199,73 @@ struct ConversationDisplayUITestHarnessView: View {
             ))
         )
     ]
+}
+/// Exercises the shipping message list without network or account setup.
+private struct ConversationMultiTurnUITestHarnessView: View {
+    @State private var items = Self.seedItems
+    @State private var status: ConversationStatus = .ready
+    @State private var revision = 0
+    @State private var textSize = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Multi-turn transcript")
+                Spacer()
+                Button("Follow up") {
+                    revision += 1
+                    let turnID = "followup-\(revision)"
+                    items.append(Self.item(id: turnID, text: "FOLLOWUP_\(revision)", user: true, turnID: turnID))
+                    items.append(Self.item(id: "followup-answer-\(revision)", text: "FOLLOWUP_ANSWER_\(revision)", user: false, turnID: turnID))
+                    status = .thinking
+                }
+                .accessibilityIdentifier("multiturn.followup")
+                Button("Finish") { status = .ready }
+            }
+            .padding()
+            ConversationMessageList(
+                items: items,
+                threadStatus: status,
+                threadHasServerData: true,
+                transcriptRenderDigest: revision,
+                sendScrollToken: revision,
+                activeThreadKey: ThreadKey(serverId: "ui-test", threadId: "multi-turn"),
+                agentDirectoryVersion: 0,
+                olderTurnsCursor: nil,
+                initialTurnsLoaded: true,
+                textSizeStep: $textSize,
+                resolveTargetLabel: { _ in nil },
+                resolveThreadKey: { _ in nil },
+                resolveLiveStatus: { _ in nil },
+                onWidgetPrompt: { _ in },
+                onEditUserItem: { _ in },
+                onForkFromUserItem: { _ in },
+                onLoadOlderTurns: { _ in false }
+            )
+            .clipped()
+        }
+        // The app's debug harness host fills the safe area; keep controls clear
+        // of the status bar so XCTest exercises an actual user tap.
+        .padding(.top, 70)
+        .padding(.bottom, 24)
+        .background(LitterTheme.backgroundGradient)
+    }
+
+    private static func item(id: String, text: String, user: Bool, turnID: String) -> ConversationItem {
+        ConversationItem(
+            id: id,
+            content: user ? .user(ConversationUserMessageData(text: text, images: [])) :
+                .assistant(ConversationAssistantMessageData(text: text, agentNickname: nil, agentRole: nil)),
+            sourceTurnId: turnID,
+            timestamp: Date(timeIntervalSince1970: 1),
+            isFromUserTurnBoundary: user
+        )
+    }
+
+    private static var seedItems: [ConversationItem] {
+        let count = ProcessInfo.processInfo.arguments.contains("--ui-test-long-turn") ? 500 : 3
+        return [item(id: "initial-user", text: "INITIAL_PROMPT", user: true, turnID: "initial")] +
+            (0..<count).map { item(id: "answer-\($0)", text: "HISTORY_MESSAGE_\($0)", user: false, turnID: "initial") }
+    }
 }
 #endif

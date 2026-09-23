@@ -20,7 +20,7 @@ final class InteractionTimingTests: XCTestCase {
                 threadStatus: .thinking,
                 expandedRecentTurnCount: 1
             )
-            _ = TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
+            _ = TranscriptTurn.renderableTurns(turns)
         }
     }
 
@@ -35,7 +35,7 @@ final class InteractionTimingTests: XCTestCase {
                 threadStatus: .thinking,
                 expandedRecentTurnCount: 1
             )
-            _ = TranscriptTurn.mergeConsecutiveExplorationTurnsForRendering(turns)
+            _ = TranscriptTurn.renderableTurns(turns)
         }
     }
 

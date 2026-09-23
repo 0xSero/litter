@@ -462,14 +462,74 @@ pub(crate) fn apply_pagination_merge(
     target: &mut ThreadSnapshot,
     upstream_turns: &[upstream::Turn],
 ) {
-    if upstream_turns.is_empty() {
+    // A read started before a follow-up may contain only the previous turn.
+    // Absence of the live turn is not evidence that it ended or that its
+    // messages should be removed. Rollback has its own explicit path.
+    let misses_live_turn = existing
+        .and_then(|thread| thread.active_turn_id.as_ref())
+        .is_some_and(|id| !upstream_turns.iter().any(|turn| &turn.id == id));
+    if upstream_turns.is_empty() || misses_live_turn {
         if let Some(current) = existing {
             target.items = current.items.clone();
             target.older_turns_cursor = current.older_turns_cursor.clone();
             target.initial_turns_loaded = current.initial_turns_loaded;
+            target.active_turn_id = current.active_turn_id.clone();
         } else {
             target.initial_turns_loaded = false;
             target.older_turns_cursor = None;
+        }
+    } else if upstream_turns
+        .iter()
+        .any(|turn| turn.items_view != upstream::TurnItemsView::Full)
+    {
+        // A skeleton means "not loaded", not an empty turn. Refresh only
+        // full turns, retaining loaded history and its pagination cursor.
+        if let Some(current) = existing {
+            let incoming = std::mem::replace(&mut target.items, current.items.clone());
+            for (index, turn) in upstream_turns.iter().enumerate() {
+                if turn.items_view != upstream::TurnItemsView::Full {
+                    continue;
+                }
+                let replacements: Vec<_> = incoming
+                    .iter()
+                    .filter(|item| item.source_turn_id.as_deref() == Some(&turn.id))
+                    .cloned()
+                    .collect();
+                let replacement_ids: HashSet<_> =
+                    replacements.iter().map(|item| item.id.as_str()).collect();
+                let position = target
+                    .items
+                    .iter()
+                    .position(|item| {
+                        item.source_turn_id.as_deref() == Some(&turn.id)
+                            || replacement_ids.contains(item.id.as_str())
+                    })
+                    .or_else(|| {
+                        // A newly hydrated turn belongs before its next known
+                        // successor, not necessarily at the end of history.
+                        upstream_turns[index + 1..].iter().find_map(|next| {
+                            target
+                                .items
+                                .iter()
+                                .position(|item| item.source_turn_id.as_deref() == Some(&next.id))
+                        })
+                    })
+                    .unwrap_or(target.items.len());
+                let mut merged = target
+                    .items
+                    .iter()
+                    .filter(|item| {
+                        item.source_turn_id.as_deref() != Some(&turn.id)
+                            && !replacement_ids.contains(item.id.as_str())
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let position = position.min(merged.len());
+                merged.splice(position..position, replacements);
+                target.items = merged.into();
+            }
+            target.older_turns_cursor = current.older_turns_cursor.clone();
+            target.initial_turns_loaded = current.initial_turns_loaded;
         }
     } else {
         // Legacy remote (or explicit hydration): the response carries the
@@ -1298,6 +1358,88 @@ mod tests {
         assert_eq!(target.items.len(), 1);
         assert!(target.initial_turns_loaded);
         assert_eq!(target.older_turns_cursor.as_deref(), Some("cursor-1"));
+    }
+
+    #[test]
+    fn stale_history_read_cannot_remove_a_follow_up_turn() {
+        let mut current = test_thread_snapshot();
+        current.active_turn_id = Some("turn-2".into());
+        current.items = vec![
+            item_with_turn("turn-1", "old"),
+            item_with_turn("turn-2", "new"),
+        ]
+        .into();
+        current.initial_turns_loaded = true;
+        current.older_turns_cursor = Some("older".into());
+        let mut incoming = test_thread_snapshot();
+        incoming.items = vec![item_with_turn("turn-1", "old")].into();
+        let turns = vec![upstream::Turn {
+            id: "turn-1".into(),
+            items: vec![],
+            items_view: upstream::TurnItemsView::Full,
+            status: upstream::TurnStatus::Completed,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+        }];
+        apply_pagination_merge(Some(&current), &mut incoming, &turns);
+        crate::reconcile_active_turn(Some(&current), &mut incoming, &turns);
+        assert_eq!(
+            incoming
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["old", "new"]
+        );
+        assert_eq!(incoming.active_turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(incoming.older_turns_cursor.as_deref(), Some("older"));
+    }
+
+    #[test]
+    fn partial_turn_history_retains_skeletons_and_refreshes_full_turns_in_order() {
+        let mut current = test_thread_snapshot();
+        current.items = vec![
+            item_with_turn("turn-1", "one"),
+            item_with_turn("turn-3", "three-old"),
+        ]
+        .into();
+        current.initial_turns_loaded = true;
+        current.older_turns_cursor = Some("older".into());
+        let mut incoming = test_thread_snapshot();
+        incoming.items = vec![
+            item_with_turn("turn-2", "two"),
+            item_with_turn("turn-3", "three-new"),
+        ]
+        .into();
+        let turns = (1..=3)
+            .map(|index| upstream::Turn {
+                id: format!("turn-{index}"),
+                items: vec![],
+                items_view: if index == 1 {
+                    upstream::TurnItemsView::NotLoaded
+                } else {
+                    upstream::TurnItemsView::Full
+                },
+                status: upstream::TurnStatus::Completed,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            })
+            .collect::<Vec<_>>();
+        apply_pagination_merge(Some(&current), &mut incoming, &turns);
+        assert_eq!(
+            incoming
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["one", "two", "three-new"]
+        );
+        assert_eq!(incoming.older_turns_cursor.as_deref(), Some("older"));
+        assert!(incoming.initial_turns_loaded);
     }
 
     #[test]
