@@ -199,7 +199,10 @@ struct HomeDashboardView: View {
 
     var body: some View {
         canvas
-            .onAppear { onInputModeChange?(inputMode) }
+            .onAppear {
+                PerfTracker.event("HomeDashboardView.appear", ["uptimeMs": ProcessInfo.processInfo.systemUptime * 1000])
+                onInputModeChange?(inputMode)
+            }
             .onChange(of: inputMode) { _, nextMode in
                 onInputModeChange?(nextMode)
                 if nextMode != .search {

@@ -1097,7 +1097,24 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             imageView.stopAnimating()
             imageView.layer.removeAnimation(forKey: Coordinator.animationKey)
 
-            let animation = AlphaAnimatedImageView.animation(from: fileURL)
+            imageView.image = nil
+            // Decoding every frame (165 for the home entrance) on the main
+            // thread blocked the first home frame for many seconds on
+            // device. Decode once per file off the main thread, cache the
+            // result, and apply it only if this view still wants that file.
+            if let cached = AlphaAnimatedImageView.cachedAnimation(for: fileURL) {
+                apply(cached, to: imageView, repeatCount: repeatCount)
+                return
+            }
+            AlphaAnimatedImageView.loadAnimation(from: fileURL) { [weak self, weak imageView] animation in
+                guard let self, let imageView,
+                      self.configuredURL == fileURL,
+                      self.configuredRepeatCount == repeatCount else { return }
+                self.apply(animation, to: imageView, repeatCount: repeatCount)
+            }
+        }
+
+        private func apply(_ animation: Animation, to imageView: UIImageView, repeatCount: Int) {
             guard let first = animation.frames.first else {
                 imageView.image = nil
                 return
@@ -1164,6 +1181,53 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
     /// resampling approximation.
     private static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
 
+    private final class AnimationBox {
+        let animation: Animation
+        init(_ animation: Animation) { self.animation = animation }
+    }
+
+    /// Decoded frames are large (the entrance is ~48 MB), so the cache is
+    /// cost-bounded and NSCache evicts under memory pressure.
+    private static let animationCache: NSCache<NSURL, AnimationBox> = {
+        let cache = NSCache<NSURL, AnimationBox>()
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+    private static let decodeQueue = DispatchQueue(label: "litter.alpha-animation-decode", qos: .userInitiated)
+    private static let pendingLock = NSLock()
+    private nonisolated(unsafe) static var pendingLoads: [URL: [(Animation) -> Void]] = [:]
+
+    private static func cachedAnimation(for url: URL) -> Animation? {
+        animationCache.object(forKey: url as NSURL)?.animation
+    }
+
+    /// Decodes off the main thread, coalescing concurrent requests for the
+    /// same file. `completion` runs on the main queue.
+    private static func loadAnimation(from url: URL, completion: @escaping (Animation) -> Void) {
+        pendingLock.lock()
+        if pendingLoads[url] != nil {
+            pendingLoads[url]?.append(completion)
+            pendingLock.unlock()
+            return
+        }
+        pendingLoads[url] = [completion]
+        pendingLock.unlock()
+
+        decodeQueue.async {
+            let animation = PerfTracker.time("AlphaAnimatedImageView.decode") {
+                AlphaAnimatedImageView.animation(from: url)
+            }
+            let cost = animation.frames.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+            animationCache.setObject(AnimationBox(animation), forKey: url as NSURL, cost: cost)
+            pendingLock.lock()
+            let callbacks = pendingLoads.removeValue(forKey: url) ?? []
+            pendingLock.unlock()
+            DispatchQueue.main.async {
+                callbacks.forEach { $0(animation) }
+            }
+        }
+    }
+
     private static func animation(from url: URL) -> Animation {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             return Animation(frames: [], frameEndTimes: [], duration: 0)
@@ -1174,8 +1238,11 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         frames.reserveCapacity(count)
         ends.reserveCapacity(count)
         var cumulative: TimeInterval = 0
+        // Force the pixel decode here, on the background queue, instead of
+        // leaving lazy CGImages for Core Animation to decode at commit time.
+        let decodeOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         for index in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, decodeOptions) else { continue }
             frames.append(cgImage)
             cumulative += playbackFrameDuration
             ends.append(cumulative)
