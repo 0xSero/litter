@@ -29,7 +29,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         OpenAIApiKeyStore.shared.applyToEnvironment()
-        LitterPlatform.bootstrapLocalRuntimeIfNeeded()
         LLog.bootstrap()
 
         #if targetEnvironment(macCatalyst)
@@ -62,12 +61,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
 
         LLog.info("lifecycle", "application did finish launching")
-        // Pre-initialize Rust bridges (tokio runtime) on a background thread
-        // before SwiftUI accesses AppModel.shared, avoiding a priority inversion
-        // where the main thread blocks on lower-QoS tokio worker init.
+        #if targetEnvironment(macCatalyst)
         DispatchQueue.global(qos: .userInitiated).async {
             AppModel.prewarmRustBridges()
         }
+        #endif
         application.registerForRemoteNotifications()
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().setNotificationCategories([
@@ -270,7 +268,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 @main
 struct LitterApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #if targetEnvironment(macCatalyst)
     @State private var appModel = AppModel.shared
+    #else
+    @State private var appModel: AppModel?
+    #endif
     @State private var voiceRuntime = VoiceRuntimeController.shared
     @State private var appRuntime = AppRuntimeController.shared
     @State private var themeManager = ThemeManager.shared
@@ -296,32 +298,23 @@ struct LitterApp: App {
 
     private var mainWindowGroup: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(appModel)
-                .environment(appRuntime)
-                .environment(voiceRuntime)
-                .environment(themeManager)
-                .environment(wallpaperManager)
-                .task {
-                    appModel.start()
-                    voiceRuntime.bind(appModel: appModel)
-                    appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
-                    appDelegate.appRuntime = appRuntime
-                    if scenePhase == .active {
-                        appRuntime.appDidBecomeActive()
+            #if targetEnvironment(macCatalyst)
+            appContent(appModel)
+            #else
+            if let appModel {
+                appContent(appModel)
+            } else {
+                ProgressView("Starting KittyLitter")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(uiColor: .systemBackground))
+                    .task {
+                        await Task.detached(priority: .userInitiated) {
+                            AppModel.prewarmRustBridges()
+                        }.value
+                        appModel = AppModel.shared
                     }
-                    #if targetEnvironment(macCatalyst)
-                    LocalCodexBootstrap.shared.startIfNeeded(appModel: appModel)
-                    #endif
-                    // Pair host (BLE advertiser, ultrasonic emitter,
-                    // Bonjour publish, WS listener) and the iPhone client
-                    // (BLE scanner, ultrasonic reader, NISession) are
-                    // strictly opt-in: they only start when the user
-                    // opens the Pair screen in Settings → Experimental,
-                    // and stop on disappear. The screen itself is gated
-                    // behind `#if DEBUG`, so neither stack is reachable
-                    // in Release builds.
-                }
+            }
+            #endif
         }
         .onChange(of: scenePhase) { _, newPhase in
             LLog.info("lifecycle", "scenePhase changed", fields: ["phase": newPhase.debugName])
@@ -336,6 +329,35 @@ struct LitterApp: App {
                 break
             }
         }
+    }
+
+    private func appContent(_ appModel: AppModel) -> some View {
+        ContentView()
+            .environment(appModel)
+            .environment(appRuntime)
+            .environment(voiceRuntime)
+            .environment(themeManager)
+            .environment(wallpaperManager)
+            .task {
+                appModel.start()
+                voiceRuntime.bind(appModel: appModel)
+                appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
+                appDelegate.appRuntime = appRuntime
+                if scenePhase == .active {
+                    appRuntime.appDidBecomeActive()
+                }
+                #if targetEnvironment(macCatalyst)
+                LocalCodexBootstrap.shared.startIfNeeded(appModel: appModel)
+                #endif
+                // Pair host (BLE advertiser, ultrasonic emitter,
+                // Bonjour publish, WS listener) and the iPhone client
+                // (BLE scanner, ultrasonic reader, NISession) are
+                // strictly opt-in: they only start when the user
+                // opens the Pair screen in Settings → Experimental,
+                // and stop on disappear. The screen itself is gated
+                // behind `#if DEBUG`, so neither stack is reachable
+                // in Release builds.
+            }
     }
 }
 

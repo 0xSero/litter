@@ -12,6 +12,9 @@ The GitHub release package supports the same platforms as the npm wrapper.
 Registry publishing currently fails because the `kittylitter` npm package is
 owned by another account; `npx kittylitter` still resolves the older 0.3.4 release.
 Use the pinned GitHub package above for the matching Litter 2.1.2 host adapters.
+The command prints a pairing QR code and exits; the daemon it installs keeps
+running in the background. Add `status` to check it or `upgrade` to replace an
+older running daemon while preserving its pairing identity.
 
 The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylitter")`. All daemon behavior lives in the alleycat crate; this crate exists so cargo-dist sees a `kittylitter` package name and produces correctly-named artifacts (`kittylitter-installer.sh`, `kittylitter.rb`, `kittylitter` on npm).
 
