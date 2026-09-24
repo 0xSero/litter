@@ -1,5 +1,5 @@
-Litter 2.1.4
+Litter 2.1.5
+- Show recent sessions as soon as the app opens
 - Keep earlier messages visible when sending follow-up questions
 - Scroll long conversations more smoothly
-- Keep other actions responsive while a model or settings request is slow
-- Improve reconnection and cleanup
+- Improve connection responsiveness and recovery
