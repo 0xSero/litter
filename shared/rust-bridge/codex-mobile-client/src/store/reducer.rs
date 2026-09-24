@@ -282,6 +282,17 @@ impl AppStoreReducer {
             .clone()
     }
 
+    /// Project the bounded launch cache without cloning hydrated transcripts.
+    /// The read guard is released before the caller performs disk IO.
+    pub(crate) fn home_cache_summaries(&self) -> Vec<AppSessionSummary> {
+        let snapshot = self.snapshot.read().expect("app store lock poisoned");
+        super::boundary::session_summaries_from_snapshot(&snapshot)
+            .into_iter()
+            .filter(|summary| snapshot.servers.contains_key(&summary.key.server_id))
+            .take(crate::home_cache::MAX_CACHED_SESSIONS)
+            .collect()
+    }
+
     /// Acquire the snapshot write lock. Releasing the returned guard drops
     /// every memo derived from the snapshot, so derived-state caches cannot
     /// outlive the state they were computed from.
@@ -4749,6 +4760,36 @@ mod tests {
                     && thread.info == inserted
                     && thread.model.as_deref() == Some("gpt-5.4")
         )));
+    }
+
+    #[test]
+    fn home_cache_projection_keeps_recent_known_server_rows_without_evicting_history() {
+        let reducer = AppStoreReducer::new();
+        reducer.upsert_server(&make_server_config("srv"), ServerHealthSnapshot::Disconnected);
+        for index in 0..65 {
+            let mut info = make_thread_info(&format!("thread-{index}"));
+            info.updated_at = Some(index);
+            reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", info));
+        }
+        let mut unknown = make_thread_info("unknown-server");
+        unknown.updated_at = Some(1000);
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("removed-server", unknown));
+        let mut cached = empty_session_summary(key_thread("offline-cached"));
+        cached.updated_at = Some(100);
+        reducer.seed_cached_session_summaries(vec![cached]);
+
+        let summaries = reducer.home_cache_summaries();
+        assert_eq!(summaries.len(), crate::home_cache::MAX_CACHED_SESSIONS);
+        assert!(summaries.iter().all(|row| row.key.server_id == "srv"));
+        assert_eq!(summaries.first().unwrap().key.thread_id, "offline-cached");
+        assert_eq!(summaries[1].key.thread_id, "thread-64");
+        assert_eq!(summaries.last().unwrap().key.thread_id, "thread-6");
+        // Bounded persistence is only a projection; even the oldest canonical
+        // conversation and the disconnected server's cached row remain intact.
+        let snapshot = reducer.snapshot();
+        assert_eq!(snapshot.threads.len(), 66);
+        assert!(snapshot.threads.contains_key(&key_thread("thread-0")));
+        assert_eq!(snapshot.cached_session_summaries.len(), 1);
     }
 
     #[test]

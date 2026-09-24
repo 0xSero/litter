@@ -222,11 +222,7 @@ impl MobileClient {
         let Some(directory) = self.mobile_preferences_directory() else {
             return;
         };
-        let snapshot = self.app_store.snapshot();
-        let summaries = crate::store::boundary::session_summaries_from_snapshot(&snapshot)
-            .into_iter()
-            .filter(|summary| snapshot.servers.contains_key(&summary.key.server_id))
-            .collect::<Vec<_>>();
+        let summaries = self.app_store.home_cache_summaries();
         crate::home_cache::save(&directory, &summaries);
     }
 
