@@ -640,6 +640,7 @@ mod tests {
             voice_session: AppVoiceSessionSnapshot::default(),
             terminal_sessions: Vec::new(),
             active_terminal_id: None,
+            cached_session_summaries: Vec::new(),
         }
     }
 

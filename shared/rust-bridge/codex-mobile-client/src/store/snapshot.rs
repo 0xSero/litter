@@ -509,6 +509,10 @@ pub struct AppSnapshot {
     /// "Run in terminal" code-block action via
     /// [`crate::ffi::AppStore::write_to_active_terminal`].
     pub active_terminal_id: Option<String>,
+    /// Session summaries restored from the launch cache (`home_cache`).
+    /// A projection overlay only: shadowed by any live thread with the same
+    /// key, and cleared per server after an authoritative thread listing.
+    pub(crate) cached_session_summaries: Vec<crate::store::boundary::AppSessionSummary>,
 }
 
 /// Lifecycle phase of a terminal session as seen by the store. Maps
