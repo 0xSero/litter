@@ -177,6 +177,9 @@ pub mod transport;
 pub mod types;
 pub mod widget_guidelines;
 
+#[cfg(test)]
+mod perf_profile;
+
 pub use mobile_client::*;
 
 // ── Shared infra ─────────────────────────────────────────────────────────
