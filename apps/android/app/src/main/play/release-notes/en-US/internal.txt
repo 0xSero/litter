@@ -1,5 +1,5 @@
-Litter 2.1.4
+Litter 2.1.5
+- Verify recent sessions appear before a saved server reconnects
 - Verify follow-ups retain earlier messages and expansion state
 - Verify long conversations scroll smoothly while streaming
-- Verify model/settings requests do not delay unrelated actions
 - Verify reconnect and disconnect during active requests
