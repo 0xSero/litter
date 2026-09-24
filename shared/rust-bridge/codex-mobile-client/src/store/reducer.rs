@@ -466,7 +466,7 @@ impl AppStoreReducer {
             server_id: server_id.to_string(),
         });
         for key in removed_thread_keys {
-            self.clear_thread_update_caches(&key);
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -630,7 +630,7 @@ impl AppStoreReducer {
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
-            self.clear_thread_update_caches(&key);
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -787,6 +787,7 @@ impl AppStoreReducer {
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -1248,7 +1249,7 @@ impl AppStoreReducer {
                 .retain(|key, _| remaining_user_input_keys.contains(key));
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
-        self.clear_thread_update_caches(key);
+        self.clear_removed_thread_caches(key);
         self.emit(AppStoreUpdateRecord::ThreadRemoved {
             key: key.clone(),
             agent_directory_version,
@@ -2081,6 +2082,12 @@ impl AppStoreReducer {
                 // final ItemCompleted still delivers the full payload.
                 const MAX_BUFFER_BYTES: usize = 256 * 1024;
                 let (partial, known_item_id) = {
+                    // Hold the read guard through insertion so a late delta
+                    // cannot recreate a buffer after thread removal cleans up.
+                    let snapshot = self.snapshot.read().expect("app store lock poisoned");
+                    if !snapshot.threads.contains_key(key) {
+                        return;
+                    }
                     let mut guard = self
                         .dynamic_tool_arg_buffers
                         .write()
@@ -2652,6 +2659,16 @@ impl AppStoreReducer {
         if let Some(update) = update {
             self.emit(update);
         }
+    }
+
+    /// Only removal invalidates unfinished argument streams. A normal thread
+    /// upsert can happen during hydration while those streams are still live.
+    fn clear_removed_thread_caches(&self, key: &ThreadKey) {
+        self.clear_thread_update_caches(key);
+        self.dynamic_tool_arg_buffers
+            .write()
+            .expect("app store dynamic_tool_arg_buffers poisoned")
+            .retain(|(thread_key, _), _| thread_key != key);
     }
 
     fn clear_thread_update_caches(&self, key: &ThreadKey) {
@@ -4275,6 +4292,100 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(emitted, vec![key_one]);
+    }
+
+    #[test]
+    fn removed_threads_release_derived_caches_and_argument_buffers() {
+        for removal in ["thread", "server", "list", "paginated_list"] {
+            let reducer = AppStoreReducer::new();
+            let removed = key_thread("removed");
+            let retained = ThreadKey {
+                server_id: "other-server".into(),
+                thread_id: "retained".into(),
+            };
+            for key in [&removed, &retained] {
+                let mut info = make_thread_info(&key.thread_id);
+                info.created_at = Some(1);
+                reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+                reducer.emit_thread_metadata_changed(key);
+                reducer.emit_thread_item_changed(key, assistant_item_named("item", "text"));
+                reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+                    key: key.clone(),
+                    item_id: "widget".into(),
+                    call_id: Some("call".into()),
+                    delta: r#"{"widget_code":"<div"#.into(),
+                });
+            }
+            assert_eq!(reducer.last_thread_state_updates.read().unwrap().len(), 2);
+            assert_eq!(reducer.last_thread_item_upserts.read().unwrap().len(), 2);
+            assert_eq!(reducer.dynamic_tool_arg_buffers.read().unwrap().len(), 2);
+
+            match removal {
+                "thread" => reducer.remove_thread(&removed),
+                "server" => reducer.remove_server("srv"),
+                "list" => reducer.sync_thread_list("srv", &[]),
+                _ => reducer.finalize_thread_list_sync("srv", &HashSet::new()),
+            }
+            assert!(
+                !reducer.snapshot().threads.contains_key(&removed),
+                "{removal}"
+            );
+            let states = reducer.last_thread_state_updates.read().unwrap();
+            assert!(!states.contains_key(&removed), "{removal}");
+            assert!(states.contains_key(&retained), "{removal}");
+            drop(states);
+            let items = reducer.last_thread_item_upserts.read().unwrap();
+            assert!(!items.contains_key(&removed), "{removal}");
+            assert!(items.contains_key(&retained), "{removal}");
+            drop(items);
+            let buffers = reducer.dynamic_tool_arg_buffers.read().unwrap();
+            assert_eq!(buffers.len(), 1, "{removal}");
+            assert!(
+                buffers.contains_key(&(retained.clone(), "call".into())),
+                "{removal}"
+            );
+            drop(buffers);
+
+            reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+                key: removed.clone(),
+                item_id: "widget".into(),
+                call_id: Some("call".into()),
+                delta: "late delta".into(),
+            });
+            assert_eq!(
+                reducer.dynamic_tool_arg_buffers.read().unwrap().len(),
+                1,
+                "{removal}"
+            );
+        }
+    }
+
+    #[test]
+    fn thread_hydration_preserves_unfinished_argument_buffers() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("streaming");
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            "srv",
+            make_thread_info("streaming"),
+        ));
+        reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+            key: key.clone(),
+            item_id: "widget".into(),
+            call_id: Some("call".into()),
+            delta: r#"{"widget_code":"<div"#.into(),
+        });
+        reducer.emit_thread_upsert(&key);
+        reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+            key: key.clone(),
+            item_id: "widget".into(),
+            call_id: Some("call".into()),
+            delta: ">continued".into(),
+        });
+        let buffers = reducer.dynamic_tool_arg_buffers.read().unwrap();
+        assert_eq!(
+            buffers[&(key, "call".into())].buffer,
+            r#"{"widget_code":"<div>continued"#
+        );
     }
 
     /// The bounded item fingerprint must still discriminate the changes the
