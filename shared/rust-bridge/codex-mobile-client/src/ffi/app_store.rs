@@ -18,6 +18,7 @@ pub struct AppStore {
 #[derive(uniffi::Object)]
 pub struct AppStoreSubscription {
     pub(crate) state: std::sync::Mutex<Option<AppStoreSubscriptionState>>,
+    closed: tokio::sync::watch::Sender<bool>,
 }
 
 pub(crate) struct AppStoreSubscriptionState {
@@ -29,8 +30,8 @@ const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
 
 #[cfg(test)]
 mod tests {
+    use super::AppStoreSubscription;
     use super::should_preserve_thread_item_update_boundary;
-    use super::{AppStoreSubscription, AppStoreSubscriptionState};
     use crate::conversation_uniffi::{
         HydratedAssistantMessageData, HydratedConversationItem, HydratedConversationItemContent,
         HydratedFileChangeData, HydratedFileChangeEntryData, HydratedMcpToolCallData,
@@ -40,7 +41,7 @@ mod tests {
     use crate::types::{AppOperationStatus, AppSubagentStatus, ThreadKey};
     use codex_app_server_protocol as upstream;
     use serde_json::json;
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::HashMap;
 
     #[test]
     fn thread_item_parses_mcp_arguments_json() {
@@ -99,15 +100,68 @@ mod tests {
         assert_eq!(state.message.as_deref(), Some("Working"));
     }
 
+    #[tokio::test]
+    async fn app_store_subscription_cancel_releases_idle_receive() {
+        use std::future::Future;
+        use std::task::Poll;
+
+        let (sender, receiver) = tokio::sync::broadcast::channel(8);
+        let subscription = AppStoreSubscription::new(receiver);
+        let other = AppStoreSubscription::new(sender.subscribe());
+        let mut pending = std::pin::pin!(subscription.next_update());
+        std::future::poll_fn(|context| {
+            assert!(pending.as_mut().poll(context).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(sender.receiver_count(), 2);
+        subscription.cancel();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), pending)
+            .await
+            .expect("closing an idle subscription must wake its receive");
+        assert!(matches!(
+            result,
+            Err(crate::ffi::ClientError::EventClosed(_))
+        ));
+        assert_eq!(sender.receiver_count(), 1);
+        assert!(subscription.state.lock().unwrap().is_none());
+
+        // Closing one subscriber must not close the shared store or another
+        // observer, and repeated close/receive calls must remain terminal.
+        subscription.cancel();
+        sender.send(AppStoreUpdateRecord::FullResync).unwrap();
+        assert!(subscription.next_update().await.is_err());
+        assert!(matches!(
+            other.next_update().await.unwrap(),
+            AppStoreUpdateRecord::FullResync
+        ));
+        other.cancel();
+        assert_eq!(sender.receiver_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_cancel_discards_buffered_updates() {
+        let (sender, receiver) = tokio::sync::broadcast::channel(8);
+        let subscription = AppStoreSubscription::new(receiver);
+        subscription
+            .state
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .buffered
+            .push_back(AppStoreUpdateRecord::FullResync);
+        sender.send(AppStoreUpdateRecord::FullResync).unwrap();
+        subscription.cancel();
+        assert_eq!(sender.receiver_count(), 0);
+        assert!(subscription.next_update().await.is_err());
+        assert!(subscription.state.lock().unwrap().is_none());
+    }
+
     #[test]
     fn app_store_subscription_returns_full_resync_when_updates_lag() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         // AppStoreReducer keeps a 1024-event broadcast buffer to absorb normal
         // streaming bursts. Exceed it decisively so this test still exercises
@@ -133,12 +187,7 @@ mod tests {
             server_id: "srv".to_string(),
             thread_id: "thread-1".to_string(),
         };
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.emit_thread_streaming_delta(
             &key,
@@ -223,12 +272,7 @@ mod tests {
     #[test]
     fn app_store_subscription_keeps_unrelated_refresh_updates_distinct() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.update_server_health("srv", crate::store::ServerHealthSnapshot::Connected);
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
@@ -252,12 +296,7 @@ mod tests {
     #[test]
     fn app_store_subscription_collapses_repeated_same_kind_refresh_updates() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-2")]);
@@ -578,12 +617,7 @@ impl AppStore {
     }
 
     pub fn subscribe_updates(&self) -> AppStoreSubscription {
-        AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: self.inner.subscribe_app_updates(),
-                buffered: VecDeque::new(),
-            })),
-        }
+        AppStoreSubscription::new(self.inner.subscribe_app_updates())
     }
 
     pub async fn edit_message(
@@ -779,19 +813,45 @@ impl AppStore {
     }
 }
 
+impl AppStoreSubscription {
+    fn new(rx: tokio::sync::broadcast::Receiver<AppStoreUpdateRecord>) -> Self {
+        Self {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx,
+                buffered: VecDeque::new(),
+            })),
+            closed: tokio::sync::watch::channel(false).0,
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl AppStoreSubscription {
+    /// Release buffered updates and wake any pending receive. Swift's generated
+    /// async bridge does not propagate Task cancellation to the Rust future.
+    pub fn cancel(&self) {
+        let mut state = self.state.lock().unwrap();
+        self.closed.send_replace(true);
+        *state = None;
+    }
+
     pub async fn next_update(&self) -> Result<AppStoreUpdateRecord, ClientError> {
+        let mut closed = self.closed.subscribe();
         let mut state = {
-            self.state
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or(ClientError::EventClosed(
-                    "no app-store subscriber".to_string(),
-                ))?
+            let mut guard = self.state.lock().unwrap();
+            if *closed.borrow() {
+                return Err(ClientError::EventClosed("closed".to_string()));
+            }
+            guard.take().ok_or(ClientError::EventClosed(
+                "no app-store subscriber".to_string(),
+            ))?
         };
-        let result = match receive_next_update(&mut state).await {
+        let received = tokio::select! {
+            biased;
+            _ = closed.changed() => Err(tokio::sync::broadcast::error::RecvError::Closed),
+            update = receive_next_update(&mut state) => update,
+        };
+        let result = match received {
             Ok(update) => Ok(update),
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                 Ok(AppStoreUpdateRecord::FullResync)
@@ -800,7 +860,13 @@ impl AppStoreSubscription {
                 Err(ClientError::EventClosed("closed".to_string()))
             }
         };
-        *self.state.lock().unwrap() = Some(state);
+        let mut guard = self.state.lock().unwrap();
+        // Synchronize with close so an in-flight receive cannot restore the
+        // receiver or its buffered transcript after the owner releases it.
+        if *closed.borrow() {
+            return Err(ClientError::EventClosed("closed".to_string()));
+        }
+        *guard = Some(state);
         result
     }
 }
