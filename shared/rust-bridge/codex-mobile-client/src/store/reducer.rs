@@ -434,6 +434,22 @@ impl AppStoreReducer {
         {
             let mut snapshot = self.write_snapshot();
             snapshot.servers.remove(server_id);
+            {
+                let AppSnapshot {
+                    threads,
+                    cached_session_summaries,
+                    ..
+                } = &mut *snapshot;
+                cached_session_summaries.retain(|cached| {
+                    if cached.key.server_id != server_id {
+                        return true;
+                    }
+                    if !threads.contains_key(&cached.key) {
+                        removed_thread_keys.push(cached.key.clone());
+                    }
+                    false
+                });
+            }
             snapshot.threads.retain(|key, _| {
                 let keep = key.server_id != server_id;
                 if !keep {
@@ -4763,9 +4779,47 @@ mod tests {
     }
 
     #[test]
+    fn remove_server_clears_launch_cache_rows_without_duplicate_removals() {
+        let reducer = AppStoreReducer::new();
+        let live = key_thread("live");
+        let cached_only = key_thread("cached-only");
+        let retained = ThreadKey {
+            server_id: "other".into(),
+            thread_id: "offline".into(),
+        };
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", make_thread_info("live")));
+        reducer.seed_cached_session_summaries(vec![
+            empty_session_summary(live.clone()),
+            empty_session_summary(cached_only.clone()),
+            empty_session_summary(retained.clone()),
+        ]);
+        let mut receiver = reducer.subscribe();
+        reducer.remove_server("srv");
+        let snapshot = reducer.snapshot();
+        assert_eq!(snapshot.cached_session_summaries.len(), 1);
+        assert_eq!(snapshot.cached_session_summaries[0].key, retained);
+        let removed = drain_updates(&mut receiver)
+            .into_iter()
+            .filter_map(|update| {
+                if let AppStoreUpdateRecord::ThreadRemoved { key, .. } = update {
+                    Some(key)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&live));
+        assert!(removed.contains(&cached_only));
+    }
+
+    #[test]
     fn home_cache_projection_keeps_recent_known_server_rows_without_evicting_history() {
         let reducer = AppStoreReducer::new();
-        reducer.upsert_server(&make_server_config("srv"), ServerHealthSnapshot::Disconnected);
+        reducer.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Disconnected,
+        );
         for index in 0..65 {
             let mut info = make_thread_info(&format!("thread-{index}"));
             info.updated_at = Some(index);
