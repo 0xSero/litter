@@ -53,6 +53,7 @@ final class HomeDashboardModel {
         let sessionSummaries: [AppSessionSummary]
         let activeThread: ThreadKey?
         let rawServers: [AppServerSnapshot]
+        let liveThreadKeys: Set<ThreadKey>
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
@@ -118,6 +119,9 @@ final class HomeDashboardModel {
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var lastSessionSummaries: [AppSessionSummary] = []
+    @ObservationIgnored private var lastLiveThreadKeys: Set<ThreadKey> = []
+    @ObservationIgnored private var lastConnectedServers: [HomeDashboardServer] = []
+    @ObservationIgnored private var lastSessionProjection: [HomeDashboardRecentSession] = []
     /// Debounces rapid snapshot changes (e.g. the flood of store events
     /// during `listThreads` loads) so we don't rebuild the home list
     /// hundreds of times per second.
@@ -259,6 +263,10 @@ final class HomeDashboardModel {
             connectedServers = []
             recentSessions = []
             projects = []
+            lastSessionSummaries = []
+            lastLiveThreadKeys = []
+            lastConnectedServers = []
+            lastSessionProjection = []
             return
         }
 
@@ -277,21 +285,30 @@ final class HomeDashboardModel {
             // thread) show for any remembered server, so recent sessions
             // appear before reconnect finishes.
             let liveThreadKeys = Set((appSnapshot?.threads ?? []).map(\.key))
-            let launchableServerIds = Set(nextConnectedServers.filter(\.canLaunchSessions).map(\.id))
-            let visibleSummaries = (appSnapshot?.sessionSummaries ?? []).filter {
-                launchableServerIds.contains($0.key.serverId) || !liveThreadKeys.contains($0.key)
+            let summaries = appSnapshot?.sessionSummaries ?? []
+            let nextAllSessions: [HomeDashboardRecentSession]
+            if summaries == lastSessionSummaries,
+               liveThreadKeys == lastLiveThreadKeys,
+               nextConnectedServers == lastConnectedServers {
+                nextAllSessions = lastSessionProjection
+            } else {
+                let launchableServerIds = Set(nextConnectedServers.filter(\.canLaunchSessions).map(\.id))
+                let visibleSummaries = summaries.filter {
+                    launchableServerIds.contains($0.key.serverId) || !liveThreadKeys.contains($0.key)
+                }
+                nextAllSessions = HomeDashboardSupport.recentConnectedSessions(
+                    from: visibleSummaries,
+                    serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers.map { ($0.id, $0) }),
+                    limit: nil
+                )
             }
-            let nextAllSessions = HomeDashboardSupport.recentConnectedSessions(
-                from: visibleSummaries,
-                serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers.map { ($0.id, $0) }),
-                limit: nil
-            )
             return Snapshot(
                 connectedServers: nextConnectedServers,
                 recentSessions: nextAllSessions,
                 sessionSummaries: appSnapshot?.sessionSummaries ?? [],
                 activeThread: appSnapshot?.activeThread,
-                rawServers: appSnapshot?.servers ?? []
+                rawServers: appSnapshot?.servers ?? [],
+                liveThreadKeys: liveThreadKeys
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -309,8 +326,13 @@ final class HomeDashboardModel {
             allSessions: snapshot.recentSessions,
             servers: snapshot.connectedServers
         )
+        if lastSessionSummaries != snapshot.sessionSummaries {
+            projects = deriveProjects(sessions: snapshot.sessionSummaries)
+        }
         lastSessionSummaries = snapshot.sessionSummaries
-        projects = deriveProjects(sessions: snapshot.sessionSummaries)
+        lastLiveThreadKeys = snapshot.liveThreadKeys
+        lastConnectedServers = snapshot.connectedServers
+        lastSessionProjection = snapshot.recentSessions
         activeThread = snapshot.activeThread
 
         // Precompute the pinned-thread hydration signature here (debounced)

@@ -3,6 +3,7 @@ package com.litter.android.state
 import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.util.LLog
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -206,6 +207,9 @@ class AppModel private constructor(context: android.content.Context) {
     private val loadingModelServerIds = mutableMapOf<String, Int>()
     private val modelCatalogErrorsByServer = mutableMapOf<String, String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
+    // Serializes only native in-memory projections. Never hold across Rust calls,
+    // suspension, or saved-server persistence; StateFlow UI reads stay lock-free.
+    private val snapshotMutationLock = Any()
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
@@ -313,27 +317,27 @@ class AppModel private constructor(context: android.content.Context) {
     private var activeClients: Int = 0
 
     fun start() {
-        val shouldStart = synchronized(lifecycleLock) {
+        synchronized(lifecycleLock) {
             activeClients += 1
-            subscriptionJob?.isActive != true
-        }
-        if (!shouldStart) return
-        subscriptionJob = scope.launch {
-            try {
-                val subscription: AppStoreSubscription = store.subscribeUpdates()
-                refreshSnapshot()
-                while (true) {
+            if (subscriptionJob?.isActive == true) return
+            subscriptionJob = scope.launch {
+                try {
+                    val subscription: AppStoreSubscription = store.subscribeUpdates()
                     try {
-                        val update: AppStoreUpdateRecord = subscription.nextUpdate()
-                        handleUpdate(update)
-                    } catch (e: Exception) {
-                        LLog.e("AppModel", "AppStore subscription loop failed", e)
-                        throw e
+                        refreshSnapshot()
+                        while (true) {
+                            handleUpdate(subscription.nextUpdate())
+                        }
+                    } finally {
+                        subscription.cancel()
+                        subscription.close()
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    LLog.e("AppModel", "AppModel subscription failed", e)
+                    _lastError.value = e.message
                 }
-            } catch (e: Exception) {
-                LLog.e("AppModel", "AppModel.start() subscription failed", e)
-                _lastError.value = e.message
             }
         }
     }
@@ -341,11 +345,15 @@ class AppModel private constructor(context: android.content.Context) {
     fun stop() {
         val shouldStop = synchronized(lifecycleLock) {
             activeClients = (activeClients - 1).coerceAtLeast(0)
-            activeClients == 0
+            if (activeClients == 0) {
+                subscriptionJob?.cancel()
+                subscriptionJob = null
+                true
+            } else {
+                false
+            }
         }
         if (!shouldStop) return
-        subscriptionJob?.cancel()
-        subscriptionJob = null
         pendingActiveThreadHydrationJob?.cancel()
         pendingActiveThreadHydrationJob = null
         pendingActiveThreadHydrationKey = null
@@ -365,21 +373,25 @@ class AppModel private constructor(context: android.content.Context) {
                 "snapshot refreshed",
                 fields = mapOf("servers" to snap.servers.size, "summary" to serverSummary),
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _lastError.value = e.message
         }
     }
 
     private fun applySnapshot(snapshot: AppSnapshotRecord?) {
-        val merged = snapshot
-            ?.let(::applySavedServerNames)
-            ?.let(::mergeCachedThreadSnapshots)
-        _snapshot.value = merged
-        if (merged != null) {
-            persistWakeMacs(merged)
-            merged.threads.forEach(::cacheThreadSnapshot)
-            _lastError.value = null
+        val namedSnapshot = snapshot?.let(::applySavedServerNames)
+        val merged = synchronized(snapshotMutationLock) {
+            val next = namedSnapshot?.let(::mergeCachedThreadSnapshots)
+            _snapshot.value = next
+            if (next != null) {
+                next.threads.forEach(::cacheThreadSnapshot)
+                _lastError.value = null
+            }
+            next
         }
+        if (merged != null) persistWakeMacs(merged)
     }
 
     private fun persistWakeMacs(snapshot: AppSnapshotRecord) {
@@ -439,17 +451,19 @@ class AppModel private constructor(context: android.content.Context) {
     /// so home-list derived fields track streaming items without waiting
     /// for a full snapshot rebuild.
     private fun applySessionSummary(summary: AppSessionSummary) {
-        val current = _snapshot.value ?: return
         val adjusted = applySavedServerName(summary)
-        val existingIndex = current.sessionSummaries.indexOfFirst { it.key == adjusted.key }
-        val updatedSummaries = current.sessionSummaries.toMutableList().apply {
-            if (existingIndex >= 0) {
-                this[existingIndex] = adjusted
-            } else {
-                add(adjusted)
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return
+            val existingIndex = current.sessionSummaries.indexOfFirst { it.key == adjusted.key }
+            val updatedSummaries = current.sessionSummaries.toMutableList().apply {
+                if (existingIndex >= 0) {
+                    this[existingIndex] = adjusted
+                } else {
+                    add(adjusted)
+                }
             }
+            _snapshot.value = current.copy(sessionSummaries = updatedSummaries)
         }
-        _snapshot.value = current.copy(sessionSummaries = updatedSummaries)
     }
 
     suspend fun restartLocalServer() {
@@ -1150,42 +1164,44 @@ class AppModel private constructor(context: android.content.Context) {
         itemId: String,
         widget: uniffi.codex_mobile_client.HydratedWidgetData,
     ) {
-        val current = _snapshot.value ?: return
-        val threadIndex = current.threads.indexOfFirst { it.key == key }
-        if (threadIndex < 0) return
-        val thread = current.threads[threadIndex]
-        val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
-        val updatedItems = thread.hydratedConversationItems.toMutableList()
-        if (itemIndex >= 0) {
-            val item = updatedItems[itemIndex]
-            val content = item.content
-            // Before the first delta the item is a generic DynamicToolCall
-            // (no args → hydration returns None → item stays as tool-call).
-            // Replace its content unconditionally with the hydrated widget,
-            // except when it's already a finalized widget (stale delta).
-            if (content is HydratedConversationItemContent.Widget) {
-                if (content.v1.isFinalized) return
-                if (content.v1 == widget) return
-            }
-            updatedItems[itemIndex] = item.copy(
-                content = HydratedConversationItemContent.Widget(widget),
-            )
-        } else {
-            // First delta raced ThreadItemStarted. Synthesize a placeholder
-            // so the bubble appears now; the later ThreadItemStarted/Changed
-            // will overwrite with the canonical hydrated item.
-            updatedItems.add(
-                HydratedConversationItem(
-                    id = itemId,
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return
+            val threadIndex = current.threads.indexOfFirst { it.key == key }
+            if (threadIndex < 0) return
+            val thread = current.threads[threadIndex]
+            val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
+            val updatedItems = thread.hydratedConversationItems.toMutableList()
+            if (itemIndex >= 0) {
+                val item = updatedItems[itemIndex]
+                val content = item.content
+                // Before the first delta the item is a generic DynamicToolCall
+                // (no args → hydration returns None → item stays as tool-call).
+                // Replace its content unconditionally with the hydrated widget,
+                // except when it's already a finalized widget (stale delta).
+                if (content is HydratedConversationItemContent.Widget) {
+                    if (content.v1.isFinalized) return
+                    if (content.v1 == widget) return
+                }
+                updatedItems[itemIndex] = item.copy(
                     content = HydratedConversationItemContent.Widget(widget),
-                    sourceTurnId = thread.activeTurnId,
-                    sourceTurnIndex = null,
-                    timestamp = null,
-                    isFromUserTurnBoundary = false,
-                ),
-            )
+                )
+            } else {
+                // First delta raced ThreadItemStarted. Synthesize a placeholder
+                // so the bubble appears now; the later ThreadItemStarted/Changed
+                // will overwrite with the canonical hydrated item.
+                updatedItems.add(
+                    HydratedConversationItem(
+                        id = itemId,
+                        content = HydratedConversationItemContent.Widget(widget),
+                        sourceTurnId = thread.activeTurnId,
+                        sourceTurnIndex = null,
+                        timestamp = null,
+                        isFromUserTurnBoundary = false,
+                    ),
+                )
+            }
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
         }
-        applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
     }
 
     private suspend fun recoverThreadDeltaApplication(key: ThreadKey) {
@@ -1208,12 +1224,16 @@ class AppModel private constructor(context: android.content.Context) {
         try {
             val threadSnapshot = store.threadSnapshot(key)
             if (threadSnapshot == null) {
-                if (cachedThreadSnapshots[key] == null) {
-                    removeThreadSnapshot(key, clearCache = false)
+                synchronized(snapshotMutationLock) {
+                    if (cachedThreadSnapshots[key] == null) {
+                        removeThreadSnapshot(key, clearCache = false)
+                    }
                 }
                 return
             }
             applyThreadSnapshot(threadSnapshot)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _lastError.value = e.message
             refreshSnapshot()
@@ -1295,6 +1315,8 @@ class AppModel private constructor(context: android.content.Context) {
             } else {
                 refreshThreadSnapshot(nextKey)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _lastError.value = e.message
         } finally {
@@ -1313,23 +1335,25 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun applyThreadSnapshot(thread: AppThreadSnapshot) {
-        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
-        val current = _snapshot.value
-        if (current == null) {
-            cacheThreadSnapshot(mergedThread)
-            return
-        }
-        val existingIndex = current.threads.indexOfFirst { it.key == thread.key }
-        val updatedThreads = current.threads.toMutableList().apply {
-            if (existingIndex >= 0) {
-                this[existingIndex] = mergedThread
-            } else {
-                add(mergedThread)
+        synchronized(snapshotMutationLock) {
+            val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+            val current = _snapshot.value
+            if (current == null) {
+                cacheThreadSnapshot(mergedThread)
+                return
             }
+            val existingIndex = current.threads.indexOfFirst { it.key == thread.key }
+            val updatedThreads = current.threads.toMutableList().apply {
+                if (existingIndex >= 0) {
+                    this[existingIndex] = mergedThread
+                } else {
+                    add(mergedThread)
+                }
+            }
+            _snapshot.value = current.copy(threads = updatedThreads)
+            cacheThreadSnapshot(mergedThread)
+            _lastError.value = null
         }
-        _snapshot.value = current.copy(threads = updatedThreads)
-        cacheThreadSnapshot(mergedThread)
-        _lastError.value = null
     }
 
     private fun applyThreadUpsert(
@@ -1337,52 +1361,54 @@ class AppModel private constructor(context: android.content.Context) {
         sessionSummary: AppSessionSummary,
         agentDirectoryVersion: ULong,
     ) {
-        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
-        val current = _snapshot.value ?: return
-        val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
+        val adjustedSummary = applySavedServerName(sessionSummary)
+        synchronized(snapshotMutationLock) {
+            val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+            val current = _snapshot.value ?: return
+            val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
 
-        // Race condition guard: during active streaming, if the old thread has
-        // longer assistant text that starts with the new text, preserve the old
-        // (more complete) text to avoid flickering backwards.
-        val finalThread = if (existingThreadIndex >= 0) {
-            val oldThread = current.threads[existingThreadIndex]
-            if (oldThread.hasActiveTurn) {
-                preserveStreamingText(oldThread, mergedThread)
+            // Race condition guard: during active streaming, if the old thread has
+            // longer assistant text that starts with the new text, preserve the old
+            // (more complete) text to avoid flickering backwards.
+            val finalThread = if (existingThreadIndex >= 0) {
+                val oldThread = current.threads[existingThreadIndex]
+                if (oldThread.hasActiveTurn) {
+                    preserveStreamingText(oldThread, mergedThread)
+                } else {
+                    mergedThread
+                }
             } else {
                 mergedThread
             }
-        } else {
-            mergedThread
-        }
 
-        val updatedThreads = current.threads.toMutableList().apply {
-            if (existingThreadIndex >= 0) {
-                this[existingThreadIndex] = finalThread
-            } else {
-                add(finalThread)
+            val updatedThreads = current.threads.toMutableList().apply {
+                if (existingThreadIndex >= 0) {
+                    this[existingThreadIndex] = finalThread
+                } else {
+                    add(finalThread)
+                }
             }
-        }
 
-        val adjustedSummary = applySavedServerName(sessionSummary)
-        val existingSummaryIndex = current.sessionSummaries.indexOfFirst { it.key == adjustedSummary.key }
-        val updatedSummaries = current.sessionSummaries.toMutableList().apply {
-            if (existingSummaryIndex >= 0) {
-                this[existingSummaryIndex] = adjustedSummary
-            } else {
-                add(adjustedSummary)
+            val existingSummaryIndex = current.sessionSummaries.indexOfFirst { it.key == adjustedSummary.key }
+            val updatedSummaries = current.sessionSummaries.toMutableList().apply {
+                if (existingSummaryIndex >= 0) {
+                    this[existingSummaryIndex] = adjustedSummary
+                } else {
+                    add(adjustedSummary)
+                }
+                sortWith(compareByDescending<AppSessionSummary> { it.updatedAt ?: Long.MIN_VALUE }
+                    .thenBy { it.key.serverId }
+                    .thenBy { it.key.threadId })
             }
-            sortWith(compareByDescending<AppSessionSummary> { it.updatedAt ?: Long.MIN_VALUE }
-                .thenBy { it.key.serverId }
-                .thenBy { it.key.threadId })
-        }
 
-        _snapshot.value = current.copy(
-            threads = updatedThreads,
-            sessionSummaries = updatedSummaries,
-            agentDirectoryVersion = agentDirectoryVersion,
-        )
-        cacheThreadSnapshot(finalThread)
-        _lastError.value = null
+            _snapshot.value = current.copy(
+                threads = updatedThreads,
+                sessionSummaries = updatedSummaries,
+                agentDirectoryVersion = agentDirectoryVersion,
+            )
+            cacheThreadSnapshot(finalThread)
+            _lastError.value = null
+        }
     }
 
     private fun preserveStreamingText(
@@ -1424,75 +1450,79 @@ class AppModel private constructor(context: android.content.Context) {
         sessionSummary: AppSessionSummary,
         agentDirectoryVersion: ULong,
     ) {
-        val current = _snapshot.value ?: return
-        val existingThreadIndex = current.threads.indexOfFirst { it.key == state.key }
-        if (existingThreadIndex < 0) return
-
-        val existingThread = current.threads[existingThreadIndex]
-        val updatedThread = existingThread.copy(
-            info = state.info,
-            collaborationMode = state.collaborationMode,
-            model = state.model,
-            reasoningEffort = state.reasoningEffort,
-            effectiveApprovalPolicy = state.effectiveApprovalPolicy,
-            effectiveSandboxPolicy = state.effectiveSandboxPolicy,
-            queuedFollowUps = state.queuedFollowUps,
-            activeTurnId = state.activeTurnId,
-            activePlanProgress = state.activePlanProgress,
-            pendingPlanImplementationPrompt = state.pendingPlanImplementationPrompt,
-            contextTokensUsed = state.contextTokensUsed,
-            modelContextWindow = state.modelContextWindow,
-            rateLimits = state.rateLimits,
-            realtimeSessionId = state.realtimeSessionId,
-            goal = state.goal,
-            olderTurnsCursor = state.olderTurnsCursor,
-            initialTurnsLoaded = state.initialTurnsLoaded,
-        )
-        val updatedThreads = current.threads.toMutableList().apply {
-            this[existingThreadIndex] = updatedThread
-        }
-
         val adjustedSummary = applySavedServerName(sessionSummary)
-        val existingSummaryIndex = current.sessionSummaries.indexOfFirst { it.key == adjustedSummary.key }
-        val updatedSummaries = current.sessionSummaries.toMutableList().apply {
-            if (existingSummaryIndex >= 0) {
-                this[existingSummaryIndex] = adjustedSummary
-            } else {
-                add(adjustedSummary)
-            }
-            sortWith(compareByDescending<AppSessionSummary> { it.updatedAt ?: Long.MIN_VALUE }
-                .thenBy { it.key.serverId }
-                .thenBy { it.key.threadId })
-        }
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return
+            val existingThreadIndex = current.threads.indexOfFirst { it.key == state.key }
+            if (existingThreadIndex < 0) return
 
-        _snapshot.value = current.copy(
-            threads = updatedThreads,
-            sessionSummaries = updatedSummaries,
-            agentDirectoryVersion = agentDirectoryVersion,
-        )
-        cacheThreadSnapshot(updatedThread)
-        _lastError.value = null
+            val existingThread = current.threads[existingThreadIndex]
+            val updatedThread = existingThread.copy(
+                info = state.info,
+                collaborationMode = state.collaborationMode,
+                model = state.model,
+                reasoningEffort = state.reasoningEffort,
+                effectiveApprovalPolicy = state.effectiveApprovalPolicy,
+                effectiveSandboxPolicy = state.effectiveSandboxPolicy,
+                queuedFollowUps = state.queuedFollowUps,
+                activeTurnId = state.activeTurnId,
+                activePlanProgress = state.activePlanProgress,
+                pendingPlanImplementationPrompt = state.pendingPlanImplementationPrompt,
+                contextTokensUsed = state.contextTokensUsed,
+                modelContextWindow = state.modelContextWindow,
+                rateLimits = state.rateLimits,
+                realtimeSessionId = state.realtimeSessionId,
+                goal = state.goal,
+                olderTurnsCursor = state.olderTurnsCursor,
+                initialTurnsLoaded = state.initialTurnsLoaded,
+            )
+            val updatedThreads = current.threads.toMutableList().apply {
+                this[existingThreadIndex] = updatedThread
+            }
+
+            val existingSummaryIndex = current.sessionSummaries.indexOfFirst { it.key == adjustedSummary.key }
+            val updatedSummaries = current.sessionSummaries.toMutableList().apply {
+                if (existingSummaryIndex >= 0) {
+                    this[existingSummaryIndex] = adjustedSummary
+                } else {
+                    add(adjustedSummary)
+                }
+                sortWith(compareByDescending<AppSessionSummary> { it.updatedAt ?: Long.MIN_VALUE }
+                    .thenBy { it.key.serverId }
+                    .thenBy { it.key.threadId })
+            }
+
+            _snapshot.value = current.copy(
+                threads = updatedThreads,
+                sessionSummaries = updatedSummaries,
+                agentDirectoryVersion = agentDirectoryVersion,
+            )
+            cacheThreadSnapshot(updatedThread)
+            _lastError.value = null
+        }
     }
 
     private fun applyThreadItemChanged(
         key: ThreadKey,
         item: HydratedConversationItem,
     ): Boolean {
-        val current = _snapshot.value ?: return false
-        val threadIndex = current.threads.indexOfFirst { it.key == key }
-        if (threadIndex < 0) return false
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return false
+            val threadIndex = current.threads.indexOfFirst { it.key == key }
+            if (threadIndex < 0) return false
 
-        val thread = current.threads[threadIndex]
-        val updatedItems = thread.hydratedConversationItems.toMutableList()
-        val existingItemIndex = updatedItems.indexOfFirst { it.id == item.id }
-        if (existingItemIndex >= 0) {
-            updatedItems[existingItemIndex] = item
-        } else {
-            val insertionIndex = insertionIndexForItem(updatedItems, item)
-            updatedItems.add(insertionIndex, item)
+            val thread = current.threads[threadIndex]
+            val updatedItems = thread.hydratedConversationItems.toMutableList()
+            val existingItemIndex = updatedItems.indexOfFirst { it.id == item.id }
+            if (existingItemIndex >= 0) {
+                updatedItems[existingItemIndex] = item
+            } else {
+                val insertionIndex = insertionIndexForItem(updatedItems, item)
+                updatedItems.add(insertionIndex, item)
+            }
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
+            return true
         }
-        applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
-        return true
     }
 
     private fun applyThreadStreamingDelta(
@@ -1501,21 +1531,23 @@ class AppModel private constructor(context: android.content.Context) {
         kind: ThreadStreamingDeltaKind,
         text: String,
     ): Boolean {
-        val current = _snapshot.value ?: return false
-        val threadIndex = current.threads.indexOfFirst { it.key == key }
-        if (threadIndex < 0) return false
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return false
+            val threadIndex = current.threads.indexOfFirst { it.key == key }
+            if (threadIndex < 0) return false
 
-        val thread = current.threads[threadIndex]
-        val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
-        if (itemIndex < 0) return false
+            val thread = current.threads[threadIndex]
+            val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
+            if (itemIndex < 0) return false
 
-        val updatedContent = applyStreamingDelta(kind, text, thread.hydratedConversationItems[itemIndex].content)
-            ?: return false
-        val updatedItems = thread.hydratedConversationItems.toMutableList().apply {
-            this[itemIndex] = this[itemIndex].copy(content = updatedContent)
+            val updatedContent = applyStreamingDelta(kind, text, thread.hydratedConversationItems[itemIndex].content)
+                ?: return false
+            val updatedItems = thread.hydratedConversationItems.toMutableList().apply {
+                this[itemIndex] = this[itemIndex].copy(content = updatedContent)
+            }
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
+            return true
         }
-        applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
-        return true
     }
 
     private fun applyStreamingDelta(
@@ -1594,33 +1626,42 @@ class AppModel private constructor(context: android.content.Context) {
         agentDirectoryVersion: ULong? = null,
         clearCache: Boolean = true,
     ) {
-        val current = _snapshot.value ?: return
-        _snapshot.value = current.copy(
-            threads = current.threads.filterNot { it.key == key },
-            sessionSummaries = current.sessionSummaries.filterNot { it.key == key },
-            agentDirectoryVersion = agentDirectoryVersion ?: current.agentDirectoryVersion,
-            activeThread = if (current.activeThread == key) null else current.activeThread,
-        )
-        if (clearCache) {
-            cachedThreadSnapshots.remove(key)
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return
+            _snapshot.value = current.copy(
+                threads = current.threads.filterNot { it.key == key },
+                sessionSummaries = current.sessionSummaries.filterNot { it.key == key },
+                agentDirectoryVersion = agentDirectoryVersion ?: current.agentDirectoryVersion,
+                activeThread = if (current.activeThread == key) null else current.activeThread,
+            )
+            if (clearCache) {
+                cachedThreadSnapshots.remove(key)
+            }
         }
     }
 
     private fun updateActiveThread(key: ThreadKey?) {
-        val current = _snapshot.value ?: return
-        _snapshot.value = current.copy(activeThread = key)
+        synchronized(snapshotMutationLock) {
+            val current = _snapshot.value ?: return
+            _snapshot.value = current.copy(activeThread = key)
+        }
     }
 
     fun threadSnapshot(key: ThreadKey): AppThreadSnapshot? =
-        _snapshot.value?.threads?.firstOrNull { it.key == key } ?: cachedThreadSnapshots[key]
+        _snapshot.value?.threads?.firstOrNull { it.key == key }
+            ?: synchronized(snapshotMutationLock) { cachedThreadSnapshots[key] }
 
     private fun restoreCachedThreadSnapshotIfNeeded(key: ThreadKey?) {
-        if (key == null) return
-        if (_snapshot.value?.threads?.any { it.key == key } == true) return
-        val cached = cachedThreadSnapshots[key] ?: return
-        applyThreadSnapshot(cached)
+        synchronized(snapshotMutationLock) {
+            if (key == null) return
+            if (_snapshot.value?.threads?.any { it.key == key } == true) return
+            val cached = cachedThreadSnapshots[key] ?: return
+            applyThreadSnapshot(cached)
+        }
     }
 
+    // Cache helpers below run inside snapshotMutationLock with their caller's
+    // snapshot read/modify/publish transaction, including authoritative pruning.
     private fun cacheThreadSnapshot(thread: AppThreadSnapshot) {
         cachedThreadSnapshots[thread.key] = thread
     }
@@ -1637,11 +1678,16 @@ class AppModel private constructor(context: android.content.Context) {
             .map(::mergedThreadSnapshotPreservingHydratedItems)
             .toMutableList()
 
+        val presentKeys = mergedThreads.mapTo(mutableSetOf()) { it.key }
+        val summaryKeys = snapshot.sessionSummaries.mapTo(mutableSetOf()) { it.key }
+        // A full Rust snapshot is authoritative even when a removal event was missed.
+        cachedThreadSnapshots.keys.removeAll { key ->
+            key !in presentKeys && key !in summaryKeys && key != snapshot.activeThread
+        }
         cachedThreadSnapshots.forEach { (key, cached) ->
-            val alreadyPresent = mergedThreads.any { it.key == key }
-            val shouldInclude = snapshot.activeThread == key || snapshot.sessionSummaries.any { it.key == key }
-            if (!alreadyPresent && shouldInclude) {
+            if (key !in presentKeys && (snapshot.activeThread == key || key in summaryKeys)) {
                 mergedThreads += cached
+                presentKeys += key
             }
         }
 

@@ -66,13 +66,14 @@ final class StreamingRendererCoordinator {
         for (_, r) in renderers {
             if !r.isFinished { r.finish() }
         }
+        // Mounted bubbles retain their own renderer until SwiftUI replaces
+        // them. The coordinator only owns renderers for the live turn.
+        renderers.removeAll()
         activeItemId = nil
     }
 
     func reset() {
-        for (_, r) in renderers { r.finish() }
-        renderers.removeAll()
-        activeItemId = nil
+        finishActive()
     }
 
     // MARK: - Private

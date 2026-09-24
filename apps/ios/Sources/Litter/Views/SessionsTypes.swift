@@ -94,7 +94,6 @@ struct SessionsDerivedData: Equatable {
         workspaceGroupIDs: [],
         workspaceGroupIDByThreadKey: [:],
         parentByKey: [:],
-        siblingsByKey: [:],
         childrenByKey: [:]
     )
 
@@ -106,8 +105,14 @@ struct SessionsDerivedData: Equatable {
     let workspaceGroupIDs: [String]
     let workspaceGroupIDByThreadKey: [ThreadKey: String]
     let parentByKey: [ThreadKey: AppSessionSummary]
-    let siblingsByKey: [ThreadKey: [AppSessionSummary]]
     let childrenByKey: [ThreadKey: [AppSessionSummary]]
+
+    /// Only the selected row displays siblings. Reuse the parent's children
+    /// instead of retaining a separate, nearly identical array for every child.
+    func siblings(for key: ThreadKey) -> [AppSessionSummary] {
+        guard let parent = parentByKey[key] else { return [] }
+        return (childrenByKey[parent.key] ?? []).filter { $0.key != key }
+    }
 }
 
 func normalizedWorkspacePath(_ raw: String) -> String {

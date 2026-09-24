@@ -349,6 +349,46 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         XCTAssertEqual(key, ThreadKey(serverId: "srv", threadId: "thread-1"))
     }
 
+    @MainActor
+    func testFullResyncDropsCachedThreadsMissingFromAuthoritativeSnapshot() {
+        let key = ThreadKey(serverId: "srv", threadId: "removed-with-missed-event")
+        let model = AppModel()
+        model.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: key)]))
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+
+        // The remove event was missed; a full snapshot must still release its cache.
+        model.applySnapshot(makeSnapshot(threads: []))
+        XCTAssertNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testFullResyncPreservesCachedOfflineThreadReferencedBySummary() {
+        let key = ThreadKey(serverId: "srv", threadId: "offline-history")
+        let model = AppModel()
+        var snapshot = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(snapshot)
+        snapshot.threads = []
+        snapshot.servers[0].health = .disconnected
+        snapshot.servers[0].transportState = .disconnected
+
+        model.applySnapshot(snapshot)
+        XCTAssertEqual(model.snapshot?.threads.map(\.key), [key])
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testFullResyncPreservesCachedActiveThreadBeforeItsSummaryArrives() {
+        let key = ThreadKey(serverId: "srv", threadId: "active")
+        let model = AppModel()
+        model.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: key)]))
+        var snapshot = makeSnapshot(threads: [])
+        snapshot.activeThread = key
+
+        model.applySnapshot(snapshot)
+        XCTAssertEqual(model.snapshot?.threads.map(\.key), [key])
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
     private func makeSnapshot(threads: [AppThreadSnapshot]) -> AppSnapshotRecord {
         let server = AppServerSnapshot(
             serverId: "srv",

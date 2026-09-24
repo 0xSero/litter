@@ -227,6 +227,7 @@ final class AppModel {
 
     deinit {
         updateTask?.cancel()
+        subscription?.cancel()
         pendingThreadRefreshTask?.cancel()
         pendingActiveThreadHydrationTask?.cancel()
         pendingSnapshotRefreshTask?.cancel()
@@ -240,15 +241,18 @@ final class AppModel {
         let subscription = store.subscribeUpdates()
         self.subscription = subscription
         updateTask = Task.detached(priority: .userInitiated) { [weak self, subscription] in
-            guard let self else { return }
-            await self.refreshSnapshot()
+            defer { subscription.cancel() }
+            await self?.refreshSnapshot()
             while !Task.isCancelled {
                 do {
+                    // Do not retain the model while waiting for the next event:
+                    // it owns this task, and an idle subscription may wait forever.
                     let update = try await subscription.nextUpdate()
+                    guard let self else { return }
                     await self.handleStoreUpdate(update)
                 } catch {
                     if Task.isCancelled { break }
-                    await self.recordStoreSubscriptionError(error)
+                    await self?.recordStoreSubscriptionError(error)
                     break
                 }
             }
@@ -257,6 +261,7 @@ final class AppModel {
 
     func stop() {
         updateTask?.cancel()
+        subscription?.cancel()
         updateTask = nil
         pendingThreadRefreshTask?.cancel()
         pendingThreadRefreshTask = nil
@@ -1020,7 +1025,11 @@ final class AppModel {
                 // when no interval is pending (deltas can arrive for a
                 // turn this device did not start).
                 PerfTracker.endInterval("SendMessage", key: PerfTracker.intervalKey(key))
-                StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
+                // Background threads must not finish the viewed thread's
+                // renderer merely by changing the coordinator's active item.
+                if snapshot?.activeThread == key {
+                    StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
+                }
             }
             enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
         case .threadRemoved(let key, let agentDirectoryVersion):
@@ -2457,6 +2466,12 @@ final class AppModel {
             summaryKeys.insert(snapshot.sessionSummaries[index].key)
         }
 
+        // A full resync may follow dropped incremental events, including
+        // ThreadRemoved. Rust's membership is authoritative; retain offline
+        // summaries and the active thread, but discard unreachable cache rows.
+        cachedThreadSnapshots = cachedThreadSnapshots.filter { key, _ in
+            presentThreadKeys.contains(key) || summaryKeys.contains(key) || snapshot.activeThread == key
+        }
         for (key, cached) in cachedThreadSnapshots {
             guard !presentThreadKeys.contains(key) else { continue }
             guard snapshot.activeThread == key || summaryKeys.contains(key) else {

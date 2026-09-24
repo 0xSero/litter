@@ -31,10 +31,17 @@ struct ResolvedChatImageView: View {
     var maxHeight: CGFloat = 320
 
     @State private var imageData: Data?
+    @State private var rasterImage: UIImage?
     @State private var loadError: String?
     @State private var isLoading = false
 
-    private static let dataCache = NSCache<NSString, NSData>()
+    private static let cacheByteLimit = 32 * 1024 * 1024
+    private static let dataCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.totalCostLimit = cacheByteLimit
+        cache.countLimit = 128
+        return cache
+    }()
 
     var body: some View {
         Group {
@@ -42,7 +49,7 @@ struct ResolvedChatImageView: View {
                 if Self.isSVG(imageData, source: source) {
                     SafeSVGImageView(data: imageData)
                         .aspectRatio(Self.svgAspectRatio(imageData), contentMode: .fit)
-                } else if let image = UIImage(data: imageData) {
+                } else if let image = rasterImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
@@ -114,8 +121,9 @@ struct ResolvedChatImageView: View {
     }
 
     private func loadImage() async {
+        guard !Task.isCancelled else { return }
         if let cached = Self.dataCache.object(forKey: taskKey as NSString) {
-            imageData = cached as Data
+            setImageData(cached as Data)
             loadError = nil
             isLoading = false
             return
@@ -123,7 +131,11 @@ struct ResolvedChatImageView: View {
 
         isLoading = true
         loadError = nil
-        defer { isLoading = false }
+        imageData = nil
+        rasterImage = nil
+        defer {
+            if !Task.isCancelled { isLoading = false }
+        }
 
         do {
             let data: Data
@@ -142,13 +154,24 @@ struct ResolvedChatImageView: View {
             guard !data.isEmpty else {
                 throw ResolvedChatImageError.emptyImage
             }
-            Self.dataCache.setObject(data as NSData, forKey: taskKey as NSString)
-            imageData = data
+            guard !Task.isCancelled else { return }
+            if data.count <= Self.cacheByteLimit {
+                Self.dataCache.setObject(data as NSData, forKey: taskKey as NSString, cost: data.count)
+            }
+            setImageData(data)
         } catch {
+            guard !Task.isCancelled else { return }
             imageData = nil
+            rasterImage = nil
             let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             loadError = message.isEmpty ? "Image unavailable" : message
         }
+    }
+
+    private func setImageData(_ data: Data) {
+        imageData = data
+        // Construct a raster once per load, not on every streaming body update.
+        rasterImage = Self.isSVG(data, source: source) ? nil : UIImage(data: data)
     }
 
     private static func isSVG(_ data: Data, source: ResolvedChatImageSource) -> Bool {

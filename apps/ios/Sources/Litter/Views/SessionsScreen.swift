@@ -962,7 +962,7 @@ struct SessionsScreen: View {
 
     private func lineageSummary(for thread: AppSessionSummary, derived: SessionsDerivedData) -> some View {
         let parent = derived.parentByKey[thread.key]
-        let siblings = derived.siblingsByKey[thread.key] ?? []
+        let siblings = derived.siblings(for: thread.key)
         let children = derived.childrenByKey[thread.key] ?? []
         let hasLineage = parent != nil || !siblings.isEmpty || !children.isEmpty
 

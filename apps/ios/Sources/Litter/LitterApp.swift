@@ -642,6 +642,9 @@ private struct HomeNavigationView: View {
     @State private var homeDashboardModel = HomeDashboardModel()
     @State private var savedAppsStore = SavedAppsStore.shared
     @State private var navigationPath: [HomeNavigationRoute] = []
+    #if DEBUG
+    @State private var measuringBackToHomeAppearance = false
+    #endif
     @State private var directoryPickerSheet: SessionLaunchSupport.DirectoryPickerSheetModel?
     @State private var showProjectPicker = false
     @State private var openingRecentSessionKey: ThreadKey?
@@ -926,6 +929,14 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
+            // A pop out of the transcript releases its rendering cache. Sheet
+            // presentation and backgrounding leave this navigation path intact.
+            if !navigationPath.contains(where: { route in
+                if case .conversation = route { return true }
+                return false
+            }) {
+                StreamingRendererCoordinator.shared.reset()
+            }
         }
         .onChange(of: pinnedThreadHydrationSignature) { _, _ in
             hydratePinnedThreadsIfNeeded()
@@ -1430,6 +1441,15 @@ private struct HomeNavigationView: View {
 
     private func popCurrentRoute() {
         guard !navigationPath.isEmpty else { return }
+        #if DEBUG
+        // Compact Home is recreated after this final conversation pop. Measure
+        // action callback -> SwiftUI onAppear, not touch -> displayed frame.
+        if navigationPath.count == 1, !isEmbeddedInSplit,
+           case .conversation = navigationPath.last {
+            measuringBackToHomeAppearance = true
+            PerfTracker.beginInterval("BackToHomeAppear", key: "primary")
+        }
+        #endif
         appState.showModelSelector = false
         navigationPath.removeLast()
     }
@@ -1531,6 +1551,14 @@ private struct HomeNavigationView: View {
             },
             onSearchThreads: loadSearchThreads
         )
+        #if DEBUG
+        .onAppear {
+            if measuringBackToHomeAppearance {
+                PerfTracker.endInterval("BackToHomeAppear", key: "primary")
+                measuringBackToHomeAppearance = false
+            }
+        }
+        #endif
     }
 
     private func handleSelectServer(_ server: HomeDashboardServer) {

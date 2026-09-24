@@ -45,8 +45,16 @@ struct HomeSessionsScrollView: UIViewRepresentable {
     @Environment(ThemeManager.self) private var themeManager
     @Environment(WallpaperManager.self) private var wallpaperManager
 
+    #if DEBUG
+    var debugViewAttached: ((HomeSessionsScrollUIView) -> Void)? = nil
+    #endif
+
     func makeUIView(context: Context) -> HomeSessionsScrollUIView {
-        HomeSessionsScrollUIView()
+        let view = HomeSessionsScrollUIView()
+        #if DEBUG
+        debugViewAttached?(view)
+        #endif
+        return view
     }
 
     func updateUIView(_ view: HomeSessionsScrollUIView, context: Context) {
@@ -98,6 +106,68 @@ private enum ZoomHeights {
 private let zoomLevelsPerOctave: Double = 1.4
 private let zoomSnapDuration: TimeInterval = 0.22
 
+/// Geometry stays cheap even when a server contains thousands of sessions.
+/// Frames must be sorted by vertical position and have positive heights.
+enum HomeSessionViewport {
+    struct ScrollAnchor: Equatable {
+        let key: ThreadKey
+        let offset: CGFloat
+    }
+
+    static func scrollAnchor(in frames: [CGRect], keys: [ThreadKey], at y: CGFloat) -> ScrollAnchor? {
+        // At the top, keep new sessions visible instead of preserving the old
+        // first row when an insertion arrives.
+        guard y > 0.5, frames.count == keys.count,
+              let (index, _) = anchor(in: frames, at: y) else { return nil }
+        return ScrollAnchor(key: keys[index], offset: min(frames[index].height, y - frames[index].minY))
+    }
+
+    static func contentY(for anchor: ScrollAnchor, in frames: [CGRect], indices: [ThreadKey: Int]) -> CGFloat? {
+        guard let index = indices[anchor.key], frames.indices.contains(index) else { return nil }
+        return frames[index].minY + min(anchor.offset, frames[index].height)
+    }
+
+    static func visibleRange(in frames: [CGRect], viewport: CGRect) -> Range<Int> {
+        var lower = 0
+        var upper = frames.count
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if frames[middle].maxY <= viewport.minY { lower = middle + 1 }
+            else { upper = middle }
+        }
+        let start = lower
+        upper = frames.count
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if frames[middle].minY < viewport.maxY { lower = middle + 1 }
+            else { upper = middle }
+        }
+        return start..<lower
+    }
+
+    /// Natural pinch heights and committed page heights can differ for every
+    /// preceding row. Resolve the selected row against the final geometry.
+    static func pinchOffset(
+        in frames: [CGRect], index: Int, fraction: CGFloat,
+        viewportY: CGFloat, topInset: CGFloat, pageFit: Bool
+    ) -> CGFloat? {
+        guard frames.indices.contains(index) else { return nil }
+        let frame = frames[index]
+        let rowTop = frame.minY - topInset
+        if pageFit { return rowTop }
+        return min(frame.minY + fraction * frame.height - viewportY, rowTop)
+    }
+
+    static func anchor(in frames: [CGRect], at y: CGFloat) -> (Int, CGFloat)? {
+        guard !frames.isEmpty, y >= 0 else { return nil }
+        if y >= frames[frames.count - 1].maxY { return (frames.count - 1, 1) }
+        let index = visibleRange(in: frames, viewport: CGRect(x: 0, y: y, width: 1, height: 1)).lowerBound
+        guard frames.indices.contains(index) else { return nil }
+        let frame = frames[index]
+        return (index, max(0, min(1, (y - frame.minY) / frame.height)))
+    }
+}
+
 // MARK: - Scroll view
 
 /// CADisplayLink target shim — it only holds a closure to call on
@@ -140,13 +210,21 @@ final class HomeSessionsScrollUIView: UIView {
     private let catFooterHostingController = UIHostingController(rootView: AnyView(EmptyView()))
     private var containers: [ThreadKey: HomeRowContainer] = [:]
     private var order: [ThreadKey] = []
+    private var sessionsByKey: [ThreadKey: HomeDashboardRecentSession] = [:]
+    private var indicesByKey: [ThreadKey: Int] = [:]
+    private var rowFrames: [CGRect] = []
+    // Retain only geometry for offscreen rows, never SwiftUI hosting trees.
+    private var measuredHeights: [ThreadKey: [Int: CGFloat]] = [:]
+    private var configureRow: ((HomeRowContainer, HomeDashboardRecentSession, Int) -> Void)?
+    private var isUpdatingVisibleRows = false
 
     private(set) var zoomLevel: Int = 2
     private(set) var isPinching = false
     private var continuousZoom: Double = 2.0
     private var pinchStartZoom: Double = 2.0
     private var pinchStartScale: CGFloat = 1.0
-    private var pinchAnchorIdx: Int = 0
+    private var pinchAnchorKey: ThreadKey?
+    private var pinchAnchorIdx: Int { pinchAnchorKey.flatMap { indicesByKey[$0] } ?? -1 }
     private var pinchAnchorFraction: CGFloat = 0
     /// Last finger midpoint observed in `.changed`. By the time
     /// `.ended` fires, UIKit has typically already removed the touches
@@ -165,6 +243,7 @@ final class HomeSessionsScrollUIView: UIView {
     private var catFooterHostVisible = false
     private var catFooterEntranceStarted = false
     private var widthUsed: CGFloat = 0
+    private var heightUsed: CGFloat = 0
     private var lastCommittedInteger: Int = 2
     /// Last-seen text scale. A change here invalidates every row's
     /// measured natural height because font sizes — and therefore
@@ -180,6 +259,26 @@ final class HomeSessionsScrollUIView: UIView {
     private var isPerformingDeferredMeasurements = false
 
     var zoomCommit: ((Int) -> Void)?
+
+    #if DEBUG
+    var debugStateDidChange: (() -> Void)?
+    var debugMountedRowCount: Int { containers.count }
+    var debugSessionCount: Int { order.count }
+    var debugVisibleThreadKeys: [ThreadKey] {
+        guard rowFrames.count == order.count else { return [] }
+        return HomeSessionViewport.visibleRange(in: rowFrames, viewport: scrollView.bounds).map { order[$0] }
+    }
+
+    func debugScroll(to index: Int) {
+        guard rowFrames.indices.contains(index) else { return }
+        let minimum = -scrollView.adjustedContentInset.top
+        let maximum = max(minimum, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
+        let target = rowFrames[index].minY - scrollView.adjustedContentInset.top
+        scrollView.setContentOffset(CGPoint(x: 0, y: min(maximum, max(minimum, target))), animated: false)
+        updateVisibleRows()
+        updatePageBackgroundVisibility()
+    }
+    #endif
 
     /// Surface the scroll view's safe-area top for row containers — they
     /// need it to keep the previous card's bottom from peeking into the
@@ -251,10 +350,14 @@ final class HomeSessionsScrollUIView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if abs(bounds.width - widthUsed) > 0.5 {
+        let widthChanged = abs(bounds.width - widthUsed) > 0.5
+        if widthChanged || abs(bounds.height - heightUsed) > 0.5 {
+            let anchor = captureScrollAnchor()
             widthUsed = bounds.width
-            invalidateMeasurements()
+            heightUsed = bounds.height
+            if widthChanged { invalidateMeasurements() }
             relayout(animated: false)
+            restoreScrollAnchor(anchor)
         }
     }
 
@@ -274,6 +377,7 @@ final class HomeSessionsScrollUIView: UIView {
     }
 
     private func invalidateMeasurements() {
+        measuredHeights.removeAll(keepingCapacity: true)
         for container in containers.values {
             container.invalidateNaturalHeight()
         }
@@ -296,6 +400,7 @@ final class HomeSessionsScrollUIView: UIView {
         wallpaperManager: WallpaperManager,
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
+        let anchor = captureScrollAnchor()
         let zoomChanged = self.zoomLevel != zoomLevel && !isPinching
         let enteredPageFit = zoomChanged && zoomLevel == 4
         self.zoomLevel = zoomLevel
@@ -326,9 +431,7 @@ final class HomeSessionsScrollUIView: UIView {
         let textScaleChanged = abs(lastTextScale - textScale) > 0.001
         if textScaleChanged {
             lastTextScale = textScale
-            for container in containers.values {
-                container.invalidateNaturalHeight()
-            }
+            invalidateMeasurements()
         }
 
         // Diff — remove obsolete rows.
@@ -340,29 +443,21 @@ final class HomeSessionsScrollUIView: UIView {
                 c.removeFromSuperview()
             }
         }
-        // Add new rows.
-        for session in sessions where containers[session.key] == nil {
-            let container = HomeRowContainer(scrollHost: self)
-            containers[session.key] = container
-            contentView.addSubview(container)
+        measuredHeights = measuredHeights.filter { newSet.contains($0.key) }
+        for session in sessions where sessionsByKey[session.key] != session {
+            measuredHeights.removeValue(forKey: session.key)
         }
-        self.order = newIds
-
-        // Push data into each row. During a pinch, display at zoom=4 so
-        // every content layer is present and UIKit frame-clipping can
-        // reveal it progressively. When idle, render at the committed
-        // integer zoom.
-        let displayZoom = isPinching ? 4 : zoomLevel
-        for session in sessions {
-            guard let container = containers[session.key] else { continue }
+        sessionsByKey = Dictionary(uniqueKeysWithValues: sessions.map { ($0.key, $0) })
+        indicesByKey = Dictionary(uniqueKeysWithValues: newIds.enumerated().map { ($1, $0) })
+        order = newIds
+        configureRow = { container, session, displayZoom in
             let hid = "\(session.key.serverId)/\(session.key.threadId)"
-            let pinned = pinnedThreadKeys.contains(SavedThreadsStore.PinnedKey(threadKey: session.key))
             container.configure(
                 session: session,
                 isOpening: openingKey == session.key,
                 isHydrating: hydratingKeys.contains(hid),
                 isCancelling: cancellingKeys.contains(hid),
-                pinned: pinned,
+                pinned: pinnedThreadKeys.contains(SavedThreadsStore.PinnedKey(threadKey: session.key)),
                 displayZoom: displayZoom,
                 textScale: textScale,
                 themeManager: themeManager,
@@ -370,9 +465,15 @@ final class HomeSessionsScrollUIView: UIView {
                 callbacks: callbacks
             )
         }
+        for (key, container) in containers {
+            if let session = sessionsByKey[key] {
+                configureRow?(container, session, isPinching ? 4 : zoomLevel)
+            }
+        }
 
         let layoutAnimated = zoomChanged || textScaleChanged
         relayout(animated: layoutAnimated)
+        restoreScrollAnchor(anchor)
         updatePageBackgroundVisibility()
 
         // If any rows used fallback heights (deferred measurement),
@@ -439,12 +540,16 @@ final class HomeSessionsScrollUIView: UIView {
 
         let z = continuousZoom
         var y: CGFloat = 0
-        var frames: [(HomeRowContainer, CGRect)] = []
-        for key in order {
-            guard let container = containers[key] else { continue }
-            let h = rowHeight(for: container, at: z, width: width)
-            frames.append((container, CGRect(x: 0, y: y, width: width, height: h)))
+        rowFrames = order.map { key in
+            let h = rowHeight(for: key, at: z, width: width)
+            let frame = CGRect(x: 0, y: y, width: width, height: h)
             y += h
+            return frame
+        }
+        updateVisibleRows()
+        let frames = containers.compactMap { key, container -> (HomeRowContainer, CGRect)? in
+            guard let index = indicesByKey[key] else { return nil }
+            return (container, rowFrames[index])
         }
         let footerFrame: CGRect
         if shouldShowCatFooter {
@@ -495,11 +600,52 @@ final class HomeSessionsScrollUIView: UIView {
         let canShowPageBackground = zoomLevel == 4 && !isPinching
         let visibleRect = scrollView.convert(scrollView.bounds, to: contentView)
             .insetBy(dx: 0, dy: -1)
-        for key in order {
-            guard let container = containers[key] else { continue }
+        for container in containers.values {
             let isVisible = canShowPageBackground && visibleRect.intersects(container.frame)
             container.setPageBackgroundVisible(isVisible)
         }
+    }
+
+    /// Only materialize the viewport and one screen of overscan on either side.
+    /// Binary search keeps scrolling independent of the total session count.
+    private func updateVisibleRows() {
+        guard !isUpdatingVisibleRows, rowFrames.count == order.count, bounds.height > 0 else { return }
+        isUpdatingVisibleRows = true
+        defer {
+            isUpdatingVisibleRows = false
+            #if DEBUG
+            debugStateDidChange?()
+            #endif
+        }
+        let viewport = scrollView.bounds.insetBy(dx: 0, dy: -bounds.height)
+        let range = HomeSessionViewport.visibleRange(in: rowFrames, viewport: viewport)
+        var wanted = Set(range.map { order[$0] })
+        if isPinching, order.indices.contains(pinchAnchorIdx) {
+            wanted.insert(order[pinchAnchorIdx])
+        }
+        for (key, container) in containers where container.isTrackingSwipe {
+            wanted.insert(key)
+        }
+        for key in Array(containers.keys) where !wanted.contains(key) {
+            guard let container = containers.removeValue(forKey: key) else { continue }
+            for zoom in 1...4 {
+                if let height = container.cachedNaturalHeight(atZoom: zoom, width: bounds.width) {
+                    measuredHeights[key, default: [:]][zoom] = height
+                }
+            }
+            container.cancelSwipeIfNeeded()
+            container.removeFromSuperview()
+        }
+        for key in wanted where containers[key] == nil {
+            guard let session = sessionsByKey[key], let index = indicesByKey[key] else { continue }
+            let container = HomeRowContainer(scrollHost: self)
+            configureRow?(container, session, isPinching ? 4 : zoomLevel)
+            container.frame = rowFrames[index]
+            containers[key] = container
+            contentView.addSubview(container)
+            deferredMeasureScheduled = true
+        }
+        scheduleDeferredMeasurementsIfNeeded()
     }
 
     private var shouldShowCatFooter: Bool {
@@ -526,7 +672,7 @@ final class HomeSessionsScrollUIView: UIView {
     }
 
     private func rowHeight(
-        for container: HomeRowContainer,
+        for key: ThreadKey,
         at zoom: Double,
         width: CGFloat
     ) -> CGFloat {
@@ -541,22 +687,12 @@ final class HomeSessionsScrollUIView: UIView {
         if zc >= 4.0 && !isPinching {
             return pageFitHeight()
         }
-        let h1 = heightAnchor(for: container, zoomInt: 1, width: width)
-        let h2 = heightAnchor(for: container, zoomInt: 2, width: width)
-        let h3 = heightAnchor(for: container, zoomInt: 3, width: width)
-        let h4 = heightAnchor(for: container, zoomInt: 4, width: width)
-        if zc <= 1.0 { return h1 }
-        if zc <= 2.0 {
-            let t = CGFloat(zc - 1.0)
-            return h1 + t * (h2 - h1)
-        }
-        if zc <= 3.0 {
-            let t = CGFloat(zc - 2.0)
-            return h2 + t * (h3 - h2)
-        }
-        if zc >= 4.0 { return h4 }
-        let t = CGFloat(zc - 3.0)
-        return h3 + t * (h4 - h3)
+        let lowerZoom = Int(zc.rounded(.down))
+        let lowerHeight = heightAnchor(for: key, zoomInt: lowerZoom, width: width)
+        let fraction = CGFloat(zc - Double(lowerZoom))
+        guard fraction > 0 else { return lowerHeight }
+        let upperHeight = heightAnchor(for: key, zoomInt: lowerZoom + 1, width: width)
+        return lowerHeight + fraction * (upperHeight - lowerHeight)
     }
 
     /// Page-fit card height at zoom 4. Each card frame is exactly the
@@ -573,11 +709,15 @@ final class HomeSessionsScrollUIView: UIView {
     }
 
     private func heightAnchor(
-        for container: HomeRowContainer,
+        for key: ThreadKey,
         zoomInt: Int,
         width: CGFloat
     ) -> CGFloat {
-        if let measured = container.cachedNaturalHeight(atZoom: zoomInt, width: width) {
+        guard let container = containers[key] else {
+            return measuredHeights[key]?[zoomInt] ?? Self.staticFallbackHeight(for: zoomInt)
+        }
+        if let measured = container.cachedNaturalHeight(atZoom: zoomInt, width: width)
+            ?? measuredHeights[key]?[zoomInt] {
             return measured
         }
         if container.currentDisplayZoom == zoomInt {
@@ -611,11 +751,17 @@ final class HomeSessionsScrollUIView: UIView {
         }
     }
 
-    /// Measure all rows that still lack a cached height at their current
+    /// Measure mounted rows that still lack a cached height at their current
     /// display zoom, then re-layout. Called on the next runloop after
     /// `relayout` so the initial pass uses cheap fallback heights and
     /// doesn't block the keyboard or other main-thread interactions.
     private func performDeferredMeasurements() {
+        // A queued pass can outlive the idle state that scheduled it. Do not
+        // replace the finger anchor with a viewport-top anchor mid-gesture.
+        guard !isPinching else {
+            deferredMeasureScheduled = true
+            return
+        }
         let width = bounds.width
         guard width > 0 else { return }
         // `relayout` below re-enters `rowHeight`, which would re-arm the flag
@@ -623,15 +769,23 @@ final class HomeSessionsScrollUIView: UIView {
         // row whose height genuinely cannot be cached.
         isPerformingDeferredMeasurements = true
         defer { isPerformingDeferredMeasurements = false }
-        for key in order {
-            guard let container = containers[key] else { continue }
+        let anchor = captureScrollAnchor()
+        for (key, container) in containers {
             let zoom = container.currentDisplayZoom
-            if container.cachedNaturalHeight(atZoom: zoom, width: width) == nil {
-                container.forceMeasureHostHeight(width: width)
-            }
+            let height = container.cachedNaturalHeight(atZoom: zoom, width: width)
+                ?? container.forceMeasureHostHeight(width: width)
+            measuredHeights[key, default: [:]][zoom] = height
         }
         relayout(animated: false)
+        restoreScrollAnchor(anchor)
         updatePageBackgroundVisibility()
+        // Measuring can move another row into the overscan window.
+        // Drain that bounded batch on the next turn of the runloop.
+        if deferredMeasureScheduled {
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleDeferredMeasurementsIfNeeded()
+            }
+        }
     }
 
     // MARK: - Pinch
@@ -653,15 +807,15 @@ final class HomeSessionsScrollUIView: UIView {
         // Cancel any in-flight snap animation from a previous pinch so the
         // new pinch starts from a clean state.
         layer.removeAllAnimations()
-        for key in order {
-            containers[key]?.layer.removeAllAnimations()
+        for container in containers.values {
+            container.layer.removeAllAnimations()
         }
         pinchVignette.layer.removeAllAnimations()
 
-        // Promote every row to displayZoom=4 FIRST so the full content tree
-        // is rendered. UIKit frame animation reveals it progressively.
-        for key in order {
-            containers[key]?.setDisplayZoom(4)
+        // Promote mounted rows to displayZoom=4 so frame animation can
+        // reveal their full content. Offscreen rows retain only geometry.
+        for container in containers.values {
+            container.setDisplayZoom(4)
         }
 
         isPinching = true
@@ -686,10 +840,10 @@ final class HomeSessionsScrollUIView: UIView {
         lastPinchMidpoint = anchorPoint
         let anchorContentY = scrollView.contentOffset.y + anchorPoint.y
         if let (idx, frac) = locateAnchor(atContentY: anchorContentY) {
-            pinchAnchorIdx = idx
+            pinchAnchorKey = order[idx]
             pinchAnchorFraction = frac
         } else {
-            pinchAnchorIdx = 0
+            pinchAnchorKey = order.first
             pinchAnchorFraction = 0
         }
 
@@ -749,9 +903,8 @@ final class HomeSessionsScrollUIView: UIView {
         // recede behind the opening row.
         let denom = max(0.001, 4.0 - pinchStartZoom)
         let progress = CGFloat(max(0, min(1, (zc - pinchStartZoom) / denom)))
-        for (i, key) in order.enumerated() {
-            guard let container = containers[key] else { continue }
-            if i == pinchAnchorIdx {
+        for (key, container) in containers {
+            if indicesByKey[key] == pinchAnchorIdx {
                 container.setPinchHighlightAlpha(1 - progress)
                 container.setPinchBlurProgress(0)
             } else {
@@ -793,36 +946,25 @@ final class HomeSessionsScrollUIView: UIView {
             options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
         ) {
             self.relayout(animated: false)
-            if let newAnchorY = self.contentYForAnchor(
-                idx: self.pinchAnchorIdx,
-                fraction: self.pinchAnchorFraction
-               ) {
-                var raw = newAnchorY - dropFinger.y
-                if let rowTopY = self.contentYForAnchor(idx: self.pinchAnchorIdx, fraction: 0) {
-                    let maxOffsetForRowTopAtViewTop = rowTopY - self.scrollView.adjustedContentInset.top
-                    raw = min(raw, maxOffsetForRowTopAtViewTop)
-                }
-                let maxY = max(-self.scrollView.adjustedContentInset.top,
-                               self.scrollView.contentSize.height - self.scrollView.bounds.height + self.scrollView.adjustedContentInset.bottom)
-                let minY = -self.scrollView.adjustedContentInset.top
-                self.scrollView.contentOffset = CGPoint(
-                    x: self.scrollView.contentOffset.x,
-                    y: min(max(raw, minY), maxY)
-                )
-            }
+            self.restorePinchAnchor(viewportY: dropFinger.y, pageFit: false)
         } completion: { _ in
             self.isPinching = false
             self.refreshCatFooterVisibility()
             self.updateScrollEnabled()
             // Reset displayZoom to the committed integer so each row
             // goes back to its gated-content rendering.
-            for key in self.order {
-                self.containers[key]?.setDisplayZoom(snapped)
+            for container in self.containers.values {
+                container.setDisplayZoom(snapped)
             }
             // One more layout pass — the displayZoom=4 layouts may have
             // left the rows with slightly taller natural sizes than
             // needed at the snapped zoom.
             self.relayout(animated: false)
+            // Switching off isPinching replaces natural row heights with
+            // full-page heights at zoom 4. Re-resolve the same anchor after
+            // that change, then land on its page rather than another row.
+            self.restorePinchAnchor(viewportY: dropFinger.y, pageFit: snapped == 4)
+            for container in self.containers.values { container.forceResetPinchBlurIfIdle() }
             self.updatePageBackgroundVisibility()
         }
 
@@ -832,9 +974,8 @@ final class HomeSessionsScrollUIView: UIView {
         UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
             self.pinchVignette.alpha = 0
         }
-        for (i, key) in order.enumerated() {
-            guard let container = containers[key] else { continue }
-            if i == pinchAnchorIdx {
+        for (key, container) in containers {
+            if indicesByKey[key] == pinchAnchorIdx {
                 container.setPinchHighlightAlpha(0, animated: true)
             } else {
                 container.fadeOutPinchBlur()
@@ -846,6 +987,35 @@ final class HomeSessionsScrollUIView: UIView {
             let gen = UIImpactFeedbackGenerator(style: .medium)
             gen.impactOccurred()
         }
+    }
+
+    private func captureScrollAnchor() -> HomeSessionViewport.ScrollAnchor? {
+        guard !isPinching, activeSwipeRowCount == 0 else { return nil }
+        return HomeSessionViewport.scrollAnchor(
+            in: rowFrames, keys: order,
+            at: scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+        )
+    }
+
+    private func restoreScrollAnchor(_ anchor: HomeSessionViewport.ScrollAnchor?) {
+        guard !isPinching, activeSwipeRowCount == 0, let anchor,
+              let y = HomeSessionViewport.contentY(for: anchor, in: rowFrames, indices: indicesByKey) else { return }
+        setClampedOffset(y - scrollView.adjustedContentInset.top)
+    }
+
+    private func setClampedOffset(_ offset: CGFloat) {
+        let minimum = -scrollView.adjustedContentInset.top
+        let maximum = max(minimum, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
+        scrollView.contentOffset.y = min(max(offset, minimum), maximum)
+    }
+
+    private func restorePinchAnchor(viewportY: CGFloat, pageFit: Bool) {
+        guard let offset = HomeSessionViewport.pinchOffset(
+            in: rowFrames, index: pinchAnchorIdx, fraction: pinchAnchorFraction,
+            viewportY: viewportY, topInset: scrollView.adjustedContentInset.top,
+            pageFit: pageFit
+        ) else { return }
+        setClampedOffset(offset)
     }
 
     // MARK: - Anchor helpers
@@ -860,39 +1030,15 @@ final class HomeSessionsScrollUIView: UIView {
     }
 
     private func locateAnchor(atContentY y: CGFloat) -> (Int, CGFloat)? {
-        var cy: CGFloat = 0
-        var lastValidIdx: Int? = nil
-        for (i, key) in order.enumerated() {
-            guard let container = containers[key] else { continue }
-            let h = container.frame.height
-            if h <= 0 { continue }
-            if y >= cy && y <= cy + h {
-                let frac = max(0, min(1, (y - cy) / h))
-                return (i, frac)
-            }
-            cy += h
-            lastValidIdx = i
-        }
-        // Past the last row → clamp to the LAST row (not the first).
-        // Keeps the anchor on the row the user meant to pinch when
-        // their midpoint lands in the empty space below the content.
-        if let lastValidIdx, y > 0 {
-            return (lastValidIdx, 1.0)
-        }
-        return nil
+        HomeSessionViewport.anchor(in: rowFrames, at: y)
     }
 
     private func contentYForAnchor(idx: Int, fraction: CGFloat) -> CGFloat? {
-        guard idx >= 0, idx < order.count else { return nil }
-        var cy: CGFloat = 0
-        for (i, key) in order.enumerated() {
-            guard let container = containers[key] else { continue }
-            let h = container.frame.height
-            if i == idx { return cy + fraction * h }
-            cy += h
-        }
-        return nil
+        guard rowFrames.indices.contains(idx) else { return nil }
+        let frame = rowFrames[idx]
+        return frame.minY + fraction * frame.height
     }
+
 }
 
 extension HomeSessionsScrollUIView: UIGestureRecognizerDelegate {
@@ -916,6 +1062,7 @@ extension HomeSessionsScrollUIView: UIGestureRecognizerDelegate {
 // scroll view will animate to.
 extension HomeSessionsScrollUIView: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateVisibleRows()
         updatePageBackgroundVisibility()
     }
 
@@ -1279,6 +1426,9 @@ final class HomeRowContainer: UIView {
     /// an animator's fractionComplete is the canonical way to
     /// interpolate blur radius on iOS.
     private var pinchBlurAnimator: UIViewPropertyAnimator?
+    #if DEBUG
+    var debugHasActivePinchAnimator: Bool { pinchBlurAnimator?.state == .active }
+    #endif
     private func makePinchBlurAnimator() -> UIViewPropertyAnimator {
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
         animator.addAnimations { [weak self] in
@@ -1326,6 +1476,7 @@ final class HomeRowContainer: UIView {
     private var pastThreshold: Bool = false
     private var swipeStartPoint: CGPoint = .zero
     private var swipeTracking: Bool = false
+    fileprivate var isTrackingSwipe: Bool { swipeTracking || activated }
 
     private static let fullSwipeThreshold: CGFloat = 120
     private static let activationDistance: CGFloat = 24
@@ -1398,7 +1549,9 @@ final class HomeRowContainer: UIView {
         pinchBlur.isUserInteractionEnabled = false
         pinchBlur.alpha = 1
         if !LitterPlatform.rendersAsMacApp {
-            updatePinchBlurAvailability()
+            // Create the paused animator only when a pinch actually needs it.
+            // Virtualized rows also mount outside apply(), so idle creation
+            // cannot rely on apply's later cleanup (and prevents UI-test idle).
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(reduceTransparencyDidChange),
@@ -1440,7 +1593,11 @@ final class HomeRowContainer: UIView {
     }
 
     @objc private func reduceTransparencyDidChange() {
-        updatePinchBlurAvailability()
+        if scrollHost?.pinchActive == true || UIAccessibility.isReduceTransparencyEnabled {
+            updatePinchBlurAvailability()
+        } else {
+            forceResetPinchBlurIfIdle()
+        }
         setNeedsLayout()
     }
 
@@ -1463,11 +1620,7 @@ final class HomeRowContainer: UIView {
               !UIAccessibility.isReduceTransparencyEnabled,
               scrollHost?.pinchActive != true
         else { return }
-        fadeLink?.invalidate()
-        fadeLink = nil
-        tearDownPinchBlurAnimator()
-        pinchBlur.effect = nil
-        pinchBlurAnimator = makePinchBlurAnimator()
+        forceResetPinchBlurIfIdle()
     }
 
     private func updatePinchBlurAvailability() {
@@ -1651,6 +1804,9 @@ final class HomeRowContainer: UIView {
             tearDownPinchBlurAnimator()
             return
         }
+        fadeLink?.invalidate()
+        fadeLink = nil
+        guard progress > 0 || pinchBlurAnimator != nil else { return }
         updatePinchBlurAvailability()
         guard let pinchBlurAnimator else { return }
         let p = max(0, min(1, progress))
@@ -1712,6 +1868,7 @@ final class HomeRowContainer: UIView {
             if t >= 1 {
                 self.fadeLink?.invalidate()
                 self.fadeLink = nil
+                self.forceResetPinchBlurIfIdle()
             }
         }, selector: #selector(PinchBlurFadeTarget.tick))
         link.add(to: .main, forMode: .common)
