@@ -1001,14 +1001,22 @@ impl MobileClient {
             .mobile_preferences_directory
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let first_directory = guard.is_none() && !directory.is_empty();
         *guard = if directory.is_empty() {
             None
         } else {
-            Some(directory)
+            Some(directory.clone())
         };
+        drop(guard);
+        // Seed the home launch cache once, before servers reconnect, so the
+        // first snapshot already lists recent sessions.
+        if first_directory {
+            self.app_store
+                .seed_cached_session_summaries(crate::home_cache::load(&directory));
+        }
     }
 
-    fn mobile_preferences_directory(&self) -> Option<String> {
+    pub(crate) fn mobile_preferences_directory(&self) -> Option<String> {
         self.mobile_preferences_directory
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

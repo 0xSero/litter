@@ -213,6 +213,21 @@ impl MobileClient {
         let incoming_ids = thread_ids.into_iter().collect();
         self.app_store
             .finalize_thread_list_sync(server_id, &incoming_ids);
+        self.persist_home_cache();
+    }
+
+    /// Refresh the home launch cache from the current store. Only rows for
+    /// servers the store knows are kept, so removed servers age out.
+    fn persist_home_cache(&self) {
+        let Some(directory) = self.mobile_preferences_directory() else {
+            return;
+        };
+        let snapshot = self.app_store.snapshot();
+        let summaries = crate::store::boundary::session_summaries_from_snapshot(&snapshot)
+            .into_iter()
+            .filter(|summary| snapshot.servers.contains_key(&summary.key.server_id))
+            .collect::<Vec<_>>();
+        crate::home_cache::save(&directory, &summaries);
     }
 
     pub(crate) async fn sync_server_account_after_logout(

@@ -272,11 +272,18 @@ final class HomeDashboardModel {
                 savedServers: persistence.rememberedServers(),
                 activeServerId: appSnapshot?.activeThread?.serverId
             )
+            // Live threads show only for servers that can launch sessions.
+            // Summary-only rows (Rust's launch cache, not yet backed by a live
+            // thread) show for any remembered server, so recent sessions
+            // appear before reconnect finishes.
+            let liveThreadKeys = Set((appSnapshot?.threads ?? []).map(\.key))
+            let launchableServerIds = Set(nextConnectedServers.filter(\.canLaunchSessions).map(\.id))
+            let visibleSummaries = (appSnapshot?.sessionSummaries ?? []).filter {
+                launchableServerIds.contains($0.key.serverId) || !liveThreadKeys.contains($0.key)
+            }
             let nextAllSessions = HomeDashboardSupport.recentConnectedSessions(
-                from: appSnapshot?.sessionSummaries ?? [],
-                serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers
-                    .filter(\.canLaunchSessions)
-                    .map { ($0.id, $0) }),
+                from: visibleSummaries,
+                serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers.map { ($0.id, $0) }),
                 limit: nil
             )
             return Snapshot(

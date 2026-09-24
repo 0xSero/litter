@@ -664,6 +664,13 @@ pub(crate) fn session_summaries_from_snapshot(snapshot: &AppSnapshot) -> Vec<App
         .values()
         .map(|thread| app_session_summary(thread, snapshot.servers.get(&thread.key.server_id)))
         .collect::<Vec<_>>();
+    session_summaries.extend(
+        snapshot
+            .cached_session_summaries
+            .iter()
+            .filter(|cached| !snapshot.threads.contains_key(&cached.key))
+            .cloned(),
+    );
     sort_session_summaries(&mut session_summaries);
     session_summaries
 }

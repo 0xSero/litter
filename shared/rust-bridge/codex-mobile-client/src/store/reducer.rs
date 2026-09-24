@@ -670,6 +670,20 @@ impl AppStoreReducer {
         }
     }
 
+    /// Install launch-cache summaries (see `home_cache`). Called once at
+    /// startup, before servers reconnect; emits a resync so a platform that
+    /// already read a snapshot picks the rows up.
+    pub(crate) fn seed_cached_session_summaries(&self, summaries: Vec<AppSessionSummary>) {
+        if summaries.is_empty() {
+            return;
+        }
+        {
+            let mut snapshot = self.write_snapshot();
+            snapshot.cached_session_summaries = summaries;
+        }
+        self.emit(AppStoreUpdateRecord::FullResync);
+    }
+
     pub fn finalize_thread_list_sync(&self, server_id: &str, incoming_ids: &HashSet<String>) {
         let mut removed_thread_keys = Vec::new();
         let mut active_thread_cleared = false;
@@ -690,6 +704,22 @@ impl AppStoreReducer {
                 }
                 keep
             });
+            // The authoritative listing supersedes this server's launch-cache
+            // rows. Rows now backed by a live thread are replaced through the
+            // normal upsert path; the rest must be removed on the platform.
+            {
+                let snap = &mut *snapshot;
+                let live_threads = &snap.threads;
+                snap.cached_session_summaries.retain(|cached| {
+                    if cached.key.server_id != server_id {
+                        return true;
+                    }
+                    if !live_threads.contains_key(&cached.key) {
+                        removed_thread_keys.push(cached.key.clone());
+                    }
+                    false
+                });
+            }
             if snapshot.active_thread.as_ref().is_some_and(|key| {
                 key.server_id == server_id && !incoming_ids.contains(&key.thread_id)
             }) {
@@ -4607,6 +4637,66 @@ mod tests {
                 if thread.key.thread_id == "inserted"
                     && thread.info == inserted
                     && thread.model.as_deref() == Some("gpt-5.4")
+        )));
+    }
+
+    #[test]
+    fn launch_cache_rows_show_until_authoritative_listing_for_their_server() {
+        let reducer = AppStoreReducer::new();
+        let cached = |server: &str, thread: &str| {
+            let mut summary = crate::store::boundary::empty_session_summary(ThreadKey {
+                server_id: server.to_string(),
+                thread_id: thread.to_string(),
+            });
+            summary.title = format!("cached {thread}");
+            summary
+        };
+        reducer.seed_cached_session_summaries(vec![
+            cached("srv", "kept"),
+            cached("srv", "gone"),
+            cached("other", "waiting"),
+        ]);
+        let ids = |snapshot: &AppSnapshot| {
+            crate::store::boundary::session_summaries_from_snapshot(snapshot)
+                .into_iter()
+                .map(|s| format!("{}/{}", s.key.server_id, s.key.thread_id))
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(
+            ids(&reducer.snapshot()),
+            HashSet::from(["srv/kept".into(), "srv/gone".into(), "other/waiting".into()])
+        );
+
+        // A live thread shadows its cached row instead of duplicating it.
+        let kept = make_thread_info("kept");
+        reducer.upsert_thread_list_page("srv", std::slice::from_ref(&kept));
+        let summaries = crate::store::boundary::session_summaries_from_snapshot(&reducer.snapshot());
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|s| s.key.thread_id == "kept")
+                .count(),
+            1
+        );
+
+        let mut receiver = reducer.subscribe();
+        reducer.finalize_thread_list_sync("srv", &HashSet::from([kept.id.clone()]));
+
+        // Only the listed server's cached rows are dropped; the stale one is
+        // removed on the platform, the other server's row stays.
+        assert_eq!(
+            ids(&reducer.snapshot()),
+            HashSet::from(["srv/kept".into(), "other/waiting".into()])
+        );
+        let updates = drain_updates(&mut receiver);
+        assert!(updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadRemoved { key, .. }
+                if key.server_id == "srv" && key.thread_id == "gone"
+        )));
+        assert!(!updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadRemoved { key, .. } if key.thread_id == "kept"
         )));
     }
 

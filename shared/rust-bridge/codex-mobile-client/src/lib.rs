@@ -144,6 +144,7 @@ pub mod cloud_sync;
 pub mod conversation;
 pub mod conversation_uniffi;
 pub mod ffi;
+mod home_cache;
 pub mod hydration;
 mod local_runtime_instructions;
 pub mod local_server;

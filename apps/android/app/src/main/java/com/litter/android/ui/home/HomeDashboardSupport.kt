@@ -195,8 +195,18 @@ object HomeDashboardSupport {
             .map { it.serverId }
             .toSet()
 
+        // Summary-only rows come from Rust's launch cache and are shown
+        // before their server reconnects; live threads still require a
+        // connected server.
+        val liveThreadKeys = snapshot.threads
+            .map { it.key.serverId to it.key.threadId }
+            .toSet()
+
         return snapshot.sessionSummaries
-            .filter { it.key.serverId in connectedServerIds }
+            .filter {
+                it.key.serverId in connectedServerIds ||
+                    (it.key.serverId to it.key.threadId) !in liveThreadKeys
+            }
             .filter { !it.isSubagent }
             .distinctBy { it.key.serverId to it.key.threadId }
             .sortedByDescending { it.updatedAt ?: 0L }
