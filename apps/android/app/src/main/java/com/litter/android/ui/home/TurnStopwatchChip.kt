@@ -56,24 +56,18 @@ fun TurnStopwatchChip(
     }
 
     val label = formatStopwatch(elapsed)
-    val tint = LitterTheme.textMuted.copy(alpha = 0.7f)
+    val tint = LitterTheme.textSecondary
 
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Timer,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(10.dp),
-        )
         Text(
             text = label,
             color = tint,
             fontFamily = LitterTheme.monoFont,
-            fontSize = 10f.scaled,
+            fontSize = 13f.scaled,
         )
     }
 }

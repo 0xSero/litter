@@ -45,8 +45,10 @@ import com.litter.android.state.displayTitle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.WallpaperBackdrop
 import com.litter.android.ui.common.FormattedText
-import com.litter.android.ui.common.StatusDot
-import com.litter.android.ui.common.StatusDotState
+import com.litter.android.ui.LitterSpacing
+import com.litter.android.ui.LitterType
+import com.litter.android.ui.metaLine
+import androidx.compose.foundation.layout.heightIn
 import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppOperationStatus
 import uniffi.codex_mobile_client.AppSessionSummary
@@ -101,13 +103,6 @@ fun SessionCanvasRow(
         } ?: false
     }
 
-    val dotState = when {
-        isActive -> StatusDotState.ACTIVE
-        isHydrating -> StatusDotState.PENDING
-        session.isResumed -> StatusDotState.OK
-        else -> StatusDotState.IDLE
-    }
-
     var showMenu by remember { mutableStateOf(false) }
     val layerSpring = remember {
         spring<androidx.compose.ui.unit.IntSize>(
@@ -116,14 +111,9 @@ fun SessionCanvasRow(
         )
     }
 
-    // Vertical padding per zoom matches iOS `[3, 6, 10, 12][zoomLevel-1]`
-    // (HomeDashboardView.swift:661). Horizontal kept at 14dp to match iOS.
-    val rowVerticalPadding = when (zoomLevel) {
-        1 -> 3.dp
-        2 -> 6.dp
-        3 -> 10.dp
-        else -> 12.dp
-    }
+    // Litter Quiet: 20dp margins, ~62dp two-line rows. Zoom 1 is the dense
+    // title-only list, so it keeps tighter vertical padding.
+    val rowVerticalPadding = if (zoomLevel <= 1) LitterSpacing.xs else LitterSpacing.sm
 
     Box(modifier = modifier) {
         if (zoomLevel >= 4) {
@@ -135,34 +125,15 @@ fun SessionCanvasRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = if (zoomLevel >= 2) LitterSpacing.row else LitterSpacing.touch)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { showMenu = true },
                 )
-                .padding(horizontal = 14.dp, vertical = rowVerticalPadding),
+                .padding(horizontal = LitterSpacing.margin, vertical = rowVerticalPadding),
             verticalAlignment = Alignment.Top,
         ) {
-            // Mirrors iOS `HomeDashboardView.swift:602-604`:
-            //   .frame(width: markerWidth (14), height: 16)
-            //   .padding(.top, 2)
-            // 10pt dot centered in a 14×16 slot with a 2pt top nudge puts
-            // the dot center at y≈10 from the row top, which lines up with
-            // the midline of the title's first line (17pt body, line
-            // height ≈20pt), including when the title wraps to two lines.
-            Box(
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .width(14.dp)
-                    .height(16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                StatusDot(
-                    state = dotState,
-                    size = 10.dp,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-
+            // No status dot: healthy/running state reads from the meta line.
             Column(modifier = Modifier.weight(1f)) {
                 // Lineage breadcrumb (zoom 4 only): root → … → parent. Self
                 // is the title beneath, so we don't repeat it. Mirrors iOS
@@ -184,7 +155,7 @@ fun SessionCanvasRow(
                     CompositionLocalProvider(LocalTextStyle provides titleStyle) {
                         FormattedText(
                             text = session.displayTitle,
-                            color = if (isActive) LitterTheme.accent else LitterTheme.textPrimary,
+                            color = LitterTheme.textPrimary,
                             fontSize = titleStyle.fontSize,
                             maxLines = if (zoomLevel >= 4) 4 else 2,
                             modifier = Modifier.weight(1f),
@@ -207,6 +178,7 @@ fun SessionCanvasRow(
                         session = session,
                         isActive = isActive,
                         toolRunning = toolRunning,
+                        isHydrating = isHydrating,
                     )
                 }
 
@@ -274,9 +246,9 @@ fun SessionCanvasRow(
                 ) {
                     Text(
                         text = com.litter.android.state.PathDisplay.display(session.cwd.orEmpty(), isLocal, context),
-                        color = LitterTheme.textMuted.copy(alpha = 0.7f),
+                        color = LitterTheme.textSecondary,
                         fontFamily = LitterTheme.monoFont,
-                        fontSize = 10f.scaled,
+                        fontSize = META_FONT_SP.scaled,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp),
@@ -353,79 +325,38 @@ private fun MetaLine(
     session: AppSessionSummary,
     isActive: Boolean,
     toolRunning: Boolean,
+    isHydrating: Boolean,
 ) {
     val showActivity = isActive && toolRunning
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (showActivity) {
-                Text(
-                    text = "running tool…",
-                    color = LitterTheme.accent,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = META_FONT_SP.scaled,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                val relative = HomeDashboardSupport.relativeTime(session.updatedAt)
-                if (relative.isNotEmpty()) {
-                    Text(
-                        text = relative,
-                        color = LitterTheme.textMuted,
-                        fontFamily = LitterTheme.monoFont,
-                        fontSize = META_FONT_SP.scaled,
-                        // Every sibling in this row caps at one line; this one
-                        // did not, so when the row ran out of width the
-                        // timestamp was the only child that could wrap -- and
-                        // being squeezed to a ~1-character column it wrapped
-                        // after every letter (#162).
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip,
-                    )
-                }
-                Text(
-                    text = HomeDashboardSupport.runtimeLabel(session.agentRuntimeKind),
-                    color = LitterTheme.accent,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = META_FONT_SP.scaled,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = session.serverDisplayName,
-                    color = LitterTheme.textSecondary,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = META_FONT_SP.scaled,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = HomeDashboardSupport.workspaceLabel(session.cwd),
-                    color = LitterTheme.textMuted,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = META_FONT_SP.scaled,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (isActive) {
-                    Text(
-                        text = "thinking",
-                        color = LitterTheme.accent,
-                        fontFamily = LitterTheme.monoFont,
-                        fontSize = META_FONT_SP.scaled,
-                    )
-                }
-            }
+    val relative = HomeDashboardSupport.relativeTime(session.updatedAt)
+    val text = remember(session.serverDisplayName, session.cwd, session.agentRuntimeKind, relative, isActive, showActivity, isHydrating) {
+        val runtime = HomeDashboardSupport.runtimeLabel(session.agentRuntimeKind)
+        val state = when {
+            showActivity -> "running tool…"
+            isActive -> "thinking"
+            isHydrating -> "loading…"
+            else -> relative
         }
+        metaLine(
+            session.serverDisplayName,
+            HomeDashboardSupport.workspaceLabel(session.cwd).ifBlank { runtime },
+            state,
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = LitterSpacing.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
+    ) {
+        Text(
+            text = text,
+            style = LitterType.meta,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
 
         // Inline stat chips on the trailing edge of the meta line. iOS
         // HomeDashboardView.swift:713,722-749 renders these at zoom 2.
@@ -458,7 +389,7 @@ private fun ToolLogColumn(
     }
 }
 
-private const val META_FONT_SP = 11f
+private const val META_FONT_SP = LitterType.META_SIZE
 
 /**
  * Single-line goal row: status dot + objective + usage chips. Mirrors the
@@ -482,16 +413,11 @@ private fun GoalLine(goal: uniffi.codex_mobile_client.AppThreadGoal) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(5.dp)
-                .background(tint, androidx.compose.foundation.shape.CircleShape),
-        )
         Text(
             text = goal.objective,
-            color = LitterTheme.textSecondary.copy(alpha = 0.85f),
+            color = if (tint == LitterTheme.warning) tint else LitterTheme.textSecondary,
             fontFamily = LitterTheme.monoFont,
-            fontSize = 10f.scaled,
+            fontSize = META_FONT_SP.scaled,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -499,17 +425,17 @@ private fun GoalLine(goal: uniffi.codex_mobile_client.AppThreadGoal) {
         if (goal.tokensUsed > 0) {
             Text(
                 text = "T ${formatHomeGoalTokens(goal.tokensUsed)}",
-                color = LitterTheme.textMuted.copy(alpha = 0.7f),
+                color = LitterTheme.textSecondary,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = 10f.scaled,
+                fontSize = META_FONT_SP.scaled,
             )
         }
         if (goal.timeUsedSeconds > 0) {
             Text(
                 text = formatHomeGoalSeconds(goal.timeUsedSeconds),
-                color = LitterTheme.textMuted.copy(alpha = 0.7f),
+                color = LitterTheme.textSecondary,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = 10f.scaled,
+                fontSize = META_FONT_SP.scaled,
             )
         }
     }
@@ -541,33 +467,11 @@ private fun formatHomeGoalSeconds(seconds: Long): String {
  */
 @Composable
 private fun ForkRune(lineage: ThreadLineage) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .border(
-                width = 1.dp,
-                color = LitterTheme.border.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(percent = 50),
-            )
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Text(
-            text = "⊢", // ⊢ — visually similar to a branch glyph, no Material extended icons needed.
-            color = LitterTheme.textSecondary.copy(alpha = 0.85f),
-            fontFamily = LitterTheme.monoFont,
-            fontSize = 9f.scaled,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = "${lineage.branchIndex}/${lineage.branchTotal}",
-            color = LitterTheme.accent,
-            fontFamily = LitterTheme.monoFont,
-            fontSize = 9f.scaled,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
+    Text(
+        text = "${lineage.branchIndex}/${lineage.branchTotal}",
+        style = LitterType.meta,
+        modifier = Modifier.padding(top = 2.dp),
+    )
 }
 
 /**
@@ -587,25 +491,25 @@ private fun LineageBreadcrumb(lineage: ThreadLineage) {
             if (idx > 0) {
                 Text(
                     text = " › ",
-                    color = LitterTheme.textMuted.copy(alpha = 0.55f),
+                    color = LitterTheme.textSecondary,
                     fontFamily = LitterTheme.monoFont,
-                    fontSize = 9f.scaled,
+                    fontSize = META_FONT_SP.scaled,
                 )
             }
             Text(
                 text = ancestor.title,
-                color = LitterTheme.textMuted.copy(alpha = 0.85f),
+                color = LitterTheme.textSecondary,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = 9f.scaled,
+                fontSize = META_FONT_SP.scaled,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
             text = " ›",
-            color = LitterTheme.textMuted.copy(alpha = 0.55f),
+            color = LitterTheme.textSecondary,
             fontFamily = LitterTheme.monoFont,
-            fontSize = 9f.scaled,
+            fontSize = META_FONT_SP.scaled,
         )
     }
 }
@@ -622,42 +526,20 @@ private fun SiblingPillsRow(lineage: ThreadLineage, currentKey: ThreadKey) {
             .horizontalScroll(rememberScrollState())
             .padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(LitterSpacing.sm),
     ) {
         lineage.members.forEach { member ->
             val isCurrent = member.key == currentKey
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(
-                        if (isCurrent) LitterTheme.accent.copy(alpha = 0.12f)
-                        else LitterTheme.surface.copy(alpha = 0.6f),
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = if (isCurrent) LitterTheme.accent.copy(alpha = 0.6f)
-                            else LitterTheme.border.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(percent = 50),
-                    )
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                modifier = Modifier.padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(5.dp)
-                        .background(
-                            if (isCurrent) LitterTheme.accent
-                            else LitterTheme.textMuted.copy(alpha = 0.5f),
-                            androidx.compose.foundation.shape.CircleShape,
-                        ),
-                )
                 Text(
                     text = member.title,
-                    color = if (isCurrent) LitterTheme.accent
-                        else LitterTheme.textSecondary.copy(alpha = 0.85f),
+                    color = if (isCurrent) LitterTheme.textPrimary
+                        else LitterTheme.textSecondary,
                     fontFamily = LitterTheme.monoFont,
-                    fontSize = 10f.scaled,
+                    fontSize = META_FONT_SP.scaled,
                     fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
