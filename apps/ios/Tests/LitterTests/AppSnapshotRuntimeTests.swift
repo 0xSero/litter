@@ -694,7 +694,7 @@ final class AppSnapshotRuntimeTests: XCTestCase {
             activeTurnId: nil, activePlanProgress: nil, pendingPlanImplementationPrompt: nil,
             contextTokensUsed: nil, modelContextWindow: nil, rateLimits: nil, realtimeSessionId: nil,
             goal: nil, olderTurnsCursor: "stale", initialTurnsLoaded: true)
-        await model.handleStoreUpdate(.threadStateUpdated(state: state,
+        await model.handleStoreUpdate(.threadMetadataChanged(state: state,
             sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
         XCTAssertEqual(model.threadSnapshot(for: key)?.initialTurnsLoaded, false)
         XCTAssertNil(model.threadSnapshot(for: key)?.olderTurnsCursor)
