@@ -323,7 +323,7 @@ private fun SectionHeader(title: String) {
     Text(
         text = title.uppercase(),
         color = LitterTheme.textMuted,
-        fontSize = LitterTextStyle.caption2.scaled,
+        fontSize = LitterTextStyle.footnote.scaled,
         fontWeight = FontWeight.Bold,
         letterSpacing = 1.sp,
         modifier = Modifier.padding(top = 8.dp),
@@ -361,7 +361,7 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
                     Text(
                         text = effort,
                         color = LitterTheme.textMuted,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         modifier = Modifier
                             .background(LitterTheme.border.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -381,7 +381,7 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
                 Text(
                     text = abbreviated,
                     color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontFamily = LitterTheme.monoFont,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -392,7 +392,7 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
             Text(
                 text = "id: ${thread.key.threadId}",
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontFamily = LitterTheme.monoFont,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -414,8 +414,8 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
 @Composable
 private fun InfoLabel(label: String, value: String) {
     Column {
-        Text(text = label, color = LitterTheme.textMuted, fontSize = 10f.scaled)
-        Text(text = value, color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled)
+        Text(text = label, color = LitterTheme.textMuted, fontSize = 13f.scaled)
+        Text(text = value, color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled)
     }
 }
 
@@ -435,8 +435,8 @@ private fun ContextWindowBar(thread: AppThreadSnapshot) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Context Window", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled)
-            Text("$percent%", color = LitterTheme.accent, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Bold)
+            Text("Context Window", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled)
+            Text("$percent%", color = LitterTheme.accent, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(8.dp))
         LinearProgressIndicator(
@@ -452,7 +452,7 @@ private fun ContextWindowBar(thread: AppThreadSnapshot) {
         Text(
             text = "${formatTokenCount(used)} / ${formatTokenCount(window)} tokens",
             color = LitterTheme.textMuted,
-            fontSize = 10f.scaled,
+            fontSize = 13f.scaled,
         )
     }
 }
@@ -494,7 +494,7 @@ private fun StatCard(title: String, value: String, subtitle: String?, modifier: 
             .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
             .padding(12.dp),
     ) {
-        Text(text = title, color = LitterTheme.textMuted, fontSize = 10f.scaled)
+        Text(text = title, color = LitterTheme.textMuted, fontSize = 13f.scaled)
         Text(
             text = value,
             color = LitterTheme.textPrimary,
@@ -503,7 +503,7 @@ private fun StatCard(title: String, value: String, subtitle: String?, modifier: 
             fontFamily = LitterTheme.monoFont,
         )
         if (subtitle != null) {
-            Text(text = subtitle, color = LitterTheme.textSecondary, fontSize = 10f.scaled)
+            Text(text = subtitle, color = LitterTheme.textSecondary, fontSize = 13f.scaled)
         }
     }
 }
@@ -530,7 +530,7 @@ private fun TokenUsageChart(data: List<AppTokensByThreadEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Token Usage by Thread", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("Token Usage by Thread", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -602,7 +602,7 @@ private fun ActivityChart(data: List<AppActivityByDayEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Activity Timeline", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("Activity Timeline", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -686,7 +686,7 @@ private fun ModelBreakdownChart(data: List<AppModelUsageEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Model Breakdown", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("Model Breakdown", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -750,7 +750,7 @@ private fun RateLimitGauge(rateLimits: uniffi.codex_mobile_client.RateLimitSnaps
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Rate Limits", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("Rate Limits", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -837,7 +837,7 @@ private fun GaugeArc(
             fontWeight = FontWeight.Bold,
             fontFamily = LitterTheme.monoFont,
         )
-        Text(text = label, color = LitterTheme.textMuted, fontSize = 10f.scaled)
+        Text(text = label, color = LitterTheme.textMuted, fontSize = 13f.scaled)
     }
 }
 
@@ -887,11 +887,11 @@ private fun ServerInfoSection(server: AppServerSnapshot) {
 
         server.availableModels?.let { models ->
             if (models.isNotEmpty()) {
-                Text("Available Models", color = LitterTheme.textMuted, fontSize = 10f.scaled)
+                Text("Available Models", color = LitterTheme.textMuted, fontSize = 13f.scaled)
                 Text(
                     text = models.joinToString(", ") { it.displayName.ifBlank { it.id } },
                     color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -906,11 +906,11 @@ private fun InfoRow(label: String, value: String) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(text = label, color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
+        Text(text = label, color = LitterTheme.textMuted, fontSize = LitterTextStyle.footnote.scaled)
         Text(
             text = value,
             color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontFamily = LitterTheme.monoFont,
         )
     }
@@ -971,7 +971,7 @@ private fun ActionCircleButton(
         Text(
             text = label,
             color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.Medium,
         )
     }

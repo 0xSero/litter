@@ -45,6 +45,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.ui.LitterTextStyle
+import com.litter.android.ui.LitterQuiet
+import com.litter.android.ui.LitterSpacing
+import com.litter.android.ui.LitterType
+import com.litter.android.ui.metaLine
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
@@ -291,67 +295,45 @@ fun CollapsedTurnCard(
     turn: TranscriptTurn,
     onExpand: () -> Unit,
 ) {
+    // Older turns collapse to the prompt plus one mono summary line.
+    val meta = remember(turn.id, turn.commandCount, turn.fileChangeCount, turn.totalDurationMs) {
+        val dur = turn.totalDurationMs
+        metaLine(
+            turn.commandCount.takeIf { it > 0 }?.let { "$it cmd" },
+            turn.fileChangeCount.takeIf { it > 0 }?.let { "$it files" },
+            dur.takeIf { it > 0 }?.let { if (it < 1000) "${it}ms" else "%.1fs".format(it / 1000.0) },
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(LitterTheme.surface, RoundedCornerShape(10.dp))
             .clickable(onClick = onExpand)
-            .padding(10.dp),
+            .padding(vertical = LitterSpacing.xs),
+        verticalArrangement = Arrangement.spacedBy(LitterSpacing.xxs),
     ) {
-        // User prompt preview
         turn.userPrompt?.let { prompt ->
             Text(
                 text = prompt,
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.footnote.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-
-        // Assistant snippet
         turn.assistantSnippet?.let { snippet ->
             Text(
                 text = snippet,
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.subheadline.scaled,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
-
-        // Metadata footer
-        Row(
-            modifier = Modifier.padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (turn.commandCount > 0) {
-                MetadataBadge("${turn.commandCount} cmd", LitterTheme.toolCallCommand)
-            }
-            if (turn.fileChangeCount > 0) {
-                MetadataBadge("${turn.fileChangeCount} files", LitterTheme.toolCallFileChange)
-            }
-            if (turn.totalDurationMs > 0) {
-                val dur = if (turn.totalDurationMs < 1000) "${turn.totalDurationMs}ms"
-                else "%.1fs".format(turn.totalDurationMs / 1000.0)
-                MetadataBadge(dur, LitterTheme.textMuted)
-            }
-            Spacer(Modifier.weight(1f))
-            Text("Tap to expand", color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
-        }
+        Text(
+            text = if (meta.isEmpty()) "earlier turn ›" else "$meta ›",
+            style = LitterType.meta,
+        )
     }
-}
-
-@Composable
-private fun MetadataBadge(text: String, color: androidx.compose.ui.graphics.Color) {
-    Text(
-        text = text,
-        color = color,
-        fontSize = LitterTextStyle.caption2.scaled,
-        fontWeight = FontWeight.Medium,
-    )
 }
 
 /**
@@ -424,18 +406,7 @@ fun ExplorationGroupRow(
     val entries = remember(group.items) { group.explorationEntries() }
     val isActive = remember(entries) { entries.any { it.isInProgress } }
     val previewScrollState = rememberScrollState()
-    val shimmerProgress by rememberInfiniteTransition(label = "exploration-header-shimmer").animateFloat(
-        initialValue = -1f,
-        targetValue = 2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "exploration-header-shimmer-progress",
-    )
-    val bulletSize = (6f * textScale).dp
-    val bulletTopPadding = (5f * textScale).dp
-    val previewHeight = (LitterTextStyle.caption * textScale * 3.6f).dp + 18.dp
+    val previewHeight = (LitterType.META_SIZE * textScale * 4.4f).dp + 18.dp
 
     LaunchedEffect(entries, previewScrollState.maxValue, expanded, showsCollapsedPreview) {
         if (expanded || !showsCollapsedPreview || previewScrollState.maxValue <= 0) return@LaunchedEffect
@@ -453,43 +424,27 @@ fun ExplorationGroupRow(
             .fillMaxWidth()
             .animateContentSize(),
     ) {
-        Row(
+        // Expandable mono line; no always-on shimmer (it animated even for
+        // finished groups).
+        Text(
+            text = remember(entries, isActive, expanded) {
+                group.explorationSummaryText(isActive = isActive).lowercase() +
+                    if (expanded) " ‹" else " ›"
+            },
+            style = LitterType.meta,
+            color = if (isActive) LitterTheme.textPrimary else LitterQuiet.meta,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                 .clickable { expanded = !expanded }
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (expanded) "▼" else "▶",
-                color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.caption.scaled,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = remember(entries, isActive) {
-                    group.explorationSummaryText(isActive = isActive)
-                },
-                color = if (isActive) LitterTheme.textPrimary else LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption.scaled,
-                modifier = Modifier
-                    .weight(1f)
-                    .explorationHeaderShimmer(active = isActive, progress = shimmerProgress),
-            )
-        }
+                .padding(vertical = LitterSpacing.xs),
+        )
 
         if (!expanded && showsCollapsedPreview && entries.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, top = 4.dp)
-                    .heightIn(min = 56.dp, max = previewHeight)
-                    .background(
-                        LitterTheme.surface.copy(alpha = 0.6f),
-                        RoundedCornerShape(8.dp),
-                    )
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(start = LitterSpacing.sm)
+                    .heightIn(max = previewHeight)
                     .verticalScroll(previewScrollState),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -499,24 +454,9 @@ fun ExplorationGroupRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        Spacer(
-                            modifier = Modifier
-                                .padding(top = bulletTopPadding)
-                                .width(bulletSize)
-                                .height(bulletSize)
-                                .background(
-                                    color = if (entry.isInProgress) {
-                                        LitterTheme.warning
-                                    } else {
-                                        LitterTheme.textMuted
-                                    },
-                                    shape = RoundedCornerShape(percent = 50),
-                                ),
-                        )
                         Text(
                             text = entry.label,
-                            color = LitterTheme.textSecondary,
-                            fontSize = LitterTextStyle.caption.scaled,
+                            style = LitterType.meta,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
@@ -529,28 +469,13 @@ fun ExplorationGroupRow(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 24.dp, top = 1.dp),
+                        .padding(start = LitterSpacing.sm, top = 1.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    Spacer(
-                        modifier = Modifier
-                            .padding(top = bulletTopPadding)
-                            .width(bulletSize)
-                            .height(bulletSize)
-                            .background(
-                                color = if (entry.isInProgress) {
-                                    LitterTheme.warning
-                                } else {
-                                    LitterTheme.textMuted
-                                },
-                                shape = RoundedCornerShape(percent = 50),
-                            ),
-                    )
                     Text(
                         text = entry.label,
-                        color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        style = LitterType.meta,
                         maxLines = Int.MAX_VALUE,
                         overflow = TextOverflow.Clip,
                         modifier = Modifier.weight(1f),
@@ -685,28 +610,4 @@ private fun workspaceTitle(path: String): String {
     val normalized = path.replace('\\', '/').trimEnd('/')
     val lastSegment = normalized.substringAfterLast('/', normalized)
     return if (lastSegment.isBlank()) path else lastSegment
-}
-
-private fun Modifier.explorationHeaderShimmer(active: Boolean, progress: Float): Modifier {
-    if (!active) return this
-    return drawWithContent {
-        drawContent()
-        val width = size.width
-        val shimmerWidth = width * 0.35f
-        val startX = (width + shimmerWidth) * progress - shimmerWidth
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.3f),
-                    Color.Transparent,
-                ),
-                startX = startX,
-                endX = startX + shimmerWidth,
-            ),
-            topLeft = Offset.Zero,
-            size = size,
-            blendMode = BlendMode.SrcAtop,
-        )
-    }
 }
