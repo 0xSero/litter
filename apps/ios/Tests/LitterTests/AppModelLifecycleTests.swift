@@ -3,6 +3,30 @@ import XCTest
 
 @MainActor
 final class AppModelLifecycleTests: XCTestCase {
+    func testTerminationShutdownCompletesWhileMainActorIsOccupied() {
+        XCTAssertTrue(Thread.isMainThread)
+        let finished = AppTerminationShutdown.finish(timeout: 1) {
+            XCTAssertFalse(Thread.isMainThread, "Shutdown must not need the blocked MainActor")
+        }
+        XCTAssertTrue(finished, "A completed shutdown must not consume the termination deadline")
+    }
+
+    func testTerminationShutdownCancelsUnfinishedOperationAtItsBound() async {
+        let cancelled = expectation(description: "Expired shutdown operation cancelled")
+        let finished = AppTerminationShutdown.finish(timeout: 0.01) {
+            do {
+                try await Task.sleep(for: .seconds(60))
+                XCTFail("The expired operation should be cancelled")
+            } catch is CancellationError {
+                cancelled.fulfill()
+            } catch {
+                XCTFail("Unexpected shutdown failure")
+            }
+        }
+        XCTAssertFalse(finished)
+        await fulfillment(of: [cancelled], timeout: 2)
+    }
+
     func testSubscriptionCancellationWakesPendingSwiftBridgeCall() async {
         let store = AppStore()
         defer { withExtendedLifetime(store) {} }

@@ -7,6 +7,8 @@ import os
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var pendingPushToken: Data?
     private var pendingNotificationThreadKey: ThreadKey?
+    // Bind only after startup; termination must never initialize AppModel.
+    weak var alleycatShutdownClient: AppClient?
 
     weak var appRuntime: AppRuntimeController? {
         didSet {
@@ -97,14 +99,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
         }
-        // Start pushing state to the paired Apple Watch, gated behind the
-        // experimental feature flag. Flip the `appleWatch` feature in
-        // Settings → Experimental Features to enable. No-op when disabled.
-        DispatchQueue.main.async {
-            if ExperimentalFeatures.shared.isEnabled(.appleWatch) {
-                WatchCompanionBridge.shared.start()
-            }
-        }
         return true
     }
 
@@ -131,15 +125,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // side and the daemon waiting up to its idle timeout to reap
         // the final zombie.
         LLog.info("lifecycle", "applicationWillTerminate — closing alleycat endpoint")
-        let semaphore = DispatchSemaphore(value: 0)
-        Task { @MainActor in
-            await self.appRuntime?.shutdownAlleycatEndpoint()
-            semaphore.signal()
-        }
-        // applicationWillTerminate gets ~5s before the OS kills us.
-        // Block briefly on the close handshake so iroh can flush
-        // CONNECTION_CLOSE frames; bail if iroh's drain takes too long.
-        _ = semaphore.wait(timeout: .now() + 2.5)
+        guard let client = alleycatShutdownClient else { return }
+        // This terminal callback cannot await MainActor work while blocking it.
+        // The already-bound native client is Sendable; close on an independent
+        // executor, retaining the existing bounded best-effort termination budget.
+        _ = AppTerminationShutdown.close(client: client)
     }
 
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
@@ -241,6 +231,28 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 }
 
+/// UIKit's synchronous termination callback allows only a bounded best effort.
+/// No actor-owned app state is accessed from the detached operation.
+enum AppTerminationShutdown {
+    nonisolated static func close(client: AppClient) -> Bool {
+        finish(timeout: 2.5) { await client.shutdownAlleycatEndpoint() }
+    }
+
+    nonisolated static func finish(
+        timeout: TimeInterval,
+        operation: @escaping @Sendable () async -> Void
+    ) -> Bool {
+        let completed = DispatchSemaphore(value: 0)
+        let task = Task.detached(priority: .high) {
+            await operation()
+            completed.signal()
+        }
+        let finished = completed.wait(timeout: .now() + timeout) == .success
+        if !finished { task.cancel() }
+        return finished
+    }
+}
+
 @main
 struct LitterApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -319,6 +331,12 @@ struct LitterApp: App {
                 voiceRuntime.bind(appModel: appModel)
                 appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
                 appDelegate.appRuntime = appRuntime
+                appDelegate.alleycatShutdownClient = appModel.client
+                // Observation touches AppModel.shared. Start only after its
+                // background bridge prewarm and credential binding have finished.
+                if ExperimentalFeatures.shared.isEnabled(.appleWatch) {
+                    WatchCompanionBridge.shared.start()
+                }
                 if scenePhase == .active {
                     appRuntime.appDidBecomeActive()
                 }

@@ -6,6 +6,17 @@ final class LitterUITests: XCTestCase {
     }
 
     @MainActor
+    func testNormalHomeLaunchOpensSettings() {
+        let app = XCUIApplication()
+        app.launch()
+        defer { app.terminate() }
+        let settings = app.buttons["home.settingsButton"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testFollowUpKeepsPreviousTurnVisible() throws {
         let app = conversationDisplayHarnessApp()
         app.launchArguments += ["--ui-test-multiturn", "-collapseTurns", "YES"]

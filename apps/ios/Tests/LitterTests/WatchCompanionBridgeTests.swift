@@ -77,6 +77,24 @@ final class WatchCompanionBridgeTests: XCTestCase {
         super.tearDown()
     }
 
+    func testRepeatedObservationRegistrationProjectsOncePerSnapshotChange() async {
+        AppModel.shared.applySnapshot(makeRecord(servers: [], sessionSummaries: []))
+        let bridge = WatchCompanionBridge(transport: StubWatchTransport(isPaired: false))
+        var projections = 0
+        let changed = expectation(description: "Snapshot change projected")
+        bridge.debugSnapshotProjectionDidRun = {
+            projections += 1
+            if projections == 2 { changed.fulfill() }
+        }
+        bridge.startSnapshotObservation()
+        bridge.startSnapshotObservation()
+        XCTAssertEqual(projections, 1, "Repeated registration must not add observation chains")
+        AppModel.shared.applySnapshot(makeRecord(servers: [makeServer(id: "new")], sessionSummaries: []))
+        await fulfillment(of: [changed], timeout: 2)
+        XCTAssertEqual(projections, 2, "Re-arming must not project the same snapshot twice")
+        bridge.debugSnapshotProjectionDidRun = nil
+    }
+
     // MARK: - 1. Complication mode = .running with real runtime
 
     func testComplicationSnapshotEmitsRunningModeWithRealTurnStartAndTaskId() throws {
