@@ -239,3 +239,28 @@ delta against upstream main is broader than a standalone performance patch;
 Use the native build and test commands in [DEVELOPMENT.md](DEVELOPMENT.md).
 Preserve raw measurements for each final artifact and update this record with
 observed results before claiming the remaining gates are complete.
+
+## Android Activity teardown ownership
+
+`MainActivity.onDestroy` previously used `runBlocking` on the main thread to await
+`shutdownAlleycatEndpoint`, capped at 2,500 ms. This made Activity destruction wait
+for a network close handshake. It also closed the process-shared endpoint during
+Activity recreation or while push refreshes and the pet overlay still used it.
+Rust stores that endpoint in a `OnceCell`; later access clones the same endpoint,
+and shutdown does not clear or replace it. An Activity is therefore not a valid
+owner of endpoint shutdown, even when `isFinishing` is true.
+
+The Activity now only calls `AppModel.stop()` to release its subscription reference
+before `super.onDestroy()`. No detached close coroutine can race a replacement
+Activity. Android process termination reclaims the native endpoint; background
+and reconnect policy remain in the existing shared runtime.
+
+`MainActivityLifecycleTest` binds the native endpoint, recreates the real Activity
+three times, checks that each replacement uses the same process model, and records
+elapsed time to its main-thread callback. This is a responsiveness and ownership
+smoke test, not proof of transport usability or a device latency budget. Native
+execution is pending the coordinated Android run. Endpoint identity or secret-key
+readback alone cannot establish liveness because a closed endpoint retains both.
+The separate runtime gate is an authenticated host RPC before and after Activity
+recreation and finish/relaunch in the same process, including with the overlay
+service active. No paired Android host was available for that check in this pass.

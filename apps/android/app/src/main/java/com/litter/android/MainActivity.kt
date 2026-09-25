@@ -120,17 +120,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // Best-effort graceful shutdown of the iroh endpoint before the
-        // Activity is fully destroyed. `runBlocking` keeps the close
-        // handshake bounded so we don't ANR if the network stack is
-        // unresponsive; `withTimeoutOrNull` caps it.
-        appModel?.let { model ->
-            kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeoutOrNull(2_500) {
-                    model.client.shutdownAlleycatEndpoint()
-                }
-            }
-        }
+        // Release this Activity's subscription reference only. The Rust
+        // endpoint belongs to the process and is also used by recreated
+        // Activities, push refreshes, and the pet overlay service. Closing
+        // its OnceCell-backed instance here would permanently break them.
         appModel?.stop()
         super.onDestroy()
     }
