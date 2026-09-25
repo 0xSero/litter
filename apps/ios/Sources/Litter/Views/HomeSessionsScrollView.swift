@@ -1198,8 +1198,8 @@ private struct HomeCatFooterView: View {
 
     @State private var showingLoop: Bool
 
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "webp")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "webp")
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
 
     init(playEntrance: Bool) {
         self.playEntrance = playEntrance
@@ -1385,13 +1385,8 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         let duration: TimeInterval
     }
 
-    /// Our iOS APNGs were authored at 10fps (100ms per frame), but the
-    /// equivalent Android WebPs render at 15fps (67ms per frame) — so
-    /// the same 165-frame entrance runs 16.5s on iOS vs 11.055s on
-    /// Android. Force playback at the Android cadence by overriding
-    /// the encoded delays. The source frames are uniform in both
-    /// files, so a flat per-frame duration here is exact, not a
-    /// resampling approximation.
+    /// The APNGs preserve every shipping WebP frame, with exact 1/15s
+    /// encoded delays. Keep playback cadence explicit across both assets.
     private static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
 
     private final class AnimationBox {

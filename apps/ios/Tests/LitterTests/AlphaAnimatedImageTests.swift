@@ -1,3 +1,4 @@
+import CryptoKit
 import ImageIO
 import XCTest
 @testable import Litter
@@ -18,7 +19,7 @@ final class AlphaAnimatedImageTests: XCTestCase {
 
     func testBundledAnimationsHaveMaterializedFramesWithoutChangingPlayback() async throws {
         for (name, count, height) in [("home_cat_entrance", 165, 203), ("home_cat", 120, 202)] {
-            let url = try XCTUnwrap(Bundle.main.url(forResource: name, withExtension: "webp"))
+            let url = try XCTUnwrap(Bundle.main.url(forResource: name, withExtension: "png"))
             let startedAt = ProcessInfo.processInfo.systemUptime
             let animation = await Task.detached(priority: .userInitiated) {
                 AlphaAnimatedImageView.animation(from: url)
@@ -41,19 +42,32 @@ final class AlphaAnimatedImageTests: XCTestCase {
             }
             XCTAssertLessThan(retainedBytes, 48 * 1024 * 1024)
 
-            // Compare first, middle and final composited frames with ImageIO's
-            // original rendering, including all alpha pixels and color channels.
-            // Both render into sRGB so provider layout/padding is irrelevant.
-            let expectedFrames = try await Task.detached(priority: .userInitiated) {
-                let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
-                return try [0, count / 2, count - 1].map { index in
-                    let original = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
-                    return try Self.renderedPixels(original)
+            // Android keeps the shipping WebP originals. Only LitterTests
+            // bundles them; every composited pixel, including alpha, must match.
+            let referenceURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "webp"))
+            try await Task.detached(priority: .userInitiated) {
+                let source = try XCTUnwrap(CGImageSourceCreateWithURL(referenceURL as CFURL, nil))
+                let encoded = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+                XCTAssertEqual(CGImageSourceGetCount(source), count)
+                XCTAssertEqual(CGImageSourceGetCount(encoded), count)
+                for (index, frame) in animation.frames.enumerated() {
+                    try autoreleasepool {
+                        let original = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+                        XCTAssertEqual(frame.width, original.width)
+                        XCTAssertEqual(frame.height, original.height)
+                        XCTAssertEqual(frame.colorSpace?.name as String?, original.colorSpace?.name as String?)
+                        XCTAssertEqual(
+                            SHA256.hash(data: try Self.renderedPixels(frame)),
+                            SHA256.hash(data: try Self.renderedPixels(original)),
+                            "\(name) frame \(index)"
+                        )
+                        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(encoded, index, nil) as? [CFString: Any])
+                        let png = try XCTUnwrap(properties[kCGImagePropertyPNGDictionary] as? [CFString: Any])
+                        let delay = try XCTUnwrap(png[kCGImagePropertyAPNGUnclampedDelayTime] as? Double)
+                        XCTAssertEqual(delay, 1.0 / 15.0, accuracy: 0.000_001)
+                    }
                 }
             }.value
-            for (index, expected) in zip([0, count / 2, count - 1], expectedFrames) {
-                XCTAssertEqual(try Self.renderedPixels(animation.frames[index]), expected, "\(name) frame \(index)")
-            }
         }
     }
 
