@@ -58,7 +58,9 @@ import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.RecentDirectoryEntry
 import com.litter.android.ui.RecentDirectoryStore
 import com.litter.android.state.canBrowseDirectories
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.codex_mobile_client.RemotePath
 
 @Composable
@@ -138,7 +140,9 @@ fun DirectoryPickerSheet(
 
         if (isLocalServer(serverId)) {
             val dir = java.io.File(normalizedPath)
-            val entries = runCatching { dir.listFiles()?.filter { it.isDirectory }?.map { it.name } ?: emptyList() }
+            val entries = withContext(Dispatchers.IO) {
+                runCatching { dir.listFiles()?.filter { it.isDirectory }?.map { it.name } ?: emptyList() }
+            }
             if (serverId != selectedServerId) return
             entries.onSuccess { names ->
                 allEntries = names.sortedWith(String.CASE_INSENSITIVE_ORDER)

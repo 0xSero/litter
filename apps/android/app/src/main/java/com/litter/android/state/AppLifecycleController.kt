@@ -54,9 +54,7 @@ class AppLifecycleController {
         val results = appModel.reconnectController.reconnectSavedServers()
         results.forEach { appModel.recordSshHostKeyChange(it.serverId, it.errorMessage) }
         restoreLocalStateAfterReconnect(appModel, results)
-        val retryResults = appModel.reconnectController.reconnectSavedServers()
-        retryResults.forEach { appModel.recordSshHostKeyChange(it.serverId, it.errorMessage) }
-        restoreLocalStateAfterReconnect(appModel, retryResults)
+        retryTransientFailures(appModel, results)
         appModel.refreshSnapshot()
         // If reconnecting saved alleycat servers triggered the iroh
         // endpoint bind, persist any freshly-generated device key.
@@ -123,9 +121,9 @@ class AppLifecycleController {
         }
 
         val results = appModel.reconnectController.onAppBecameActive()
+        results.forEach { appModel.recordSshHostKeyChange(it.serverId, it.errorMessage) }
         restoreLocalStateAfterReconnect(appModel, results)
-        val retryResults = appModel.reconnectController.reconnectSavedServers()
-        restoreLocalStateAfterReconnect(appModel, retryResults)
+        retryTransientFailures(appModel, results)
         backgroundedTurnKeys.clear()
         keysToRefresh.forEach { key ->
             // Force-authoritative: a turn that completed during a long
@@ -180,6 +178,18 @@ class AppLifecycleController {
          * remainder of that window.
          */
         const val LONG_RESUME_THRESHOLD_MS = 15_000L
+
+        /** Errors where an immediate second attempt cannot help. */
+        private val NON_RETRYABLE_MARKERS = listOf(
+            "timed out", "timeout", "unreachable", "refused", "no route",
+            "host key", "auth", "permission denied", "not found", "dns",
+            "failed to lookup", "name or service",
+        )
+
+        fun isRetryableReconnectError(message: String?): Boolean {
+            val lower = message?.lowercase() ?: return true
+            return NON_RETRYABLE_MARKERS.none { it in lower }
+        }
     }
 
     private fun registerPushProxy(context: Context) {
@@ -246,6 +256,25 @@ class AppLifecycleController {
             } catch (error: Exception) {
                 LLog.e("AppLifecycleController", "Push proxy deregistration failed", error)
             }
+        }
+    }
+
+    /**
+     * Retries once, per server, only the failures that look transient.
+     * Previously the whole saved-server list was reconnected a second time,
+     * so offline servers paid the full connect timeout twice on every
+     * launch/resume. Already-connected servers are skipped by Rust anyway.
+     */
+    private suspend fun retryTransientFailures(
+        appModel: AppModel,
+        results: List<uniffi.codex_mobile_client.ReconnectResult>,
+    ) {
+        for (failed in results.filter { !it.success && isRetryableReconnectError(it.errorMessage) }) {
+            val retry = runCatching {
+                appModel.reconnectController.reconnectServer(failed.serverId)
+            }.getOrNull() ?: continue
+            appModel.recordSshHostKeyChange(retry.serverId, retry.errorMessage)
+            restoreLocalStateAfterReconnect(appModel, listOf(retry))
         }
     }
 
