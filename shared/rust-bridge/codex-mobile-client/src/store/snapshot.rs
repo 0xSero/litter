@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -227,18 +228,21 @@ fn next_items_revision() -> u64 {
 /// invalidation.
 #[derive(Clone)]
 pub struct ThreadItems {
-    items: Vec<HydratedConversationItem>,
+    /// Shared copy-on-write: cloning a snapshot bumps a refcount instead of
+    /// deep-copying every hydrated item; mutation goes through
+    /// `Arc::make_mut`, which copies only while a clone is still alive.
+    items: Arc<Vec<HydratedConversationItem>>,
     /// First index at which each id occurs, mirroring the `iter().position()`
     /// / `iter().find()` semantics the linear scans had.
-    index: HashMap<String, usize>,
+    index: Arc<HashMap<String, usize>>,
     revision: u64,
 }
 
 impl ThreadItems {
     pub fn new() -> Self {
         Self {
-            items: Vec::new(),
-            index: HashMap::new(),
+            items: Arc::new(Vec::new()),
+            index: Arc::new(HashMap::new()),
             revision: next_items_revision(),
         }
     }
@@ -271,7 +275,7 @@ impl ThreadItems {
     pub fn get_mut_by_id(&mut self, id: &str) -> Option<&mut HydratedConversationItem> {
         let index = self.index_of(id)?;
         self.revision = next_items_revision();
-        self.items.get_mut(index)
+        Arc::make_mut(&mut self.items).get_mut(index)
     }
 
     /// Mutable access by position. The caller must not change `item.id`; use
@@ -281,18 +285,19 @@ impl ThreadItems {
             return None;
         }
         self.revision = next_items_revision();
-        self.items.get_mut(index)
+        Arc::make_mut(&mut self.items).get_mut(index)
     }
 
     pub fn push(&mut self, item: HydratedConversationItem) {
         self.revision = next_items_revision();
-        self.index.entry(item.id.clone()).or_insert(self.items.len());
-        self.items.push(item);
+        let len = self.items.len();
+        Arc::make_mut(&mut self.index).entry(item.id.clone()).or_insert(len);
+        Arc::make_mut(&mut self.items).push(item);
     }
 
     pub fn insert(&mut self, index: usize, item: HydratedConversationItem) {
         self.revision = next_items_revision();
-        self.items.insert(index, item);
+        Arc::make_mut(&mut self.items).insert(index, item);
         self.rebuild_index();
     }
 
@@ -300,7 +305,7 @@ impl ThreadItems {
     pub fn replace_at(&mut self, index: usize, item: HydratedConversationItem) {
         self.revision = next_items_revision();
         let id_changed = self.items[index].id != item.id;
-        self.items[index] = item;
+        Arc::make_mut(&mut self.items)[index] = item;
         if id_changed {
             self.rebuild_index();
         }
@@ -311,26 +316,32 @@ impl ThreadItems {
         F: FnMut(&HydratedConversationItem) -> bool,
     {
         self.revision = next_items_revision();
-        self.items.retain(predicate);
+        Arc::make_mut(&mut self.items).retain(predicate);
         self.rebuild_index();
     }
 
     pub fn clear(&mut self) {
         self.revision = next_items_revision();
-        self.items.clear();
-        self.index.clear();
+        match Arc::get_mut(&mut self.items) {
+            Some(items) => items.clear(),
+            None => self.items = Arc::new(Vec::new()),
+        }
+        match Arc::get_mut(&mut self.index) {
+            Some(index) => index.clear(),
+            None => self.index = Arc::new(HashMap::new()),
+        }
     }
 
     pub fn into_vec(self) -> Vec<HydratedConversationItem> {
-        self.items
+        Arc::try_unwrap(self.items).unwrap_or_else(|shared| (*shared).clone())
     }
 
     fn rebuild_index(&mut self) {
-        self.index.clear();
-        self.index.reserve(self.items.len());
+        let mut index = HashMap::with_capacity(self.items.len());
         for (position, item) in self.items.iter().enumerate() {
-            self.index.entry(item.id.clone()).or_insert(position);
+            index.entry(item.id.clone()).or_insert(position);
         }
+        self.index = Arc::new(index);
     }
 }
 
@@ -357,8 +368,8 @@ impl std::fmt::Debug for ThreadItems {
 impl From<Vec<HydratedConversationItem>> for ThreadItems {
     fn from(items: Vec<HydratedConversationItem>) -> Self {
         let mut value = Self {
-            items,
-            index: HashMap::new(),
+            items: Arc::new(items),
+            index: Arc::new(HashMap::new()),
             revision: next_items_revision(),
         };
         value.rebuild_index();
@@ -375,9 +386,11 @@ impl FromIterator<HydratedConversationItem> for ThreadItems {
 impl Extend<HydratedConversationItem> for ThreadItems {
     fn extend<I: IntoIterator<Item = HydratedConversationItem>>(&mut self, iter: I) {
         self.revision = next_items_revision();
+        let items = Arc::make_mut(&mut self.items);
+        let index = Arc::make_mut(&mut self.index);
         for item in iter {
-            self.index.entry(item.id.clone()).or_insert(self.items.len());
-            self.items.push(item);
+            index.entry(item.id.clone()).or_insert(items.len());
+            items.push(item);
         }
     }
 }
