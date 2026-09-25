@@ -67,10 +67,13 @@ if mode == 'descendant':
         while True: time.sleep(1)
     (home / 'descendant.pid').write_text(str(child))
 if mode in ('burst', 'slow'):
-    for _ in range(256):
-        os.write(1, b'O' * 1024)
-        os.write(2, b'E' * 1024)
-        if mode == 'slow': time.sleep(0.002)
+    # Keep the same 256 KiB per stream in both modes. Hundreds of tiny sleeps
+    # accumulate VM timer coalescing and turn readiness into a scheduler test.
+    chunks, size = (16, 16384) if mode == 'slow' else (256, 1024)
+    for _ in range(chunks):
+        os.write(1, b'O' * size)
+        os.write(2, b'E' * size)
+        if mode == 'slow': time.sleep(0.03)
 (home / ('ready.' + str(os.getpid()))).write_text('ready')
 while not (home / ('exit.' + str(os.getpid()))).exists():
     (home / ('heartbeat.' + str(os.getpid()))).write_text(str(time.monotonic()))
@@ -122,7 +125,12 @@ while not (home / ('exit.' + str(os.getpid()))).exists():
         self.assertEqual(result.returncode, 0, result.stderr)
         pid = int((self.session / 'agent.pid').read_text())
         self.pids.add(pid)
-        eventually(lambda: (self.home / f'ready.{pid}').exists())
+        try:
+            eventually(lambda: (self.home / f'ready.{pid}').exists())
+        except AssertionError:
+            sizes = {name: (self.session / name).stat().st_size
+                     for name in ['out.log', 'err.log'] if (self.session / name).is_file()}
+            self.fail(f'Producer did not finish: mode={mode}, alive={alive(pid)}, log_bytes={sizes}')
         return pid
 
     def capture_for(self, pid):
