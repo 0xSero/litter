@@ -1398,7 +1398,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
     }
 
-    struct Animation {
+    struct Animation: Sendable {
         let frames: [CGImage]
         /// Cumulative end-time for each frame (frameEndTimes[i] is the
         /// timestamp at which frame i finishes / frame i+1 begins).
@@ -1408,7 +1408,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
 
     /// The APNGs preserve every shipping WebP frame, with exact 1/15s
     /// encoded delays. Keep playback cadence explicit across both assets.
-    private static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
+    private nonisolated static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
 
     private final class AnimationBox {
         let animation: Animation
@@ -1457,7 +1457,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
     }
 
-    static func animation(from url: URL) -> Animation {
+    nonisolated static func animation(from url: URL) -> Animation {
         // Keep compressed-provider caches out of the retained animation. Each
         // frame is materialized into its own bitmap below, then its temporary
         // ImageIO provider is released before the next frame is loaded.
@@ -1491,7 +1491,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
     /// ImageIO's immediate-cache hint still left WebP providers that decoded
     /// again on the main thread in CAKeyframeAnimation's transaction commit.
     /// A bitmap context owns the rendered pixels, so CA never sees that provider.
-    static func bitmapFrame(from image: CGImage) -> CGImage? {
+    nonisolated static func bitmapFrame(from image: CGImage) -> CGImage? {
         let colorSpace = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
             ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(

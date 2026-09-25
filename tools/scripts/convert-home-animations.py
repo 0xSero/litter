@@ -62,7 +62,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     # Reuse the exact runtime-owned RGBA copy without maintaining a second copy.
     runtime = (ROOT / 'apps/ios/Sources/Litter/Views/HomeSessionsScrollView.swift').read_text()
-    start = runtime.index('    static func bitmapFrame(from image: CGImage) -> CGImage? {')
+    signature = runtime.index('static func bitmapFrame(from image: CGImage) -> CGImage? {')
+    start = runtime.rfind('\n', 0, signature) + 1
     depth = 0
     for end in range(runtime.index('{', start), len(runtime)):
         depth += (runtime[end] == '{') - (runtime[end] == '}')
