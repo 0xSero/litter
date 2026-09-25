@@ -109,6 +109,47 @@ private let zoomSnapDuration: TimeInterval = 0.22
 /// Geometry stays cheap even when a server contains thousands of sessions.
 /// Frames must be sorted by vertical position and have positive heights.
 enum HomeSessionViewport {
+    /// Offscreen height invalidation must not compare the whole fork family
+    /// for every session. Sibling pills are a single horizontal line; only
+    /// the first (hidden sizing) pill can affect its intrinsic height. Visible
+    /// containers still compare the complete session when refreshing content.
+    static func hasSameHeightContent(_ lhs: HomeDashboardRecentSession?, _ rhs: HomeDashboardRecentSession) -> Bool {
+        guard let lhs else { return false }
+        return lhs.key == rhs.key &&
+            lhs.serverId == rhs.serverId &&
+            lhs.serverDisplayName == rhs.serverDisplayName &&
+            lhs.agentRuntimeKind == rhs.agentRuntimeKind &&
+            lhs.isLocal == rhs.isLocal &&
+            lhs.sessionTitle == rhs.sessionTitle &&
+            lhs.preview == rhs.preview &&
+            lhs.cwd == rhs.cwd &&
+            lhs.model == rhs.model &&
+            lhs.agentLabel == rhs.agentLabel &&
+            lhs.updatedAt == rhs.updatedAt &&
+            lhs.hasTurnActive == rhs.hasTurnActive &&
+            lhs.isResumed == rhs.isResumed &&
+            lhs.isSubagent == rhs.isSubagent &&
+            lhs.isFork == rhs.isFork &&
+            lhs.forkedFromId == rhs.forkedFromId &&
+            lhs.lineage?.rootKey == rhs.lineage?.rootKey &&
+            lhs.lineage?.parentKey == rhs.lineage?.parentKey &&
+            lhs.lineage?.ancestors == rhs.lineage?.ancestors &&
+            lhs.lineage?.omittedAncestorCount == rhs.lineage?.omittedAncestorCount &&
+            lhs.lineage?.members.first == rhs.lineage?.members.first &&
+            lhs.lineage?.branchIndex == rhs.lineage?.branchIndex &&
+            lhs.lineage?.branchTotal == rhs.lineage?.branchTotal &&
+            lhs.lastResponsePreview == rhs.lastResponsePreview &&
+            lhs.lastResponseTurnId == rhs.lastResponseTurnId &&
+            lhs.lastUserMessage == rhs.lastUserMessage &&
+            lhs.lastToolLabel == rhs.lastToolLabel &&
+            lhs.stats == rhs.stats &&
+            lhs.tokenUsage == rhs.tokenUsage &&
+            lhs.goal == rhs.goal &&
+            lhs.recentToolLog == rhs.recentToolLog &&
+            lhs.lastTurnStart == rhs.lastTurnStart &&
+            lhs.lastTurnEnd == rhs.lastTurnEnd
+    }
+
     struct ScrollAnchor: Equatable {
         let key: ThreadKey
         let offset: CGFloat
@@ -265,6 +306,7 @@ final class HomeSessionsScrollUIView: UIView {
     private(set) var debugPinchTrace = "none"
     var debugMountedRowCount: Int { containers.count }
     var debugSessionCount: Int { order.count }
+    func debugHasMeasuredHeight(for key: ThreadKey) -> Bool { measuredHeights[key] != nil }
     var debugVisibleThreadKeys: [ThreadKey] {
         guard rowFrames.count == order.count else { return [] }
         return HomeSessionViewport.visibleRange(in: rowFrames, viewport: scrollView.bounds).map { order[$0] }
@@ -448,7 +490,7 @@ final class HomeSessionsScrollUIView: UIView {
             }
         }
         measuredHeights = measuredHeights.filter { newSet.contains($0.key) }
-        for session in sessions where sessionsByKey[session.key] != session {
+        for session in sessions where !HomeSessionViewport.hasSameHeightContent(sessionsByKey[session.key], session) {
             measuredHeights.removeValue(forKey: session.key)
         }
         sessionsByKey = Dictionary(uniqueKeysWithValues: sessions.map { ($0.key, $0) })
@@ -1443,6 +1485,8 @@ final class HomeRowContainer: UIView {
     private var pinchBlurAnimator: UIViewPropertyAnimator?
     #if DEBUG
     var debugHasActivePinchAnimator: Bool { pinchBlurAnimator?.state == .active }
+    private(set) var debugRootViewRefreshCount = 0
+    var debugSession: HomeDashboardRecentSession? { session }
     #endif
     private func makePinchBlurAnimator() -> UIViewPropertyAnimator {
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
@@ -1934,6 +1978,9 @@ final class HomeRowContainer: UIView {
 
     private func refreshRootView() {
         guard let session, let callbacks else { return }
+        #if DEBUG
+        debugRootViewRefreshCount += 1
+        #endif
         let sessionSnapshot = session
         let openTap: () -> Void = { [weak self] in
             guard let self, self.scrollHost?.pinchActive != true else { return }

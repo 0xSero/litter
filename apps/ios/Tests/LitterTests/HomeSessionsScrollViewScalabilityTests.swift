@@ -83,6 +83,61 @@ final class HomeSessionsScrollViewScalabilityTests: XCTestCase {
         XCTAssertFalse(mountedRows(in: scroll).contains(where: \.debugHasActivePinchAnimator))
     }
 
+    func testHeightComparisonDoesNotTraverseEverySiblingForEverySession() {
+        let members = familyMembers()
+        var updatedMembers = familyMembers() // Fresh buffer, as on each derivation.
+        updatedMembers[999] = .init(key: members[999].key, title: "Renamed sibling")
+        updatedMembers.swapAt(500, 501)
+        let before = sessions(count: 1_000, members: members)
+        let after = sessions(count: 1_000, members: updatedMembers)
+        // Complete rendering state differs, but one-line horizontal pill
+        // content/order cannot change the offscreen vertical measurements.
+        XCTAssertNotEqual(before[900], after[900])
+        for index in before.indices {
+            XCTAssertTrue(HomeSessionViewport.hasSameHeightContent(before[index], after[index]))
+        }
+        XCTAssertFalse(HomeSessionViewport.hasSameHeightContent(nil, after[0]))
+        XCTAssertFalse(HomeSessionViewport.hasSameHeightContent(before[0], sessions(count: 1_000, members: members, responseAt: [0: "Longer response"])[0]))
+        XCTAssertFalse(HomeSessionViewport.hasSameHeightContent(before[1], sessions(count: 1_000, members: members, ancestorTitle: "Changed ancestor title")[1]))
+        var sizingPillChanged = members
+        sizingPillChanged[0] = .init(key: members[0].key, title: "Changed sizing pill")
+        XCTAssertFalse(HomeSessionViewport.hasSameHeightContent(before[0], sessions(count: 1_000, members: sizingPillChanged)[0]))
+    }
+
+    func testMountedRowsRefreshSameCountSiblingTitlesAndOrder() {
+        let view = makeView()
+        let members = familyMembers()
+        apply(sessions: sessions(count: 1_000, members: members), to: view)
+        let row = mountedRows(in: scrollView(in: view)).first { $0.debugSession?.key == members[0].key }!
+        let refreshes = row.debugRootViewRefreshCount
+        var changed = familyMembers()
+        changed[999] = .init(key: members[999].key, title: "Updated visible family")
+        changed.swapAt(500, 501)
+        apply(sessions: sessions(count: 1_000, members: changed), to: view)
+        XCTAssertGreaterThan(row.debugRootViewRefreshCount, refreshes, "Height reuse must not suppress hosted content refresh")
+        XCTAssertEqual(row.debugSession?.lineage?.members, changed)
+    }
+
+    func testOffscreenHeightSurvivesSiblingChangeButInvalidatesResponseChange() {
+        let view = makeView()
+        let members = familyMembers()
+        apply(sessions: sessions(count: 1_000, members: members), to: view)
+        let row = mountedRows(in: scrollView(in: view)).first { $0.debugSession?.key == members[0].key }!
+        _ = row.forceMeasureHostHeight(width: 390)
+        view.debugScroll(to: 900)
+        XCTAssertTrue(view.debugHasMeasuredHeight(for: members[0].key))
+        var changed = familyMembers()
+        changed[999] = .init(key: members[999].key, title: "Different sibling")
+        apply(sessions: sessions(count: 1_000, members: changed), to: view)
+        XCTAssertTrue(view.debugHasMeasuredHeight(for: members[0].key))
+        apply(sessions: sessions(count: 1_000, members: changed, responseAt: [0: "New multiline\nresponse"]), to: view)
+        XCTAssertFalse(view.debugHasMeasuredHeight(for: members[0].key), "Offscreen content changes must discard its old measured height")
+    }
+
+    private func familyMembers() -> [ThreadLineageMember] {
+        (0..<1_000).map { .init(key: ThreadKey(serverId: "scale-test", threadId: "session-\($0)"), title: "Sibling \($0)") }
+    }
+
     func testInitialMountThousandSessionsPerformance() {
         let data = sessions(count: 1_000)
         measure {
@@ -119,7 +174,7 @@ final class HomeSessionsScrollViewScalabilityTests: XCTestCase {
         )
     }
 
-    private func sessions(count: Int) -> [HomeDashboardRecentSession] {
+    private func sessions(count: Int, members: [ThreadLineageMember]? = nil, responseAt: [Int: String] = [:], ancestorTitle: String = "Root") -> [HomeDashboardRecentSession] {
         (0..<count).map { index in
             HomeDashboardRecentSession(
                 key: ThreadKey(serverId: "scale-test", threadId: "session-\(index)"),
@@ -127,7 +182,13 @@ final class HomeSessionsScrollViewScalabilityTests: XCTestCase {
                 isLocal: false, sessionTitle: "Session \(index)", preview: "Preview", cwd: "/tmp",
                 model: "test", agentLabel: nil, updatedAt: Date(timeIntervalSince1970: 1_000),
                 hasTurnActive: false, isResumed: false, isSubagent: false, isFork: false,
-                forkedFromId: nil, lineage: nil, lastResponsePreview: nil, lastResponseTurnId: nil,
+                forkedFromId: nil,
+                lineage: members.map { family in
+                    ThreadLineage(rootKey: family[0].key, parentKey: index == 0 ? nil : family[0].key,
+                                  ancestors: index == 0 ? [] : [.init(key: family[0].key, title: ancestorTitle)],
+                                  omittedAncestorCount: 0, members: family, branchIndex: index + 1, branchTotal: family.count)
+                },
+                lastResponsePreview: responseAt[index], lastResponseTurnId: nil,
                 lastUserMessage: nil, lastToolLabel: nil, stats: nil, tokenUsage: nil, goal: nil,
                 recentToolLog: [], lastTurnStart: nil, lastTurnEnd: nil
             )
