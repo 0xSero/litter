@@ -178,6 +178,38 @@ Authoritative pruning and remove/restore invariants passed. These are correctnes
 checks, not timing measurements or Android integration tests. Local source copies
 and output are under `artifacts/performance-steward/android-projection/`.
 
+## Native revision and animation acceptance
+
+The `65741400` shared library passed 852 Rust tests, with no failures and three
+ignored tests. Its regenerated bindings and rebuilt Android library then passed
+89 unit tests in 19 suites and 11 emulator instrumentation tests. The latter
+include three Activity recreations, native context initialization, transcript
+virtualization, selection/link handling and settings navigation. Activity
+recreation preserves the same application model; this assertion is not an
+authenticated network round trip after recreation.
+
+The iOS `ios-revisions-functional-2` run passed both animation regressions and all
+four keyboard-focus regressions. Explicit RGBA copies preserve bundled animation
+frame counts, dimensions and timing, with complete pixel comparisons of first,
+middle and final frames plus a synthetic transparency fixture. Background frame
+preparation measured 10.443 seconds for the entrance and 8.345 seconds for the
+loop on this Debug simulator. These timings are diagnostic test observations,
+not a matched speedup or launch measurement.
+
+The preceding `46a0acbb` App Launch trace found WebP decoding on the main thread
+through Core Animation preparation after the background frame-construction pass.
+The candidate materializes independent RGBA bitmap frames before assigning them
+to the animation. The same animation remains visible at the same resolution and
+cadence, with the existing 96 MiB cache bound. A fresh profile must confirm that
+the main-thread redecoding has disappeared; pixel fidelity alone does not prove
+responsiveness.
+
+The native run also exposed an on-demand row-height cache bug: measurement before
+implicit layout did not record its width, preventing reuse after eviction. The
+fix records the width at measurement time and invalidates entries from a previous
+width. Its original offscreen regression and a new width-change regression await
+the focused native rerun.
+
 ## Compact fork ancestry: matched Android host experiment
 
 The production lineage projection was extracted into a Kotlin/OpenJDK host
