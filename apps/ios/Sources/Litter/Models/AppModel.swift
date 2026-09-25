@@ -131,6 +131,7 @@ final class AppModel {
             // `updateActiveThread`).
             threadIndexCache = nil
             snapshotRevision &+= 1
+            snapshotRefreshFence.invalidate()
         }
     }
     private(set) var snapshotRevision: UInt64 = 0
@@ -138,6 +139,7 @@ final class AppModel {
     private(set) var composerPrefillRequest: ComposerPrefillRequest?
     private(set) var sshHostKeyChangeChallenge: SshHostKeyChangeChallenge?
 
+    @ObservationIgnored private var snapshotRefreshFence = SnapshotRefreshFence()
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: [String: Int] = [:]
@@ -238,6 +240,7 @@ final class AppModel {
 
     func start() {
         guard updateTask == nil else { return }
+        snapshotRefreshFence.start()
         let subscription = store.subscribeUpdates()
         self.subscription = subscription
         updateTask = Task.detached(priority: .userInitiated) { [weak self, subscription] in
@@ -260,6 +263,7 @@ final class AppModel {
     }
 
     func stop() {
+        snapshotRefreshFence.stop()
         updateTask?.cancel()
         subscription?.cancel()
         updateTask = nil
@@ -272,6 +276,11 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
         pendingSnapshotRefreshDeadline = nil
+        discardPendingSnapshotProjections()
+        subscription = nil
+    }
+
+    private func discardPendingSnapshotProjections() {
         pendingThreadStateTask?.cancel()
         pendingThreadStateTask = nil
         pendingThreadStateEvents.removeAll()
@@ -281,21 +290,43 @@ final class AppModel {
         pendingStreamingDeltaTask?.cancel()
         pendingStreamingDeltaTask = nil
         pendingStreamingDeltas.removeAll()
-        subscription = nil
     }
 
-    func refreshSnapshot() async {
+    @discardableResult
+    func refreshSnapshot() async -> AppSnapshotRecord? {
+        guard !Task.isCancelled else { return nil }
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
         pendingSnapshotRefreshDeadline = nil
-        await performSnapshotRefresh()
+        return await performSnapshotRefresh()
     }
 
-    private func performSnapshotRefresh() async {
+    @discardableResult
+    private func performSnapshotRefresh() async -> AppSnapshotRecord? {
+        guard !Task.isCancelled, let ticket = snapshotRefreshFence.begin() else { return nil }
         do {
-            applySnapshot(try await store.snapshot())
+            let captured = try await store.snapshot()
+            guard !Task.isCancelled else { return nil }
+            switch snapshotRefreshFence.disposition(of: ticket) {
+            case .apply:
+                // Rust captured all events received before this request. Do not
+                // append those queued deltas a second time after publication.
+                discardPendingSnapshotProjections()
+                applySnapshot(captured)
+            case .retry:
+                // Keep the newer projection. One weakly-owned trailing task
+                // uses a coalesced 250ms trailing retry; live updates remain responsive.
+                scheduleSnapshotRefreshDebounced(within: 250_000_000)
+            case .superseded:
+                break
+            }
+            return captured
+        } catch is CancellationError {
+            return nil
         } catch {
+            guard !Task.isCancelled, snapshotRefreshFence.disposition(of: ticket) != .superseded else { return nil }
             lastError = error.localizedDescription
+            return nil
         }
     }
 
@@ -317,6 +348,7 @@ final class AppModel {
     private func scheduleSnapshotRefreshDebounced(
         within nanoseconds: UInt64 = AppModel.snapshotRefreshDebounceNanoseconds
     ) {
+        guard !snapshotRefreshFence.isStopped else { return }
         let deadline = DispatchTime.now() + .nanoseconds(Int(nanoseconds))
         if pendingSnapshotRefreshTask != nil,
            let existing = pendingSnapshotRefreshDeadline,
@@ -334,7 +366,7 @@ final class AppModel {
             guard let self else { return }
             self.pendingSnapshotRefreshTask = nil
             self.pendingSnapshotRefreshDeadline = nil
-            await self.performSnapshotRefresh()
+            _ = await self.performSnapshotRefresh()
         }
     }
 
@@ -576,7 +608,8 @@ final class AppModel {
             return false
         }
 
-        guard snapshot?.serverSnapshot(for: serverId)?.account != nil else {
+        let confirmed = await refreshSnapshot()
+        guard (confirmed ?? snapshot)?.serverSnapshot(for: serverId)?.account != nil else {
             throw LocalAccountLoginFlowError.loginDidNotAttach
         }
         return true
@@ -605,7 +638,8 @@ final class AppModel {
             ]
         )
         await restoreStoredLocalAuthState(serverId: serverId)
-        return snapshot?.serverSnapshot(for: serverId)?.account != nil
+        let confirmed = await refreshSnapshot()
+        return (confirmed ?? snapshot)?.serverSnapshot(for: serverId)?.account != nil
     }
 
     func resolvedLocalServerDisplayName() -> String {
@@ -964,6 +998,7 @@ final class AppModel {
     }
 
     private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+        snapshotRefreshFence.invalidate()
         // Argument is an `@autoclosure`: nothing below is evaluated outside
         // DEBUG, and even in DEBUG it only reads the case discriminant.
         PerfTracker.event("storeUpdate", ["type": Self.updateLabel(update)])
@@ -1194,7 +1229,7 @@ final class AppModel {
         guard pendingStreamingDeltaTask == nil else { return }
         pendingStreamingDeltaTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingStreamingDeltas()
         }
     }
@@ -1294,7 +1329,7 @@ final class AppModel {
         if !pendingStreamingDeltas.isEmpty && pendingStreamingDeltaTask == nil {
             pendingStreamingDeltaTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 await self.flushPendingStreamingDeltas()
             }
         }
@@ -1377,7 +1412,7 @@ final class AppModel {
         guard pendingThreadStateTask == nil else { return }
         pendingThreadStateTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.liveThreadStateCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingThreadStateUpdates()
         }
     }
@@ -1430,7 +1465,7 @@ final class AppModel {
         guard pendingCommandRowMutationTask == nil else { return }
         pendingCommandRowMutationTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.liveItemMutationCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingCommandRowMutations()
         }
     }
@@ -2522,5 +2557,30 @@ extension AppSnapshotRecord {
             return summary.agentDisplayLabel ?? AgentLabelFormatter.sanitized(target)
         }
         return nil
+    }
+}
+
+/// Orders only native projection publication, not canonical Rust events.
+struct SnapshotRefreshFence {
+    struct Ticket {
+        fileprivate let request: UInt64
+        fileprivate let mutation: UInt64
+    }
+    enum Disposition: Equatable { case apply, retry, superseded }
+    private var request: UInt64 = 0
+    private var mutation: UInt64 = 0
+    private(set) var isStopped = false
+
+    mutating func begin() -> Ticket? {
+        guard !isStopped else { return nil }
+        request &+= 1
+        return Ticket(request: request, mutation: mutation)
+    }
+    mutating func invalidate() { mutation &+= 1 }
+    mutating func stop() { isStopped = true; request &+= 1 }
+    mutating func start() { isStopped = false }
+    func disposition(of ticket: Ticket) -> Disposition {
+        guard !isStopped, ticket.request == request else { return .superseded }
+        return ticket.mutation == mutation ? .apply : .retry
     }
 }

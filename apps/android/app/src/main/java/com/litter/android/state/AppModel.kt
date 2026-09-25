@@ -4,6 +4,8 @@ import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.util.LLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -210,6 +212,8 @@ class AppModel private constructor(context: android.content.Context) {
     // Serializes only native in-memory projections. Never hold across Rust calls,
     // suspension, or saved-server persistence; StateFlow UI reads stay lock-free.
     private val snapshotMutationLock = Any()
+    private val snapshotRefreshFence = SnapshotRefreshFence()
+    private var pendingSnapshotRefreshJob: Job? = null
     private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
@@ -320,6 +324,7 @@ class AppModel private constructor(context: android.content.Context) {
         synchronized(lifecycleLock) {
             activeClients += 1
             if (subscriptionJob?.isActive == true) return
+            synchronized(snapshotMutationLock) { snapshotRefreshFence.start() }
             subscriptionJob = scope.launch {
                 try {
                     val subscription: AppStoreSubscription = store.subscribeUpdates()
@@ -346,6 +351,11 @@ class AppModel private constructor(context: android.content.Context) {
         val shouldStop = synchronized(lifecycleLock) {
             activeClients = (activeClients - 1).coerceAtLeast(0)
             if (activeClients == 0) {
+                synchronized(snapshotMutationLock) {
+                    snapshotRefreshFence.stop()
+                    pendingSnapshotRefreshJob?.cancel()
+                    pendingSnapshotRefreshJob = null
+                }
                 subscriptionJob?.cancel()
                 subscriptionJob = null
                 true
@@ -361,37 +371,70 @@ class AppModel private constructor(context: android.content.Context) {
 
     // --- Snapshot refresh -----------------------------------------------------
 
-    suspend fun refreshSnapshot() {
+    suspend fun refreshSnapshot(): AppSnapshotRecord? {
+        val caller = currentCoroutineContext()
+        val ticket = synchronized(snapshotMutationLock) {
+            caller.ensureActive()
+            pendingSnapshotRefreshJob?.cancel()
+            pendingSnapshotRefreshJob = null
+            snapshotRefreshFence.begin() ?: return null
+        }
         try {
-            val snap = store.snapshot()
-            applySnapshot(snap)
-            val serverSummary = snap.servers.joinToString(separator = " | ") { server ->
-                "${server.serverId}:${server.displayName}:${server.host}:${server.port}:${server.health}"
+            val captured = store.snapshot()
+            // Persistence is outside the projection lock. A concurrent event
+            // received during this read invalidates the captured generation.
+            val named = applySavedServerNames(captured)
+            val merged = synchronized(snapshotMutationLock) {
+                caller.ensureActive()
+                when (snapshotRefreshFence.disposition(ticket)) {
+                    SnapshotRefreshFence.Disposition.APPLY -> {
+                        val next = mergeCachedThreadSnapshots(named)
+                        publishSnapshot(next)
+                        next.threads.forEach(::cacheThreadSnapshot)
+                        _lastError.value = null
+                        next
+                    }
+                    SnapshotRefreshFence.Disposition.RETRY -> {
+                        scheduleSnapshotRefreshLocked()
+                        null
+                    }
+                    SnapshotRefreshFence.Disposition.SUPERSEDED -> null
+                }
             }
-            LLog.d(
-                "AppModel",
-                "snapshot refreshed",
-                fields = mapOf("servers" to snap.servers.size, "summary" to serverSummary),
-            )
+            if (merged != null) persistWakeMacs(merged)
+            // Callers needing an immediate account/auth decision can inspect
+            // the captured Rust result even when UI publication was postponed.
+            return captured
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _lastError.value = e.message
+            synchronized(snapshotMutationLock) {
+                caller.ensureActive()
+                if (snapshotRefreshFence.disposition(ticket) != SnapshotRefreshFence.Disposition.SUPERSEDED) {
+                    _lastError.value = e.message
+                }
+            }
+            return null
         }
     }
 
-    private fun applySnapshot(snapshot: AppSnapshotRecord?) {
-        val namedSnapshot = snapshot?.let(::applySavedServerNames)
-        val merged = synchronized(snapshotMutationLock) {
-            val next = namedSnapshot?.let(::mergeCachedThreadSnapshots)
-            _snapshot.value = next
-            if (next != null) {
-                next.threads.forEach(::cacheThreadSnapshot)
-                _lastError.value = null
+    // All callers hold snapshotMutationLock; StateFlow observers stay lock-free.
+    private fun publishSnapshot(snapshot: AppSnapshotRecord?) {
+        snapshotRefreshFence.invalidate()
+        _snapshot.value = snapshot
+    }
+
+    private fun scheduleSnapshotRefreshLocked() {
+        if (snapshotRefreshFence.isStopped || pendingSnapshotRefreshJob?.isActive == true) return
+        pendingSnapshotRefreshJob = scope.launch {
+            delay(250)
+            val job = currentCoroutineContext()[Job]
+            synchronized(snapshotMutationLock) {
+                if (snapshotRefreshFence.isStopped || pendingSnapshotRefreshJob !== job) return@launch
+                pendingSnapshotRefreshJob = null
             }
-            next
+            refreshSnapshot()
         }
-        if (merged != null) persistWakeMacs(merged)
     }
 
     private fun persistWakeMacs(snapshot: AppSnapshotRecord) {
@@ -462,7 +505,7 @@ class AppModel private constructor(context: android.content.Context) {
                     add(adjusted)
                 }
             }
-            _snapshot.value = current.copy(sessionSummaries = updatedSummaries)
+            publishSnapshot(current.copy(sessionSummaries = updatedSummaries))
         }
     }
 
@@ -665,8 +708,8 @@ class AppModel private constructor(context: android.content.Context) {
             ),
         )
         restoreStoredLocalAuthState(serverId)
-        refreshSnapshot()
-        return snapshot.value?.servers?.firstOrNull { it.serverId == serverId }?.account != null
+        val confirmed = refreshSnapshot()
+        return (confirmed ?: snapshot.value)?.servers?.firstOrNull { it.serverId == serverId }?.account != null
     }
 
     suspend fun restoreStoredLocalChatGptAuth(serverId: String): Boolean {
@@ -1079,6 +1122,7 @@ class AppModel private constructor(context: android.content.Context) {
     // --- Internal event handling ----------------------------------------------
 
     private suspend fun handleUpdate(update: AppStoreUpdateRecord) {
+        synchronized(snapshotMutationLock) { snapshotRefreshFence.invalidate() }
         when (update) {
             is AppStoreUpdateRecord.ThreadUpserted ->
                 applyThreadUpsert(update.thread, update.sessionSummary, update.agentDirectoryVersion)
@@ -1339,6 +1383,7 @@ class AppModel private constructor(context: android.content.Context) {
             val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
             val current = _snapshot.value
             if (current == null) {
+                snapshotRefreshFence.invalidate()
                 cacheThreadSnapshot(mergedThread)
                 return
             }
@@ -1350,7 +1395,7 @@ class AppModel private constructor(context: android.content.Context) {
                     add(mergedThread)
                 }
             }
-            _snapshot.value = current.copy(threads = updatedThreads)
+            publishSnapshot(current.copy(threads = updatedThreads))
             cacheThreadSnapshot(mergedThread)
             _lastError.value = null
         }
@@ -1401,11 +1446,11 @@ class AppModel private constructor(context: android.content.Context) {
                     .thenBy { it.key.threadId })
             }
 
-            _snapshot.value = current.copy(
+            publishSnapshot(current.copy(
                 threads = updatedThreads,
                 sessionSummaries = updatedSummaries,
                 agentDirectoryVersion = agentDirectoryVersion,
-            )
+            ))
             cacheThreadSnapshot(finalThread)
             _lastError.value = null
         }
@@ -1492,11 +1537,11 @@ class AppModel private constructor(context: android.content.Context) {
                     .thenBy { it.key.threadId })
             }
 
-            _snapshot.value = current.copy(
+            publishSnapshot(current.copy(
                 threads = updatedThreads,
                 sessionSummaries = updatedSummaries,
                 agentDirectoryVersion = agentDirectoryVersion,
-            )
+            ))
             cacheThreadSnapshot(updatedThread)
             _lastError.value = null
         }
@@ -1628,12 +1673,12 @@ class AppModel private constructor(context: android.content.Context) {
     ) {
         synchronized(snapshotMutationLock) {
             val current = _snapshot.value ?: return
-            _snapshot.value = current.copy(
+            publishSnapshot(current.copy(
                 threads = current.threads.filterNot { it.key == key },
                 sessionSummaries = current.sessionSummaries.filterNot { it.key == key },
                 agentDirectoryVersion = agentDirectoryVersion ?: current.agentDirectoryVersion,
                 activeThread = if (current.activeThread == key) null else current.activeThread,
-            )
+            ))
             if (clearCache) {
                 cachedThreadSnapshots.remove(key)
             }
@@ -1643,7 +1688,7 @@ class AppModel private constructor(context: android.content.Context) {
     private fun updateActiveThread(key: ThreadKey?) {
         synchronized(snapshotMutationLock) {
             val current = _snapshot.value ?: return
-            _snapshot.value = current.copy(activeThread = key)
+            publishSnapshot(current.copy(activeThread = key))
         }
     }
 
@@ -1705,5 +1750,29 @@ private fun registerBundledCliTools() {
         )
     } catch (e: Throwable) {
         android.util.Log.w("AppModel", "registerAndroidTools failed: ${e.message}")
+    }
+}
+
+/** Orders native projection publication only; callers serialize access. */
+internal class SnapshotRefreshFence {
+    data class Ticket(val request: Long, val mutation: Long)
+    enum class Disposition { APPLY, RETRY, SUPERSEDED }
+    private var request = 0L
+    private var mutation = 0L
+    var isStopped = false
+        private set
+
+    fun begin(): Ticket? {
+        if (isStopped) return null
+        request += 1
+        return Ticket(request, mutation)
+    }
+    fun invalidate() { mutation += 1 }
+    fun stop() { isStopped = true; request += 1 }
+    fun start() { isStopped = false }
+    fun disposition(ticket: Ticket): Disposition = when {
+        isStopped || ticket.request != request -> Disposition.SUPERSEDED
+        ticket.mutation != mutation -> Disposition.RETRY
+        else -> Disposition.APPLY
     }
 }

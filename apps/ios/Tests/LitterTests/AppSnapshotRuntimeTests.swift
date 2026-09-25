@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import Litter
 
 final class AppSnapshotRuntimeTests: XCTestCase {
@@ -350,6 +351,82 @@ final class AppSnapshotRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleRefreshPreservesNewThreadAndTrailingRefreshEventuallyApplies() async {
+        let first = expectation(description: "First capture")
+        let trailing = expectation(description: "Coalesced trailing capture")
+        let store = ControlledSnapshotStore { index in
+            if index == 0 { first.fulfill() }
+            if index == 1 { trailing.fulfill() }
+        }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        let empty = makeSnapshot(threads: [])
+        let key = ThreadKey(serverId: "srv", threadId: "arrived-during-refresh")
+        let newer = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(empty)
+        let request = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [first], timeout: 2)
+        model.applySnapshot(newer)
+        await store.reply(to: 0, with: empty)
+        _ = await request.value
+        XCTAssertNotNil(model.threadSnapshot(for: key), "A stale capture must not evict a newer cache entry")
+        await fulfillment(of: [trailing], timeout: 2)
+        let publishedRevision = model.snapshotRevision
+        let published = expectation(description: "Trailing capture published")
+        withObservationTracking {
+            _ = model.snapshotRevision
+        } onChange: {
+            published.fulfill()
+        }
+        await store.reply(to: 1, with: newer)
+        await fulfillment(of: [published], timeout: 2)
+        XCTAssertGreaterThan(model.snapshotRevision, publishedRevision)
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testOverlappingRefreshPublishesNewestCaptureOnly() async {
+        let first = expectation(description: "Older capture")
+        let second = expectation(description: "Newer capture")
+        let store = ControlledSnapshotStore { index in
+            if index == 0 { first.fulfill() }
+            if index == 1 { second.fulfill() }
+        }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        let key = ThreadKey(serverId: "srv", threadId: "newer")
+        let empty = makeSnapshot(threads: [])
+        let newer = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(empty)
+        let oldRequest = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [first], timeout: 2)
+        let newRequest = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [second], timeout: 2)
+        await store.reply(to: 1, with: newer)
+        _ = await newRequest.value
+        await store.reply(to: 0, with: empty)
+        _ = await oldRequest.value
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testCancelledRefreshDoesNotPublishOrReportAnError() async {
+        let requested = expectation(description: "Capture started")
+        let store = ControlledSnapshotStore { _ in requested.fulfill() }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: []))
+        let revision = model.snapshotRevision
+        let request = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [requested], timeout: 2)
+        request.cancel()
+        await store.reply(to: 0, with: makeSnapshot(threads: []))
+        _ = await request.value
+        XCTAssertEqual(model.snapshotRevision, revision)
+        XCTAssertNil(model.lastError)
+    }
+
+    @MainActor
     func testFullResyncDropsCachedThreadsMissingFromAuthoritativeSnapshot() {
         let key = ThreadKey(serverId: "srv", threadId: "removed-with-missed-event")
         let model = AppModel()
@@ -520,5 +597,49 @@ final class AppSnapshotRuntimeTests: XCTestCase {
             olderTurnsCursor: nil,
             initialTurnsLoaded: true
         )
+    }
+}
+
+private actor SnapshotResponses {
+    private var nextIndex = 0
+    private var pending: [Int: CheckedContinuation<AppSnapshotRecord, Error>] = [:]
+    private var earlyReplies: [Int: AppSnapshotRecord] = [:]
+    let onRequest: @Sendable (Int) -> Void
+
+    init(onRequest: @escaping @Sendable (Int) -> Void) { self.onRequest = onRequest }
+    func capture() async throws -> AppSnapshotRecord {
+        try await withCheckedThrowingContinuation { continuation in
+            let index = nextIndex
+            nextIndex += 1
+            if let reply = earlyReplies.removeValue(forKey: index) {
+                continuation.resume(returning: reply)
+            } else {
+                pending[index] = continuation
+            }
+            onRequest(index)
+        }
+    }
+    func reply(to index: Int, with snapshot: AppSnapshotRecord) {
+        if let continuation = pending.removeValue(forKey: index) {
+            continuation.resume(returning: snapshot)
+        } else {
+            earlyReplies[index] = snapshot
+        }
+    }
+}
+
+private final class ControlledSnapshotStore: AppStore, @unchecked Sendable {
+    private let responses: SnapshotResponses
+    init(onRequest: @escaping @Sendable (Int) -> Void) {
+        responses = SnapshotResponses(onRequest: onRequest)
+        super.init(noHandle: NoHandle())
+    }
+    required init(unsafeFromHandle handle: UInt64) {
+        responses = SnapshotResponses(onRequest: { _ in })
+        super.init(unsafeFromHandle: handle)
+    }
+    override func snapshot() async throws -> AppSnapshotRecord { try await responses.capture() }
+    func reply(to index: Int, with snapshot: AppSnapshotRecord) async {
+        await responses.reply(to: index, with: snapshot)
     }
 }
