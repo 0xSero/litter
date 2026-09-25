@@ -24,6 +24,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,6 +58,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -74,6 +81,10 @@ import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.ChatWallpaperBackground
 import com.litter.android.ui.ConversationPrefs
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.LitterQuiet
+import com.litter.android.ui.LitterRadius
+import com.litter.android.ui.LitterSpacing
+import com.litter.android.ui.LitterType
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.scaled
@@ -427,13 +438,74 @@ fun ConversationScreen(
                     // Use transparent gradient when wallpaper is set
                     val fadeColor = if (hasWallpaper) Color.Transparent else LitterTheme.background
 
+                    // Row callbacks are created once per thread so transcript rows
+                    // don't see new lambda instances on every snapshot update.
+                    val currentItems = rememberUpdatedState(items)
+                    val currentThread = rememberUpdatedState(thread)
+                    val onEditMessageStable: (String) -> Unit = remember(threadKey) {
+                        { messageId ->
+                            // Resolve the user-message position in the
+                            // currently-loaded transcript. The Rust
+                            // `editMessage` / `forkThreadFromMessage` APIs
+                            // expect an index into `thread.items` filtered
+                            // to user messages — recomputing here keeps
+                            // the index correct under pagination, where a
+                            // cached `sourceTurnIndex` from a prior hydrate
+                            // would be stale.
+                            loadedUserItemIndex(currentItems.value, messageId)?.let { turnIndex ->
+                                scope.launch {
+                                    val prefill = appModel.store.editMessage(threadKey, turnIndex)
+                                    appModel.queueComposerPrefill(threadKey, prefill)
+                                }
+                            }
+                        }
+                    }
+                    val onForkFromMessageStable: (String) -> Unit = remember(threadKey) {
+                        { messageId ->
+                            loadedUserItemIndex(currentItems.value, messageId)?.let { turnIndex ->
+                                scope.launch {
+                                    try {
+                                        val newKey = appModel.store.forkThreadFromMessage(
+                                            threadKey,
+                                            turnIndex,
+                                            appModel.launchState.forkThreadFromMessageRequest(
+                                                cwdOverride = currentThread.value?.info?.cwd,
+                                                threadKey = threadKey,
+                                            ),
+                                        )
+                                        appModel.store.setActiveThread(newKey)
+                                        appModel.refreshThreadSnapshot(newKey)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
+                    }
+                    val onWidgetPromptStable: (String) -> Unit = remember(threadKey) {
+                        { text ->
+                            scope.launch {
+                                try {
+                                    val payload = com.litter.android.state.AppComposerPayload(
+                                        text = text,
+                                        additionalInputs = emptyList(),
+                                        approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
+                                        sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
+                                        model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
+                                        reasoningEffort = null,
+                                        serviceTier = null,
+                                    )
+                                    appModel.startTurn(threadKey, payload)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+
                     LazyColumn(
                         state = listState,
                         contentPadding = PaddingValues(top = 68.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp)
+                            .padding(horizontal = LitterSpacing.margin)
                             .then(
                                 if (!hasWallpaper) {
                                     Modifier.drawWithContent {
@@ -467,7 +539,7 @@ fun ConversationScreen(
                                         Text(
                                             "Loading conversation…",
                                             color = LitterTheme.textMuted,
-                                            fontSize = LitterTextStyle.caption.scaled,
+                                            fontSize = LitterTextStyle.footnote.scaled,
                                         )
                                     }
                                 }
@@ -501,7 +573,7 @@ fun ConversationScreen(
                                         Text(
                                             "Load earlier messages",
                                             color = LitterTheme.accent,
-                                            fontSize = LitterTextStyle.caption.scaled,
+                                            fontSize = LitterTextStyle.footnote.scaled,
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                     }
@@ -527,57 +599,10 @@ fun ConversationScreen(
                                             } else {
                                                 null
                                             },
-                                            onEditMessage = { messageId ->
-                                                // Resolve the user-message position in the
-                                                // currently-loaded transcript. The Rust
-                                                // `editMessage` / `forkThreadFromMessage` APIs
-                                                // expect an index into `thread.items` filtered
-                                                // to user messages — recomputing here keeps
-                                                // the index correct under pagination, where a
-                                                // cached `sourceTurnIndex` from a prior hydrate
-                                                // would be stale.
-                                                loadedUserItemIndex(items, messageId)?.let { turnIndex ->
-                                                    scope.launch {
-                                                        val prefill = appModel.store.editMessage(threadKey, turnIndex)
-                                                        appModel.queueComposerPrefill(threadKey, prefill)
-                                                    }
-                                                }
-                                            },
-                                            onForkFromMessage = { messageId ->
-                                                loadedUserItemIndex(items, messageId)?.let { turnIndex ->
-                                                    scope.launch {
-                                                        try {
-                                                            val newKey = appModel.store.forkThreadFromMessage(
-                                                                threadKey,
-                                                                turnIndex,
-                                                                appModel.launchState.forkThreadFromMessageRequest(
-                                                                    cwdOverride = thread.info.cwd,
-                                                                    threadKey = threadKey,
-                                                                ),
-                                                            )
-                                                            appModel.store.setActiveThread(newKey)
-                                                            appModel.refreshThreadSnapshot(newKey)
-                                                        } catch (_: Exception) {}
-                                                    }
-                                                }
-                                            },
+                                            onEditMessage = onEditMessageStable,
+                                            onForkFromMessage = onForkFromMessageStable,
                                             onOpenSavedApp = onOpenSavedApp,
-                                            onWidgetPrompt = { text ->
-                                                scope.launch {
-                                                    try {
-                                                        val payload = com.litter.android.state.AppComposerPayload(
-                                                            text = text,
-                                                            additionalInputs = emptyList(),
-                                                            approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
-                                                            sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
-                                                            model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
-                                                            reasoningEffort = null,
-                                                            serviceTier = null,
-                                                        )
-                                                        appModel.startTurn(threadKey, payload)
-                                                    } catch (_: Exception) {}
-                                                }
-                                            },
+                                            onWidgetPrompt = onWidgetPromptStable,
                                         )
                                     }
                                     is TimelineEntry.Exploration -> ExplorationGroupRow(
@@ -609,22 +634,27 @@ fun ConversationScreen(
                                         }
                                         Text(
                                             text = metricsText,
-                                            color = LitterTheme.textMuted.copy(alpha = 0.6f),
-                                            fontSize = 10f.scaled,
-                                            fontFamily = com.litter.android.ui.BerkeleyMono,
+                                            style = LitterType.meta,
                                             modifier = Modifier.padding(top = 2.dp, start = 4.dp),
                                         )
                                     }
                                     if (turn.isActiveTurn) StreamingCursor()
                                     if (row.canCollapse) {
                                         Text(
-                                            text = "Show less",
-                                            color = LitterTheme.textMuted,
-                                            fontSize = LitterTextStyle.caption2.scaled,
-                                            fontWeight = FontWeight.Medium,
+                                            text = "show less",
+                                            style = LitterType.meta,
                                             modifier = Modifier
                                                 .clickable { expandedTurnIds = expandedTurnIds - row.expansionId }
-                                                .padding(top = 2.dp),
+                                                .padding(vertical = LitterSpacing.xxs),
+                                        )
+                                    }
+                                    if (!turn.isActiveTurn) {
+                                        // Faint 1dp rule between whole turns; with the list's
+                                        // 8dp item spacing this lands at ~32dp between turns.
+                                        HorizontalDivider(
+                                            thickness = 1.dp,
+                                            color = LitterQuiet.turnDivider,
+                                            modifier = Modifier.padding(top = LitterSpacing.sm, bottom = LitterSpacing.sm - 1.dp),
                                         )
                                     }
                                 }
@@ -814,7 +844,13 @@ fun ConversationScreen(
                         onDismissPendingUserInput = onDismissPendingUserInput,
                     )
 
-                    Spacer(Modifier.navigationBarsPadding())
+                    // One bottom inset: the keyboard when it is up, otherwise the
+                    // navigation bar (the composer used to add both).
+                    Spacer(
+                        Modifier.windowInsetsBottomHeight(
+                            WindowInsets.ime.union(WindowInsets.navigationBars),
+                        ),
+                    )
                 }
             }
         }
@@ -828,7 +864,7 @@ fun ConversationScreen(
                 onBack = onBack,
                 onInfo = onInfo,
                 onReloadError = { reloadErrorMessage = it },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
             )
         }
 
@@ -1159,7 +1195,7 @@ private fun CollaborationModeSheet(
                         Text(
                             text = collaborationModeEffortLabel(effort),
                             color = LitterTheme.textSecondary,
-                            fontSize = LitterTextStyle.caption2.scaled,
+                            fontSize = LitterTextStyle.footnote.scaled,
                         )
                     }
                 }
@@ -1167,7 +1203,7 @@ private fun CollaborationModeSheet(
                     Text(
                         text = "Selected",
                         color = LitterTheme.accent,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -1251,7 +1287,7 @@ private fun PlanContextBadge(progress: String) {
     Text(
         text = "Plan $progress",
         color = LitterTheme.accent,
-        fontSize = LitterTextStyle.caption2.scaled,
+        fontSize = LitterTextStyle.footnote.scaled,
         fontWeight = FontWeight.Medium,
         modifier = Modifier
             .background(LitterTheme.surface.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
@@ -1275,21 +1311,21 @@ private fun DiffSummaryBadge(
         Text(
             text = "\u2194",
             color = LitterTheme.accent,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,
         )
         if (summary.hasChanges) {
             Text(
                 text = "+${summary.additions}",
                 color = LitterTheme.success,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = BerkeleyMono,
             )
             Text(
                 text = "-${summary.deletions}",
                 color = LitterTheme.danger,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = BerkeleyMono,
             )
@@ -1297,7 +1333,7 @@ private fun DiffSummaryBadge(
             Text(
                 text = "Diff",
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -1421,14 +1457,14 @@ private fun SessionDiffSheet(
                 Text(
                     text = "+${totalSummary.additions}",
                     color = LitterTheme.success,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = BerkeleyMono,
                 )
                 Text(
                     text = "-${totalSummary.deletions}",
                     color = LitterTheme.danger,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = BerkeleyMono,
                 )
@@ -1520,28 +1556,28 @@ private fun SessionDiffSectionHeader(
         Text(
             text = section.title.uppercase(),
             color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = "+${section.summary.additions}",
             color = LitterTheme.success,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,
             fontFamily = BerkeleyMono,
         )
         Text(
             text = "-${section.summary.deletions}",
             color = LitterTheme.danger,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,
             fontFamily = BerkeleyMono,
         )
         Text(
             text = if (expanded) "▲" else "▼",
             color = LitterTheme.textMuted,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1586,34 +1622,15 @@ private fun lastUserAndAssistantText(
 }
 
 /**
- * Shimmering "Thinking..." text shown while the assistant is working.
+ * Quiet "thinking…" line shown while the assistant is working. Static by
+ * design: the stop button and streaming text already signal live work.
  */
 @Composable
 private fun StreamingCursor() {
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val shimmerOffset by transition.animateFloat(
-        initialValue = -1f,
-        targetValue = 2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "shimmerOffset",
-    )
-    val shimmerBrush = Brush.linearGradient(
-        colors = listOf(
-            LitterTheme.textSecondary.copy(alpha = 0.4f),
-            LitterTheme.accent,
-            LitterTheme.textSecondary.copy(alpha = 0.4f),
-        ),
-        start = Offset(shimmerOffset * 200f, 0f),
-        end = Offset((shimmerOffset + 0.6f) * 200f, 0f),
-    )
     Text(
-        text = "Thinking...",
-        fontSize = LitterTextStyle.body.scaled,
-        fontWeight = FontWeight.Medium,
-        style = TextStyle(brush = shimmerBrush),
+        text = "thinking…",
+        style = LitterType.meta,
+        modifier = Modifier.padding(vertical = LitterSpacing.xxs),
     )
 }
 

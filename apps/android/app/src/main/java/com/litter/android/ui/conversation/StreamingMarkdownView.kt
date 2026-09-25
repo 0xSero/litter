@@ -160,7 +160,7 @@ private fun StreamingCodeBlock(
             Text(
                 text = it.uppercase(),
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.Bold,
             )
         }

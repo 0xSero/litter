@@ -107,6 +107,8 @@ import uniffi.codex_mobile_client.ServiceTier
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.LitterTextStyle
+import com.litter.android.ui.LitterRadius
+import com.litter.android.ui.LitterType
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.common.hasFixedFullAccess
 import com.litter.android.ui.common.matchesModelSelection
@@ -515,9 +517,7 @@ fun ComposerBar(
 
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .background(LitterTheme.surface)
-            .imePadding(),
+            .fillMaxWidth(),
     ) {
         if (attachedImage != null) {
             val previewBitmap = remember(attachedImage?.data) {
@@ -682,7 +682,7 @@ fun ComposerBar(
                 Text(
                     text = "\u2610",
                     color = LitterTheme.accent,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Column(
@@ -696,13 +696,13 @@ fun ComposerBar(
                         Text(
                             text = "Active tasks",
                             color = LitterTheme.textPrimary,
-                            fontSize = LitterTextStyle.caption.scaled,
+                            fontSize = LitterTextStyle.footnote.scaled,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             text = summary.progress,
                             color = LitterTheme.accent,
-                            fontSize = LitterTextStyle.caption.scaled,
+                            fontSize = LitterTextStyle.footnote.scaled,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = BerkeleyMono,
                         )
@@ -710,7 +710,7 @@ fun ComposerBar(
                     Text(
                         text = summary.label,
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -736,7 +736,7 @@ fun ComposerBar(
                     Text(
                         text = "Input Required",
                         color = LitterTheme.textPrimary,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                     )
                     if (onDismissPendingUserInput != null) {
@@ -767,7 +767,7 @@ fun ComposerBar(
                                 Text(
                                     text = option.label,
                                     color = if (selected) Color.Black else LitterTheme.textPrimary,
-                                    fontSize = LitterTextStyle.caption.scaled,
+                                    fontSize = LitterTextStyle.footnote.scaled,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier
                                         .background(
@@ -800,7 +800,7 @@ fun ComposerBar(
                     Text(
                         text = message,
                         color = Color(0xFFFF6B6B),
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                     )
                 }
                 Text(
@@ -938,7 +938,7 @@ fun ComposerBar(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("/${cmd.name}", color = LitterTheme.accent, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
                                         Spacer(Modifier.width(8.dp))
-                                        Text(cmd.description, color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
+                                        Text(cmd.description, color = LitterTheme.textMuted, fontSize = LitterTextStyle.footnote.scaled)
                                     }
                                 },
                                 onClick = {
@@ -960,7 +960,7 @@ fun ComposerBar(
                     ) {
                         for (path in fileSearchResults) {
                             DropdownMenuItem(
-                                text = { Text(path, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.caption.scaled, fontFamily = LitterTheme.monoFont) },
+                                text = { Text(path, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.footnote.scaled, fontFamily = LitterTheme.monoFont) },
                                 onClick = {
                                     showFileMenu = false
                                     val atIdx = text.lastIndexOf('@')
@@ -1007,7 +1007,7 @@ fun ComposerBar(
                         append("  ⌄")
                     },
                     color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1292,14 +1292,14 @@ private fun QueuedFollowUpsPreviewPanel(
             Text(
                 text = "Queued Next",
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
             Text(
                 text = previews.size.toString(),
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .background(LitterTheme.surface.copy(alpha = 0.9f), RoundedCornerShape(999.dp))
@@ -1353,7 +1353,7 @@ private fun QueuedFollowUpCard(
                 Text(
                     text = style.title,
                     color = style.tint,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -1361,7 +1361,7 @@ private fun QueuedFollowUpCard(
             Text(
                 text = preview.text,
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1371,7 +1371,7 @@ private fun QueuedFollowUpCard(
             Text(
                 text = "\u21b3 Steer",
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .background(LitterTheme.surface.copy(alpha = 0.96f), RoundedCornerShape(999.dp))
@@ -1457,7 +1457,7 @@ internal fun CollaborationModeChip(
         Text(
             text = label,
             color = contentColor,
-            fontSize = LitterTextStyle.caption.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,
         )
         Icon(
@@ -1508,13 +1508,13 @@ private fun PlanProgressPanel(
             Text(
                 text = if (expanded) "Plan Progress" else "Plan",
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = "$completed/${progress.plan.size}",
                 color = LitterTheme.accent,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = BerkeleyMono,
             )
@@ -1522,7 +1522,7 @@ private fun PlanProgressPanel(
                 Text(
                     text = currentStepLabel,
                     color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -1542,7 +1542,7 @@ private fun PlanProgressPanel(
                 Text(
                     text = explanation,
                     color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                 )
             }
             progress.plan.forEachIndexed { index, step ->
@@ -1563,20 +1563,20 @@ private fun PlanProgressPanel(
                     Text(
                         text = icon,
                         color = tint,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = "${index + 1}.",
                         color = LitterTheme.textMuted,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = BerkeleyMono,
                     )
                     Text(
                         text = step.step,
                         color = LitterTheme.textPrimary,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                     )
                 }
             }
@@ -1618,7 +1618,7 @@ private fun ComposerFileAttachmentRow(
         Text(
             text = "FILE",
             color = LitterTheme.accent,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,
             fontFamily = BerkeleyMono,
         )
@@ -1626,7 +1626,7 @@ private fun ComposerFileAttachmentRow(
             Text(
                 text = attachment.label,
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1634,7 +1634,7 @@ private fun ComposerFileAttachmentRow(
             Text(
                 text = attachment.path,
                 color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1849,19 +1849,6 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
-    // Pulsing status dot — only animates while the goal is active. Mirrors
-    // the iOS pill's 0.35 ↔ 1.0 ease-in-out at 1.1s autoreverse.
-    val pulse = rememberInfiniteTransition(label = "goalPulse")
-    val pulseAlpha by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "goalPulseAlpha",
-    )
-    val statusDotAlpha = if (goal.status == AppThreadGoalStatus.ACTIVE) pulseAlpha else 1f
     val animatedProgress by animateFloatAsState(
         targetValue = budgetProgress ?: 0f,
         animationSpec = spring(
@@ -1875,9 +1862,8 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(LitterRadius.raisedShape)
             .background(LitterTheme.codeBackground.copy(alpha = 0.92f))
-            .border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -1889,32 +1875,22 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
             // BUDGET_LIMITED). Disabled once the goal is COMPLETE.
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(tint.copy(alpha = 0.14f))
-                    .border(0.5.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
                     .clickable(enabled = canTogglePause) { actions.togglePause() }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(tint.copy(alpha = statusDotAlpha), CircleShape),
-                )
                 Text(
-                    text = statusLabel.uppercase(),
+                    text = statusLabel.lowercase(),
                     color = tint,
-                    fontSize = 10f.scaled,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = BerkeleyMono,
+                    style = LitterType.meta,
                 )
             }
 
             Text(
                 text = goal.objective,
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -2011,7 +1987,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         Text(
                             text = budgetLabel,
                             color = LitterTheme.textSecondary,
-                            fontSize = 10f.scaled,
+                            fontSize = 13f.scaled,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = BerkeleyMono,
                         )
@@ -2019,7 +1995,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                     Text(
                         text = "$percent%",
                         color = progressTextTint,
-                        fontSize = 10f.scaled,
+                        fontSize = 13f.scaled,
                         fontWeight = FontWeight.Bold,
                         fontFamily = BerkeleyMono,
                     )
@@ -2041,7 +2017,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                     Text(
                         text = "T ${formatGoalTokens(goal.tokensUsed)}",
                         color = LitterTheme.textSecondary,
-                        fontSize = 10f.scaled,
+                        fontSize = 13f.scaled,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = BerkeleyMono,
                     )
@@ -2050,7 +2026,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                     Text(
                         text = "·",
                         color = LitterTheme.textMuted.copy(alpha = 0.6f),
-                        fontSize = 10f.scaled,
+                        fontSize = 13f.scaled,
                         fontFamily = BerkeleyMono,
                     )
                 }
@@ -2068,7 +2044,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         Text(
                             text = formatGoalSeconds(goal.timeUsedSeconds),
                             color = LitterTheme.textSecondary,
-                            fontSize = 10f.scaled,
+                            fontSize = 13f.scaled,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = BerkeleyMono,
                         )
@@ -2230,7 +2206,7 @@ private fun GoalTextInputDialog(
                     Text(
                         text = helper,
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                     )
                 }
             }
@@ -2284,7 +2260,7 @@ private fun RateLimitBadge(window: uniffi.codex_mobile_client.RateLimitWindow) {
         Text(
             text = label,
             color = LitterTheme.textSecondary,
-            fontSize = 10f.scaled,
+            fontSize = 13f.scaled,
             fontWeight = FontWeight.SemiBold,
             fontFamily = LitterTheme.monoFont,
         )
@@ -2323,7 +2299,7 @@ private fun ContextBadge(
         Text(
             text = "$normalizedPercent",
             color = tint,
-            fontSize = 9f.scaled,
+            fontSize = 13f.scaled,
             fontWeight = FontWeight.ExtraBold,
             fontFamily = LitterTheme.monoFont,
             modifier = Modifier.align(Alignment.Center),
