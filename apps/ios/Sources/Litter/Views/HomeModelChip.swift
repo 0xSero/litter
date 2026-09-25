@@ -113,21 +113,30 @@ struct HomeModelChip: View {
     private var selectedModelBinding: Binding<String> {
         Binding(
             get: { appState.preferredModel },
-            set: { appState.preferredModel = $0 }
+            set: {
+                appState.preferredModel = $0
+                rememberSelectionForServer()
+            }
         )
     }
 
     private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
         Binding(
             get: { appState.preferredAgentRuntimeKind },
-            set: { appState.preferredAgentRuntimeKind = $0 }
+            set: {
+                appState.preferredAgentRuntimeKind = $0
+                rememberSelectionForServer()
+            }
         )
     }
 
     private var reasoningEffortBinding: Binding<String> {
         Binding(
             get: { appState.preferredReasoningEffort },
-            set: { appState.preferredReasoningEffort = $0 }
+            set: {
+                appState.preferredReasoningEffort = $0
+                rememberSelectionForServer()
+            }
         )
     }
 
@@ -233,7 +242,37 @@ struct HomeModelChip: View {
         }
     }
 
+    /// Records the user's explicit pick for the current server so switching
+    /// to another server (whose catalog lacks that model) and back restores
+    /// it instead of the server default.
+    private func rememberSelectionForServer() {
+        guard let serverId else { return }
+        HomeModelSelectionMemory.remember(
+            serverId: serverId,
+            selection: .init(
+                model: appState.preferredModel,
+                runtime: appState.preferredAgentRuntimeKind ?? "",
+                effort: appState.preferredReasoningEffort
+            )
+        )
+        autoSelectedModelKey = nil
+    }
+
     private func synchronizeSelection(forceFallback: Bool) {
+        // Last pick made on this server wins over the fallback when the
+        // global last-used model is not offered here.
+        if !selectionMatchesAvailableModels(),
+           let serverId,
+           let remembered = HomeModelSelectionMemory.selection(for: serverId),
+           let match = availableModels.first(where: {
+               modelMatchesSelection($0, remembered.model, runtime: remembered.runtime.isEmpty ? nil : remembered.runtime)
+           }) {
+            appState.preferredModel = match.id
+            appState.preferredAgentRuntimeKind = match.agentRuntimeKind
+            appState.preferredReasoningEffort = remembered.effort
+            autoSelectedModelKey = nil
+            return
+        }
         if usesServerConfiguredDefault && !selectionMatchesAvailableModels() {
             appState.preferredModel = ""
             appState.preferredAgentRuntimeKind = nil
@@ -243,6 +282,17 @@ struct HomeModelChip: View {
         }
         guard let selectedModel else { return }
         guard forceFallback || !selectionMatchesAvailableModels() else { return }
+        // Already the persisted pick: keep it (and its reasoning effort)
+        // rather than re-stamping it as an auto-selected fallback.
+        if selectionMatchesAvailableModels(),
+           modelMatchesSelection(
+               selectedModel,
+               appState.preferredModel,
+               runtime: appState.preferredAgentRuntimeKind
+           ),
+           autoSelectedModelKey != currentSelectionKey {
+            return
+        }
         appState.preferredModel = selectedModel.id
         appState.preferredAgentRuntimeKind = selectedModel.agentRuntimeKind
         appState.preferredReasoningEffort = ""
@@ -252,4 +302,42 @@ struct HomeModelChip: View {
 
 func usesServerConfiguredModelDefault(_ runtimeKinds: [AgentRuntimeKind]) -> Bool {
     !runtimeKinds.isEmpty && runtimeKinds.allSatisfy { $0 == .localStudio }
+}
+
+/// Per-server memory of the last model the user explicitly picked on the
+/// home composer. The global `AppState.preferredModel` stays the primary
+/// default; this only fills in when that model is not offered by the
+/// selected server.
+enum HomeModelSelectionMemory {
+    struct Selection: Codable, Equatable {
+        var model: String
+        var runtime: String
+        var effort: String
+    }
+
+    private static let key = "litter.preferredModelByServer"
+
+    static func selection(for serverId: String) -> Selection? {
+        load()[serverId]
+    }
+
+    static func remember(serverId: String, selection: Selection) {
+        var all = load()
+        if selection.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            all.removeValue(forKey: serverId)
+        } else {
+            all[serverId] = selection
+        }
+        if let data = try? JSONEncoder().encode(all) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    private static func load() -> [String: Selection] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: Selection].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
 }

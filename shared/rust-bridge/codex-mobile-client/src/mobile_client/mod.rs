@@ -748,6 +748,12 @@ fn merge_alleycat_agent_inventory(
     }
 }
 
+fn alleycat_controller_inventory_ready(inventory: &[AlleycatAgentInfo]) -> bool {
+    inventory
+        .iter()
+        .any(|agent| agent.available && agent.name == "local-studio")
+}
+
 fn alleycat_inventory_refresh_delays(wait_for_registration: bool) -> &'static [u64] {
     if wait_for_registration {
         &ALLEYCAT_AGENT_INVENTORY_REFRESH_DELAYS_MS
@@ -1834,6 +1840,13 @@ impl MobileClient {
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
         for delay_ms in alleycat_inventory_refresh_delays(wait_for_registration) {
+            // The refresh loop only exists to wait for a Local Studio
+            // controller to register its `local-studio` agent. Once it is
+            // listed as available there is nothing left to wait for; polling
+            // anyway added a fixed ~3s to every controller pair and connect.
+            if alleycat_controller_inventory_ready(&agents) {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
             match crate::alleycat::list_agents(&endpoint, params.clone()).await {
                 Ok(refreshed) => merge_alleycat_agent_inventory(&mut agents, refreshed),

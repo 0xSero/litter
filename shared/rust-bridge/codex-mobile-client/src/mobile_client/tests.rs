@@ -626,6 +626,25 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn controller_inventory_stops_waiting_once_local_studio_is_available() {
+        let agent = |name: &str, available: bool| AlleycatAgentInfo {
+            name: name.to_string(),
+            display_name: name.to_string(),
+            wire: AlleycatAgentWire::Jsonl,
+            available,
+            presentation: None,
+            capabilities: None,
+        };
+        assert!(!alleycat_controller_inventory_ready(&[]));
+        assert!(!alleycat_controller_inventory_ready(&[agent("codex", true)]));
+        assert!(!alleycat_controller_inventory_ready(&[agent("local-studio", false)]));
+        assert!(alleycat_controller_inventory_ready(&[
+            agent("codex", true),
+            agent("local-studio", true)
+        ]));
+    }
+
+    #[test]
     fn pi_runtimes_always_use_full_access_without_approvals() {
         let client = MobileClient::new();
         for runtime in ["pi", "local-studio"] {
