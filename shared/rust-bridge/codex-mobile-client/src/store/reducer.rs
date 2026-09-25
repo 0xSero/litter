@@ -258,6 +258,10 @@ impl Drop for SnapshotWriteGuard<'_> {
     }
 }
 
+/// Pages up to this size emit per-thread `ThreadUpserted`; larger pages emit
+/// one `FullResync`.
+const THREAD_LIST_PAGE_PER_THREAD_UPSERT_LIMIT: usize = 32;
+
 impl AppStoreReducer {
     pub fn new() -> Self {
         // Streaming turns can burst small deltas quickly; keep enough headroom so
@@ -663,10 +667,34 @@ impl AppStoreReducer {
         runtime_kind: AgentRuntimeKind,
         threads: &[ThreadInfo],
     ) {
-        for info in threads {
-            let mut snapshot = ThreadSnapshot::from_info(server_id, info.clone());
-            snapshot.agent_runtime_kind = runtime_kind.clone();
-            self.upsert_thread_snapshot(snapshot);
+        if threads.is_empty() {
+            return;
+        }
+        // One write lock for the whole page instead of one per thread.
+        let mut keys = Vec::with_capacity(threads.len());
+        {
+            let mut snapshot = self.write_snapshot();
+            for info in threads {
+                let mut thread = ThreadSnapshot::from_info(server_id, info.clone());
+                thread.agent_runtime_kind = runtime_kind.clone();
+                keys.push(thread.key.clone());
+                self.merge_thread_snapshot_locked(&mut snapshot, thread);
+            }
+        }
+        // Small pages keep per-thread `ThreadUpserted` so platforms patch rows
+        // in place. A large page would otherwise project and broadcast one
+        // full thread record per row, which floods the channel (subscribers
+        // lag into a resync anyway); send a single `FullResync` instead, which
+        // both platforms answer with one debounced snapshot refresh.
+        if keys.len() <= THREAD_LIST_PAGE_PER_THREAD_UPSERT_LIMIT {
+            for key in &keys {
+                self.emit_thread_upsert(key);
+            }
+        } else {
+            for key in &keys {
+                self.clear_thread_update_caches(key);
+            }
+            self.emit(AppStoreUpdateRecord::FullResync);
         }
     }
 
@@ -819,9 +847,53 @@ impl AppStoreReducer {
         self.upsert_thread_snapshot_guarded(thread, Some((items_revision, overlays_revision)))
     }
 
+    /// Merge an incoming thread snapshot into `snapshot`, preserving the
+    /// locally owned fields of any existing entry. Caller holds the write
+    /// lock and is responsible for emitting the update.
+    fn merge_thread_snapshot_locked(&self, snapshot: &mut AppSnapshot, mut thread: ThreadSnapshot) {
+        let key = thread.key.clone();
+        if self
+            .pending_local_studio_thread_routes
+            .write()
+            .expect("pending Local Studio route lock poisoned")
+            .remove(&key)
+        {
+            thread.agent_runtime_kind = "local-studio".to_string();
+        }
+        // Borrowed, not cloned: `thread` is a local, so the existing
+        // entry can be read in place. Cloning it here duplicated every
+        // item of the thread on every upsert just to read a handful of
+        // preserved fields.
+        let existing = snapshot.threads.get(&key);
+        if let Some(existing) = existing {
+            preserve_thread_title(&existing.info, &mut thread.info);
+            preserve_thread_preview(&existing.info, &mut thread.info);
+            preserve_thread_created_at(&existing.info, &mut thread.info);
+            preserve_thread_fork_lineage(&existing.info, &mut thread.info);
+            preserve_thread_runtime_state(existing, &mut thread);
+            if thread.agent_runtime_kind == "codex" && existing.agent_runtime_kind != "codex" {
+                thread.agent_runtime_kind = existing.agent_runtime_kind.clone();
+            }
+            thread.is_resumed = thread.is_resumed || existing.is_resumed;
+            preserve_local_overlay_items(existing, &mut thread);
+            preserve_queued_follow_ups(existing, &mut thread);
+            preserve_live_tool_items(existing, &mut thread);
+            // Preserve existing items when the incoming snapshot has none
+            // (e.g. thread/read with include_turns=false).
+            if thread.items.is_empty() && !existing.items.is_empty() {
+                thread.items = existing.items.clone();
+            }
+        }
+        restore_plan_implementation_prompt_from_history(&mut thread, existing);
+        if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
+            sync_thread_follow_up_projection(&mut thread);
+        }
+        snapshot.threads.insert(key, thread);
+    }
+
     fn upsert_thread_snapshot_guarded(
         &self,
-        mut thread: ThreadSnapshot,
+        thread: ThreadSnapshot,
         expected_idle_revisions: Option<(u64, u64)>,
     ) -> bool {
         let key = thread.key.clone();
@@ -838,43 +910,7 @@ impl AppStoreReducer {
                     return false;
                 }
             }
-            if self
-                .pending_local_studio_thread_routes
-                .write()
-                .expect("pending Local Studio route lock poisoned")
-                .remove(&key)
-            {
-                thread.agent_runtime_kind = "local-studio".to_string();
-            }
-            // Borrowed, not cloned: `thread` is a local, so the existing
-            // entry can be read in place. Cloning it here duplicated every
-            // item of the thread on every upsert just to read a handful of
-            // preserved fields.
-            let existing = snapshot.threads.get(&key);
-            if let Some(existing) = existing {
-                preserve_thread_title(&existing.info, &mut thread.info);
-                preserve_thread_preview(&existing.info, &mut thread.info);
-                preserve_thread_created_at(&existing.info, &mut thread.info);
-                preserve_thread_fork_lineage(&existing.info, &mut thread.info);
-                preserve_thread_runtime_state(existing, &mut thread);
-                if thread.agent_runtime_kind == "codex" && existing.agent_runtime_kind != "codex" {
-                    thread.agent_runtime_kind = existing.agent_runtime_kind.clone();
-                }
-                thread.is_resumed = thread.is_resumed || existing.is_resumed;
-                preserve_local_overlay_items(existing, &mut thread);
-                preserve_queued_follow_ups(existing, &mut thread);
-                preserve_live_tool_items(existing, &mut thread);
-                // Preserve existing items when the incoming snapshot has none
-                // (e.g. thread/read with include_turns=false).
-                if thread.items.is_empty() && !existing.items.is_empty() {
-                    thread.items = existing.items.clone();
-                }
-            }
-            restore_plan_implementation_prompt_from_history(&mut thread, existing);
-            if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
-                sync_thread_follow_up_projection(&mut thread);
-            }
-            snapshot.threads.insert(key.clone(), thread);
+            self.merge_thread_snapshot_locked(&mut snapshot, thread);
         }
         self.emit_thread_upsert(&key);
         true
