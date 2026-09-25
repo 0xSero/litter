@@ -1459,12 +1459,16 @@ impl AppClient {
     /// Tries POSIX `$HOME` first, falls back to Windows `%USERPROFILE%`.
     /// Returns `"/"` if both fail.
     pub async fn resolve_remote_home(&self, server_id: String) -> Result<String, ClientError> {
+        if let Some(home) = crate::remote_dir_cache::home(&server_id) {
+            return Ok(home);
+        }
         blocking_async!(self.rt, self.inner, |c| {
-            // Try POSIX
+            // Try POSIX. `$HOME` is set without a login shell; `-l` would
+            // run the user's whole profile on every picker open.
             if let Ok(resp) = exec_command_simple(
                 c.as_ref(),
                 &server_id,
-                &["/usr/bin/env", "sh", "-lc", r#"printf %s "$HOME""#],
+                &["/usr/bin/env", "sh", "-c", r#"printf %s "$HOME""#],
                 Some("/tmp"),
             )
             .await
@@ -1472,6 +1476,7 @@ impl AppClient {
             {
                 let home = resp.stdout.trim().to_string();
                 if !home.is_empty() {
+                    crate::remote_dir_cache::store_home(&server_id, &home);
                     return Ok(home);
                 }
             }
@@ -1487,6 +1492,7 @@ impl AppClient {
             {
                 let home = resp.stdout.trim().to_string();
                 if !home.is_empty() && home != "%USERPROFILE%" {
+                    crate::remote_dir_cache::store_home(&server_id, &home);
                     return Ok(home);
                 }
             }
@@ -1516,6 +1522,13 @@ impl AppClient {
             let normalized = rp.as_str().to_string();
             let is_windows = rp.is_windows();
 
+            if let Some(directories) = crate::remote_dir_cache::listing(&server_id, &normalized) {
+                return Ok(types::DirectoryListResult {
+                    directories,
+                    path: normalized,
+                });
+            }
+
             let (command, cwd): (Vec<&str>, &str) = if is_windows {
                 // `dir /b /ad` in cwd — avoids path quoting issues
                 (vec!["cmd.exe", "/c", "dir", "/b", "/ad"], &normalized)
@@ -1535,6 +1548,7 @@ impl AppClient {
             }
 
             let directories = crate::remote_path::parse_directory_listing(&resp.stdout, is_windows);
+            crate::remote_dir_cache::store_listing(&server_id, &normalized, &directories);
             Ok(types::DirectoryListResult {
                 directories,
                 path: normalized,
@@ -1587,6 +1601,7 @@ impl AppClient {
                     msg.to_string()
                 }));
             }
+            crate::remote_dir_cache::invalidate_listings(&server_id);
             Ok(())
         })
     }

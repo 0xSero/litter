@@ -13,8 +13,11 @@ pub(super) struct ModelCatalogRefresh {
     complete: bool,
 }
 
+/// A complete catalog is reused for ten minutes: most agents start a CLI
+/// process on the host for every `model/list`, and reconnects or agent-set
+/// changes already force a refresh.
 fn refresh_due(age: Duration, complete: bool) -> bool {
-    age >= Duration::from_secs(if complete { 60 } else { 5 })
+    age >= Duration::from_secs(if complete { 600 } else { 5 })
 }
 
 impl MobileClient {
@@ -564,8 +567,8 @@ mod tests {
     fn incomplete_catalogs_retry_soon_without_refetching_on_every_render() {
         assert!(!refresh_due(Duration::from_secs(4), false));
         assert!(refresh_due(Duration::from_secs(5), false));
-        assert!(!refresh_due(Duration::from_secs(59), true));
-        assert!(refresh_due(Duration::from_secs(60), true));
+        assert!(!refresh_due(Duration::from_secs(599), true));
+        assert!(refresh_due(Duration::from_secs(600), true));
     }
 
     #[tokio::test]
