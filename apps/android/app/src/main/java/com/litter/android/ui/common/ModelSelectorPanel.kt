@@ -235,7 +235,7 @@ fun ModelSelectorPanel(
         Text(
             text = "Model",
             color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.caption2.scaled,
+            fontSize = LitterTextStyle.footnote.scaled,
         )
 
         if (runtimeBuckets.size > 1) {
@@ -271,14 +271,14 @@ fun ModelSelectorPanel(
                 .padding(top = 6.dp, bottom = 4.dp),
             textStyle = TextStyle(
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
             ),
             singleLine = true,
             label = {
                 Text(
                     "Search models",
                     color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                 )
             },
             leadingIcon = {
@@ -315,7 +315,7 @@ fun ModelSelectorPanel(
                     Text(
                         text = group.name.uppercase(Locale.ROOT),
                         color = LitterTheme.textMuted,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 8.dp, bottom = 1.dp),
                     )
@@ -348,14 +348,14 @@ fun ModelSelectorPanel(
                 Text(
                     text = catalogMessage,
                     color = LitterTheme.textMuted,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     maxLines = 3,
                 )
                 if (catalogError != null) {
                     Text(
                         text = "Retry",
-                        color = LitterTheme.accent,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        color = LitterTheme.textPrimary,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clickable(onClick = onRetryModels).padding(vertical = 4.dp),
                     )
@@ -366,7 +366,7 @@ fun ModelSelectorPanel(
             Text(
                 text = "No matching models",
                 color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
@@ -375,7 +375,7 @@ fun ModelSelectorPanel(
             Text(
                 text = "Reasoning effort is locked after the first message.",
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
             )
         } else if (supportedEfforts.isNotEmpty()) {
@@ -387,7 +387,7 @@ fun ModelSelectorPanel(
                     Text(
                         "Effort",
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -399,10 +399,10 @@ fun ModelSelectorPanel(
                             onClick = {
                                 appModel.launchState.updateReasoningEffort(effort)
                             },
-                            label = { Text(effort, fontSize = 10f.scaled) },
+                            label = { Text(effort, fontSize = 13.scaled) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = LitterTheme.accent,
-                                selectedLabelColor = Color.Black,
+                                selectedContainerColor = LitterTheme.textPrimary,
+                                selectedLabelColor = LitterTheme.background,
                             ),
                         )
                     }
@@ -424,10 +424,10 @@ fun ModelSelectorPanel(
                         val next = if (isPlan) AppModeKind.DEFAULT else AppModeKind.PLAN
                         onToggleMode(next)
                     },
-                    label = { Text("Plan", fontSize = 10f.scaled) },
+                    label = { Text("Plan", fontSize = 13.scaled) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = LitterTheme.accent,
-                        selectedLabelColor = Color.Black,
+                        selectedContainerColor = LitterTheme.textPrimary,
+                        selectedLabelColor = LitterTheme.background,
                     ),
                 )
             }
@@ -472,7 +472,7 @@ fun ModelSelectorPanel(
                     label = {
                         Text(
                             if (isFullAccess) "Full Access" else "Supervised",
-                            fontSize = 10f.scaled,
+                            fontSize = 13.scaled,
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
@@ -486,13 +486,13 @@ fun ModelSelectorPanel(
             Text(
                 "Fast mode",
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
             )
             Switch(
                 checked = fastMode,
                 onCheckedChange = onFastModeChange,
                 colors = SwitchDefaults.colors(
-                    checkedTrackColor = LitterTheme.accent,
+                    checkedTrackColor = LitterTheme.textPrimary,
                 ),
             )
         }
@@ -657,13 +657,13 @@ private fun RuntimeFilterChip(
         label = {
             Text(
                 text = "$label $count",
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.footnote.scaled,
                 maxLines = 1,
             )
         },
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = LitterTheme.accent,
-            selectedLabelColor = Color.Black,
+            selectedContainerColor = LitterTheme.textPrimary,
+            selectedLabelColor = LitterTheme.background,
         ),
     )
 }
@@ -674,17 +674,6 @@ private fun ModelOptionRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    val background = if (selected) {
-        LitterTheme.accent.copy(alpha = 0.14f)
-    } else {
-        LitterTheme.surface.copy(alpha = 0.55f)
-    }
-    val borderColor = if (selected) {
-        LitterTheme.accent
-    } else {
-        LitterTheme.textMuted.copy(alpha = 0.32f)
-    }
     val title = model.modelNameWithinProvider()
     val detail = model.description
         .takeIf { it.isNotBlank() }
@@ -695,13 +684,11 @@ private fun ModelOptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(background)
-            .border(0.8.dp, borderColor, shape)
+            .heightIn(min = 56.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ModelRuntimeIcon(model.agentRuntimeKind)
         Column(modifier = Modifier.weight(1f)) {
@@ -712,8 +699,7 @@ private fun ModelOptionRow(
                 Text(
                     text = title,
                     color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.caption.scaled,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = LitterTextStyle.body.scaled,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -722,7 +708,7 @@ private fun ModelOptionRow(
                     Text(
                         text = runtimeLabel,
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.footnote.scaled,
                         maxLines = 1,
                     )
                 }
@@ -731,7 +717,7 @@ private fun ModelOptionRow(
                 Text(
                     text = detail,
                     color = LitterTheme.textMuted,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.footnote.scaled,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -741,7 +727,7 @@ private fun ModelOptionRow(
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Selected model",
-                tint = LitterTheme.accent,
+                tint = LitterTheme.textPrimary,
                 modifier = Modifier.size(18.dp),
             )
         }

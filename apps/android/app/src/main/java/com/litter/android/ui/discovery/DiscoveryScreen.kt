@@ -1,5 +1,12 @@
 package com.litter.android.ui.discovery
 
+import com.litter.android.ui.LitterQuiet
+import com.litter.android.ui.LitterSpacing
+import com.litter.android.ui.LitterType
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.heightIn
+import com.litter.android.ui.LitterRadius
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -474,32 +481,24 @@ fun DiscoveryScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = LitterSpacing.margin, vertical = LitterSpacing.md),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = "Add Server",
-                color = LitterTheme.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-
         Text(
-            text = "Pick how you want to connect.",
-            color = LitterTheme.textSecondary,
-            fontSize = 12.sp,
+            text = "Add Server",
+            style = LitterType.navTitle,
+            modifier = Modifier.semantics { heading() },
         )
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(LitterSpacing.xxs))
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "pick how you want to connect",
+            style = LitterType.meta,
+        )
+
+        Spacer(Modifier.height(LitterSpacing.sm))
+
+        Column {
             ChooserCard(
                 title = "Pair with kittylitter",
                 subtitle = "Install Kittylitter on your computer, then scan its QR code.",
@@ -792,7 +791,8 @@ fun DiscoveryScreen(
         ModalBottomSheet(
             onDismissRequest = { showAlleycatSheet = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = LitterTheme.background,
+            containerColor = LitterQuiet.raised,
+            shape = LitterRadius.sheetShape,
         ) {
             AlleycatAddServerSheet(
                 onDismiss = { showAlleycatSheet = false },
@@ -850,100 +850,41 @@ private fun ChooserCard(
     isRecommended: Boolean,
     onClick: () -> Unit,
 ) {
-    val borderColor = if (isRecommended) {
-        LitterTheme.accent.copy(alpha = 0.45f)
-    } else {
-        LitterTheme.accent.copy(alpha = 0.18f)
-    }
-    val backgroundColor = if (isRecommended) {
-        LitterTheme.surface.copy(alpha = 0.85f)
-    } else {
-        LitterTheme.surface.copy(alpha = 0.6f)
-    }
-    val iconBubble = LitterTheme.accent.copy(alpha = if (isRecommended) 0.16f else 0.10f)
-
+    // Plain text row: title, one mono metadata line, chevron. The icon and
+    // recommended styling are decorative in Litter Quiet; the badge becomes a
+    // mono word next to the title.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor, RoundedCornerShape(14.dp))
-            .border(
-                width = if (isRecommended) 1.dp else 0.8.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(14.dp),
-            )
+            .heightIn(min = LitterSpacing.row)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = LitterSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
     ) {
         Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(LitterSpacing.sm),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .size(36.dp)
-                    .background(iconBubble, RoundedCornerShape(50)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = LitterTheme.accent,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
                 ) {
-                    Text(
-                        text = title,
-                        color = LitterTheme.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Text(text = title, style = LitterType.title)
                     if (badge != null) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    LitterTheme.accent.copy(alpha = 0.14f),
-                                    RoundedCornerShape(50),
-                                )
-                                .border(
-                                    width = 0.6.dp,
-                                    color = LitterTheme.accent.copy(alpha = 0.45f),
-                                    shape = RoundedCornerShape(50),
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = badge,
-                                color = LitterTheme.accent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.5.sp,
-                            )
-                        }
+                        Text(text = badge.lowercase(), style = LitterType.meta)
                     }
                 }
-                Text(
-                    text = subtitle,
-                    color = LitterTheme.textSecondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                Text(text = subtitle, style = LitterType.meta)
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = LitterTheme.textMuted,
-                modifier = Modifier.padding(top = 10.dp),
+                tint = LitterQuiet.meta,
             )
         }
 
@@ -961,10 +902,8 @@ private fun SupportedAgentsStrip(agents: List<AgentRuntimeKind>) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = "Works with",
-            color = LitterTheme.textMuted,
-            fontSize = 10.sp,
-            letterSpacing = 0.4.sp,
+            text = "works with",
+            style = LitterType.meta,
             maxLines = 1,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -995,7 +934,7 @@ private fun ConnectedComputersDialog(
                 Text(
                     text = "These computers come from ChatGPT using your signed-in account. Start Codex on the computer first so it appears here.",
                     color = LitterTheme.textSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                 )
                 when {
                     loading && environments.isEmpty() -> {
@@ -1006,12 +945,12 @@ private fun ConnectedComputersDialog(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
-                                color = LitterTheme.accent,
+                                color = LitterTheme.textPrimary,
                             )
                             Text(
                                 text = "Loading connected computers...",
                                 color = LitterTheme.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                             )
                         }
                     }
@@ -1020,7 +959,7 @@ private fun ConnectedComputersDialog(
                         Text(
                             text = error,
                             color = LitterTheme.danger,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                         )
                     }
 
@@ -1028,7 +967,7 @@ private fun ConnectedComputersDialog(
                         Text(
                             text = "No connected computers were found for this account.",
                             color = LitterTheme.textSecondary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                         )
                     }
 
@@ -1036,12 +975,11 @@ private fun ConnectedComputersDialog(
                         if (loading) {
                             LinearProgressIndicator(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = LitterTheme.accent,
+                                color = LitterTheme.textPrimary,
                                 trackColor = LitterTheme.border,
                             )
                         }
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.height(340.dp),
                         ) {
                             items(environments, key = { it.id }) { environment ->
@@ -1078,41 +1016,31 @@ private fun ConnectedComputerRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(LitterSpacing.sm),
         modifier = Modifier
             .fillMaxWidth()
-            .background(LitterTheme.surface, RoundedCornerShape(10.dp))
+            .heightIn(min = LitterSpacing.row)
             .clickable(enabled = environment.online, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(vertical = LitterSpacing.xs),
     ) {
-        Icon(
-            imageVector = slingshotEnvironmentIcon(environment),
-            contentDescription = null,
-            tint = if (environment.online) LitterTheme.accent else LitterTheme.textMuted,
-            modifier = Modifier.size(22.dp),
-        )
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = environment.displayName,
-                color = if (environment.online) LitterTheme.textPrimary else LitterTheme.textSecondary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                style = LitterType.title,
+                color = if (environment.online) LitterQuiet.text else LitterQuiet.meta,
             )
+            Text(text = slingshotEnvironmentSubtitle(environment), style = LitterType.meta)
+        }
+        if (!environment.online || environment.busy) {
             Text(
-                text = slingshotEnvironmentSubtitle(environment),
-                color = LitterTheme.textSecondary,
-                fontSize = 11.sp,
+                text = slingshotEnvironmentStatus(environment).lowercase(),
+                style = LitterType.meta,
+                color = if (environment.online) LitterQuiet.warn else LitterQuiet.meta,
             )
         }
-        Text(
-            text = slingshotEnvironmentStatus(environment),
-            color = if (environment.online && !environment.busy) LitterTheme.accent else LitterTheme.textMuted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
     }
 }
 
@@ -1186,7 +1114,7 @@ private fun ManualEntryDialog(
                         onClick = { mode = ManualConnectionMode.CODEX },
                         label = { Text(ManualConnectionMode.CODEX.label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = LitterTheme.accent.copy(alpha = 0.18f),
+                            selectedContainerColor = LitterTheme.textPrimary.copy(alpha = 0.18f),
                             selectedLabelColor = LitterTheme.textPrimary,
                         ),
                     )
@@ -1195,7 +1123,7 @@ private fun ManualEntryDialog(
                         onClick = { mode = ManualConnectionMode.SSH },
                         label = { Text(ManualConnectionMode.SSH.label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = LitterTheme.accent.copy(alpha = 0.18f),
+                            selectedContainerColor = LitterTheme.textPrimary.copy(alpha = 0.18f),
                             selectedLabelColor = LitterTheme.textPrimary,
                         ),
                     )
@@ -1218,7 +1146,7 @@ private fun ManualEntryDialog(
                                 "If you run manually, bind loopback and tunnel yourself: " +
                                 "codex app-server --listen ws://127.0.0.1:8390",
                             color = LitterTheme.textMuted,
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                         )
                     }
 
@@ -1259,7 +1187,7 @@ private fun ManualEntryDialog(
                     Text(
                         text = errorMessage!!,
                         color = LitterTheme.danger,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
             }
@@ -1402,12 +1330,12 @@ internal fun SSHLoginDialog(
                             Text(
                                 text = "Unlock keychain (macOS)",
                                 color = LitterTheme.textPrimary,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                             )
                             Text(
                                 text = "Uses your SSH/login password during headless bootstrap. Required for tools like gh CLI auth.",
                                 color = LitterTheme.textSecondary,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                             )
                         }
                     }
@@ -1438,7 +1366,7 @@ internal fun SSHLoginDialog(
                     Text(
                         text = "Remember credentials on this device",
                         color = LitterTheme.textSecondary,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
                 Row(
@@ -1457,12 +1385,12 @@ internal fun SSHLoginDialog(
                         Text(
                             text = "Detached sessions",
                             color = LitterTheme.textPrimary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                         )
                         Text(
                             text = "Agent sessions survive app close on this server. They keep running on the host and re-attach when you return.",
                             color = LitterTheme.textSecondary,
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                         )
                     }
                 }
@@ -1470,7 +1398,7 @@ internal fun SSHLoginDialog(
                     Text(
                         text = errorMessage!!,
                         color = LitterTheme.danger,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
             }
@@ -1509,7 +1437,7 @@ internal fun SSHLoginDialog(
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp),
                         strokeWidth = 2.dp,
-                        color = LitterTheme.accent,
+                        color = LitterTheme.textPrimary,
                     )
                 } else {
                     Text("Connect")
@@ -1599,14 +1527,14 @@ private fun SSHAgentPickerDialog(
                             Text(
                                 text = sshAgentStatusLabel(agent),
                                 color = LitterTheme.textSecondary,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                             )
                         }
                         if (agent.kind in selectedKinds) {
                             Icon(
                                 imageVector = Icons.Filled.CheckCircle,
                                 contentDescription = null,
-                                tint = LitterTheme.accent,
+                                tint = LitterTheme.textPrimary,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -1616,7 +1544,7 @@ private fun SSHAgentPickerDialog(
                     Text(
                         text = errorMessage!!,
                         color = LitterTheme.danger,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
             }
@@ -1636,7 +1564,7 @@ private fun SSHAgentPickerDialog(
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp),
                         strokeWidth = 2.dp,
-                        color = LitterTheme.accent,
+                        color = LitterTheme.textPrimary,
                     )
                 } else {
                     Text("Connect")

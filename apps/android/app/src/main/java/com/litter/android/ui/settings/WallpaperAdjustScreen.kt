@@ -150,7 +150,7 @@ fun WallpaperAdjustScreen(
                 .background(LitterTheme.surface.copy(alpha = 0.85f))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -191,7 +191,7 @@ fun WallpaperAdjustScreen(
                         .background(LitterTheme.textMuted.copy(alpha = 0.5f), RoundedCornerShape(999.dp)),
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
@@ -222,7 +222,7 @@ fun WallpaperAdjustScreen(
                             "Adjust the current wallpaper, or minimize this sheet to inspect it full-screen."
                         },
                         color = LitterTheme.textMuted,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
                 Icon(
@@ -246,7 +246,7 @@ fun WallpaperAdjustScreen(
                                 blur = if (checked) 0.75f else 0f
                             },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = LitterTheme.accent,
+                                checkedColor = LitterTheme.textPrimary,
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
@@ -257,7 +257,7 @@ fun WallpaperAdjustScreen(
                             checked = motionEnabled,
                             onCheckedChange = { motionEnabled = it },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = LitterTheme.accent,
+                                checkedColor = LitterTheme.textPrimary,
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
@@ -278,8 +278,8 @@ fun WallpaperAdjustScreen(
                         valueRange = 0.2f..1f,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                         colors = SliderDefaults.colors(
-                            thumbColor = LitterTheme.accent,
-                            activeTrackColor = LitterTheme.accent,
+                            thumbColor = LitterTheme.textPrimary,
+                            activeTrackColor = LitterTheme.textPrimary,
                             inactiveTrackColor = LitterTheme.border,
                         ),
                     )
@@ -301,8 +301,8 @@ fun WallpaperAdjustScreen(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = LitterTheme.accent,
-                            contentColor = LitterTheme.onAccentStrong,
+                            containerColor = LitterTheme.textPrimary,
+                            contentColor = LitterTheme.background,
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -326,8 +326,8 @@ fun WallpaperAdjustScreen(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isServerOnly) LitterTheme.accent else LitterTheme.surface,
-                            contentColor = if (isServerOnly) LitterTheme.onAccentStrong else LitterTheme.textPrimary,
+                            containerColor = if (isServerOnly) LitterTheme.textPrimary else LitterTheme.surface,
+                            contentColor = if (isServerOnly) LitterTheme.background else LitterTheme.textPrimary,
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -346,7 +346,7 @@ fun WallpaperAdjustScreen(
 
 @Composable
 private fun SampleBubble(text: String, isUser: Boolean) {
-    val bgColor = if (isUser) LitterTheme.accent.copy(alpha = 0.15f) else LitterTheme.surface.copy(alpha = 0.85f)
+    val bgColor = if (isUser) LitterTheme.textPrimary.copy(alpha = 0.15f) else LitterTheme.surface.copy(alpha = 0.85f)
 
     Box(
         modifier = Modifier.fillMaxWidth(),

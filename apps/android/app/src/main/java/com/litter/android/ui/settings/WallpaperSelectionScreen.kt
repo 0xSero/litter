@@ -243,7 +243,7 @@ fun WallpaperSelectionScreen(
                 .background(LitterTheme.surface.copy(alpha = 0.85f))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -285,7 +285,7 @@ fun WallpaperSelectionScreen(
                         .background(LitterTheme.textMuted.copy(alpha = 0.5f)),
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
@@ -316,7 +316,7 @@ fun WallpaperSelectionScreen(
                             "$selectedLabel selected. Adjust it here, or expand below to pick something new."
                         },
                         color = LitterTheme.textMuted,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -347,7 +347,7 @@ fun WallpaperSelectionScreen(
                                 )
                             },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = LitterTheme.accent,
+                                checkedColor = LitterTheme.textPrimary,
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
@@ -365,7 +365,7 @@ fun WallpaperSelectionScreen(
                                 )
                             },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = LitterTheme.accent,
+                                checkedColor = LitterTheme.textPrimary,
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
@@ -395,8 +395,8 @@ fun WallpaperSelectionScreen(
                             .weight(1f)
                             .padding(horizontal = 8.dp),
                         colors = SliderDefaults.colors(
-                            thumbColor = LitterTheme.accent,
-                            activeTrackColor = LitterTheme.accent,
+                            thumbColor = LitterTheme.textPrimary,
+                            activeTrackColor = LitterTheme.textPrimary,
                             inactiveTrackColor = LitterTheme.border,
                         ),
                     )
@@ -427,8 +427,8 @@ fun WallpaperSelectionScreen(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = LitterTheme.accent,
-                            contentColor = LitterTheme.onAccentStrong,
+                            containerColor = LitterTheme.textPrimary,
+                            contentColor = LitterTheme.background,
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -461,8 +461,8 @@ fun WallpaperSelectionScreen(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isServerOnly) LitterTheme.accent else LitterTheme.surface,
-                            contentColor = if (isServerOnly) LitterTheme.onAccentStrong else LitterTheme.textPrimary,
+                            containerColor = if (isServerOnly) LitterTheme.textPrimary else LitterTheme.surface,
+                            contentColor = if (isServerOnly) LitterTheme.background else LitterTheme.textPrimary,
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -496,7 +496,7 @@ fun WallpaperSelectionScreen(
                         Text(
                             text = "Themes, photos, colors, videos, and URL sources",
                             color = LitterTheme.textMuted,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                         )
                     }
                     Icon(
@@ -542,7 +542,7 @@ fun WallpaperSelectionScreen(
                                 )
                             }
 
-                            items(themes) { theme ->
+                            items(themes, key = { it.slug }) { theme ->
                                 val bg = colorFromHex(theme.backgroundHex)
                                 val accent = colorFromHex(theme.accentHex)
                                 ThemeThumbnail(
@@ -582,20 +582,20 @@ fun WallpaperSelectionScreen(
                                 Icon(
                                     Icons.Default.Image,
                                     contentDescription = null,
-                                    tint = LitterTheme.accent,
+                                    tint = LitterTheme.textPrimary,
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     "Choose Photo",
-                                    color = LitterTheme.accent,
+                                    color = LitterTheme.textPrimary,
                                     fontSize = 13.sp,
                                 )
                             }
 
                             TextButton(
                                 onClick = {
-                                    val hex = String.format("#%06X", 0xFFFFFF and LitterTheme.accent.toArgb())
+                                    val hex = String.format("#%06X", 0xFFFFFF and LitterTheme.textPrimary.toArgb())
                                     val config = WallpaperConfig(
                                         type = WallpaperType.SOLID_COLOR,
                                         colorHex = hex,
@@ -611,13 +611,13 @@ fun WallpaperSelectionScreen(
                                 Icon(
                                     Icons.Default.Palette,
                                     contentDescription = null,
-                                    tint = LitterTheme.accent,
+                                    tint = LitterTheme.textPrimary,
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     "Set a Color",
-                                    color = LitterTheme.accent,
+                                    color = LitterTheme.textPrimary,
                                     fontSize = 13.sp,
                                 )
                             }
@@ -638,11 +638,11 @@ fun WallpaperSelectionScreen(
                             Icon(
                                 Icons.Default.PlayCircle,
                                 contentDescription = null,
-                                tint = LitterTheme.accent,
+                                tint = LitterTheme.textPrimary,
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Choose Video", color = LitterTheme.accent, fontSize = 13.sp)
+                            Text("Choose Video", color = LitterTheme.textPrimary, fontSize = 13.sp)
                         }
 
                         Row(
@@ -659,19 +659,19 @@ fun WallpaperSelectionScreen(
                             OutlinedTextField(
                                 value = videoUrlText,
                                 onValueChange = { videoUrlText = it },
-                                placeholder = { Text("Paste video URL", fontSize = 12.sp) },
+                                placeholder = { Text("Paste video URL", fontSize = 13.sp) },
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(max = 44.dp),
                                 textStyle = androidx.compose.ui.text.TextStyle(
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     color = LitterTheme.textPrimary,
                                 ),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = LitterTheme.accent,
+                                    focusedBorderColor = LitterTheme.textPrimary,
                                     unfocusedBorderColor = LitterTheme.border,
-                                    cursorColor = LitterTheme.accent,
+                                    cursorColor = LitterTheme.textPrimary,
                                 ),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                                 keyboardActions = KeyboardActions(onGo = {
@@ -716,7 +716,7 @@ fun WallpaperSelectionScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = LitterTheme.accent)
+                    CircularProgressIndicator(color = LitterTheme.textPrimary)
                     Spacer(Modifier.height(12.dp))
                     Text("Processing video...", color = LitterTheme.textPrimary, fontSize = 13.sp)
                 }
@@ -747,7 +747,7 @@ private fun ThemeThumbnail(
                 .background(backgroundColor)
                 .then(
                     if (isSelected) {
-                        Modifier.border(2.dp, LitterTheme.accent, RoundedCornerShape(10.dp))
+                        Modifier.border(2.dp, LitterTheme.textPrimary, RoundedCornerShape(10.dp))
                     } else {
                         Modifier.border(1.dp, LitterTheme.border, RoundedCornerShape(10.dp))
                     }
@@ -774,8 +774,8 @@ private fun ThemeThumbnail(
         Spacer(Modifier.height(4.dp))
         Text(
             text = label,
-            color = if (isSelected) LitterTheme.accent else LitterTheme.textMuted,
-            fontSize = 9.sp,
+            color = if (isSelected) LitterTheme.textPrimary else LitterTheme.textMuted,
+            fontSize = 13.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -785,7 +785,7 @@ private fun ThemeThumbnail(
 
 @Composable
 private fun SampleBubble(text: String, isUser: Boolean) {
-    val bgColor = if (isUser) LitterTheme.accent.copy(alpha = 0.15f) else LitterTheme.surface.copy(alpha = 0.85f)
+    val bgColor = if (isUser) LitterTheme.textPrimary.copy(alpha = 0.15f) else LitterTheme.surface.copy(alpha = 0.85f)
     val alignment = if (isUser) Alignment.End else Alignment.Start
 
     Box(

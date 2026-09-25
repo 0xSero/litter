@@ -330,7 +330,7 @@ fun DirectoryPickerSheet(
                 Text(
                     text = selectedServer?.let { "Connected server: ${it.name} • ${it.sourceLabel}" } ?: "No server selected",
                     color = if (selectedServer == null) LitterTheme.textMuted else LitterTheme.textSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -339,8 +339,8 @@ fun DirectoryPickerSheet(
                 Box {
                     Text(
                         text = "Change Server",
-                        color = LitterTheme.accent,
-                        fontSize = 12.sp,
+                        color = LitterTheme.textPrimary,
+                        fontSize = 13.sp,
                         modifier = Modifier.clickable(enabled = servers.isNotEmpty()) { showServerMenu = true },
                     )
                     DropdownMenu(
@@ -363,7 +363,7 @@ fun DirectoryPickerSheet(
                     Icon(
                         imageVector = if (showHiddenDirectories) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                         contentDescription = if (showHiddenDirectories) "Hide hidden folders" else "Show hidden folders",
-                        tint = if (showHiddenDirectories) LitterTheme.accent else LitterTheme.textSecondary,
+                        tint = if (showHiddenDirectories) LitterTheme.textPrimary else LitterTheme.textSecondary,
                     )
                 }
             }
@@ -372,7 +372,6 @@ fun DirectoryPickerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(LitterTheme.surface, RoundedCornerShape(8.dp))
-                    .border(1.dp, LitterTheme.border.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -386,7 +385,7 @@ fun DirectoryPickerSheet(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 13.sp),
-                        cursorBrush = SolidColor(LitterTheme.accent),
+                        cursorBrush = SolidColor(LitterTheme.textPrimary),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -405,8 +404,8 @@ fun DirectoryPickerSheet(
                 item {
                     Text(
                         text = "Up one level",
-                        color = if (canGoUp) LitterTheme.accent else LitterTheme.textMuted,
-                        fontSize = 12.sp,
+                        color = if (canGoUp) LitterTheme.textPrimary else LitterTheme.textMuted,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                             .clickable(enabled = canGoUp) { navigateUp() }
@@ -416,8 +415,8 @@ fun DirectoryPickerSheet(
                 item {
                     Text(
                         text = "Go to Path",
-                        color = LitterTheme.accent,
-                        fontSize = 12.sp,
+                        color = LitterTheme.textPrimary,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                             .clickable {
@@ -437,10 +436,10 @@ fun DirectoryPickerSheet(
                     Text(
                         text = segment.first,
                         color = if (isCurrent) Color.Black else LitterTheme.textSecondary,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .background(
-                                if (isCurrent) LitterTheme.accent else LitterTheme.surface,
+                                if (isCurrent) LitterTheme.textPrimary else LitterTheme.surface,
                                 RoundedCornerShape(8.dp),
                             )
                             .clickable { scope.launch { listDirectory(selectedServerId, segment.second) } }
@@ -476,7 +475,7 @@ fun DirectoryPickerSheet(
                     Text(
                         text = errorMessage ?: "",
                         color = LitterTheme.textSecondary,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -484,13 +483,13 @@ fun DirectoryPickerSheet(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = "Retry",
-                            color = LitterTheme.accent,
+                            color = LitterTheme.textPrimary,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { scope.launch { listDirectory(selectedServerId, currentPath.ifEmpty { "/" }) } },
                         )
                         Text(
                             text = "Change Server",
-                            color = LitterTheme.accent,
+                            color = LitterTheme.textPrimary,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { showServerMenu = true },
                         )
@@ -516,7 +515,7 @@ fun DirectoryPickerSheet(
                                     isLocalServer(selectedServerId),
                                     context,
                                 ),
-                                accent = LitterTheme.accent,
+                                accent = LitterTheme.textPrimary,
                                 onClick = { completeSelection(selectedServerId, mostRecentEntry.path) },
                             )
                         }
@@ -530,7 +529,7 @@ fun DirectoryPickerSheet(
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Recent Directories", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                                Text("Recent Directories", color = LitterTheme.textSecondary, fontSize = 13.sp)
                                 Spacer(Modifier.weight(1f))
                                 Box {
                                     IconButton(onClick = { showRecentsMenu = true }) {
@@ -569,7 +568,7 @@ fun DirectoryPickerSheet(
                             Text(
                                 text = "Recent directories are saved per connected server.",
                                 color = LitterTheme.textMuted,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
@@ -580,7 +579,7 @@ fun DirectoryPickerSheet(
                             Text(
                                 text = if (searchQuery.isBlank()) "No subdirectories" else "No matches for \"$searchQuery\"",
                                 color = LitterTheme.textMuted,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
                             )
                         }
@@ -590,7 +589,7 @@ fun DirectoryPickerSheet(
                                 icon = Icons.Default.Folder,
                                 title = entry,
                                 subtitle = null,
-                                accent = LitterTheme.accent,
+                                accent = LitterTheme.textPrimary,
                                 onClick = { navigateInto(entry) },
                             )
                         }
@@ -609,7 +608,7 @@ fun DirectoryPickerSheet(
             Text(
                 text = currentPath.ifBlank { "Choose a folder to start a new session." },
                 color = if (currentPath.isBlank()) LitterTheme.textSecondary else LitterTheme.textMuted,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -629,7 +628,7 @@ fun DirectoryPickerSheet(
                     enabled = currentPath.isNotBlank(),
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (currentPath.isNotBlank()) LitterTheme.accent else LitterTheme.surface,
+                        containerColor = if (currentPath.isNotBlank()) LitterTheme.textPrimary else LitterTheme.surface,
                         contentColor = if (currentPath.isNotBlank()) Color.Black else LitterTheme.textMuted,
                     ),
                 ) {
@@ -661,7 +660,7 @@ private fun PickerRow(
             Text(title, color = LitterTheme.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             subtitle?.let {
                 Spacer(Modifier.height(2.dp))
-                Text(it, color = LitterTheme.textMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(it, color = LitterTheme.textMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

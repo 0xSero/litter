@@ -155,7 +155,7 @@ fun AccountSheet(
                         .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                         .padding(12.dp),
                 ) {
-                    Text("Logged in", color = LitterTheme.accent, fontSize = 13.sp)
+                    Text("Logged in", color = LitterTheme.textPrimary, fontSize = 13.sp)
                     Text(account.email, color = LitterTheme.textPrimary, fontSize = 14.sp)
                 }
             }
@@ -167,7 +167,7 @@ fun AccountSheet(
                         .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                         .padding(12.dp),
                 ) {
-                    Text("API key configured", color = LitterTheme.accent, fontSize = 13.sp)
+                    Text("API key configured", color = LitterTheme.textPrimary, fontSize = 13.sp)
                 }
             }
 
@@ -177,16 +177,16 @@ fun AccountSheet(
         if (server?.isLocal == true && hasStoredApiKey) {
             Text(
                 "Local OpenAI API key is saved.",
-                color = LitterTheme.accent,
-                fontSize = 12.sp,
+                color = LitterTheme.textPrimary,
+                fontSize = 13.sp,
             )
         }
 
         if (server?.isLocal == true && hasStoredBaseUrl) {
             Text(
                 "OpenAI-compatible base URL is saved.",
-                color = LitterTheme.accent,
-                fontSize = 12.sp,
+                color = LitterTheme.textPrimary,
+                fontSize = 13.sp,
             )
         }
 
@@ -224,7 +224,7 @@ fun AccountSheet(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = LitterTheme.accent,
+                    containerColor = LitterTheme.textPrimary,
                     contentColor = Color.Black,
                 ),
                 modifier = Modifier.fillMaxWidth(),
@@ -239,16 +239,16 @@ fun AccountSheet(
                 Text(
                     "OpenAI API key saved in the local environment.",
                     color = LitterTheme.textSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                 )
             } else if (isChatGPTAccount) {
                 Text(
                     "Save an OpenAI API key in the local Codex environment.",
                     color = LitterTheme.textSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                 )
             } else {
-                Text("Or save an API key for the local environment:", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                Text("Or save an API key for the local environment:", color = LitterTheme.textSecondary, fontSize = 13.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -283,7 +283,7 @@ fun AccountSheet(
                     },
                     enabled = apiKey.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = LitterTheme.accent,
+                        containerColor = LitterTheme.textPrimary,
                         contentColor = Color.Black,
                     ),
                 ) {
@@ -298,7 +298,7 @@ fun AccountSheet(
                     "Optional OpenAI-compatible endpoint for local models."
                 },
                 color = LitterTheme.textSecondary,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -337,7 +337,7 @@ fun AccountSheet(
                     },
                     enabled = openAIBaseUrl.isNotBlank() && !isAuthWorking,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = LitterTheme.accent,
+                        containerColor = LitterTheme.textPrimary,
                         contentColor = Color.Black,
                     ),
                 ) {
@@ -372,12 +372,12 @@ fun AccountSheet(
             Text(
                 "Remote servers request their own OAuth login when needed. Account login and API key entry stay local-only.",
                 color = LitterTheme.textSecondary,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
             )
         }
 
         error?.let {
-            Text(it, color = LitterTheme.danger, fontSize = 12.sp)
+            Text(it, color = LitterTheme.danger, fontSize = 13.sp)
         }
     }
 }
