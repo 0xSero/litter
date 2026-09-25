@@ -124,6 +124,7 @@ final class HomeSessionsScrollViewScalabilityTests: XCTestCase {
         apply(sessions: sessions(count: 1_000, members: members), to: view)
         let row = mountedRows(in: scrollView(in: view)).first { $0.debugSession?.key == members[0].key }!
         _ = row.forceMeasureHostHeight(width: 390)
+        XCTAssertNotNil(row.cachedNaturalHeight(atZoom: 2, width: 390), "On-demand measurement must be reusable before an implicit layout pass")
         view.debugScroll(to: 900)
         XCTAssertTrue(view.debugHasMeasuredHeight(for: members[0].key))
         var changed = familyMembers()
@@ -132,6 +133,17 @@ final class HomeSessionsScrollViewScalabilityTests: XCTestCase {
         XCTAssertTrue(view.debugHasMeasuredHeight(for: members[0].key))
         apply(sessions: sessions(count: 1_000, members: changed, responseAt: [0: "New multiline\nresponse"]), to: view)
         XCTAssertFalse(view.debugHasMeasuredHeight(for: members[0].key), "Offscreen content changes must discard its old measured height")
+    }
+
+    func testOnDemandMeasurementUpdatesCacheWidthBeforeImplicitLayout() {
+        let view = makeView()
+        apply(sessions: sessions(count: 1), to: view)
+        let row = mountedRows(in: scrollView(in: view)).first!
+        let original = row.forceMeasureHostHeight(width: 390)
+        XCTAssertEqual(row.cachedNaturalHeight(atZoom: 2, width: 390), original)
+        let resized = row.forceMeasureHostHeight(width: 280)
+        XCTAssertNil(row.cachedNaturalHeight(atZoom: 2, width: 390))
+        XCTAssertEqual(row.cachedNaturalHeight(atZoom: 2, width: 280), resized)
     }
 
     private func familyMembers() -> [ThreadLineageMember] {

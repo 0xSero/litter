@@ -1809,6 +1809,12 @@ final class HomeRowContainer: UIView {
     /// been set via `refreshRootView`.
     @discardableResult
     private func measureHostHeight(width: CGFloat) -> CGFloat {
+        // Deferred/on-demand measurement can precede layoutSubviews. Record
+        // its width here too so eviction can retain the measured height.
+        if hostHeightCachedWidth != width {
+            hostHeightByZoom.removeAll(keepingCapacity: true)
+            hostHeightCachedWidth = width
+        }
         // Give the host a tall sizing frame so sizeThatFits reports the
         // true intrinsic, not a compressed version.
         hostingController.view.frame = CGRect(x: offsetX, y: 0, width: width, height: 10_000)
