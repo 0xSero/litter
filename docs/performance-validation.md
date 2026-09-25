@@ -412,6 +412,18 @@ of automated fixture artifacts, not manual production-app interaction.
 
 ## Partial manual iOS simulator acceptance
 
+The subsequent `7ab49f56` lifecycle correction passed 32 focused native tests:
+four AppModel lifecycle tests, 27 Watch bridge tests, and normal production Home
+launch followed by Settings. Watch observation now starts after bridge prewarm
+and credential binding, registers once, and projects once per snapshot change.
+Termination captures the already-bound native client and closes it on an
+independent executor, avoiding the previous MainActor semaphore self-wait.
+The existing 2.5-second best-effort shutdown bound remains, with cancellation
+requested on expiry; OS termination and the separate Catalyst child wait remain
+limitations. These changes were made after the resource measurements above and
+have no measured startup-speed claim. Evidence is in
+`artifacts/performance-steward/ios-watch-termination-focused.xcresult` and its log.
+
 Direct manual control verified the production empty Home cat animation,
 Settings → Appearance → Back → Done, and opening and dismissing the search
 keyboard. In the separate synthetic 1,000-session component harness, session 900
