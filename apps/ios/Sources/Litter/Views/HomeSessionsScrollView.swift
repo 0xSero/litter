@@ -1389,7 +1389,8 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             guard finished, !finishedFired,
                   (anim.value(forKey: Coordinator.generationKey) as? NSNumber)?.uint64Value == loadGeneration else { return }
             guard let repeats = configuredRepeatCount, repeats > 0 else { return }
-            if let finalFrame = (anim as? CAKeyframeAnimation)?.values?.last as? CGImage {
+            if let frames = (anim as? CAKeyframeAnimation)?.values as? [CGImage],
+               let finalFrame = frames.last {
                 imageView?.image = UIImage(cgImage: finalFrame)
             }
             finishedFired = true
