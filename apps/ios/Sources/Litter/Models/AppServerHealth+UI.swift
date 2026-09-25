@@ -19,9 +19,9 @@ extension AppServerHealth {
     var accentColor: Color {
         switch self {
         case .connected:
-            return LitterTheme.accent
+            return LitterTheme.meta
         case .connecting, .unresponsive:
-            return .orange
+            return LitterTheme.warning
         case .disconnected, .unknown:
             return LitterTheme.textSecondary
         }
@@ -47,9 +47,9 @@ extension AppServerTransportState {
     var accentColor: Color {
         switch self {
         case .connected:
-            return LitterTheme.accent
+            return LitterTheme.meta
         case .connecting, .unresponsive:
-            return .orange
+            return LitterTheme.warning
         case .disconnected, .unknown:
             return LitterTheme.textSecondary
         }

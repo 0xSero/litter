@@ -52,7 +52,7 @@ struct AppearanceSettingsView: View {
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Mode")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         } footer: {
             Text("Match the device setting, or keep Litter fixed in light or dark mode.")
                 .foregroundColor(LitterTheme.textMuted)
@@ -66,11 +66,11 @@ struct AppearanceSettingsView: View {
             VStack(spacing: 12) {
                 HStack {
                     Text("Font Size")
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                     Spacer()
                     Text(ConversationTextSize.clamped(rawValue: textSizeStep).label)
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
 
@@ -98,7 +98,7 @@ struct AppearanceSettingsView: View {
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Font Size")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         } footer: {
             Text("Pinch in conversations to adjust, or use this slider. Applies across the app.")
                 .foregroundColor(LitterTheme.textMuted)
@@ -142,7 +142,7 @@ struct AppearanceSettingsView: View {
             .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
         } header: {
             Text("Preview")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -157,7 +157,7 @@ struct AppearanceSettingsView: View {
             )
         } header: {
             Text("Light theme")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -172,7 +172,7 @@ struct AppearanceSettingsView: View {
             )
         } header: {
             Text("Dark theme")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -256,7 +256,7 @@ private struct ThemePickerRow: View {
             )
 
             Text(entry?.name ?? "Unknown Theme")
-                .litterFont(.subheadline)
+                .litterFont(.body)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
 
@@ -367,7 +367,7 @@ private struct ThemePickerSheet: View {
                 .litterFont(size: 14, weight: .medium)
 
             TextField("Search themes", text: $searchQuery)
-                .litterFont(.subheadline)
+                .litterFont(.body)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
@@ -401,12 +401,12 @@ private struct ThemePickerSheet: View {
                 .foregroundColor(LitterTheme.textMuted)
 
             Text("No matching themes")
-                .litterFont(.subheadline)
+                .litterFont(.body)
                 .foregroundColor(LitterTheme.textPrimary)
 
             if !trimmedSearchQuery.isEmpty {
                 Text(trimmedSearchQuery)
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
             }
         }

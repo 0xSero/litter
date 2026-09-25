@@ -13,10 +13,10 @@ struct ExperimentalFeaturesView: View {
                         Toggle(isOn: binding(for: feature)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(feature.displayName)
-                                    .litterFont(.subheadline)
+                                    .litterFont(.body)
                                     .foregroundColor(LitterTheme.textPrimary)
                                 Text(feature.description)
-                                    .litterFont(.caption)
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
                         }
@@ -25,7 +25,7 @@ struct ExperimentalFeaturesView: View {
                     }
                 } header: {
                     Text("Features")
-                        .foregroundColor(LitterTheme.textSecondary)
+                        .litterSectionLabel()
                 } footer: {
                     Text("Experimental features may be unstable or change without notice.")
                         .foregroundColor(LitterTheme.textMuted)
@@ -37,15 +37,12 @@ struct ExperimentalFeaturesView: View {
                         set: { debugSettings.enabled = $0 }
                     )) {
                         HStack(spacing: 10) {
-                            Image(systemName: "ant")
-                                .foregroundColor(LitterTheme.accent)
-                                .frame(width: 20)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Debug Mode")
-                                    .litterFont(.subheadline)
+                                    .litterFont(.body)
                                     .foregroundColor(LitterTheme.textPrimary)
                                 Text("Show debug controls in conversations")
-                                    .litterFont(.caption)
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
                         }
@@ -55,7 +52,7 @@ struct ExperimentalFeaturesView: View {
 
                 } header: {
                     Text("Debug")
-                        .foregroundColor(LitterTheme.textSecondary)
+                        .litterSectionLabel()
                 }
             }
             .scrollContentBackground(.hidden)

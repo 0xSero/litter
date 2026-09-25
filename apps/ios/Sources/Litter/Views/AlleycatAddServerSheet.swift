@@ -151,7 +151,7 @@ struct AlleycatAddServerSheet: View {
     private var pairingSection: some View {
         Section {
             Text(pairingMode.instructions)
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -165,7 +165,7 @@ struct AlleycatAddServerSheet: View {
             }
         } header: {
             Text("Pairing")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
@@ -184,7 +184,7 @@ struct AlleycatAddServerSheet: View {
                 Image(systemName: "qrcode.viewfinder")
                     .foregroundColor(LitterTheme.accent)
                 Text(parsedParams == nil ? "Scan Pairing QR" : "Rescan QR")
-                    .litterFont(.subheadline)
+                    .litterFont(.body)
                     .foregroundColor(LitterTheme.accent)
             }
         }
@@ -206,14 +206,14 @@ struct AlleycatAddServerSheet: View {
     @ViewBuilder
     private func pasteJSONEntryControls(minHeight: CGFloat) -> some View {
         TextEditor(text: $pasteJSON)
-            .litterFont(.caption)
+            .litterFont(.footnote)
             .foregroundColor(LitterTheme.textPrimary)
             .scrollContentBackground(.hidden)
             .frame(minHeight: minHeight)
             .overlay(alignment: .topLeading) {
                 if pasteJSON.isEmpty {
                     Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
-                        .litterFont(.caption)
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                         .padding(.top, 8)
                         .padding(.leading, 4)
@@ -252,13 +252,13 @@ struct AlleycatAddServerSheet: View {
                 previewRow(label: "host", value: hostName)
             }
             TextField("display name (optional)", text: $displayName)
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
         } header: {
             Text("Scanned Host")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
@@ -269,12 +269,12 @@ struct AlleycatAddServerSheet: View {
                 HStack {
                     ProgressView().tint(LitterTheme.accent)
                     Text("Loading agents")
-                        .litterFont(.caption)
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             } else if availableAgents.isEmpty {
                 Text("No agents are available on this host.")
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
             } else {
                 ForEach(availableAgents, id: \.name) { agent in
@@ -288,14 +288,14 @@ struct AlleycatAddServerSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(agent.displayName)
-                                        .litterFont(.subheadline)
+                                        .litterFont(.body)
                                         .foregroundColor(agent.available ? LitterTheme.textPrimary : LitterTheme.textMuted)
                                     if AgentRuntimeKind.isBetaAgentName(agent.name, displayName: agent.displayName) {
                                         BetaBadge()
                                     }
                                 }
                                 Text(wireLabel(agent.wire))
-                                    .litterFont(.caption)
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
                             Spacer()
@@ -304,7 +304,7 @@ struct AlleycatAddServerSheet: View {
                                     .foregroundColor(LitterTheme.accent)
                             } else if !agent.available {
                                 Text("Unavailable")
-                                    .litterFont(.caption)
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textMuted)
                             } else {
                                 Image(systemName: "square")
@@ -339,11 +339,11 @@ struct AlleycatAddServerSheet: View {
     private func previewRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textSecondary)
             Spacer()
             Text(value)
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -361,7 +361,7 @@ struct AlleycatAddServerSheet: View {
                     }
                     Text("Connect")
                         .foregroundColor(LitterTheme.accent)
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                 }
             }
             .disabled(!canConnect)
@@ -372,7 +372,7 @@ struct AlleycatAddServerSheet: View {
     private func errorSection(_ message: String, color: Color) -> some View {
         Section {
             Text(message)
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(color)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))

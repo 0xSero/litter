@@ -36,7 +36,7 @@ struct SettingsView: View {
                     accountSection
                     Section {
                         NavigationLink("Harnesses") { HarnessSettingsView() }
-                            .litterFont(.footnote)
+                            .litterFont(.body)
                             .foregroundStyle(LitterTheme.textPrimary)
                             .listRowBackground(LitterTheme.surface.opacity(0.6))
                     }
@@ -64,7 +64,8 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .foregroundColor(LitterTheme.accent)
+                        .fontWeight(.semibold)
+                        .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .sheet(item: $activeServerSheet) { sheet in
@@ -148,18 +149,15 @@ struct SettingsView: View {
                 AppearanceSettingsView()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "paintbrush")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     Text("Appearance")
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Theme")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -169,15 +167,12 @@ struct SettingsView: View {
         Section {
             Toggle(isOn: $collapseTurns) {
                 HStack(spacing: 10) {
-                    Image(systemName: "rectangle.compress.vertical")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Collapse Turns")
-                            .litterFont(.subheadline)
+                            .litterFont(.body)
                             .foregroundColor(LitterTheme.textPrimary)
                         Text("Collapse previous turns into cards; large conversations collapse automatically")
-                            .litterFont(.caption)
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                 }
@@ -207,7 +202,7 @@ struct SettingsView: View {
             )
         } header: {
             Text("Conversation")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -223,21 +218,18 @@ struct SettingsView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .foregroundColor(LitterTheme.accent)
-                    .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text(subtitle)
-                        .litterFont(.caption)
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             }
         }
         .pickerStyle(.menu)
-        .tint(LitterTheme.accent)
+        .tint(LitterTheme.textSecondary)
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
@@ -254,7 +246,7 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(option.displayName)
-                                .litterFont(.subheadline)
+                                .litterFont(.body)
                                 .foregroundColor(LitterTheme.textPrimary)
                             Text("The quick brown fox")
                                 .font(LitterFont.sampleFont(family: option, size: 14))
@@ -264,7 +256,7 @@ struct SettingsView: View {
                         if fontFamily == option.rawValue {
                             Image(systemName: "checkmark")
                                 .litterFont(.subheadline, weight: .semibold)
-                                .foregroundColor(LitterTheme.accentStrong)
+                                .foregroundColor(LitterTheme.textPrimary)
                         }
                     }
                 }
@@ -272,7 +264,7 @@ struct SettingsView: View {
             }
         } header: {
             Text("Font")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -284,16 +276,13 @@ struct SettingsView: View {
                 PetSettingsView()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "pawprint.fill")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Wake Pet")
-                            .litterFont(.subheadline)
+                            .litterFont(.body)
                             .foregroundColor(LitterTheme.textPrimary)
                         if let pet = PetOverlayController.shared.selectedPet {
                             Text(pet.displayName)
-                                .litterFont(.caption)
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                     }
@@ -302,7 +291,7 @@ struct SettingsView: View {
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Pet")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -314,18 +303,15 @@ struct SettingsView: View {
                 ExperimentalFeaturesView()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "flask")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     Text("Experimental Features")
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Experimental")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -337,18 +323,15 @@ struct SettingsView: View {
                 TipJarView()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "pawprint.fill")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     Text("Tip the Kitty")
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Support")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -358,27 +341,25 @@ struct SettingsView: View {
         Section {
             Link(destination: URL(string: "https://localstudio.ai")!) {
                 HStack(spacing: 10) {
-                    Image(systemName: "desktopcomputer")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Local Studio")
-                            .litterFont(.subheadline)
+                            .litterFont(.body)
                             .foregroundColor(LitterTheme.textPrimary)
                         Text("localstudio.ai")
-                            .litterFont(.caption)
+                            .litterMeta()
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     Spacer()
                     Image(systemName: "arrow.up.right")
-                        .litterFont(.caption, weight: .semibold)
-                        .foregroundColor(LitterTheme.textMuted)
+                        .litterFont(.footnote, weight: .semibold)
+                        .foregroundColor(LitterTheme.meta)
+                        .accessibilityHidden(true)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Local AI")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -400,7 +381,7 @@ struct SettingsView: View {
         Section {
             if connectedServers.isEmpty {
                 Text("No servers connected")
-                    .litterFont(.footnote)
+                    .litterFont(.body)
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             } else {
@@ -410,16 +391,12 @@ struct SettingsView: View {
                             activeServerSheet = .edit(conn)
                         } label: {
                             HStack {
-                                Image(systemName: conn.isLocal ? "iphone" : "server.rack")
-                                    .foregroundColor(LitterTheme.accent)
-                                    .frame(width: 20)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(conn.displayName)
-                                        .litterFont(.footnote)
+                                        .litterFont(.body)
                                         .foregroundColor(LitterTheme.textPrimary)
-                                    Text(conn.health.displayLabel)
-                                        .litterFont(.caption)
-                                        .foregroundColor(conn.health.accentColor)
+                                    Text(conn.health.displayLabel.lowercased())
+                                        .litterMeta(conn.health.accentColor)
                                 }
                                 Spacer()
                             }
@@ -428,7 +405,7 @@ struct SettingsView: View {
                         Button("Remove") {
                             removeServer(conn)
                         }
-                        .litterFont(.caption)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.danger)
                         .buttonStyle(.borderless)
                     }
@@ -440,19 +417,16 @@ struct SettingsView: View {
                 activeServerSheet = .add
             } label: {
                 HStack {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
                     Text("Add Server")
-                        .litterFont(.footnote)
-                        .foregroundColor(LitterTheme.accent)
+                        .litterFont(.body)
+                        .foregroundColor(LitterTheme.textPrimary)
                     Spacer()
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Servers")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 
@@ -792,7 +766,7 @@ private struct SettingsServerConnectionEditor: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
-                        .foregroundColor(LitterTheme.accent)
+                        .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .alert("Invalid Server", isPresented: Binding(
@@ -813,7 +787,7 @@ private struct SettingsServerConnectionEditor: View {
                 .foregroundColor(LitterTheme.textPrimary)
         } header: {
             Text("Name")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
@@ -822,11 +796,11 @@ private struct SettingsServerConnectionEditor: View {
         Section {
             if isSpecialPairedServer {
                 Text("This paired server uses saved pairing metadata. Edit its display name here, or remove and add it again to change the pairing.")
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
             } else if connectionMode == .local {
                 Text("This device's local runtime is managed automatically.")
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
             } else {
                 Picker("Connection Type", selection: $connectionMode) {
@@ -867,7 +841,7 @@ private struct SettingsServerConnectionEditor: View {
             }
         } header: {
             Text(connectionMode.formHeader)
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         } footer: {
             if !isSpecialPairedServer, connectionMode == .websocket {
                 Text("Prefer SSH when possible. If you run codex manually, bind loopback and tunnel it yourself; do not expose it directly to the internet unless you know what you are doing.")
@@ -891,15 +865,15 @@ private struct SettingsServerConnectionEditor: View {
             Button("Save") {
                 submit(reconnect: false)
             }
-            .foregroundColor(LitterTheme.accent)
-            .litterFont(.subheadline)
+            .foregroundColor(LitterTheme.textPrimary)
+            .litterFont(.body)
 
             if !isSpecialPairedServer {
                 Button(connectionMode == .local ? "Save & Restart" : "Save & Reconnect") {
                     submit(reconnect: true)
                 }
-                .foregroundColor(LitterTheme.accent)
-                .litterFont(.subheadline)
+                .foregroundColor(LitterTheme.textPrimary)
+                .litterFont(.body)
             }
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -1071,17 +1045,13 @@ private struct SettingsConnectionAccountSection: View {
     var body: some View {
         Section {
             HStack(spacing: 12) {
-                Circle()
-                    .fill(authColor)
-                    .frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(authTitle)
-                        .litterFont(.subheadline)
+                        .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                     if let sub = authSubtitle {
                         Text(sub)
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textSecondary)
+                            .litterMeta(authColor)
                     }
                 }
                 Spacer()
@@ -1089,7 +1059,7 @@ private struct SettingsConnectionAccountSection: View {
                     Button("Logout") {
                         Task { await logout() }
                     }
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.danger)
                 }
             }
@@ -1097,15 +1067,15 @@ private struct SettingsConnectionAccountSection: View {
 
             if server.isLocal, hasStoredApiKey {
                 Text("Local OpenAI API key is saved.")
-                    .litterFont(.caption)
-                    .foregroundColor(LitterTheme.accent)
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textPrimary)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
             if server.isLocal, hasStoredBaseURL {
                 Text("OpenAI-compatible base URL is saved.")
-                    .litterFont(.caption)
-                    .foregroundColor(LitterTheme.accent)
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textPrimary)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
@@ -1123,9 +1093,9 @@ private struct SettingsConnectionAccountSection: View {
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
                         Text("Login with ChatGPT")
-                            .litterFont(.subheadline)
+                            .litterFont(.body)
                     }
-                    .foregroundColor(LitterTheme.accent)
+                    .foregroundColor(LitterTheme.textPrimary)
                 }
                 .disabled(isAuthWorking)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -1136,11 +1106,11 @@ private struct SettingsConnectionAccountSection: View {
                     VStack(alignment: .leading, spacing: 6) {
                         if hasStoredApiKey {
                             Text("OpenAI API key saved in the local environment.")
-                                .litterFont(.caption)
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textSecondary)
                         } else if isChatGPTAccount {
                             Text("Save an API key in the local Codex environment.")
-                                .litterFont(.caption)
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                         SecureField("sk-...", text: $apiKey)
@@ -1160,8 +1130,8 @@ private struct SettingsConnectionAccountSection: View {
                     } label: {
                         Text(hasStoredApiKey ? "Update API Key" : "Save API Key")
                     }
-                    .litterFont(.caption)
-                    .foregroundColor(LitterTheme.accent)
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textPrimary)
                     .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isAuthWorking)
                 }
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -1169,11 +1139,11 @@ private struct SettingsConnectionAccountSection: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if hasStoredBaseURL {
                         Text("Custom OpenAI-compatible endpoint saved for the local Codex server.")
-                            .litterFont(.caption)
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
                     } else {
                         Text("Optional OpenAI-compatible endpoint for local models.")
-                            .litterFont(.caption)
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     HStack(spacing: 8) {
@@ -1193,8 +1163,8 @@ private struct SettingsConnectionAccountSection: View {
                         } label: {
                             Text(hasStoredBaseURL ? "Update Base URL" : "Save Base URL")
                         }
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.accent)
+                        .litterFont(.footnote)
+                        .foregroundColor(LitterTheme.textPrimary)
                         .disabled(openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthWorking)
                     }
                     if hasStoredBaseURL {
@@ -1205,7 +1175,7 @@ private struct SettingsConnectionAccountSection: View {
                                 isAuthWorking = false
                             }
                         }
-                        .litterFont(.caption)
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.danger)
                         .disabled(isAuthWorking)
                     }
@@ -1215,13 +1185,13 @@ private struct SettingsConnectionAccountSection: View {
 
             if let authError {
                 Text(authError)
-                    .litterFont(.caption)
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.danger)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
         } header: {
             Text("Account")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
         .task(id: server.serverId) {
             refreshStoredCredentialFlags()
@@ -1246,14 +1216,10 @@ private struct SettingsConnectionAccountSection: View {
 
     private var authColor: Color {
         switch server.account {
-        case .chatgpt?:
-            return LitterTheme.accent
-        case .apiKey?:
-            return Color(hex: "#00AAFF")
-        case nil where server.isLocal && hasStoredChatGPTTokens:
-            return LitterTheme.accent.opacity(0.7)
-        case nil where server.isLocal && hasStoredApiKey:
-            return Color(hex: "#00AAFF").opacity(0.7)
+        case .chatgpt?, .apiKey?:
+            return LitterTheme.textSecondary
+        case nil where server.isLocal && (hasStoredChatGPTTokens || hasStoredApiKey):
+            return LitterTheme.meta
         case nil:
             return LitterTheme.textMuted
         }
@@ -1432,12 +1398,12 @@ private struct SettingsDisconnectedAccountSection: View {
     var body: some View {
         Section {
             Text("Local Codex isn't running. ChatGPT login and API key entry require the local bridge.")
-                .litterFont(.caption)
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textMuted)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
             Text("Account")
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterSectionLabel()
         }
     }
 }
