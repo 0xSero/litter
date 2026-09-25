@@ -132,6 +132,7 @@ jobs:
           bash apps/ios/scripts/tests/testflight-finalize.test.sh
           bash apps/ios/scripts/tests/app-store-release.test.sh
           python3 tools/scripts/tests/test_fetch_mobile_store_artifacts.py
+          python3 tools/scripts/test-opencode-logging.py --shell /bin/sh -v
 
       - name: Package shared mobile sources
         run: |

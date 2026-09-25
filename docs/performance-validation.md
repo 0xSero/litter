@@ -559,6 +559,86 @@ had no Developer ID signing inputs. Verify final public artifacts' signing
 identity separately. Exact checksums, source provenance and scripts are under
 `artifacts/performance-steward/kittylitter-release-dry-run-36085779007/`.
 
+## Updated Kittylitter logging candidate
+
+The preceding package measurements are historical results for wrapper `888d967`
+and host `c27278bf`. The new candidate uses wrapper
+`cd0143178cd52669ea836c027b378958964796f5` and Alleycat
+`16fd85546440b14030c371914a26d39620e54e46`; its separate
+[release dry run](https://github.com/0xSero/litter/actions/runs/36090367177) passed
+all five native builds, global package generation and the actual packaged Windows
+npm installer. Hosting, npm publication and announcement were skipped. The final
+npm tarball SHA-256 is
+`88e7471a9d7a35b523d1df73a3af3e390c348eee7d355ba11a8556de18d88700`.
+
+Dated daemon diagnostics now retain at most seven files of 8 MiB each, with
+lossy overflow markers. OpenCode child stderr drains through tracing in owned
+4 KiB chunks, with cancellation on readiness failure and child teardown. Native
+source validation passed 120 daemon and 76 OpenCode library tests on macOS;
+[Windows CI](https://github.com/0xSero/alleycat/actions/runs/36090215305) passed six
+logger and seven OpenCode tests, including real child error/EOF behavior. Raw
+service startup errors, panics and logger failures can still grow
+`service-startup.log`; legacy bare logs and durable session history are preserved.
+This is a diagnostic-log bound, not a global storage-retention guarantee.
+
+Fresh-cache fixture installations passed on macOS arm64 and actual Linux x86_64
+and arm64 hosts. Both macOS architectures passed version/help, with Intel run
+through Rosetta. All five archive checksums matched their CI sidecars. These tests
+use the exact generated package with local archive URLs; public-registry and
+hosted-download acceptance remain pending publication. macOS arm64 is ad-hoc
+signed and Intel unsigned in this run; no production-signing success is claimed.
+
+The new macOS arm64 package passed six authenticated RPCs and a separate
+420-listing, three-pass traversal of 1,000 Pi sessions. Each traversal returned all
+sessions without duplicates, with no prompt or turn-start calls. Initial listing
+took 127.615 ms; warm first-page medians were 58.804, 58.625 and 59.040 ms, with
+p95 values of 69.675, 68.817 and 79.035 ms. One page in the third traversal took
+1,786.967 ms. No corresponding daemon error was found, and this unexplained
+outlier remains part of the result.
+
+Open files stayed at 25 after each pass. Daemon CPU time reached 2.48 seconds and
+did not rise during the idle observation. RSS declined from 57,216 to 47,472 KiB
+during idle; the latter passes each added 15,872 log bytes while the session index
+stayed unchanged. All fixtures remained intact, exit status was zero, no child
+process survived shutdown, and temporary local/remote profiles were removed.
+These short exact-artifact checks do not prove sustained leak freedom or a
+performance percentile. Raw evidence is in
+`artifacts/performance-steward/kittylitter-release-dry-run-36090367177/`.
+
+## Remote OpenCode startup diagnostics
+
+The mobile SSH launcher previously redirected a persistent remote OpenCode server
+into uncapped `out.log` and `err.log` files. The launcher now retains at most the
+first 64 KiB of each stream and continues draining subsequent bytes. Closing a
+finite consumer at the cap would kill a writing server with SIGPIPE; the readers
+keep their input descriptors open across that transition. These files are bounded
+startup diagnostics, not a recent runtime log. Each failure-fetch path also bounds
+legacy files to 16 KiB before selecting the final 120 lines.
+
+A detached supervisor owns the server and its readers. Private capture directories
+isolate overlapping launches; publication failures, setup failures and normal
+server termination clean up owned workers and helper files. A bounded EOF grace
+allows startup errors to drain while preventing inherited descendant descriptors
+from keeping readers alive indefinitely. Generic detached-session stdout carries
+protocol data and is not truncated by this change.
+
+Fourteen behavior tests passed on each of macOS `/bin/sh`, macOS `/bin/dash`, and
+Linux `/bin/sh` (42 executions). They cover burst and slow writes past the caps,
+HUP, server exit with inherited writer descriptors, delayed startup errors,
+failed or unsupported readers, unwritable files, FIFO and PID publication errors,
+helper launch failure, overlapping launches and newline-free legacy diagnostics.
+Rendered shell syntax and ShellCheck passed. The same regression command is now
+part of mobile CI: `python3 tools/scripts/test-opencode-logging.py --shell /bin/sh -v`.
+
+A separate Linux test launched an isolated fake server in one SSH connection,
+closed that connection, then verified an advancing heartbeat and two 65,536-byte
+files from a second connection. Cleanup was verified. This proves launcher
+persistence across an actual SSH disconnect, not an installed OpenCode backend's
+full protocol or model behavior. The per-server bounds are not a global cap on
+remote storage or durable agent history; forced supervisor SIGKILL and machine
+crashes can leave private helper remnants. Raw evidence is in
+`artifacts/performance-steward/opencode-logging-{macos-sh,macos-dash,linux-sh,real-ssh-check}.log`.
+
 ## Remaining release gates
 
 - Finish remote CI and investigate the final simulator launch/CPU regressions;
@@ -624,3 +704,53 @@ not continuity of an existing agent stream or behavior with the overlay service
 active. Those remain separate gates. Logs are under
 `artifacts/performance-steward/android-lifecycle-authenticated.log`,
 `android-lifecycle-endpoint-only.log`, and `android-lifecycle-timings.log`.
+
+
+## Same-source launch configuration diagnostics
+
+After the Watch/shutdown correction (`7ab49f56`, measured at source HEAD
+`29a2b0a7`), the normal Home launch test passed separately for each configuration
+below on the same iPhone 17 Pro simulator, iOS 26.0, Xcode 26.0.1, and shared
+MacBook Pro18,2. Each row contains five measured relaunches after a discarded
+warmup. The test terminates the app before starting measurement, launches without
+fixture arguments, and verifies that the Settings button exists and is hittable.
+The responsive first-frame metric is separate from test-driver wall time.
+
+| Configuration | Responsive first frame, mean (range) | Test-driver wall mean | Main executable size |
+| --- | --- | --- | --- |
+| Release Swift, existing `ios-dev` Rust, ordinary local build | 2.581282 s (2.304685–2.982991) | 4.823074 s | 382,637,128 B |
+| Same-source Debug, same Rust archive | 2.922885 s (2.702964–3.142457) | 4.931651 s | 498,454,720 B Debug dylib |
+| Minimal Release SwiftUI control, no Rust or app services | 1.271737 s (1.255738–1.296800) | 4.450385 s | 69,040 B |
+| Release Swift, same Rust archive, standard deployment postprocessing | 2.777855 s (2.708443–2.884858) | 4.738717 s | 257,754,824 B |
+
+These runs reuse the same Debug UI test runner and compiled test. Target bundle
+paths and product search paths were changed in copies of the generated
+`.xctestrun` file; the installed executable's SHA-256 was checked against the
+corresponding build after every run. The control uses a separate bundle identifier
+and contains only a SwiftUI window and enabled Settings button. Its installation
+did not change Litter's installed binary.
+
+The optimized local builds use Release Swift but retain the existing `ios-dev`
+Rust archive (SHA-256 `4703d6e9f339e72914f8061a9759b58793fe051d5b3b9e61882ae29c0f47203e`).
+They are not shipping-profile or physical-device measurements. The ordinary local
+Release build had `DEPLOYMENT_POSTPROCESSING=NO`; the final diagnostic enables it
+while keeping `DEPLOYMENT_LOCATION=NO`. This rebuilt and stripped the products,
+reducing executable size by 32.6%, but did not demonstrate faster launch. The
+original app bundle was preserved. Local builds used DWARF without dSYM export;
+an earlier dSYM generation attempt was canceled and is not a successful build.
+No product build configuration was changed by these experiments.
+
+Other compilers and host performance probes were paused, but ordinary user apps
+and the Android emulator remained running. Run order was optimized, Debug,
+control, then postprocessed optimized; it was not randomized and OS caches were
+retained. Thus these comparisons are diagnostic, not a controlled estimate of
+compiler or stripping speedups. The control establishes headroom in this test
+setup without identifying Litter's bottleneck; subtracting it from Litter's time
+would not be a causal breakdown. The earlier launch and navigation CPU regressions
+remain recorded above. No instant-start or overall startup improvement is claimed.
+
+Raw metrics and installed-artifact identities are in
+`artifacts/performance-steward/ios-launch-profile-comparison-7ab49f56.json`, the
+adjacent optimized/Debug/stripped `.xcresult` bundles and environment JSON files,
+and `ios-launch-control/`. The test is
+`MobilePerformanceUITests.testMainHomeLaunchPerformance`.
