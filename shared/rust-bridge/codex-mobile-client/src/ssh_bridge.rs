@@ -220,6 +220,19 @@ impl From<SshError> for SshBridgeError {
 pub async fn probe_remote_agents(
     ssh: &Arc<SshClient>,
 ) -> Result<Vec<RemoteAgentAvailability>, SshBridgeError> {
+    if let Some(cached) = ssh.with_detection(|d| d.agents.clone()) {
+        info!("ssh bridge agent probe cached availability={cached:?}");
+        return Ok(cached);
+    }
+    let availability = probe_remote_agents_uncached(ssh).await?;
+    let stored = availability.clone();
+    ssh.with_detection(|d| d.agents = Some(stored));
+    Ok(availability)
+}
+
+pub(crate) async fn probe_remote_agents_uncached(
+    ssh: &SshClient,
+) -> Result<Vec<RemoteAgentAvailability>, SshBridgeError> {
     info!("ssh bridge agent probe start");
     let shell = ssh.detect_remote_shell().await;
     info!("ssh bridge agent probe shell={shell:?}");
@@ -323,56 +336,23 @@ pub async fn connect_runtime_resources_via_ssh(
         state_root.display(),
         runtime_kinds
     );
+    // Warm the (memoized) shell probe once so the concurrent runtime
+    // connects below share it instead of racing to probe.
+    let _ = ssh.detect_remote_shell().await;
+    // Each runtime's bootstrap is independent (own CLI lookup, own bridge,
+    // own stream), so connect them concurrently rather than one after the
+    // other. Results keep the requested order; the first error still wins.
+    let connects = runtime_kinds.into_iter().map(|kind| {
+        let ssh = Arc::clone(&ssh);
+        let state_root = state_root.clone();
+        async move { connect_one_runtime_via_ssh(ssh, &state_root, kind, transport, prefer_ipv6).await }
+    });
     let mut resources = Vec::new();
     let mut infos = Vec::new();
-    for kind in runtime_kinds {
-        info!("ssh bridge runtime connect begin kind={kind:?}");
-        let (client, trait_transport) = if kind == "codex" {
-            let (client, reconnect_transport) =
-                connect_codex_via_ssh(Arc::clone(&ssh), prefer_ipv6).await?;
-            let t: Arc<dyn RemoteTransport> = Arc::new(reconnect_transport);
-            (client, Some(t))
-        } else {
-            let state_dir = state_root.join(runtime_label(&kind));
-            let current_close = Arc::new(StdMutex::new(None));
-            let (client, close_handle) = connect_app_server_client_via_ssh_with_close(
-                Arc::clone(&ssh),
-                &state_dir,
-                kind.clone(),
-                None,
-                transport,
-            )
-            .await?;
-            if let Some(close_handle) = close_handle {
-                *current_close
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner()) = Some(close_handle);
-            }
-            let reconnect_transport = SshBridgeReconnectTransport {
-                ssh: Arc::clone(&ssh),
-                state_dir,
-                kind: kind.clone(),
-                transport,
-                current_close,
-            };
-            let t: Arc<dyn RemoteTransport> = Arc::new(reconnect_transport);
-            (client, Some(t))
-        };
-        info!("ssh bridge runtime connect ready kind={kind:?}");
-        let name = runtime_label(&kind).to_string();
-        let display_name = runtime_display_name(&kind).to_string();
-        resources.push(RuntimeRemoteSessionResource {
-            runtime_kind: kind.clone(),
-            client,
-            transport: trait_transport,
-            keepalive: None,
-        });
-        infos.push(AgentRuntimeInfo {
-            kind,
-            name,
-            display_name,
-            available: true,
-        });
+    for result in futures::future::join_all(connects).await {
+        let (resource, info) = result?;
+        resources.push(resource);
+        infos.push(info);
     }
     info!(
         "ssh bridge runtime connect complete registered_runtimes={:?}",
@@ -382,6 +362,131 @@ pub async fn connect_runtime_resources_via_ssh(
             .collect::<Vec<_>>()
     );
     Ok((resources, infos))
+}
+
+async fn connect_one_runtime_via_ssh(
+    ssh: Arc<SshClient>,
+    state_root: &Path,
+    kind: AgentRuntimeKind,
+    transport: SshBridgeTransport,
+    prefer_ipv6: bool,
+) -> Result<(RuntimeRemoteSessionResource, AgentRuntimeInfo), SshBridgeError> {
+    info!("ssh bridge runtime connect begin kind={kind:?}");
+    let (client, trait_transport) = if kind == "codex" {
+        let (client, reconnect_transport) =
+            connect_codex_via_ssh(Arc::clone(&ssh), prefer_ipv6).await?;
+        let t: Arc<dyn RemoteTransport> = Arc::new(reconnect_transport);
+        (client, Some(t))
+    } else {
+        let state_dir = state_root.join(runtime_label(&kind));
+        let current_close = Arc::new(StdMutex::new(None));
+        let (client, close_handle) = connect_app_server_client_via_ssh_with_close(
+            Arc::clone(&ssh),
+            &state_dir,
+            kind.clone(),
+            None,
+            transport,
+        )
+        .await?;
+        if let Some(close_handle) = close_handle {
+            *current_close
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(close_handle);
+        }
+        let reconnect_transport = SshBridgeReconnectTransport {
+            ssh: Arc::clone(&ssh),
+            state_dir,
+            kind: kind.clone(),
+            transport,
+            current_close,
+        };
+        let t: Arc<dyn RemoteTransport> = Arc::new(reconnect_transport);
+        (client, Some(t))
+    };
+    info!("ssh bridge runtime connect ready kind={kind:?}");
+    let name = runtime_label(&kind).to_string();
+    let display_name = runtime_display_name(&kind).to_string();
+    Ok((
+        RuntimeRemoteSessionResource {
+            runtime_kind: kind.clone(),
+            client,
+            transport: trait_transport,
+            keepalive: None,
+        },
+        AgentRuntimeInfo {
+            kind,
+            name,
+            display_name,
+            available: true,
+        },
+    ))
+}
+
+/// Re-run every probe whose result is in `previous` against the live
+/// connection, bypassing the memo, and return the fresh detection. Used by
+/// the stale-while-revalidate refresh after a cached reconnect. Probes that
+/// fail keep no entry (so the next reconnect re-probes them).
+pub(crate) async fn revalidate_detection(
+    ssh: &SshClient,
+    previous: &crate::ssh::SshDetection,
+) -> crate::ssh::SshDetection {
+    let shell = ssh.detect_remote_shell_uncached().await;
+    let mut fresh = crate::ssh::SshDetection {
+        shell: Some(shell),
+        ..Default::default()
+    };
+    let codex = async {
+        if previous.codex_path.is_none() {
+            return None;
+        }
+        let binary = ssh.resolve_codex_binary_uncached(shell).await.ok()??;
+        let (proxy, daemon, version) = tokio::join!(
+            ssh.app_server_proxy_supported_uncached(&binary, shell),
+            ssh.app_server_daemon_supported_uncached(&binary, shell),
+            ssh.read_server_version_uncached(binary.path(), shell),
+        );
+        Some((binary.path().to_string(), proxy.ok(), daemon.ok(), version))
+    };
+    let agents = async {
+        if previous.agents.is_none() {
+            return None;
+        }
+        probe_remote_agents_uncached(ssh).await.ok()
+    };
+    let clis = futures::future::join_all(previous.cli_paths.keys().map(|key| async move {
+        let candidates = key.split('\n').map(str::to_string).collect::<Vec<_>>();
+        let path = resolve_remote_cli_uncached(ssh, shell, &candidates).await.ok()?;
+        let validated = if previous.validated_clis.iter().any(|v| v == &previous.cli_paths[key]) {
+            validate_remote_cli_executes_uncached(ssh, shell, &path, "cli")
+                .await
+                .is_ok()
+        } else {
+            false
+        };
+        Some((key.clone(), path, validated))
+    }));
+    let omp = async {
+        if previous.omp_agent_dir.is_none() {
+            return None;
+        }
+        resolve_omp_agent_dir_uncached(ssh, shell).await.ok()
+    };
+    let (codex, agents, clis, omp) = tokio::join!(codex, agents, clis, omp);
+    if let Some((path, proxy, daemon, version)) = codex {
+        fresh.codex_path = Some(path);
+        fresh.app_server_proxy_supported = proxy;
+        fresh.app_server_daemon_supported = daemon;
+        fresh.codex_version = version;
+    }
+    fresh.agents = agents;
+    for (key, path, validated) in clis.into_iter().flatten() {
+        if validated {
+            fresh.validated_clis.push(path.clone());
+        }
+        fresh.cli_paths.insert(key, path);
+    }
+    fresh.omp_agent_dir = omp;
+    fresh
 }
 
 #[derive(Clone)]
@@ -510,14 +615,14 @@ async fn connect_bridge_runtime_via_ssh(
     };
     let bridge: Arc<dyn Bridge> = match kind.as_str() {
         "claude" => {
-            let bin = resolve_remote_cli(
-                &ssh,
-                shell,
-                &cli_candidates(&["claude"], bin_override.as_deref()),
-            )
-            .await?;
+            // CLI lookup and session-index hydration are independent execs.
+            let candidates = cli_candidates(&["claude"], bin_override.as_deref());
+            let (bin, ()) = tokio::join!(
+                resolve_remote_cli(&ssh, shell, &candidates),
+                hydrate_remote_claude_index(&ssh, shell, &state_dir)
+            );
+            let bin = bin?;
             info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
-            hydrate_remote_claude_index(&ssh, shell, &state_dir).await;
             ClaudeBridge::builder()
                 .agent_bin(bin)
                 .launcher(Arc::clone(&launcher))
@@ -563,16 +668,7 @@ async fn connect_bridge_runtime_via_ssh(
             };
             info!("ssh bridge resolved runtime cli kind={kind:?} bin={bin}");
             let omp_agent_dir = if kind == "omp" {
-                let result = ssh
-                    .exec_shell("printf '%s/.omp/agent\n' \"$HOME\"", shell)
-                    .await?;
-                let directory = result.stdout.trim().to_string();
-                if result.exit_code != 0 || !directory.starts_with('/') {
-                    return Err(SshBridgeError::BridgeStartupFailed(
-                        "Could not resolve the remote OMP home".into(),
-                    ));
-                }
-                Some(directory)
+                Some(resolve_omp_agent_dir(&ssh, shell).await?)
             } else {
                 None
             };
@@ -887,7 +983,53 @@ fn cli_candidates(defaults: &[&str], bin_override: Option<&str>) -> Vec<String> 
         .collect()
 }
 
+async fn resolve_omp_agent_dir(
+    ssh: &SshClient,
+    shell: RemoteShell,
+) -> Result<String, SshBridgeError> {
+    if let Some(dir) = ssh.with_detection(|d| d.omp_agent_dir.clone()) {
+        return Ok(dir);
+    }
+    let dir = resolve_omp_agent_dir_uncached(ssh, shell).await?;
+    let stored = dir.clone();
+    ssh.with_detection(|d| d.omp_agent_dir = Some(stored));
+    Ok(dir)
+}
+
+async fn resolve_omp_agent_dir_uncached(
+    ssh: &SshClient,
+    shell: RemoteShell,
+) -> Result<String, SshBridgeError> {
+    let result = ssh
+        .exec_shell("printf '%s/.omp/agent\n' \"$HOME\"", shell)
+        .await?;
+    let directory = result.stdout.trim().to_string();
+    if result.exit_code != 0 || !directory.starts_with('/') {
+        return Err(SshBridgeError::BridgeStartupFailed(
+            "Could not resolve the remote OMP home".into(),
+        ));
+    }
+    Ok(directory)
+}
+
 async fn resolve_remote_cli(
+    ssh: &SshClient,
+    shell: RemoteShell,
+    candidates: &[String],
+) -> Result<String, SshBridgeError> {
+    let key = crate::ssh::cli_key(candidates);
+    if let Some(path) = ssh.with_detection(|d| d.cli_paths.get(&key).cloned()) {
+        return Ok(path);
+    }
+    let path = resolve_remote_cli_uncached(ssh, shell, candidates).await?;
+    let stored = path.clone();
+    ssh.with_detection(|d| {
+        d.cli_paths.insert(key, stored);
+    });
+    Ok(path)
+}
+
+async fn resolve_remote_cli_uncached(
     ssh: &SshClient,
     shell: RemoteShell,
     candidates: &[String],
@@ -935,6 +1077,25 @@ exit 127"#
 }
 
 async fn validate_remote_cli_executes(
+    ssh: &SshClient,
+    shell: RemoteShell,
+    bin: &str,
+    label: &str,
+) -> Result<(), SshBridgeError> {
+    if ssh.with_detection(|d| d.validated_clis.iter().any(|v| v == bin)) {
+        return Ok(());
+    }
+    validate_remote_cli_executes_uncached(ssh, shell, bin, label).await?;
+    let stored = bin.to_string();
+    ssh.with_detection(|d| {
+        if !d.validated_clis.contains(&stored) {
+            d.validated_clis.push(stored);
+        }
+    });
+    Ok(())
+}
+
+async fn validate_remote_cli_executes_uncached(
     ssh: &SshClient,
     shell: RemoteShell,
     bin: &str,

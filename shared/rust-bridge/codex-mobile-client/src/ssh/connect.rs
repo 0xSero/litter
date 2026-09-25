@@ -14,7 +14,8 @@ use tracing::{error, info, warn};
 
 use super::{
     CONNECT_TIMEOUT, KEEPALIVE_INTERVAL, SSH_CHANNEL_BUFFER_SIZE, SSH_CHANNEL_WINDOW_SIZE,
-    SSH_MAX_PACKET_SIZE, SshAuth, SshClient, SshCredentials, SshError, append_bridge_info_log,
+    SSH_MAX_PACKET_SIZE, SshAuth, SshClient, SshCredentials, SshDetection, SshError,
+    append_bridge_info_log,
     normalize_host,
 };
 
@@ -227,6 +228,8 @@ impl SshClient {
             handle: Arc::new(Mutex::new(handle)),
             forward_tasks: Mutex::new(HashMap::new()),
             macos_keychain_password,
+            detection: std::sync::Mutex::new(SshDetection::default()),
+            shell_probe: Mutex::new(()),
         }
     }
 

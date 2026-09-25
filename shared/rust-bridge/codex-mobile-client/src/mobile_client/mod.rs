@@ -2388,10 +2388,33 @@ impl MobileClient {
         );
 
         let use_ipv6 = config.host.contains(':');
-        let bootstrap = match ssh_client
+        // Seed codex path/shell/capabilities from the per-server cache so a
+        // reconnect skips the detection probes. No cache entry (first-ever
+        // connect) leaves the bootstrap exactly as before.
+        let observed = observed_fingerprint.lock().await.clone();
+        let mut detect_cache = crate::ssh_detect_cache::DetectionCacheSession::begin(
+            self.mobile_preferences_directory(),
+            crate::ssh_detect_cache::CacheKey::new(
+                &server_id,
+                &ssh_credentials.host,
+                ssh_credentials.port,
+                &ssh_credentials.username,
+                observed.as_deref(),
+            ),
+            &ssh_client,
+        );
+        let mut bootstrap_result = ssh_client
             .bootstrap_codex_server(working_dir.as_deref(), use_ipv6)
-            .await
+            .await;
+        if bootstrap_result.is_err()
+            && let Some(cache) = detect_cache.as_mut()
+            && cache.on_failure(&ssh_client)
         {
+            bootstrap_result = ssh_client
+                .bootstrap_codex_server(working_dir.as_deref(), use_ipv6)
+                .await;
+        }
+        let bootstrap = match bootstrap_result {
             Ok(result) => result,
             Err(error) => {
                 warn!(
@@ -2421,6 +2444,7 @@ impl MobileClient {
             bootstrap.pid
         );
 
+        let cache_client = Arc::clone(&ssh_client);
         let result = self
             .finish_connect_remote_over_ssh(
                 config,
@@ -2431,6 +2455,11 @@ impl MobileClient {
                 working_dir,
             )
             .await;
+        if result.is_ok()
+            && let Some(cache) = detect_cache
+        {
+            cache.on_success(cache_client);
+        }
         match &result {
             Ok(_) => {
                 self.app_store

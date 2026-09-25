@@ -168,6 +168,7 @@ pub mod session;
 pub(crate) mod slingshot_url;
 pub mod ssh;
 pub mod ssh_bridge;
+pub(crate) mod ssh_detect_cache;
 pub mod ssh_detached_launcher;
 pub mod ssh_launcher;
 pub mod store;
