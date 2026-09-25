@@ -41,28 +41,15 @@ enum class ConversationTextSize(val step: Int, val scale: Float, val label: Stri
 val LocalTextScale = compositionLocalOf { ConversationTextSize.DEFAULT.scale }
 
 /**
- * Scale a base value by the current app text scale AND bypass Android's
- * system-wide font scale (Settings → Display → Font size).
- *
- * iOS point sizes come from `UIFont.preferredFont(forTextStyle:).pointSize`,
- * which reflects iOS dynamic type. Android `sp` units multiply base values by
- * the OS font-scale setting, so using `N.sp` directly would double-scale
- * relative to iOS and make Android text noticeably larger on devices with
- * non-default font scale. Converting `Dp → Sp` cancels the font-scale factor
- * so the rendered glyph size depends only on our own app-level slider.
- *
- * Users who want larger UI text should use the app's 7-step scale slider
- * (Settings → Appearance), which maps the same 0.65×–1.8× range iOS uses.
+ * Scale a base value by the current app text scale. The result is in `sp`,
+ * so the system font-size setting (accessibility) applies on top, the same
+ * way iOS Dynamic Type does.
  */
 val Int.scaled: TextUnit
-    @Composable get() = with(LocalDensity.current) {
-        (this@scaled * LocalTextScale.current).dp.toSp()
-    }
+    @Composable get() = (this@scaled * LocalTextScale.current).sp
 
 val Float.scaled: TextUnit
-    @Composable get() = with(LocalDensity.current) {
-        (this@scaled * LocalTextScale.current).dp.toSp()
-    }
+    @Composable get() = (this@scaled * LocalTextScale.current).sp
 
 /**
  * Semantic text sizes matching iOS UIFont text-style point sizes at default
