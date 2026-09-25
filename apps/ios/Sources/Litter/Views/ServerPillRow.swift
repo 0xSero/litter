@@ -28,8 +28,8 @@ struct ServerPillRow: View {
                 }
                 AddServerPill(onTap: onAdd)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
+            .padding(.horizontal, LitterSpace.margin)
+            .padding(.vertical, LitterSpace.xs)
         }
     }
 }

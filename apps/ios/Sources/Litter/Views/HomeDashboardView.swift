@@ -354,7 +354,7 @@ struct HomeDashboardView: View {
                     onNewThread?()
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .foregroundColor(LitterTheme.accent)
+                        .foregroundColor(LitterTheme.textPrimary)
                 }
                 .accessibilityLabel("New thread")
             }
@@ -675,9 +675,7 @@ private struct EmptyHomeFatCatView: View {
 // MARK: - Session Canvas Layout
 
 private enum SessionCanvasLayout {
-    static let horizontalPadding: CGFloat = 14
-    static let markerWidth: CGFloat = 14
-    static let markerSpacing: CGFloat = 8
+    static let horizontalPadding: CGFloat = LitterSpace.margin
 }
 
 
@@ -704,7 +702,7 @@ struct SessionCanvasLine: View {
     /// Vertical padding around the card content. Matches the iOS zoom
     /// anchors `[3, 6, 10, 12]` for levels 1–4.
     fileprivate static func verticalPadding(for zoom: Int) -> CGFloat {
-        let anchors: [CGFloat] = [3, 6, 10, 12]
+        let anchors: [CGFloat] = [10, 14, 16, 20]
         let idx = max(0, min(anchors.count - 1, zoom - 1))
         return anchors[idx]
     }
@@ -731,7 +729,7 @@ struct SessionCanvasLine: View {
     /// The home card's response preview uses conversation-body sizing, so
     /// the tool log should step down a tier rather than compete with it.
     private var toolLogFontSize: CGFloat {
-        max(12, LitterFont.conversationBodyPointSize - 3)
+        max(LitterSpace.minText, LitterFont.conversationBodyPointSize - 3)
     }
 
     // ────────────────────────────────────────────────────
@@ -749,20 +747,10 @@ struct SessionCanvasLine: View {
     // ────────────────────────────────────────────────────
 
     var body: some View {
+        // Litter Quiet row: title, then one mono metadata line. No status
+        // dot, shimmer or accent fill; a busy or failing session says so in
+        // the metadata line as a single word.
         HStack(alignment: .top, spacing: 0) {
-            Group {
-                if isOpening {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(LitterTheme.accent)
-                } else {
-                    statusIndicator
-                }
-            }
-            .frame(width: SessionCanvasLayout.markerWidth, height: 16)
-            .padding(.trailing, SessionCanvasLayout.markerSpacing)
-            .padding(.top, 2)
-
             VStack(alignment: .leading, spacing: 0) {
                 // Lineage breadcrumb (zoom 4 only). Always present in the
                 // tree so zoom transitions just animate its height; matches
@@ -779,17 +767,19 @@ struct SessionCanvasLine: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 2)
                         .modifier(MarkdownMatchedTitleFont())
-                        .foregroundStyle(isActive ? LitterTheme.accent : LitterTheme.textPrimary)
-                        .modifier(SessionShimmerEffect(active: isActive))
+                        .foregroundStyle(LitterTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let lineage = session.lineage, lineage.hasMultipleBranches {
                         forkRune(lineage: lineage)
                     }
                     Spacer(minLength: 6)
-                    if zoomLevel == 1 {
-                        Text(timeAgo)
-                            .litterFont(size: 10, weight: .regular)
-                            .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                    if isOpening {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(LitterTheme.textMuted)
+                    } else if zoomLevel == 1 {
+                        Text(stateWord ?? timeAgo)
+                            .litterMeta(stateWordColor)
                             .fixedSize()
                     }
                 }
@@ -866,12 +856,6 @@ struct SessionCanvasLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SessionCanvasLayout.horizontalPadding)
         .padding(.bottom, Self.verticalPadding(for: zoomLevel))
-        .background(alignment: .leading) {
-            if isActive {
-                LitterTheme.accent.opacity(0.3).frame(width: 2)
-            }
-        }
-        .background(isActive ? LitterTheme.accent.opacity(0.02) : Color.clear)
         .contentShape(Rectangle())
         .clipped()
         // Zoom transitions animate when triggered via `withAnimation`
@@ -882,7 +866,6 @@ struct SessionCanvasLine: View {
         // wrap every zoomLevel change (including mid-pinch threshold
         // crossings) in an implicit animation and fight the live
         // tracking.
-        .animation(.easeInOut(duration: 0.25), value: isActive)
         .accessibilityIdentifier("home.recentSessionCard")
     }
 
@@ -945,43 +928,50 @@ struct SessionCanvasLine: View {
     // a stat. At zoom 2 the strip stands alone (no telemetry yet); at
     // zoom 3+ it sits on top of the telemetry strip.
 
+    /// One word for a state worth noticing. Healthy idle sessions show
+    /// their age instead.
+    private var stateWord: String? {
+        if isCancelling { return "cancelling" }
+        if isActive { return "working" }
+        if isHydrating { return "loading" }
+        return nil
+    }
+
+    private var stateWordColor: Color {
+        isCancelling ? LitterTheme.warning : LitterTheme.meta
+    }
+
+    /// "server · model · 14m" in mono metadata, with the age replaced by a
+    /// state word while the session is busy.
     private var modelBadgeLine: some View {
-        HStack(spacing: 4) {
-            Text(timeAgo)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-            Text("\u{00b7}")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-            Image(systemName: "server.rack")
-                .litterFont(size: 8)
-                .foregroundStyle(LitterTheme.accent.opacity(0.5))
+        let model = session.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return HStack(spacing: 0) {
             Text(session.serverDisplayName)
-                .foregroundStyle(LitterTheme.accent.opacity(0.6))
-            let m = session.model.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !m.isEmpty {
-                Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                HomeRuntimeIcon(kind: session.agentRuntimeKind)
-                Text(m)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.7))
+            if !model.isEmpty {
+                Text(" · ")
+                Text(model)
             }
+            Text(" · ")
+            Text(stateWord ?? timeAgo)
+                .foregroundStyle(stateWordColor)
             if let lineage = session.lineage, lineage.hasMultipleBranches {
-                Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
+                Text(" · ")
                 branchChip(lineage: lineage)
             } else if session.isFork {
-                Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
+                Text(" · ")
                 Text("fork")
-                    .foregroundStyle(LitterTheme.warning.opacity(0.8))
             }
             if session.isSubagent, let agent = session.agentLabel {
-                Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
+                Text(" · ")
                 Text(agent)
-                    .foregroundStyle(LitterTheme.accent.opacity(0.6))
             }
             Spacer(minLength: 0)
         }
-        .litterFont(size: 10, weight: .regular)
+        .litterMeta()
         .lineLimit(1)
         .truncationMode(.tail)
-        .padding(.top, 1)
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Zoom 3+: telemetry strip (counts · adds/rems · stopwatch · ctx%)
@@ -1014,30 +1004,15 @@ struct SessionCanvasLine: View {
         let hasAny = turnCount > 0 || toolCallCount > 0 || hasDiff || session.lastTurnStart != nil || hasContextPct
 
         if hasAny {
-            HStack(spacing: 12) {
+            HStack(spacing: LitterSpace.m) {
                 if turnCount > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .litterFont(size: 8)
-                        RollingMetricText("\(turnCount)")
-                    }
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                    RollingMetricText("\(turnCount) turns")
                 }
                 if toolCallCount > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .litterFont(size: 8)
-                        RollingMetricText("\(toolCallCount)")
-                    }
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                    RollingMetricText("\(toolCallCount) tools")
                 }
                 if let stats, hasDiff {
-                    HStack(spacing: 5) {
-                        RollingMetricText("+\(stats.diffAdditions)")
-                            .foregroundStyle(LitterTheme.accent.opacity(0.75))
-                        RollingMetricText("-\(stats.diffDeletions)")
-                            .foregroundStyle(LitterTheme.danger.opacity(0.65))
-                    }
+                    RollingMetricText("+\(stats.diffAdditions) -\(stats.diffDeletions)")
                 }
                 if let start = session.lastTurnStart {
                     TurnStopwatchChip(start: start, end: session.lastTurnEnd)
@@ -1045,12 +1020,12 @@ struct SessionCanvasLine: View {
                 if let tu = session.tokenUsage, let window = tu.contextWindow, window > 0 {
                     let pct = Int((Double(tu.totalTokens) / Double(window)) * 100)
                     RollingMetricText("\(pct)%")
-                        .foregroundStyle(pct > 80 ? LitterTheme.warning.opacity(0.85) : LitterTheme.textMuted.opacity(0.75))
+                        .foregroundStyle(pct > 80 ? LitterTheme.warning : LitterTheme.meta)
                 }
                 Spacer(minLength: 0)
             }
-            .litterFont(size: 10, weight: .regular)
-            .padding(.top, 4)
+            .litterMeta()
+            .padding(.top, LitterSpace.xs)
         }
     }
 
@@ -1096,31 +1071,28 @@ struct SessionCanvasLine: View {
                     if hasMetrics {
                         // Mid-rule between objective and metrics so they
                         // read as two zones inside the same panel.
-                        Rectangle()
-                            .fill(LitterTheme.border.opacity(0.4))
-                            .frame(height: 0.5)
-                            .padding(.vertical, 8)
+                        Color.clear.frame(height: LitterSpace.m)
                     }
                 }
                 if hasMetrics {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .top, spacing: 14) {
-                            statCell(icon: "chevron.left.forwardslash.chevron.right",
+                            statCell(icon: nil,
                                      value: files > 0 ? "\(files)" : nil,
                                      valueColor: LitterTheme.textPrimary,
                                      label: "files")
                             statCell(icon: nil,
                                      valuePrefix: nil,
                                      value: pct.map { "\($0)%" },
-                                     valueColor: (pct ?? 0) > 80 ? LitterTheme.warning : LitterTheme.warning.opacity(0.85),
+                                     valueColor: (pct ?? 0) > 80 ? LitterTheme.warning : LitterTheme.textPrimary,
                                      label: "context")
                         }
                         HStack(alignment: .top, spacing: 14) {
                             statCell(icon: nil,
                                      value: adds > 0 ? "+\(adds.formatted(.number.grouping(.automatic)))" : nil,
-                                     valueColor: LitterTheme.accent,
+                                     valueColor: LitterTheme.textPrimary,
                                      label: "added")
-                            statCell(icon: "snowflake",
+                            statCell(icon: nil,
                                      value: totalTokens.map { Self.formatTokens($0) },
                                      valueColor: LitterTheme.textPrimary,
                                      label: "tok")
@@ -1128,9 +1100,9 @@ struct SessionCanvasLine: View {
                         HStack(alignment: .top, spacing: 14) {
                             statCell(icon: nil,
                                      value: rems > 0 ? "-\(rems.formatted(.number.grouping(.automatic)))" : nil,
-                                     valueColor: LitterTheme.danger.opacity(0.85),
+                                     valueColor: LitterTheme.textPrimary,
                                      label: "removed")
-                            statCell(icon: "clock",
+                            statCell(icon: nil,
                                      value: durationSeconds.map { Self.formatDuration($0) },
                                      valueColor: LitterTheme.textPrimary,
                                      label: "duration")
@@ -1138,18 +1110,10 @@ struct SessionCanvasLine: View {
                     }
                 }
             }
-            .litterFont(size: 12, weight: .regular)
+            .litterMeta(LitterTheme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 10)
-            .overlay(alignment: .top) {
-                Rectangle().fill(LitterTheme.border.opacity(0.5))
-                    .frame(height: 0.5)
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(LitterTheme.border.opacity(0.5))
-                    .frame(height: 0.5)
-            }
-            .padding(.top, 8)
+            .padding(.vertical, LitterSpace.s)
+            .padding(.top, LitterSpace.xs)
         }
     }
 
@@ -1159,24 +1123,17 @@ struct SessionCanvasLine: View {
     @ViewBuilder
     private func goalBanner(goal: AppThreadGoal) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text("GOAL")
-                    .litterFont(size: 9, weight: .semibold)
-                    .tracking(1.2)
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
-                Text(goalStatusLabel(goal.status))
-                    .litterFont(size: 9, weight: .semibold)
-                    .tracking(0.6)
-                    .foregroundStyle(goalStatusTint(goal.status).opacity(0.85))
+            HStack(spacing: 0) {
+                Text("goal ")
+                    .foregroundStyle(LitterTheme.meta)
+                Text(goalStatusLabel(goal.status).lowercased())
+                    .foregroundStyle(goalStatusTint(goal.status))
             }
-            HStack(alignment: .top, spacing: 8) {
-                Circle()
-                    .fill(goalStatusTint(goal.status))
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 5)
+            .litterMeta()
+            HStack(alignment: .top, spacing: LitterSpace.s) {
                 Text(goal.objective)
-                    .litterFont(size: 12, weight: .regular)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.95))
+                    .litterFont(size: 15, weight: .regular)
+                    .foregroundStyle(LitterTheme.textSecondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1221,8 +1178,7 @@ struct SessionCanvasLine: View {
                 RollingMetricText(value)
                     .foregroundStyle(valueColor)
                 Text(label)
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
-                    .litterFont(size: 11, weight: .regular)
+                    .foregroundStyle(LitterTheme.meta)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1267,42 +1223,29 @@ struct SessionCanvasLine: View {
     private var goalLine: some View {
         if let goal = session.goal {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(goalStatusTint(goal.status))
-                    .frame(width: 5, height: 5)
                 Text(goal.objective)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
+                    .foregroundStyle(LitterTheme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
                 if goal.tokensUsed > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "circle.hexagongrid")
-                            .litterFont(size: 8)
-                        RollingMetricText(formatGoalTokens(goal.tokensUsed))
-                    }
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                    RollingMetricText(formatGoalTokens(goal.tokensUsed))
+                        .foregroundStyle(LitterTheme.meta)
                 }
                 if goal.timeUsedSeconds > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "clock")
-                            .litterFont(size: 8)
-                        RollingMetricText(formatGoalSeconds(goal.timeUsedSeconds))
-                    }
-                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                    RollingMetricText(formatGoalSeconds(goal.timeUsedSeconds))
+                        .foregroundStyle(LitterTheme.meta)
                 }
             }
-            .litterFont(size: 10, weight: .regular)
-            .padding(.top, 1)
+            .litterMeta()
+            .padding(.top, 2)
         }
     }
 
     private func goalStatusTint(_ status: AppThreadGoalStatus) -> Color {
         switch status {
-        case .active: return LitterTheme.accent
-        case .paused: return LitterTheme.textMuted
+        case .active, .paused, .complete: return LitterTheme.meta
         case .blocked, .usageLimited, .budgetLimited: return LitterTheme.warning
-        case .complete: return LitterTheme.success
         }
     }
 
@@ -1341,20 +1284,14 @@ struct SessionCanvasLine: View {
             // between telemetry (above) and the tool log / response
             // preview (below) and visually breaks the two apart.
             FormattedText(text: message, lineLimit: zoomLevel >= 4 ? 3 : 1)
-                .foregroundStyle(LitterTheme.textSecondary.opacity(0.95))
+                .foregroundStyle(LitterTheme.textSecondary)
                 .litterFont(size: LitterFont.conversationBodyPointSize)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 5)
-                .padding(.leading, 8)
-                .padding(.trailing, 6)
-                .background(LitterTheme.accent.opacity(0.06))
+                .padding(.leading, LitterSpace.m)
                 .overlay(alignment: .leading) {
-                    LitterTheme.accent.opacity(0.55).frame(width: 2)
+                    LitterTheme.userRule.frame(width: 2)
                 }
-                .clipShape(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                )
-                .padding(.top, 6)
+                .padding(.top, LitterSpace.s)
         }
     }
 
@@ -1366,11 +1303,9 @@ struct SessionCanvasLine: View {
 
     @ViewBuilder
     private var activityHeader: some View {
-        Text("RECENT ACTIVITY")
-            .litterFont(size: 9, weight: .semibold)
-            .tracking(1.2)
-            .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
-            .padding(.top, 10)
+        Text("recent activity")
+            .litterSectionLabel()
+            .padding(.top, LitterSpace.m)
     }
 
     // MARK: - Zoom 4: cwd footer (paired with working pill if active)
@@ -1383,30 +1318,16 @@ struct SessionCanvasLine: View {
     private var cwdFooter: some View {
         HStack(spacing: 8) {
             Text(PathDisplay.display(session.cwd, isLocal: session.isLocal))
-                .litterFont(size: 10, weight: .regular)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                .litterMeta()
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if isActive {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(LitterTheme.accent)
-                        .frame(width: 4, height: 4)
-                    Text("Working")
-                        .litterFont(size: 9, weight: .semibold)
-                        .foregroundStyle(LitterTheme.accent.opacity(0.85))
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .overlay(
-                    Capsule()
-                        .stroke(LitterTheme.accent.opacity(0.4), lineWidth: 0.5)
-                )
-                .clipShape(Capsule())
-                .fixedSize()
+                Text("working")
+                    .litterMeta()
+                    .fixedSize()
             }
         }
-        .padding(.top, 6)
+        .padding(.top, LitterSpace.s)
     }
 
     // MARK: - Zoom 3+: tool call log
@@ -1434,10 +1355,11 @@ struct SessionCanvasLine: View {
     private func toolRowView(_ entry: AppToolLogEntry) -> some View {
         HStack(spacing: 8) {
             toolIconView(for: entry.tool)
-                .foregroundStyle(LitterTheme.accent.opacity(0.6))
+                .foregroundStyle(LitterTheme.meta)
                 .frame(minWidth: 20, alignment: .leading)
+                .accessibilityHidden(true)
             Text(formatToolDetail(entry))
-                .foregroundStyle(LitterTheme.textSecondary.opacity(0.8))
+                .foregroundStyle(LitterTheme.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -1569,42 +1491,16 @@ struct SessionCanvasLine: View {
     }
 
 
-    // MARK: - Status Indicator
-
-    private var dotState: StatusDotState {
-        if isCancelling { return .error }
-        if isActive { return .active }
-        if isHydrating { return .pending }
-        if session.isResumed { return .ok }
-        return .idle
-    }
-
-    private var statusIndicator: some View {
-        StatusDot(state: dotState)
-    }
-
     // MARK: - Fork lineage affordances
 
     /// Compact rune that trails the title at every zoom level. Single chip,
     /// single number — `2/3` reads as "branch 2 of 3 in this lineage".
     @ViewBuilder
     private func forkRune(lineage: ThreadLineage) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: "arrow.triangle.branch")
-                .litterFont(size: 8, weight: .semibold)
-                .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
-            Text("\(lineage.branchIndex)/\(lineage.branchTotal)")
-                .litterFont(size: 9, weight: .semibold)
-                .foregroundStyle(LitterTheme.accent)
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .overlay(
-            Capsule()
-                .stroke(LitterTheme.border.opacity(0.6), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-        .accessibilityLabel("Branch \(lineage.branchIndex) of \(lineage.branchTotal)")
+        Text("\(lineage.branchIndex)/\(lineage.branchTotal)")
+            .litterMeta()
+            .fixedSize()
+            .accessibilityLabel("Branch \(lineage.branchIndex) of \(lineage.branchTotal)")
     }
 
     /// Inline meta-line replacement for the old `fork` warning text. Carries
@@ -1612,12 +1508,7 @@ struct SessionCanvasLine: View {
     /// the server/model spans at zoom 2+.
     @ViewBuilder
     private func branchChip(lineage: ThreadLineage) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: "arrow.triangle.branch")
-                .litterFont(size: 7, weight: .semibold)
-            Text("branch \(lineage.branchIndex)/\(lineage.branchTotal)")
-        }
-        .foregroundStyle(LitterTheme.accent.opacity(0.85))
+        Text("branch \(lineage.branchIndex)/\(lineage.branchTotal)")
     }
 
     /// Zoom-4 lineage breadcrumb. Renders ancestors root → ... → parent so
@@ -1641,8 +1532,8 @@ struct SessionCanvasLine: View {
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
                 Spacer(minLength: 0)
             }
-            .litterFont(size: 9, weight: .regular)
-            .padding(.bottom, 2)
+            .litterMeta()
+            .padding(.bottom, LitterSpace.xs)
         }
     }
 
@@ -1653,7 +1544,7 @@ struct SessionCanvasLine: View {
     private var siblingPillsRow: some View {
         if let lineage = session.lineage, lineage.hasMultipleBranches {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: LitterSpace.m) {
                     ForEach(lineage.members, id: \.key) { member in
                         siblingPill(member: member, isCurrent: member.key == session.key)
                     }
@@ -1665,26 +1556,11 @@ struct SessionCanvasLine: View {
 
     @ViewBuilder
     private func siblingPill(member: ThreadLineageMember, isCurrent: Bool) -> some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(isCurrent ? LitterTheme.accent : LitterTheme.textMuted.opacity(0.5))
-                .frame(width: 5, height: 5)
-            Text(member.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .litterFont(size: 10, weight: isCurrent ? .semibold : .regular)
-        .foregroundStyle(isCurrent ? LitterTheme.accent : LitterTheme.textSecondary.opacity(0.85))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(isCurrent ? LitterTheme.accent.opacity(0.12) : LitterTheme.surface.opacity(0.6))
-        )
-        .overlay(
-            Capsule()
-                .stroke(isCurrent ? LitterTheme.accent.opacity(0.6) : LitterTheme.border.opacity(0.6), lineWidth: 1)
-        )
+        Text(member.title)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .litterMeta(isCurrent ? LitterTheme.textPrimary : LitterTheme.meta)
+            .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 }
 
@@ -1710,9 +1586,7 @@ private struct TurnStopwatchChip: View {
 
     @ViewBuilder
     private func chip(seconds: TimeInterval) -> some View {
-        HStack(spacing: 2) {
-            Image(systemName: "stopwatch")
-                .litterFont(size: 8)
+        HStack(spacing: 0) {
             // Monospaced digits so "14s" and "15s" have the same width.
             // Without this, each tick changes the chip's intrinsic size,
             // which cascades into list row re-measure → RootGeometry
@@ -1720,7 +1594,7 @@ private struct TurnStopwatchChip: View {
             // digits freeze that width so the chip can update in-place.
             RollingMetricText(Self.format(seconds))
         }
-        .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+        .foregroundStyle(LitterTheme.meta)
     }
 
     private static func format(_ seconds: TimeInterval) -> String {
@@ -1729,16 +1603,6 @@ private struct TurnStopwatchChip: View {
         let mins = total / 60
         let secs = total % 60
         return secs == 0 ? "\(mins)m" : "\(mins)m\(secs)s"
-    }
-}
-
-private struct HomeRuntimeIcon: View {
-    let kind: AgentRuntimeKind
-
-    var body: some View {
-        AgentIconView(kind: kind, size: 15)
-            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .accessibilityLabel(kind.displayLabel)
     }
 }
 
@@ -1753,48 +1617,8 @@ private struct MarkdownMatchedTitleFont: ViewModifier {
         content
             .litterFont(
                 size: LitterFont.conversationBodyPointSize,
-                weight: .medium
+                weight: .regular
             )
-    }
-}
-
-private struct SessionShimmerEffect: ViewModifier {
-    let active: Bool
-
-    func body(content: Content) -> some View {
-        if active {
-            // `TimelineView(.animation)` drives a time-based phase.
-            // Every tick rebuilds the gradient stops — fine here
-            // because the overlay is a single SwiftUI.LinearGradient
-            // (cheap) and its body eval doesn't cascade upward thanks
-            // to `compositingGroup` isolating the blend scope.
-            //
-            // `.blendMode(.sourceAtop)` + `.compositingGroup()`
-            // constrains the white highlight to paint only on the
-            // underlying glyphs' opaque pixels — so the shimmer
-            // tracks the text shape without needing a mask.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                let phase = CGFloat(t.truncatingRemainder(dividingBy: 2.0) / 2.0)
-
-                content
-                    .overlay {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .white.opacity(0), location: max(0, phase - 0.2)),
-                                .init(color: .white.opacity(0.7), location: phase),
-                                .init(color: .white.opacity(0), location: min(1, phase + 0.2))
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .blendMode(.sourceAtop)
-                    }
-                    .compositingGroup()
-            }
-        } else {
-            content
-        }
     }
 }
 

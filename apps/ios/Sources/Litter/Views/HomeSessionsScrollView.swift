@@ -1972,7 +1972,7 @@ extension HomeRowContainer: UIGestureRecognizerDelegate {
 
 // MARK: - SwiftUI row content
 
-/// Hosts the session card (title + status indicator + per-zoom layers)
+/// Hosts the session card (title + metadata line + per-zoom layers)
 /// along with the `.contextMenu` and an `.onTapGesture`. This is the
 /// SwiftUI view that each `HomeRowContainer` hosts inside its
 /// `UIHostingController`. It is a pure function of its props — during a
@@ -2055,26 +2055,20 @@ private struct SessionContextMenuPreview: View {
     let session: HomeDashboardRecentSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: LitterSpace.xs) {
             Text(session.sessionTitle.isEmpty ? "Session" : session.sessionTitle)
-                .litterFont(size: LitterFont.conversationBodyPointSize, weight: .medium)
+                .litterFont(size: LitterFont.conversationBodyPointSize)
                 .foregroundStyle(LitterTheme.textPrimary)
                 .lineLimit(2)
             if !session.serverDisplayName.isEmpty {
-                HStack(spacing: 5) {
-                    Text(session.agentRuntimeKind.displayLabel)
-                        .litterFont(size: 9, weight: .semibold)
-                        .foregroundStyle(LitterTheme.accent.opacity(0.8))
-                    Text(session.serverDisplayName)
-                        .litterFont(size: 10)
-                        .foregroundStyle(LitterTheme.textSecondary.opacity(0.75))
-                        .lineLimit(1)
-                }
+                Text("\(session.serverDisplayName) · \(session.agentRuntimeKind.displayLabel.lowercased())")
+                    .litterMeta()
+                    .lineLimit(1)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(width: 240, alignment: .leading)
-        .background(LitterTheme.surface)
+        .padding(.horizontal, LitterSpace.l)
+        .padding(.vertical, LitterSpace.m)
+        .frame(width: 260, alignment: .leading)
+        .background(LitterTheme.raised)
     }
 }
