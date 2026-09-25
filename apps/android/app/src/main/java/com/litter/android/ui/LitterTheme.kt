@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -15,7 +13,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -29,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.litter.android.util.EdgeToEdge
 import com.sigkitten.litter.android.R
 
 object LitterTheme {
@@ -389,20 +387,10 @@ fun LitterAppTheme(content: @Composable () -> Unit) {
 @Composable
 private fun LitterSystemBarsEffect(useDarkTheme: Boolean) {
     val activity = LocalContext.current.findActivity()
-
-    SideEffect {
-        val componentActivity = activity ?: return@SideEffect
-        val transparent = android.graphics.Color.TRANSPARENT
-        val systemBarStyle =
-            if (useDarkTheme) {
-                SystemBarStyle.dark(transparent)
-            } else {
-                SystemBarStyle.light(transparent, transparent)
-            }
-        componentActivity.enableEdgeToEdge(
-            statusBarStyle = systemBarStyle,
-            navigationBarStyle = systemBarStyle,
-        )
+    // Keyed so the window is touched only when the theme flips, not on
+    // every recomposition of the app root.
+    LaunchedEffect(activity, useDarkTheme) {
+        activity?.let { EdgeToEdge.apply(it, darkBars = useDarkTheme) }
     }
 }
 
