@@ -6,7 +6,9 @@ import SwiftUI
 /// navigation is local to this harness; it does not test transport or hydration.
 @MainActor
 struct HomeSessionsUITestHarnessView: View {
-    @State private var sessions = Self.seedSessions
+    @Environment(\.textScale) private var inheritedTextScale
+    @State private var sessions = Self.richContentEnabled ? Self.richSeedSessions : Self.seedSessions
+    @State private var stressTextScale = Self.initialStressTextScale
     @State private var zoomLevel = 2
     @State private var path: [HomeDashboardRecentSession] = []
     @State private var probe = HomeSessionsHarnessProbe()
@@ -39,6 +41,17 @@ struct HomeSessionsUITestHarnessView: View {
                     metric("Zoom", value: zoomLevel, id: "zoom")
                     metric("Mounted", value: probe.mounted, id: "mounted")
                     metric("Total", value: probe.total, id: "total")
+                }
+                if Self.richContentEnabled {
+                    HStack {
+                        Text("Rich Markdown")
+                        Button("Text 100%") { stressTextScale = 1 }
+                            .accessibilityIdentifier("homeHarness.textScale.100")
+                        Button("Text 150%") { stressTextScale = 1.5 }
+                            .accessibilityIdentifier("homeHarness.textScale.150")
+                        metric("Text %", value: Int(stressTextScale * 100), id: "textScale")
+                    }
+                    .font(.caption)
                 }
                 Text("Visible: \(probe.firstVisible)")
                     .font(.caption.monospaced())
@@ -94,6 +107,7 @@ struct HomeSessionsUITestHarnessView: View {
                     ),
                     debugViewAttached: { probe.attach($0) }
                 )
+                .environment(\.textScale, Self.richContentEnabled ? stressTextScale : inheritedTextScale)
                 .accessibilityIdentifier("homeHarness.list")
             }
             .padding(.top, 8)
@@ -121,36 +135,73 @@ struct HomeSessionsUITestHarnessView: View {
             .accessibilityValue(String(value))
     }
 
-    private static let seedSessions: [HomeDashboardRecentSession] = (0..<1_000).map { index in
-        HomeDashboardRecentSession(
-            key: ThreadKey(serverId: "fixture-\(index % 10)", threadId: "session-\(index)"),
-            serverId: "fixture-\(index % 10)",
-            serverDisplayName: "Fixture \(index % 10)",
-            agentRuntimeKind: .codex,
-            isLocal: false,
-            sessionTitle: String(format: "Session %04d", index),
-            preview: "Synthetic performance fixture \(index)",
-            cwd: "/fixtures/project-\(index % 20)",
-            model: "fixture-model",
-            agentLabel: nil,
-            updatedAt: Date(timeIntervalSince1970: TimeInterval(1_790_000_000 - index)),
-            hasTurnActive: false,
-            isResumed: true,
-            isSubagent: false,
-            isFork: false,
-            forkedFromId: nil,
-            lineage: nil,
-            lastResponsePreview: "## Fixture \(index)\n\n" + String(repeating: "A rendered response with **bold text** and `inline code`.\n\n", count: index % 5 + 1),
-            lastResponseTurnId: "turn-\(index)",
-            lastUserMessage: "Inspect fixture \(index)",
-            lastToolLabel: nil,
-            stats: nil,
-            tokenUsage: nil,
-            goal: nil,
-            recentToolLog: [],
-            lastTurnStart: nil,
-            lastTurnEnd: nil
-        )
+    private static let richContentEnabled = ProcessInfo.processInfo.environment["LITTER_UI_TEST_RICH_HOME"] == "1"
+    private static let initialStressTextScale: CGFloat = {
+        let value = Double(ProcessInfo.processInfo.environment["LITTER_UI_TEST_HOME_TEXT_SCALE"] ?? "1.5") ?? 1.5
+        return CGFloat(value.isFinite ? min(2, max(1, value)) : 1.5)
+    }()
+    private static let seedSessions = makeSessions(richContent: false)
+    private static let richSeedSessions = makeSessions(richContent: true)
+
+    private static func makeSessions(richContent: Bool) -> [HomeDashboardRecentSession] {
+        (0..<1_000).map { index in
+            HomeDashboardRecentSession(
+                key: ThreadKey(serverId: "fixture-\(index % 10)", threadId: "session-\(index)"),
+                serverId: "fixture-\(index % 10)",
+                serverDisplayName: "Fixture \(index % 10)",
+                agentRuntimeKind: .codex,
+                isLocal: false,
+                sessionTitle: String(format: "Session %04d", index),
+                preview: "Synthetic performance fixture \(index)",
+                cwd: "/fixtures/project-\(index % 20)",
+                model: "fixture-model",
+                agentLabel: nil,
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(1_790_000_000 - index)),
+                hasTurnActive: false,
+                isResumed: true,
+                isSubagent: false,
+                isFork: false,
+                forkedFromId: nil,
+                lineage: nil,
+                lastResponsePreview: richContent ? richResponse(index: index) : "## Fixture \(index)\n\n" + String(repeating: "A rendered response with **bold text** and `inline code`.\n\n", count: index % 5 + 1),
+                lastResponseTurnId: "turn-\(index)",
+                lastUserMessage: "Inspect fixture \(index)",
+                lastToolLabel: nil,
+                stats: nil,
+                tokenUsage: nil,
+                goal: nil,
+                recentToolLog: [],
+                lastTurnStart: nil,
+                lastTurnEnd: nil
+            )
+        }
+    }
+
+    private static func richResponse(index: Int) -> String {
+        let paragraph = """
+        ### Verification section
+        The synthetic session checks **rendering**, _wrapping_, and `inline identifiers` across several lines.
+        A long path exercises wrapping: `/fixtures/project-\(index % 20)/Sources/\(String(repeating: "LongComponent", count: index % 7 + 1))/Renderer.swift`.
+
+        - Preserve the selected session while the viewport changes.
+        - Render multiple paragraphs, Unicode text (café, 日本語), and nested details.
+          - This line belongs to the same synthetic response.
+
+        > This is generated test content. No user messages or remote resources are included.
+
+        ```swift
+        struct FixtureResult {
+            let session = \(index)
+            let checks = ["layout", "navigation", "text scaling"]
+        }
+        ```
+
+        | Check | Result |
+        | --- | --- |
+        | Deep session | \(index) |
+        | Payload | Synthetic |
+        """
+        return "# Session \(index) review\n\n" + Array(repeating: paragraph, count: index % 6 + 1).joined(separator: "\n\n")
     }
 }
 

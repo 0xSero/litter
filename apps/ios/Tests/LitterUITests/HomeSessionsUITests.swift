@@ -67,9 +67,51 @@ final class HomeSessionsUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchHarness() -> XCUIApplication {
+    func testRichHomeSessionsKeepDeepSessionThroughTextScalePinchAndBack() {
+        let app = launchHarness(richContent: true)
+        defer { app.terminate() }
+        waitForValue("150", element: app.staticTexts["homeHarness.textScale"])
+        app.buttons["homeHarness.zoom.4"].tap()
+        waitForValue("4", element: app.staticTexts["homeHarness.zoom"])
+        app.buttons["homeHarness.deep"].tap()
+        waitForValue("session-900", element: app.staticTexts["homeHarness.visible"])
+        for scale in [100, 150] {
+            app.buttons["homeHarness.textScale.\(scale)"].tap()
+            waitForValue(String(scale), element: app.staticTexts["homeHarness.textScale"])
+            waitForValue("session-900", element: app.staticTexts["homeHarness.visible"])
+            assertBoundedMounts(app)
+        }
+
+        // Page-fit starts with session 900 filling the viewport, so the real
+        // pinch midpoint belongs to that key. At smaller zoom it need not be
+        // the first visible row, but must stay visible and remain openable.
+        app.scrollViews.firstMatch.pinch(withScale: 0.7, velocity: -1)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", "4"),
+            object: app.staticTexts["homeHarness.zoom"]
+        )], timeout: 5), .completed)
+        let row = app.staticTexts["Session 0900"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.isHittable)
+        assertBoundedMounts(app)
+        row.tap()
+        XCTAssertTrue(app.staticTexts["homeHarness.detail"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["homeHarness.detail"].label, "Session 0900")
+        app.navigationBars["Session detail"].buttons["Sessions"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.isHittable)
+        XCTAssertEqual(app.staticTexts["homeHarness.lastAction"].label, "opened session-900")
+        assertBoundedMounts(app)
+    }
+
+    @MainActor
+    private func launchHarness(richContent: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test-home-sessions"]
+        if richContent {
+            app.launchEnvironment["LITTER_UI_TEST_RICH_HOME"] = "1"
+            app.launchEnvironment["LITTER_UI_TEST_HOME_TEXT_SCALE"] = "1.5"
+        }
         app.launch()
         XCTAssertTrue(app.staticTexts["homeHarness.total"].waitForExistence(timeout: 15))
         waitForValue("1000", element: app.staticTexts["homeHarness.total"])
