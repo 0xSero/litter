@@ -423,8 +423,9 @@ transport/navigation.
 Computer-use drag attempts produced no visible swipe callback or edge-Back
 transition, so manual swipe and edge-Back are **not accepted** from this pass.
 The separately recorded automated pinch/swipe tests remain distinct evidence.
-Android manual window interaction was still under investigation when this record
-was updated. These limited checks do not establish complete manual gesture,
+The running Android emulator was not addressable by the native control tool,
+including by its executable path, so Android manual interaction remains pending.
+These limited checks do not establish complete manual gesture,
 streaming, or release acceptance.
 
 ## Compact fork ancestry: matched Android host experiment
