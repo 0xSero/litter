@@ -1284,6 +1284,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         // per-frame delays — no main-thread/display-link aliasing,
         // and no flat tempo from UIImageView's animationImages.
         private static let animationKey = "alphaFrames"
+        private static let generationKey = "alphaLoadGeneration"
 
         func configure(
             _ imageView: UIImageView,
@@ -1291,20 +1292,32 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             repeatCount: Int,
             onFinished: (() -> Void)?
         ) {
+            let previousView = self.imageView
+            let isSameView = previousView === imageView
             self.onFinished = onFinished
             self.imageView = imageView
-            guard configuredURL != fileURL || configuredRepeatCount != repeatCount else { return }
+            guard !isSameView || configuredURL != fileURL || configuredRepeatCount != repeatCount else { return }
+            // A completed entrance has installed its final frame as the model
+            // image. Keep it through this one replacement load; an interrupted
+            // animation or another pending replacement must still clear.
+            let preserveCompletedImage = finishedFired && isSameView
             configuredURL = fileURL
             configuredRepeatCount = repeatCount
             finishedFired = false
             loadGeneration &+= 1
             let generation = loadGeneration
+            if !isSameView {
+                previousView?.layer.removeAnimation(forKey: Coordinator.animationKey)
+                previousView?.image = nil
+            }
 
             imageView.animationImages = nil
             imageView.stopAnimating()
             imageView.layer.removeAnimation(forKey: Coordinator.animationKey)
 
-            imageView.image = nil
+            if !preserveCompletedImage {
+                imageView.image = nil
+            }
             // Decoding every frame (165 for the home entrance) on the main
             // thread blocked the first home frame for many seconds on
             // device. Decode once per file off the main thread, cache the
@@ -1316,13 +1329,14 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             AlphaAnimatedImageView.loadAnimation(from: fileURL) { [weak self, weak imageView] animation in
                 guard let self, let imageView,
                       self.loadGeneration == generation,
+                      self.imageView === imageView,
                       self.configuredURL == fileURL,
                       self.configuredRepeatCount == repeatCount else { return }
                 self.apply(animation, to: imageView, repeatCount: repeatCount)
             }
         }
 
-        private func apply(_ animation: Animation, to imageView: UIImageView, repeatCount: Int) {
+        func apply(_ animation: Animation, to imageView: UIImageView, repeatCount: Int) {
             guard let first = animation.frames.first else {
                 imageView.image = nil
                 return
@@ -1356,12 +1370,14 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             keyAnim.fillMode = .forwards
             keyAnim.isRemovedOnCompletion = false
             keyAnim.delegate = self
+            keyAnim.setValue(NSNumber(value: loadGeneration), forKey: Coordinator.generationKey)
 
             imageView.layer.add(keyAnim, forKey: Coordinator.animationKey)
         }
 
         func stop() {
             loadGeneration &+= 1
+            finishedFired = false
             configuredURL = nil
             configuredRepeatCount = nil
             onFinished = nil
@@ -1370,8 +1386,12 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
 
         func animationDidStop(_ anim: CAAnimation, finished: Bool) {
-            guard finished, !finishedFired else { return }
+            guard finished, !finishedFired,
+                  (anim.value(forKey: Coordinator.generationKey) as? NSNumber)?.uint64Value == loadGeneration else { return }
             guard let repeats = configuredRepeatCount, repeats > 0 else { return }
+            if let finalFrame = (anim as? CAKeyframeAnimation)?.values?.last as? CGImage {
+                imageView?.image = UIImage(cgImage: finalFrame)
+            }
             finishedFired = true
             onFinished?()
         }
