@@ -28,13 +28,15 @@ import kotlin.math.sin
  * Same animation as the splash screen but sized for inline use (header, nav bar).
  */
 @Composable
-fun AnimatedLogo(size: Dp = 44.dp) {
+fun AnimatedLogo(size: Dp = 44.dp, playForMillis: Long? = null) {
     val elapsedMillis = remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(playForMillis) {
         val startedAt = withInfiniteAnimationFrameMillis { it }
-        while (true) {
+        while (playForMillis == null || elapsedMillis.longValue < playForMillis) {
             withInfiniteAnimationFrameMillis { elapsedMillis.longValue = it - startedAt }
         }
+        // Settle on the resting pose so an idle screen draws no frames.
+        elapsedMillis.longValue = 0L
     }
 
     Canvas(modifier = Modifier.size(size)) {

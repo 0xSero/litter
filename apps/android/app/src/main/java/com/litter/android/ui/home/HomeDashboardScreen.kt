@@ -111,6 +111,7 @@ import com.litter.android.state.statusLabel
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTextStyle
+import com.litter.android.ui.LitterSpacing
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.common.DebugBuildLabel
@@ -388,6 +389,10 @@ fun HomeDashboardScreen(
     ) {
         // Sessions list fills the whole screen, with top/bottom content padding
         // so items don't sit under the floating chrome.
+        // One set per snapshot instead of a linear server scan in every row.
+        val localServerIds = remember(snap?.servers) {
+            snap?.servers.orEmpty().filter { it.isLocal }.mapTo(HashSet()) { it.serverId }
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -441,7 +446,11 @@ fun HomeDashboardScreen(
             },
         ) {
             if (recentSessions.isNotEmpty()) {
-                items(recentSessions, key = { "${it.key.serverId}/${it.key.threadId}" }) { session ->
+                items(
+                    recentSessions,
+                    key = { "${it.key.serverId}/${it.key.threadId}" },
+                    contentType = { "session" },
+                ) { session ->
                     val id = "${session.key.serverId}/${session.key.threadId}"
                     val isHydrating = !session.isResumed && resumingKeys[id] == true
                     // Row hosts both gestures through one swipe handler:
@@ -484,7 +493,7 @@ fun HomeDashboardScreen(
                             session = session,
                             zoomLevel = zoomLevel,
                             isHydrating = isHydrating,
-                            isLocal = snap?.servers?.firstOrNull { it.serverId == session.key.serverId }?.isLocal == true,
+                            isLocal = session.key.serverId in localServerIds,
                             lineage = lineageMap[session.key]?.takeIf { it.hasMultipleBranches },
                             isPinned = sessionIsPinned,
                             onClick = {
@@ -589,7 +598,7 @@ fun HomeDashboardScreen(
                 )
                 .statusBarsPadding(),
         ) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(LitterSpacing.xs))
             val tierIcons by com.litter.android.state.TipJarSupporterState.tierIcons
             LaunchedEffect(Unit) {
                 com.litter.android.state.TipJarSupporterState.refresh(context)
@@ -599,10 +608,10 @@ fun HomeDashboardScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = LitterSpacing.xxs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onShowSettings, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onShowSettings, modifier = Modifier.size(LitterSpacing.touch)) {
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = "Settings",
@@ -611,7 +620,7 @@ fun HomeDashboardScreen(
                     )
                 }
                 if (savedAppsAll.isNotEmpty()) {
-                    IconButton(onClick = onShowApps, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onShowApps, modifier = Modifier.size(LitterSpacing.touch)) {
                         Icon(
                             Icons.Outlined.GridView,
                             contentDescription = "Apps",
@@ -621,7 +630,7 @@ fun HomeDashboardScreen(
                     }
                 }
                 if (onOpenTerminal != null) {
-                    IconButton(onClick = onOpenTerminal, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onOpenTerminal, modifier = Modifier.size(LitterSpacing.touch)) {
                         Icon(
                             Icons.Outlined.Terminal,
                             contentDescription = "Terminal",
@@ -645,7 +654,8 @@ fun HomeDashboardScreen(
                         )
                     }
                     if (leftKitties.isNotEmpty()) Spacer(Modifier.width(4.dp))
-                    com.litter.android.ui.AnimatedLogo(size = 64.dp)
+                    // Plays once on appear, then rests: no per-frame work on idle home.
+                    com.litter.android.ui.AnimatedLogo(size = 64.dp, playForMillis = 3_000L)
                     if (rightKitties.isNotEmpty()) Spacer(Modifier.width(4.dp))
                     rightKitties.forEach { iconRes ->
                         androidx.compose.foundation.Image(
@@ -672,7 +682,7 @@ fun HomeDashboardScreen(
                         }
                         DashboardZoomPrefs.setLevel(context, next)
                     },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(LitterSpacing.touch),
                 ) {
                     Icon(
                         imageVector = zoomIconFor(zoomLevel),

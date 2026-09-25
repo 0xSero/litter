@@ -41,7 +41,9 @@ import androidx.compose.ui.zIndex
 import com.litter.android.state.statusDotState
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
-import com.litter.android.ui.common.StatusDot
+import com.litter.android.ui.common.StatusDotState
+import com.litter.android.ui.LitterSpacing
+import androidx.compose.foundation.layout.heightIn
 import com.litter.android.ui.common.AgentIconView
 import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
@@ -69,8 +71,8 @@ fun ServerPillRow(
     Row(
         modifier = Modifier
             .horizontalScroll(scroll)
-            .padding(horizontal = 14.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = LitterSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(LitterSpacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         servers.forEach { server ->
@@ -91,6 +93,11 @@ fun ServerPillRow(
     }
 }
 
+/**
+ * Text-only server switcher entry. Healthy servers show just their name; a
+ * server with a problem adds one colored mono word. The selected server is
+ * the one in full-strength text.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerPill(
@@ -103,43 +110,41 @@ private fun ServerPill(
     onRemove: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val problem: Pair<String, Color>? = when (server.statusDotState) {
+        StatusDotState.ERROR -> "offline" to LitterTheme.danger
+        StatusDotState.PENDING -> "connecting" to LitterTheme.warning
+        else -> null
+    }
 
     Box {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    if (isSelected) LitterTheme.accent.copy(alpha = 0.22f)
-                    else LitterTheme.surface.copy(alpha = 0.9f),
-                )
-                .border(
-                    width = if (isSelected) 1.2.dp else 0.8.dp,
-                    color = if (isSelected) LitterTheme.accent.copy(alpha = 0.9f)
-                    else LitterTheme.textPrimary.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(20.dp),
-                )
+                .heightIn(min = LitterSpacing.touch)
+                .clip(RoundedCornerShape(LitterSpacing.xs))
                 .combinedClickable(
                     onClick = onTap,
                     onLongClick = { showMenu = true },
                 )
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = LitterSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
         ) {
-            StatusDot(state = server.statusDotState, size = 8.dp)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
+            Text(
+                text = server.displayName,
+                color = if (isSelected) LitterTheme.textPrimary else LitterTheme.textSecondary,
+                fontSize = LitterTextStyle.footnote.scaled,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                fontFamily = LitterTheme.monoFont,
+                maxLines = 1,
+            )
+            if (problem != null) {
                 Text(
-                    text = server.displayName,
-                    color = LitterTheme.textPrimary,
+                    text = problem.first,
+                    color = problem.second,
                     fontSize = LitterTextStyle.footnote.scaled,
-                    fontWeight = FontWeight.SemiBold,
                     fontFamily = LitterTheme.monoFont,
                     maxLines = 1,
                 )
-                AgentRuntimeBadgeStack(runtimes = server.agentRuntimes)
             }
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -166,105 +171,23 @@ private fun ServerPill(
 }
 
 @Composable
-private fun AgentRuntimeBadgeStack(runtimes: List<AgentRuntimeInfo>) {
-    val visible = runtimes
-        .filter { it.available }
-        .sortedBy { it.kind.runtimeSortIndex }
-        .distinctBy { it.kind }
-    if (visible.isEmpty()) return
-    val isOverflowing = visible.size > MaxRuntimeBadgesWithoutOverflow
-    val displayed = if (isOverflowing) visible.take(RuntimeBadgesWhenOverflowing) else visible
-    val overflowCount = if (isOverflowing) visible.size - displayed.size else 0
-
-    Row(
-        horizontalArrangement = Arrangement.spacedBy((-7).dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        displayed.forEachIndexed { index, runtime ->
-            AgentRuntimeBadge(
-                runtime = runtime,
-                modifier = Modifier.zIndex(index.toFloat()),
-            )
-        }
-        if (overflowCount > 0) {
-            AgentRuntimeOverflowBadge(
-                count = overflowCount,
-                modifier = Modifier.zIndex(displayed.size.toFloat()),
-            )
-        }
-    }
-}
-
-@Composable
-private fun AgentRuntimeOverflowBadge(
-    count: Int,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .height(18.dp)
-            .widthIn(min = 18.dp)
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color.Black.copy(alpha = 0.82f))
-            .border(0.55.dp, LitterTheme.textPrimary.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
-            .padding(horizontal = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "+$count",
-            color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.caption2.scaled,
-            fontWeight = FontWeight.Bold,
-            fontFamily = LitterTheme.monoFont,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun AgentRuntimeBadge(
-    runtime: AgentRuntimeInfo,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .size(18.dp)
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color.Black.copy(alpha = 0.82f))
-            .border(0.55.dp, LitterTheme.textPrimary.copy(alpha = 0.28f), RoundedCornerShape(5.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        AgentIconView(kind = runtime.kind, sizeDp = 14)
-    }
-}
-
-@Composable
 private fun AddServerPill(
     onTap: () -> Unit,
     onBoundsChanged: (Rect) -> Unit,
 ) {
-    Row(
+    Box(
         modifier = Modifier
             .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
-            .clip(RoundedCornerShape(20.dp))
-            .background(LitterTheme.textPrimary.copy(alpha = 0.06f))
-            .border(0.6.dp, LitterTheme.accent.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
-            .clickable(onClick = onTap)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .heightIn(min = LitterSpacing.touch)
+            .clip(RoundedCornerShape(LitterSpacing.xs))
+            .clickable(onClickLabel = "Add server", onClick = onTap)
+            .padding(horizontal = LitterSpacing.xs),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = "Add server",
-            tint = LitterTheme.accent,
-            modifier = Modifier.size(14.dp),
-        )
         Text(
-            text = "server",
-            color = LitterTheme.accent,
+            text = "+ server",
+            color = LitterTheme.textSecondary,
             fontSize = LitterTextStyle.footnote.scaled,
-            fontWeight = FontWeight.SemiBold,
             fontFamily = LitterTheme.monoFont,
         )
     }
