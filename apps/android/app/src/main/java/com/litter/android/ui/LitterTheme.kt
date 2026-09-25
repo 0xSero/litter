@@ -3,9 +3,9 @@ package com.litter.android.ui
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.sigkitten.litter.android.R
 
@@ -166,10 +167,12 @@ private fun litterTextStyle(
     fontFamily: FontFamily,
     fontWeight: FontWeight,
     fontSize: androidx.compose.ui.unit.TextUnit,
+    lineHeight: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
 ) = TextStyle(
     fontFamily = fontFamily,
     fontWeight = fontWeight,
     fontSize = fontSize,
+    lineHeight = lineHeight,
     platformStyle = LitterPlatformTextStyle,
 )
 
@@ -179,61 +182,63 @@ private fun buildTypography(fontFamily: FontFamily) =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
+                fontSize = 22.sp,
             ),
         titleMedium =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
             ),
         titleSmall =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
             ),
         headlineSmall =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
+                fontSize = 28.sp,
             ),
         bodyLarge =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
+                lineHeight = 1.45.em,
             ),
         bodyMedium =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
+                lineHeight = 1.4.em,
             ),
         bodySmall =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
             ),
         labelLarge =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
             ),
         labelMedium =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
+                fontSize = 13.sp,
             ),
         labelSmall =
             litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 10.sp,
+                fontSize = 13.sp,
             ),
     )
 
