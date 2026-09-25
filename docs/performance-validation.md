@@ -1,10 +1,11 @@
 # Performance validation
 
 This is a measurement record for the performance work based on `a2f39d17`, recorded
-on 2026-09-24. The measurements span successive commits on `perf/measured-mobile-host`;
+on 2026-09-24–25. The measurements span successive commits on `perf/measured-mobile-host`;
 individual results below identify their scope and whether later changes supersede them. The results establish specific improvements and regression coverage; they do
 not establish production startup latency, a percentile ranking, or absence of all
-memory and storage leaks. Native functional suites passed. Partial iOS simulator
+memory and storage leaks. Earlier native functional suites passed at their
+recorded revisions. Partial iOS simulator
 manual acceptance is recorded below; physical-device and broader manual
 production-app acceptance remain pending.
 
@@ -754,3 +755,132 @@ Raw metrics and installed-artifact identities are in
 adjacent optimized/Debug/stripped `.xcresult` bundles and environment JSON files,
 and `ios-launch-control/`. The test is
 `MobilePerformanceUITests.testMainHomeLaunchPerformance`.
+
+## Production navigation with 1,000 persisted sessions
+
+The existing `7ab49f56` Debug simulator app connected through normal pairing and
+Iroh to an isolated Kittylitter daemon with 1,000 real Pi 0.86.1 session files.
+Each contained two persisted messages; no model prompts were sent. Ten Load more
+actions loaded the complete session set. The ordinary Home still shows ten recent
+cards, rather than simultaneously rendering 1,000 cards.
+
+Six automated open/transcript/Back checks passed. The native interval from
+`popCurrentRoute` to `Home.onAppear` was 50.40 ms initially and
+17.32/19.02/18.70/18.50/16.52 ms subsequently (warm median 18.50 ms).
+This excludes input delivery and frame presentation. Direct manual control also
+opened session 0934, verified its persisted assistant message, returned Home,
+searched for 0001, and opened its expected transcript. An attempted edge swipe
+could not be completed through the native automation surface; swipe acceptance
+remains unverified.
+
+A separate 30-cycle test repeatedly opened the same short session 0001, verified
+its transcript, and returned to the same Home card. All 30 cycles passed in one
+unchanged app process. Back intervals in this distinct Home/XCTest state were
+80.47–88.73 ms, median 82.51 ms. Neither run has a matched baseline, and the two
+datasets must not be combined into an improvement claim.
+
+Across the 30-cycle run and a final 66.54-second Home observation, RSS changed
+from 336.27 to 319.81 MiB and physical footprint from 237.16 to 240.94 MiB.
+Both fluctuated between checkpoints. The final observation consumed 16.715 app
+CPU seconds, or 25.12% of one core, with XCTest attached. A separate manual Home
+idle window consumed 1.66 CPU seconds over 15.045 seconds (11.03% of one core);
+these different test states are not comparable. Mach CPU counters were converted
+using the host timebase and cross-checked against `ps`.
+
+These observations do not prove leak freedom. Native leak-detector attachment
+failed, and repeated short conversations do not cover long transcripts, many
+distinct conversations, physical devices, or release-profile behavior. The test
+used an unsigned Debug simulator app; its pairing persistence was affected by
+the simulator signing/keychain setup. The owned daemon, children, capture tools,
+simulator, and generated credentials were cleaned up after validation. Sanitized
+session fixtures and measurements remain in
+`artifacts/performance-steward/production-back-probe/`. Raw local XCTest evidence
+may contain revoked test pairing details and must not be published.
+
+## Android bounded wallpaper decoding
+
+Play Console identified unsampled bitmap decoding in wallpaper preview and
+resolution paths. Those paths now share the existing 2,048-pixel decode bound.
+The same decoder fixes the legacy URI fallback: a bounds-only BitmapFactory
+decode intentionally returns null, which previously caused valid imports to be
+discarded before the second decode. Long arithmetic prevents odd dimensions
+from exceeding the bound through integer rounding.
+
+Four native tests passed on the isolated API 37 arm64 emulator after a fresh
+Debug build: 8,192×512 pixels decoded to 2,048×128 with at most 1 MiB allocation
+and both streams closed; a 48×16 image retained its dimensions; a 4,097×17 image
+stayed within the bound; malformed, unavailable, throwing, and failed-reopen
+inputs returned null. These are functional/allocation assertions, not measured
+UI latency. This change is Android-specific because it addresses BitmapFactory;
+iOS image decoding is unchanged. Source and packaged JNI hashes are recorded in
+`artifacts/performance-steward/android-wallpaper-native/`.
+
+## Signed release receipts and Android baseline
+
+The signed iOS workflow `36093288808`, source `76f01b38`, successfully archived,
+exported, uploaded, waited for processing, and assigned version 2.1.6 build
+200000270 to Internal Testers. Strict TestFlight readiness reported no errors or
+warnings. This is not an App Store review submission. The workflow did not retain
+the final IPA checksum; the receipt records that limitation explicitly.
+
+Android workflow `36093313104` produced signed version 2.1.5/code 210020008 from
+the same source, without uploading to Play. APK and AAB signatures, artifact
+hashes, packaged JNI identity, and installed APK readback were verified. This is
+the unoptimized baseline for the subsequent Android release optimizer change,
+not the final candidate.
+
+Five accepted `am start -W` cold-process launches of that baseline on an isolated
+API 37 emulator took 558/411/606/503/497 ms (median 503 ms). Setup launches and
+runs showing the notification permission activity were excluded; notification
+denial was confined to this disposable fixture. A 15.057-second idle window used
+2.99 CPU seconds (19.86% of one core); PSS changed from 144,868 to 141,160 KiB.
+No app crash markers appeared in that window. These are warm-device automated
+emulator observations, not manual acceptance, physical-device cold boot,
+leak-freedom evidence, or final optimized-release measurements. Exact provenance
+is under `artifacts/performance-steward/android-signed-36093313104/`.
+
+## Android optimizer and native packaging qualification
+
+Release builds now enable R8 and resource shrinking. Narrow consumer rules retain
+JNA reflection/structures/callbacks, native method descriptors, Ghostty callback
+interfaces and implementations, and annotated WebRTC JNI entry points. The first
+ordinary optimized build reduced uncompressed DEX contents from 71,276,852 to
+9,009,608 bytes (87.36%). This is a code-size result, not a startup speedup.
+The local native library set differs from the signed baseline, so total APK
+sizes are not a controlled comparison.
+
+Actual DEX inspection caught renamed/removed Ghostty Kotlin SAM methods before
+acceptance. Keeping both interface contracts and implementations preserves their
+JNI-facing names, including synthesized callbacks. Independent DEX inspection
+also checked WebRTC observers and UniFFI future callbacks. The ordinary AAB
+contains the deobfuscation mapping; the release workflow retains it separately.
+
+Native release instrumentation completed two passes and one explicit skip:
+WebRTC created a local data-channel offer and delivered its native SDP callback;
+Ghostty loaded its JNI bridge and returned a version with both callback signatures
+present. The headless Ghostty surface was unavailable on this emulator, so that
+test skipped and does not establish renderer/input callback acceptance. The
+WebRTC test did not apply local SDP, gather ICE, exchange network traffic, or
+start microphone/camera capture.
+
+The test target is non-debuggable and optimized but has local-only compatibility
+retention for Kotlin standard-library/AndroidX runner APIs and Java entry points
+used solely by the smoke tests. Without those test-only rules, AndroidJUnitRunner
+failed before reaching the tests because separately compiled instrumentation
+referenced shared APIs removed by R8. These rules are not part of shipping
+configuration. Functional results do not qualify the exact ordinary/signed APK;
+ordinary package verification and final signed/manual acceptance are separate.
+
+The native-library audit found a second, independent defect: the preceding
+signed APK omitted `liblitter_ghostty_jni.so`. Rust built arm64, while the bridge's
+Gradle default checked for both arm64 and x86_64 before enabling JNI. The bridge
+now shares the app's ABI selection; release and CI explicitly require JNI. A
+missing generated header is restored from the patched pinned source when native
+libraries are cached. The release workflow rejects APKs or AABs missing required
+native libraries before publication; its validator rejected the actual preceding
+APK as expected. The experimental terminal previously fell back to plain text.
+Fixing packaging does not implement the outstanding OpenGL ES renderer port.
+
+Evidence is under `artifacts/performance-steward/r8-candidate/`. Native tests use
+the existing local Android development-profile Rust library, not the final
+shipping-profile JNI binary. iOS is unchanged by these Android-specific fixes.

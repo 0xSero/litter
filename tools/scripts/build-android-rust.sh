@@ -46,6 +46,22 @@ if [ "$NEED_GHOSTTY" = 1 ]; then
   ANDROID_ABIS="$ABIS_FOR_GHOSTTY" "$REPO_DIR/tools/scripts/build-ghostty-android.sh"
 fi
 
+# Cached native libraries can survive removal of the generated include folder.
+# Restore the matching patched header without rebuilding Ghostty's native library.
+GHOSTTY_HEADER="$REPO_DIR/apps/android/core/bridge/src/main/cpp/include/ghostty.h"
+if [ ! -f "$GHOSTTY_HEADER" ]; then
+  "$REPO_DIR/apps/ios/scripts/sync-ghostty.sh" --preserve-current
+  SOURCE_HEADER="$REPO_DIR/shared/third_party/ghostty/include/ghostty.h"
+  for symbol in ghostty_surface_write external_pty_write GHOSTTY_PLATFORM_ANDROID; do
+    if ! grep -q "$symbol" "$SOURCE_HEADER"; then
+      echo "error: patched Ghostty header is missing $symbol" >&2
+      exit 1
+    fi
+  done
+  mkdir -p "$(dirname "$GHOSTTY_HEADER")"
+  cp "$SOURCE_HEADER" "$GHOSTTY_HEADER"
+fi
+
 echo "==> Preparing codex submodule..."
 "$SYNC_SCRIPT" --preserve-current
 

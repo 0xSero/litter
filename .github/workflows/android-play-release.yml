@@ -180,6 +180,8 @@ jobs:
     timeout-minutes: 90
     environment: release
     env:
+      ANDROID_ABIS: arm64-v8a
+      LITTER_ENABLE_GHOSTTY_ANDROID: "1"
       SCCACHE_BUCKET: rust-cache
       SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
       SCCACHE_REGION: auto
@@ -328,7 +330,6 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
           CARGO_INCREMENTAL: "0"
           CARGO_BUILD_JOBS: "1"
-          ANDROID_ABIS: arm64-v8a
           ANDROID_RUST_PROFILE: mobile-release
         run: |
           set -euo pipefail
@@ -370,6 +371,30 @@ jobs:
             -PLITTER_UPLOAD_STORE_PASSWORD="$LITTER_UPLOAD_STORE_PASSWORD" \
             -PLITTER_UPLOAD_KEY_ALIAS="$LITTER_UPLOAD_KEY_ALIAS" \
             -PLITTER_UPLOAD_KEY_PASSWORD="$LITTER_UPLOAD_KEY_PASSWORD"
+
+      - name: Verify packaged native libraries and R8 mapping
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          outputs = Path("apps/android/app/build/outputs")
+          for archive, prefix in (
+              (outputs / "apk/release/app-release.apk", "lib"),
+              (outputs / "bundle/release/app-release.aab", "base/lib"),
+          ):
+              with ZipFile(archive) as package:
+                  for abi in os.environ["ANDROID_ABIS"].split(","):
+                      for library in ("libcodex_mobile_client.so", "libghostty.so", "liblitter_ghostty_jni.so"):
+                          entry = f"{prefix}/{abi.strip()}/{library}"
+                          if package.getinfo(entry).file_size == 0:
+                              raise SystemExit(f"Empty native library in {archive}: {entry}")
+              print(f"Verified native libraries: {archive}")
+          mapping = outputs / "mapping/release/mapping.txt"
+          if not mapping.is_file() or mapping.stat().st_size == 0:
+              raise SystemExit("Release R8 mapping is missing or empty")
+          PYTHON
 
       - name: Publish and promote Android bundle to Google Play
         if: inputs.publish_to_play
@@ -424,3 +449,4 @@ jobs:
             apps/android/app/build/outputs/apk/release/app-release.apk.sha256
             apps/android/app/build/outputs/bundle/release/app-release.aab
             apps/android/app/build/outputs/bundle/release/app-release.aab.sha256
+            apps/android/app/build/outputs/mapping/release/mapping.txt

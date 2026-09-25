@@ -33,7 +33,7 @@ android {
         applicationId = "com.sigkitten.litter.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 210020007
+        versionCode = 210020008
         versionName = "2.1.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -54,7 +54,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

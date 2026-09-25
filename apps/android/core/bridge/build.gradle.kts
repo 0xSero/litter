@@ -6,11 +6,15 @@ plugins {
 fun String.asBuildFlag(): Boolean =
     equals("1") || equals("true", ignoreCase = true) || equals("yes", ignoreCase = true)
 
-val androidAbis = System.getenv("ANDROID_ABIS")
-    ?.split(",")
-    ?.map { it.trim() }
-    ?.filter { it.isNotBlank() }
-    ?: listOf("arm64-v8a", "x86_64")
+fun projectPropOrEnv(name: String): String? =
+    (findProperty(name) as? String)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+
+// Keep the bridge and app on the same ABI set, including property overrides.
+val androidAbis = (projectPropOrEnv("ANDROID_ABIS") ?: "arm64-v8a")
+    .split(",")
+    .map(String::trim)
+    .filter(String::isNotEmpty)
 
 val ghosttyHeader = file("src/main/cpp/include/ghostty.h")
 val ghosttyLibrariesAvailable = ghosttyHeader.isFile &&

@@ -57,6 +57,7 @@ The test requires an app-owned regular file with mode `0600`, uses the existing 
 | Removed sessions and servers | Shared Rust removes stale per-thread caches and launch rows. Native full snapshots prune removed cached conversations while retaining authoritative offline summaries. Shared regressions pass; final native acceptance pending. |
 | Deep fork ancestry | Both platforms retain bounded breadcrumbs (oldest loaded/root plus nearest three with an omitted-count marker), preserve complete sibling membership, and render sibling pills lazily. Native unit regressions cover a 1,000-session chain, missing parents, cross-server IDs, and malformed cycles. Host projection measurements are in [performance validation](../../../docs/performance-validation.md); physical-device frame acceptance remains pending. |
 | Markdown selection and links | API 37 emulator instrumentation passes actual clickable-span touch dispatch and arbitrary buffer selection across selectable true/false/true reconfiguration. Attached long-press handles and action-mode UX remain manual checks. |
+| Wallpaper decoding | Four native API 37 Debug tests pass: oversized and odd-dimension images stay within the 2,048-pixel decode bound, small images survive bounds probing, both streams close, and malformed/unavailable input returns null. Android BitmapFactory-specific fix; iOS decoding unchanged. Photo-picker and visible-preview acceptance remain separate manual checks. |
 | Snapshot publication ordering | Both native shells reject superseded captures and captures invalidated by received updates. Native fence tests pass; unread Rust event versus captured-item ordering is a separate shared revision regression and requires its own acceptance. |
 | Slow remote RPC | Shared Rust regression verifies that a 300 ms catalog response does not block unrelated requests or notifications; concurrent transport failures reconnect once, and shutdown drops pending replies. Applies to both platforms. Physical-device tap-to-render validation remains separate. |
 | Saved Alleycat relay identity | Shared Rust canonicalizes DNS relay URLs, including older saved pairings. Android 17 ARM64 16K emulator: relay-only cold restarts produced duplicate-endpoint eviction on 2/2 baseline runs; candidate Rust produced 0/3 evictions and connected in 5.5s, 2.4s, and 2.2s. Controlled native-library replacement retained the signed baseline shell and pairing; final signed-artifact and physical-device acceptance remain separate gates. |
@@ -67,8 +68,14 @@ The test requires an app-owned regular file with mode `0600`, uses the existing 
 
 ## Terminal UX Matrix
 
-The terminal screen renders through Ghostty on both platforms; this section
-tracks parity between iOS (UIKit + Metal) and Android (Compose + SurfaceView).
+The terminal targets Ghostty on both platforms; this section tracks the intended
+parity between iOS (UIKit + Metal) and Android (Compose + SurfaceView).
+Android's experimental terminal falls back to plain text when its native bridge
+or renderer is unavailable. The September 25 release audit found that the signed
+baseline omitted `liblitter_ghostty_jni.so`; release packaging now checks for that
+library explicitly. Packaging success does not resolve the known OpenGL 4.3
+versus emulator OpenGL ES surface limitation in the repository risk register.
+The rows below are not blanket verification of Android native rendering.
 
 | Area | iOS | Android |
 |---|---|---|
