@@ -106,8 +106,33 @@ samples plus XCTest's discarded warm-up. Each sample performs two open/Back cycl
 at session 900 using the synthetic production-viewport harness. App-process CPU
 and memory metrics exclude launch, zoom setup and deep scrolling; wall duration
 includes event injection, idle waits and assertions. The app stays alive across
-samples. These tests have been added but their results are pending, and their
-memory metric does not establish a retained-object leak slope.
+samples. The `46a0acbb` simulator binary passed all five resource tests (four zoom levels
+and normal Home launch). Each row below is the mean of five measured samples,
+with one discarded warm-up; each navigation sample contains two open/Back cycles.
+
+| Zoom | App CPU time per sample | Absolute physical memory | Peak physical memory | Automated wall duration |
+| --- | --- | --- | --- | --- |
+| 1 | 4.880 s | 198.65 MB | 203.28 MB | 13.561 s |
+| 2 | 3.146 s | 144.98 MB | 148.93 MB | 11.914 s |
+| 3 | 2.008 s | 126.69 MB | 128.80 MB | 10.905 s |
+| 4 | 1.152 s | 119.34 MB | 120.95 MB | 10.058 s |
+
+Memory units here are decimal MB converted from XCTest kB. Per-sample memory
+changes included both increases and decreases; five samples do not establish a
+retained-object leak slope. XCTest event injection, accessibility queries, idle
+waits and assertions affect these measurements, especially wall duration; they
+are not input-to-frame latency or production navigation timing.
+
+The normal Home first-frame-plus-responsive launch metric averaged **2.590 s**
+(range 2.560–2.619 s, five samples); automated wall duration through a hittable
+Settings button averaged 4.612 s. This is not instant startup and needs further
+profiling. The Debug simulator retains OS caches, runs on a shared Mac with an
+Android emulator and ordinary user applications, and does not establish physical
+device or Release performance. CPU-heavy builds were deliberately paused for the
+run. Exact binary UUID, app version/build, host conditions, raw xcresult and
+exported metrics are under `artifacts/performance-steward/ios-resource-metrics-46a0acbb*`.
+Later source changes, including revisioned streaming and offscreen height
+comparison, are excluded from this run and require updated native acceptance.
 
 The Debug `BackToHomeAppear` signpost measures the actual final conversation Back
 callback through the recreated Home view's SwiftUI `onAppear` on compact layouts.
