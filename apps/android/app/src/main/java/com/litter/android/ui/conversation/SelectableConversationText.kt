@@ -144,10 +144,12 @@ internal fun configureSelectableMarkdownTextView(
     } else {
         textView.textSize = textSize
     }
+    // TextView replaces its movement method when selection changes. Apply
+    // selection first so links remain tappable on selectable conversation text.
+    textView.setTextIsSelectable(selectable)
     textView.linksClickable = true
     textView.movementMethod = LinkMovementMethod.getInstance()
     textView.setLinkTextColor(linkColor)
-    textView.setTextIsSelectable(selectable)
     textView.customSelectionActionModeCallback = if (selectable) {
         RunInTerminalSelectionMenu(textView)
     } else {
