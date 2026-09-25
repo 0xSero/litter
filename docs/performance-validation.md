@@ -177,6 +177,25 @@ available through lazy horizontal rendering. Both native platforms use this
 projection rule. Tests cover missing parents, server boundaries and malformed
 cycles. Evidence is under `artifacts/performance-steward/android-home-membership/`.
 
+## Offscreen height invalidation comparison
+
+A follow-up review found that the all-session invalidation pass compared each
+session's complete family despite bounded viewport mounts. The candidate compares
+only height-relevant lineage fields (bounded ancestors, branch metadata, first
+sizing pill and membership presence), preserving full mounted-row equality so
+visible sibling titles and order still update. Genuine response changes continue
+to invalidate measured heights offscreen.
+
+An exact extracted Swift `-O` host experiment compares 1,000 session pairs with
+separate but equal 1,000-member family buffers and one changed response. Eleven
+samples assert exactly 999 unchanged rows. Median comparison time fell from
+13.730 ms to 0.552 ms. This measures the comparison pass only, not whole viewport
+apply or device frames. Native regressions for mounted content freshness and
+height-cache invalidation are pending the coordinated build. Full apply still
+includes linear geometry/dictionary work and worst-case visible-row × family-size
+comparisons. Source, runner, raw output and caveats are retained under
+`artifacts/performance-steward/height-invalidation/`.
+
 ## Kittylitter daemon and transport
 
 The separately prepared 0.3.11 wrapper pins Alleycat `c27278bf`. Its release
