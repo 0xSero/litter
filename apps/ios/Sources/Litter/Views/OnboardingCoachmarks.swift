@@ -221,32 +221,13 @@ struct OnboardingCoachmarksView: View {
     }
 }
 
-/// Pulsing ring around the primary target. Uses `TimelineView` to drive the
-/// animation from a wall-clock so SwiftUI's animation system never gets
-/// involved — earlier `.animation(.repeatForever, value: pulse)` left an
-/// active animation context in this subtree forever, causing every other
-/// property change in the parent (notably `.position`) to interpolate over
-/// the same 1.2s curve and visually fly across the screen.
+/// Static ring around the primary target. It used to pulse via a 30fps
+/// `TimelineView` for as long as the empty home screen stayed open.
 private struct CoachmarkHalo: View {
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            // Phase: 0..1, period 1.6s, sinusoidal so it eases at endpoints.
-            let t = context.date.timeIntervalSinceReferenceDate
-            let phase = (sin(t * 2 * .pi / 1.6) + 1) / 2
-
-            let scale = 1.0 + 0.08 * phase
-            let outerOpacity = 0.18 - 0.13 * phase
-            let outerWidth = 4 + 4 * phase
-
-            Circle()
-                .stroke(LitterTheme.accent.opacity(0.7), lineWidth: 1.5)
-                .background(
-                    Circle()
-                        .stroke(LitterTheme.accent.opacity(outerOpacity), lineWidth: outerWidth)
-                        .blur(radius: 2)
-                )
-                .scaleEffect(scale)
-        }
+        Circle()
+            .stroke(LitterTheme.textSecondary.opacity(0.7), lineWidth: 1.5)
+            .accessibilityHidden(true)
     }
 }
 

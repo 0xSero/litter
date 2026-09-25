@@ -1380,17 +1380,13 @@ private struct SessionTreeRow: Identifiable {
     var id: ThreadKey { thread.key }
 }
 
+/// Static "active" marker. Previously a repeat-forever scale/opacity pulse.
 struct PulsingDot: View {
-    @State private var pulse = false
-
     var body: some View {
         Circle()
-            .fill(LitterTheme.accent)
+            .fill(LitterTheme.textSecondary)
             .frame(width: 8, height: 8)
-            .scaleEffect(pulse ? 1.3 : 1.0)
-            .opacity(pulse ? 0.6 : 1.0)
-            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-            .onAppear { pulse = true }
+            .accessibilityHidden(true)
     }
 }
 
