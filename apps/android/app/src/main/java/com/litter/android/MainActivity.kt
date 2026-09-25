@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
 
         var showSplash by mutableStateOf(true)
         var contentReady by mutableStateOf(false)
-        var minTimeElapsed by mutableStateOf(false)
 
         setContent {
             LitterAppTheme {
@@ -98,22 +97,16 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Signal content ready when LitterApp composes
+                    // Signal content ready once the first real frame (LitterApp
+                    // or the startup-failure message) has composed. No fixed
+                    // minimum display time: hide the splash as soon as ready.
                     LaunchedEffect(model) {
-                        if (model != null) {
-                            contentReady = true
-                        }
+                        contentReady = true
                     }
 
-                    // Minimum display time
-                    LaunchedEffect(Unit) {
-                        delay(800)
-                        minTimeElapsed = true
-                    }
-
-                    // Dismiss when both ready and min time elapsed (or hard max 3s)
-                    LaunchedEffect(contentReady, minTimeElapsed) {
-                        if (contentReady && minTimeElapsed) showSplash = false
+                    // Dismiss when ready (or hard max 3s as a safety net)
+                    LaunchedEffect(contentReady) {
+                        if (contentReady) showSplash = false
                     }
                     LaunchedEffect(Unit) {
                         delay(3000)
