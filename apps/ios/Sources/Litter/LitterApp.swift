@@ -97,7 +97,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
         }
-        scheduleKeyboardWarmup()
         // Start pushing state to the paired Apple Watch, gated behind the
         // experimental feature flag. Flip the `appleWatch` feature in
         // Settings → Experimental Features to enable. No-op when disabled.
@@ -107,29 +106,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             }
         }
         return true
-    }
-
-    // MARK: - Keyboard warmup
-
-    private func scheduleKeyboardWarmup() {
-        // Warm the real system keyboard after the main app window is visible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = scene.windows.first else {
-                self.scheduleKeyboardWarmup()
-                return
-            }
-            let field = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
-            field.autocorrectionType = .no
-            field.autocapitalizationType = .none
-            field.spellCheckingType = .no
-            window.addSubview(field)
-            field.becomeFirstResponder()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                field.resignFirstResponder()
-                field.removeFromSuperview()
-            }
-        }
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

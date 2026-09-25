@@ -58,11 +58,15 @@ struct ConversationWarmupView: View {
             os_signpost(.end, log: conversationWarmupSignpostLog, name: "PrewarmConversation", signpostID: signpostID)
         }
 
-        try? await Task.sleep(nanoseconds: 60_000_000)
-        guard !didCompleteWarmup else { return }
-        shouldPrimeKeyboard = true
-
-        try? await Task.sleep(nanoseconds: 900_000_000)
+        do {
+            try await Task.sleep(nanoseconds: 60_000_000)
+            guard !didCompleteWarmup else { return }
+            shouldPrimeKeyboard = true
+            try await Task.sleep(nanoseconds: 900_000_000)
+        } catch {
+            // A disappearing warmup must release its waiters without ever
+            // priming a keyboard after cancellation.
+        }
         completeWarmup()
     }
 
@@ -76,7 +80,7 @@ struct ConversationWarmupView: View {
     }
 }
 
-private struct ConversationKeyboardWarmupTextView: UIViewRepresentable {
+struct ConversationKeyboardWarmupTextView: UIViewRepresentable {
     @Binding var shouldPrimeKeyboard: Bool
     let onDidPrimeKeyboard: () -> Void
 
@@ -102,31 +106,58 @@ private struct ConversationKeyboardWarmupTextView: UIViewRepresentable {
             return
         }
 
-        guard !context.coordinator.didPrimeKeyboard else { return }
-
         DispatchQueue.main.async {
-            guard shouldPrimeKeyboard, !context.coordinator.didPrimeKeyboard else { return }
-            uiView.becomeFirstResponder()
+            guard shouldPrimeKeyboard else { return }
+            context.coordinator.primeIfNeeded()
         }
     }
 
+    static func dismantleUIView(_ uiView: UITextField, coordinator: Coordinator) {
+        coordinator.cancel()
+        uiView.delegate = nil
+    }
+
+    @MainActor
     final class Coordinator: NSObject, UITextFieldDelegate {
         weak var field: UITextField?
-        var didPrimeKeyboard = false
+        private(set) var isComplete = false
+        private var isPriming = false
         let onDidPrimeKeyboard: () -> Void
 
         init(onDidPrimeKeyboard: @escaping () -> Void) {
             self.onDidPrimeKeyboard = onDidPrimeKeyboard
         }
 
-        func textFieldDidBeginEditing(_ textField: UITextField) {
-            guard !didPrimeKeyboard else { return }
-            didPrimeKeyboard = true
-
-            DispatchQueue.main.async {
-                textField.resignFirstResponder()
-                self.onDidPrimeKeyboard()
+        func primeIfNeeded() {
+            guard !isComplete, !isPriming else { return }
+            guard let field, let window = field.window, window.isKeyWindow,
+                  !hasFirstResponder(in: window) else {
+                // Real input has already warmed the keyboard. Never replace
+                // its responder or activate a background/non-key window.
+                finish()
+                return
             }
+            isPriming = true
+            if !field.becomeFirstResponder() { finish() }
+        }
+
+        func cancel() { finish() }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            DispatchQueue.main.async { [weak self] in self?.finish() }
+        }
+
+        private func finish() {
+            guard !isComplete else { return }
+            isComplete = true
+            if field?.isFirstResponder == true { field?.resignFirstResponder() }
+            // Teardown can run during a SwiftUI update; publish completion
+            // on the next turn rather than mutating view state in that update.
+            DispatchQueue.main.async(execute: onDidPrimeKeyboard)
+        }
+
+        private func hasFirstResponder(in view: UIView) -> Bool {
+            view.isFirstResponder || view.subviews.contains { hasFirstResponder(in: $0) }
         }
     }
 }
