@@ -23,6 +23,22 @@ Current automated checks:
 - OAuth, server pairing, appearance, and home-dashboard tests
   - validate their platform adapters without duplicating the Rust reducer
 
+## Optional authenticated lifecycle check
+
+`MainActivityLifecycleTest` always verifies the process model and endpoint identity across three Activity recreations and close/relaunch. To additionally verify authenticated host RPC liveness, run an isolated Kittylitter daemon with a fresh profile, all agents disabled, and a fresh pairing token. Wait for its pairing payload to contain a reachable relay; the current native API does not accept direct-address overrides. This checks new `list_agents` requests through the production shared endpoint, not continuity of an existing agent stream or overlay permissions.
+
+With both debug APKs installed, transfer a private pairing JSON file through stdin (never place the token in arguments or logs):
+
+```bash
+adb -e shell run-as com.sigkitten.litter.android sh -c '"umask 077; mkdir -p cache/lifecycle-auth; cat > cache/lifecycle-auth/pair.json"' < "$PRIVATE_PAIR_FILE"
+adb -e shell am instrument -w \
+  -e class com.litter.android.MainActivityLifecycleTest \
+  -e alleycatPairPayloadFile /data/user/0/com.sigkitten.litter.android/cache/lifecycle-auth/pair.json \
+  com.sigkitten.litter.android.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The test requires an app-owned regular file with mode `0600`, uses the existing endpoint identity without saving a server, and deletes its fixture in `finally`. The runner should also remove that exact file if instrumentation is externally terminated, then stop the isolated daemon and delete its private host pairing file. Without the argument, no authenticated host request is attempted. Report authenticated success separately from endpoint-only success.
+
 ## Manual Matrix
 
 | Area | Hybrid runtime |
@@ -35,6 +51,7 @@ Current automated checks:
 | SSH changed identity (guided connect) | Both platforms route a changed host key from guided connect (probe, bootstrap, and SSH bridge paths) to the confirm modal instead of raw marker text; Replace syncs saved servers first so re-pinning works for servers saved this session. A changed key on a never-saved discovery target shows the confirm modal but Replace cannot reconnect it until the server is saved (tracked follow-up). Device acceptance pending. |
 | Local transport drop | Reconnect and one-time reinitialize before the next non-initialize RPC |
 | Remote transport drop | Reconnect behavior via Rust `AppStore` updates and resumed RPC notifications |
+| Activity recreation and authenticated endpoint | API 37 ARM64 emulator: same process model/endpoint survives three recreations and close/relaunch. Optional private-fixture test completed five authenticated inventory RPCs against isolated Kittylitter 0.3.11 (1.493s initial; 0.624–0.647s later), with fixture cleanup verified. This proves new RPC liveness, not uninterrupted agent streams or overlay behavior. |
 | Subscription teardown | Both native shells explicitly cancel the shared Rust subscription. Rust regressions verify an idle receive wakes, its receiver is released, and other subscribers remain usable. Final native/device acceptance pending. |
 | Concurrent snapshot refresh and hydration | Android serializes in-memory snapshot/cache mutations without holding the lock across network, suspension, or persistence. Extracted production-method JVM stress checks retain all 800 concurrently hydrated rows and exercise authoritative cache pruning. Native/device acceptance pending; see [performance validation](../../../docs/performance-validation.md). |
 | Removed sessions and servers | Shared Rust removes stale per-thread caches and launch rows. Native full snapshots prune removed cached conversations while retaining authoritative offline summaries. Shared regressions pass; final native acceptance pending. |
