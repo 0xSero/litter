@@ -46,8 +46,7 @@ struct SubagentCardView: View {
                 .padding(.top, 6)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, LitterSpace.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $sheetThreadKey) { key in
             // `resolveThreadKey` is precomputed by `ConversationScreenModel`
@@ -63,18 +62,16 @@ struct SubagentCardView: View {
     // MARK: - Header
 
     private var headerRow: some View {
-        HStack(spacing: 8) {
-            Text(actionLabel)
-                .litterFont(.caption)
-                .foregroundColor(LitterTheme.textSystem)
+        HStack(spacing: LitterSpace.xs) {
+            Text("subagent · \(actionLabel.lowercased()) \(expanded ? "⌄" : "›")")
+                .litterMeta()
                 .lineLimit(1)
-
-            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                .litterFont(size: 11, weight: .medium)
-                .foregroundColor(LitterTheme.textMuted)
-
             Spacer()
         }
+        .frame(minHeight: LitterSpace.hitTarget - 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(expanded ? "Collapses agent list" : "Expands agent list")
     }
 
     private var actionLabel: String {
@@ -183,7 +180,6 @@ struct SubagentCardView: View {
             // Line 1: Name + status + Open
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 let statusStr = readableStatus(status)
-                let isActive = status == .running
 
                 (
                     Text(parts.nickname)
@@ -196,7 +192,6 @@ struct SubagentCardView: View {
                 .litterFont(.caption)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .modifier(ShimmerText(active: isActive))
 
                 Spacer(minLength: 8)
 
@@ -276,42 +271,6 @@ struct SubagentCardView: View {
             hash = ((hash &<< 5) &+ hash) &+ UInt64(byte)
         }
         return Self.nicknameColors[Int(hash % UInt64(Self.nicknameColors.count))]
-    }
-}
-
-// MARK: - Shimmer
-
-private struct ShimmerText: ViewModifier {
-    let active: Bool
-
-    func body(content: Content) -> some View {
-        if active {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                let phase = CGFloat(t.truncatingRemainder(dividingBy: 2.0) / 2.0)
-
-                content
-                    .overlay {
-                        GeometryReader { geo in
-                            let w = geo.size.width
-                            LinearGradient(
-                                stops: [
-                                    .init(color: .white.opacity(0), location: max(0, phase - 0.2)),
-                                    .init(color: .white.opacity(0.35), location: phase),
-                                    .init(color: .white.opacity(0), location: min(1, phase + 0.2))
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(width: w, height: geo.size.height)
-                        }
-                        .blendMode(.sourceAtop)
-                    }
-                    .compositingGroup()
-            }
-        } else {
-            content
-        }
     }
 }
 

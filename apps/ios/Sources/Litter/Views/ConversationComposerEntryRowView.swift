@@ -23,9 +23,9 @@ struct ConversationComposerEntryRowView: View {
     let onInterrupt: () -> Void
 
     private enum Metrics {
-        static let controlSize: CGFloat = 40
-        static let inputCornerRadius: CGFloat = 26
-        static let trailingControlSize: CGFloat = 40
+        static let controlSize: CGFloat = LitterSpace.hitTarget
+        static let inputCornerRadius: CGFloat = LitterRadius.composer
+        static let trailingControlSize: CGFloat = LitterSpace.hitTarget
         static let horizontalPadding: CGFloat = 10
         static let verticalPadding: CGFloat = 6
     }
@@ -145,7 +145,7 @@ struct ConversationComposerEntryRowView: View {
             )
 
             if inputText.isEmpty {
-                Text("Message litter...")
+                Text("Message litter…")
                     .font(LitterFont.styled(size: 17))
                     .foregroundColor(LitterTheme.textMuted)
                     .padding(.leading, 10)
@@ -185,21 +185,22 @@ struct ConversationComposerEntryRowView: View {
                 Button(action: onOpenModelPicker) {
                     HStack(spacing: 4) {
                         Text(modelLabel)
+                            .foregroundColor(LitterTheme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         if let reasoningLabel, reasoningLabel != "default" {
                             Text(reasoningLabel)
-                                .foregroundColor(LitterTheme.textSecondary)
+                                .foregroundColor(LitterTheme.meta)
                                 .lineLimit(1)
                         }
                         Image(systemName: "chevron.down")
-                            .font(LitterFont.styled(size: 9, weight: .bold))
+                            .font(LitterFont.styled(size: 11, weight: .semibold))
+                            .foregroundColor(LitterTheme.meta)
                     }
-                    .font(LitterFont.styled(size: 12, weight: .semibold))
-                    .foregroundColor(LitterTheme.textPrimary)
-                    .padding(.horizontal, 9)
-                    .frame(height: 34)
-                    .background(Capsule().fill(LitterTheme.surfaceLight.opacity(0.72)))
+                    .litterMonoFont(size: 13)
+                    .padding(.horizontal, LitterSpace.s)
+                    .frame(height: LitterSpace.hitTarget)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
@@ -231,15 +232,16 @@ struct ConversationComposerEntryRowView: View {
     @ViewBuilder
     private var trailingControl: some View {
         if voiceManager.isRecording {
-            composerCircleButton(systemName: "stop.fill", label: "Stop recording", tint: .black, fill: LitterTheme.accentStrong) {
+            composerCircleButton(systemName: "stop.fill", label: "Stop recording", tint: LitterTheme.surface, fill: LitterTheme.textPrimary) {
                 onStopRecording()
             }
         } else if voiceManager.isTranscribing {
             ProgressView()
-                .tint(LitterTheme.accent)
+                .tint(LitterTheme.textSecondary)
                 .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
         } else if canSend {
-            composerCircleButton(systemName: "arrow.up", label: "Send", tint: .black, fill: LitterTheme.accent) {
+            // The one primary button: inverted text color, no accent.
+            composerCircleButton(systemName: "arrow.up", label: "Send", tint: LitterTheme.surface, fill: LitterTheme.textPrimary) {
                 onSendText()
             }
         } else if isTurnActive {

@@ -1536,14 +1536,7 @@ private struct ConversationCommandExecutionRow: View {
                 )
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(LitterTheme.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(LitterTheme.border, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, LitterSpace.xs)
         .animation(.spring(duration: 0.35, bounce: 0.15), value: expanded)
         .onChange(of: isInitiallyExpanded) { _, newValue in
             expanded = newValue
@@ -1554,14 +1547,17 @@ private struct ConversationCommandExecutionRow: View {
     }
 
     private var shellHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // One mono line: "$ command  2.1s ›". Status appears as a word only
+        // when the command is running or failed.
+        HStack(alignment: .firstTextBaseline, spacing: LitterSpace.s) {
             Text("$")
-                .litterMonoFont(size: 12, weight: .semibold)
-                .foregroundColor(LitterTheme.warning)
+                .litterMonoFont(size: 13, weight: .semibold)
+                .foregroundColor(LitterTheme.meta)
+                .accessibilityHidden(true)
 
             Text(expanded ? displayedCommand : collapsedCommand)
-                .litterMonoFont(size: 12)
-                .foregroundColor(LitterTheme.textSystem)
+                .litterMonoFont(size: 13)
+                .foregroundColor(LitterTheme.textSecondary)
                 .textSelection(.enabled)
                 .lineLimit(expanded ? nil : 1)
                 .truncationMode(.tail)
@@ -1569,25 +1565,23 @@ private struct ConversationCommandExecutionRow: View {
 
             if let durationText = formatDuration(data.durationMs), !durationText.isEmpty {
                 Text(durationText)
-                    .litterFont(.caption2)
-                    .foregroundColor(statusColor)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(statusColor.opacity(0.10))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(statusColor.opacity(0.22), lineWidth: 0.5)
-                    )
+                    .litterMeta()
                     .accessibilityLabel(durationAccessibilityLabel(durationText))
             }
+            switch data.status.toolCallStatus {
+            case .inProgress:
+                Text("running").litterMeta()
+            case .failed:
+                Text("failed").litterMeta(LitterTheme.danger)
+            case .completed, .unknown:
+                EmptyView()
+            }
 
-            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                .litterFont(size: 11, weight: .medium)
-                .foregroundColor(LitterTheme.textMuted)
+            Text(expanded ? "⌄" : "›")
+                .litterMeta()
+                .accessibilityHidden(true)
         }
+        .frame(minHeight: 32)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -1678,8 +1672,8 @@ private struct ConversationCommandOutputViewport: View {
                     .padding(.bottom, 12)
                 }
                 .frame(height: viewportHeight)
-                .background(LitterTheme.codeBackground.opacity(0.78))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(LitterTheme.raised)
+                .clipShape(RoundedRectangle(cornerRadius: LitterRadius.raised, style: .continuous))
                 .overlay(alignment: .top) {
                     LinearGradient(
                         colors: [LitterTheme.codeBackground.opacity(0.96), LitterTheme.codeBackground.opacity(0)],
@@ -1687,15 +1681,14 @@ private struct ConversationCommandOutputViewport: View {
                         endPoint: .bottom
                     )
                     .frame(height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: LitterRadius.raised, style: .continuous))
                     .allowsHitTesting(false)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if let durationText, !durationText.isEmpty {
                         Text(durationText)
-                            .foregroundColor(statusColor)
+                            .litterMeta(statusColor)
                             .accessibilityLabel(durationAccessibilityLabel(durationText))
-                            .litterFont(.caption2)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(alignment: .bottom) {
@@ -1707,10 +1700,6 @@ private struct ConversationCommandOutputViewport: View {
                             }
                         }
                     }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(LitterTheme.border.opacity(0.35), lineWidth: 1)
-                }
                 .onAppear {
                     scrollToBottom(proxy)
                 }
@@ -1797,13 +1786,9 @@ private struct ConversationUserInputResponseRow: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(data.questions.enumerated()), id: \.element.id) { _, question in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .litterFont(size: 10, weight: .semibold)
-                        .foregroundColor(LitterTheme.accent)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(question.header ?? question.question)
-                            .litterFont(.caption, weight: .semibold)
-                            .foregroundColor(LitterTheme.textSecondary)
+                        Text((question.header ?? question.question).lowercased())
+                            .litterMeta()
                         Text(question.answer)
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textPrimary)
@@ -1812,8 +1797,7 @@ private struct ConversationUserInputResponseRow: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, LitterSpace.xs)
     }
 }
 
@@ -1821,50 +1805,24 @@ private struct ConversationDividerRow: View {
     let kind: ConversationDividerKind
     let isLiveTurn: Bool
 
+    /// An in-turn event ("context compacted", "worked for 2m") is a single
+    /// mono line. No rules or icons; an in-flight compaction keeps its
+    /// spinner so progress stays visible.
     var body: some View {
-        HStack(spacing: 10) {
-            Capsule()
-                .fill(LitterTheme.border)
-                .frame(minWidth: 16, maxHeight: 1)
-            dividerContent
-                .layoutPriority(1)
-            Capsule()
-                .fill(LitterTheme.border)
-                .frame(minWidth: 16, maxHeight: 1)
+        HStack(spacing: LitterSpace.s) {
+            if case .contextCompaction = kind, !effectiveContextCompactionComplete {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(LitterTheme.meta)
+            }
+            Text(title.lowercased())
+                .litterMeta()
+                .lineLimit(1)
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, LitterSpace.xs)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-    }
-
-    @ViewBuilder
-    private var dividerContent: some View {
-        switch kind {
-        case .contextCompaction:
-            HStack(spacing: 6) {
-                if effectiveContextCompactionComplete {
-                    Image(systemName: "checkmark.circle.fill")
-                        .litterFont(size: 10, weight: .semibold)
-                        .foregroundColor(LitterTheme.success)
-                } else {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(LitterTheme.warning)
-                }
-
-                Text(title)
-                    .litterFont(.caption2, weight: .semibold)
-                    .foregroundColor(
-                        effectiveContextCompactionComplete ? LitterTheme.textMuted : LitterTheme.warning
-                    )
-                    .lineLimit(1)
-            }
-        default:
-            Text(title)
-                .litterFont(.caption2, weight: .semibold)
-                .foregroundColor(LitterTheme.textMuted)
-                .lineLimit(1)
-        }
     }
 
     private var title: String {
@@ -2565,16 +2523,13 @@ private func formatDuration(_ durationMs: Int?) -> String? {
 }
 
 private extension ToolCallStatus {
+    /// Healthy and in-flight states stay gray; only a failure is colored.
     var themeColor: Color {
         switch self {
-        case .completed:
-            return LitterTheme.success
-        case .inProgress:
-            return LitterTheme.warning
+        case .completed, .inProgress, .unknown:
+            return LitterTheme.meta
         case .failed:
             return LitterTheme.danger
-        case .unknown:
-            return LitterTheme.textSecondary
         }
     }
 }
@@ -2590,6 +2545,9 @@ struct ConversationTranscriptProjection {
         }
         let turn: TranscriptTurn
         let content: Content
+        /// First entry of a turn that follows another turn. Drives the turn
+        /// divider; presentation only.
+        var startsTurn = false
 
         var id: String {
             switch content {
@@ -2627,6 +2585,12 @@ struct ConversationTranscriptProjection {
         cachedRows = cachedRows.filter { turnIDs.contains($0.key) }
         var result: [Entry] = []
         for turn in turns {
+            let turnStartIndex = result.count
+            defer {
+                if turnStartIndex > 0, turnStartIndex < result.count {
+                    result[turnStartIndex].startsTurn = true
+                }
+            }
             if !turn.isLive && turn.isCollapsedByDefault && !expandedTurnIDs.contains(turn.id) {
                 result.append(Entry(turn: turn, content: .collapsed))
                 continue
