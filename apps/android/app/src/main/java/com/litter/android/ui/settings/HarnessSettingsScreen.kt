@@ -63,7 +63,7 @@ fun HarnessSettingsScreen(onBack: () -> Unit) {
     }.collectAsState(initial = emptyList())
     LazyColumn(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            TextButton(onClick = onBack) { Text("Back", color = LitterTheme.accent) }
+            TextButton(onClick = onBack) { Text("Back", color = LitterTheme.textPrimary) }
             Text("Harnesses", color = LitterTheme.textPrimary)
         }
         if (servers.isEmpty()) {
@@ -103,14 +103,14 @@ private fun RuntimeSettingsScreen(target: HarnessTarget, onBack: () -> Unit) {
     LazyColumn(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row {
-                TextButton(onClick = onBack) { Text("Back", color = LitterTheme.accent) }
-                TextButton(onClick = { scope.launch { refresh() } }, enabled = !loading) { Text("Refresh", color = LitterTheme.accent) }
+                TextButton(onClick = onBack) { Text("Back", color = LitterTheme.textPrimary) }
+                TextButton(onClick = { scope.launch { refresh() } }, enabled = !loading) { Text("Refresh", color = LitterTheme.textPrimary) }
             }
             Text(target.runtime.runtimeLabel, color = LitterTheme.textPrimary)
             Text("Native harness settings. Saved values take effect when the harness reloads its configuration or starts a new session.", color = LitterTheme.textSecondary)
             OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Find a setting") }, modifier = Modifier.fillMaxWidth())
         }
-        if (loading) item { CircularProgressIndicator(color = LitterTheme.accent) }
+        if (loading) item { CircularProgressIndicator(color = LitterTheme.textPrimary) }
         error?.let { item { Text(it, color = LitterTheme.danger) } }
         if (!loading && error == null && settings.isEmpty()) {
             item { Text("This harness does not expose settings for this connection.", color = LitterTheme.textSecondary) }

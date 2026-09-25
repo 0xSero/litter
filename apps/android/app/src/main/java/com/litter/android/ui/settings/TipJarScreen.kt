@@ -1,5 +1,7 @@
 package com.litter.android.ui.settings
 
+import com.litter.android.ui.LitterQuiet
+import com.litter.android.ui.LitterRadius
 import android.app.Activity
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -275,7 +277,7 @@ fun TipJarScreen(onBack: () -> Unit) {
         // Nav bar
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.accent)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.textPrimary)
             }
             Spacer(Modifier.weight(1f))
             Text(
@@ -296,7 +298,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .background(LitterQuiet.raised, LitterRadius.raisedShape)
                         .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -310,7 +312,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "You're a supporter! Thank you.",
-                            color = LitterTheme.accent,
+                            color = LitterTheme.textPrimary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -340,7 +342,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
-                                color = LitterTheme.accent,
+                                color = LitterTheme.textPrimary,
                             )
                         }
                     }
@@ -357,13 +359,13 @@ fun TipJarScreen(onBack: () -> Unit) {
                             )
                         }
                     }
-                    items(currentState.products) { tip ->
+                    items(currentState.products, key = { it.productIds.first() }) { tip ->
                         if (tip.isPurchased) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                    .background(LitterQuiet.raised, LitterRadius.raisedShape)
                                     .padding(12.dp),
                             ) {
                                 Image(
@@ -382,7 +384,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 Icon(
                                     Icons.Default.CheckCircle,
                                     contentDescription = "Purchased",
-                                    tint = LitterTheme.accent,
+                                    tint = LitterTheme.textPrimary,
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
@@ -393,7 +395,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                    .background(LitterQuiet.raised, LitterRadius.raisedShape)
                                     .clickable(
                                         enabled = tip.details != null,
                                         interactionSource = interactionSource,
@@ -430,7 +432,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 )
                                 Text(
                                     price,
-                                    color = if (tip.details != null) LitterTheme.accent else LitterTheme.textSecondary,
+                                    color = if (tip.details != null) LitterTheme.textPrimary else LitterTheme.textSecondary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -443,7 +445,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                             Text(
                                 "Home Header",
                                 color = LitterTheme.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             )
@@ -454,7 +456,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                    .background(LitterQuiet.raised, LitterRadius.raisedShape)
                                     .clickable {
                                         TipJarSupporterState.setHeaderKittySelected(
                                             context = context,
@@ -480,13 +482,13 @@ fun TipJarScreen(onBack: () -> Unit) {
                                     Text(
                                         if (isSelected) "Shown on home" else "Hidden from home",
                                         color = LitterTheme.textSecondary,
-                                        fontSize = 12.sp,
+                                        fontSize = 13.sp,
                                     )
                                 }
                                 Icon(
                                     Icons.Default.CheckCircle,
                                     contentDescription = if (isSelected) "Shown on home" else "Hidden from home",
-                                    tint = if (isSelected) LitterTheme.accent else LitterTheme.textMuted,
+                                    tint = if (isSelected) LitterTheme.textPrimary else LitterTheme.textMuted,
                                     modifier = Modifier
                                         .size(20.dp)
                                         .alpha(if (isSelected) 1f else 0.35f),
@@ -497,7 +499,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                             Text(
                                 "Pick which purchased kitties appear around the home logo.",
                                 color = LitterTheme.textMuted,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             )
                         }
@@ -510,7 +512,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                             onClick = { state = TipJarState.Loading },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Restore Purchases", color = LitterTheme.accent, fontSize = 14.sp)
+                            Text("Restore Purchases", color = LitterTheme.textPrimary, fontSize = 14.sp)
                         }
                     }
 
@@ -521,13 +523,13 @@ fun TipJarScreen(onBack: () -> Unit) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                        .background(LitterQuiet.raised, LitterRadius.raisedShape)
                                         .padding(16.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(
                                         "Thank you!",
-                                        color = LitterTheme.accent,
+                                        color = LitterTheme.textPrimary,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     )
@@ -552,7 +554,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
-                                color = LitterTheme.accent,
+                                color = LitterTheme.textPrimary,
                             )
                         }
                     }
