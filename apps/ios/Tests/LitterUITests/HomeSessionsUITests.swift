@@ -85,7 +85,9 @@ final class HomeSessionsUITests: XCTestCase {
         // Page-fit starts with session 900 filling the viewport, so the real
         // pinch midpoint belongs to that key. At smaller zoom it need not be
         // the first visible row, but must stay visible and remain openable.
-        app.scrollViews.firstMatch.pinch(withScale: 0.7, velocity: -1)
+        // Zoom snaps to {1, 2, 4}: at 1.4 levels/octave, 0.7 reaches
+        // 3.28 and correctly snaps back to 4. Halving crosses the 3.0 boundary.
+        app.scrollViews.firstMatch.pinch(withScale: 0.5, velocity: -1)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value != %@", "4"),
             object: app.staticTexts["homeHarness.zoom"]
