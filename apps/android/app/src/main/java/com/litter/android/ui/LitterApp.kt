@@ -132,13 +132,20 @@ fun LitterApp(
             mutableStateOf(SavedProjectStore.selectedServerId(context))
         }
         var selectedProject by remember { mutableStateOf<AppProject?>(null) }
+        // True only after the user taps the selected server pill to clear
+        // the scope. Automatic clears (server not reconnected yet at launch)
+        // must not overwrite the persisted last-used server/project.
+        var userClearedServer by remember { mutableStateOf(false) }
 
         // Persist selections
         LaunchedEffect(selectedServerId) {
-            SavedProjectStore.setSelectedServerId(context, selectedServerId)
+            if (selectedServerId != null) userClearedServer = false
+            if (selectedServerId != null || userClearedServer) {
+                SavedProjectStore.setSelectedServerId(context, selectedServerId)
+            }
         }
         LaunchedEffect(selectedProject?.id) {
-            SavedProjectStore.setSelectedProjectId(context, selectedProject?.id)
+            selectedProject?.id?.let { SavedProjectStore.setSelectedProjectId(context, it) }
         }
 
         // Derive projects from current sessions. Keyed on the summaries, not
@@ -158,6 +165,13 @@ fun LitterApp(
             if (selectedServerId != null && selectedServerId !in connected) {
                 selectedServerId = null
             }
+            // Restore the last-used server as soon as it is connected again.
+            if (selectedServerId == null && !userClearedServer) {
+                val persisted = SavedProjectStore.selectedServerId(context)
+                if (persisted != null && persisted in connected) {
+                    selectedServerId = persisted
+                }
+            }
         }
 
         // Reconcile selectedProject against selectedServerId + projects
@@ -176,7 +190,22 @@ fun LitterApp(
                 return@LaunchedEffect
             }
             val persistedId = SavedProjectStore.selectedProjectId(context)
+            // Last-used project with no threads loaded (yet) is synthesized
+            // from its "<serverId>::<cwd>" id rather than replaced.
+            val prefix = "$currentServerId::"
+            val persistedCwd = persistedId
+                ?.takeIf { it.startsWith(prefix) }
+                ?.removePrefix(prefix)
+                ?.takeIf { it.isNotEmpty() }
             val match = serverProjects.firstOrNull { it.id == persistedId }
+                ?: persistedCwd?.let {
+                    AppProject(
+                        id = persistedId,
+                        serverId = currentServerId,
+                        cwd = it,
+                        lastUsedAtMs = null,
+                    )
+                }
                 ?: serverProjects.firstOrNull()
             selectedProject = match
         }
@@ -311,6 +340,7 @@ fun LitterApp(
                         onSelectServer = { server ->
                             // Tap again to clear the filter and show all.
                             if (selectedServerId == server.serverId) {
+                                userClearedServer = true
                                 selectedServerId = null
                                 selectedProject = null
                             } else {

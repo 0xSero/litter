@@ -91,7 +91,9 @@ final class HomeDashboardModel {
     var selectedServerId: String? {
         didSet {
             if oldValue != selectedServerId {
-                persistence.setSelectedServerId(selectedServerId)
+                if persistSelectionChanges {
+                    persistence.setSelectedServerId(selectedServerId)
+                }
                 if selectedServerId != nil {
                     userClearedSelection = false
                 }
@@ -105,13 +107,18 @@ final class HomeDashboardModel {
     /// picker (which hasn't produced a thread yet, so it's not in `projects`).
     var selectedProject: AppProject? {
         didSet {
-            if oldValue?.id != selectedProject?.id {
+            if oldValue?.id != selectedProject?.id, persistSelectionChanges {
                 persistence.setSelectedProjectId(selectedProject?.id)
             }
         }
     }
 
     @ObservationIgnored private let persistence: HomeDashboardPersistence
+    /// False while the reconciler (not the user) changes the selection, e.g.
+    /// clearing it because the last-used server has not reconnected yet at
+    /// launch. Persisting that would erase the user's last-used server and
+    /// project before the server ever came back.
+    @ObservationIgnored private var persistSelectionChanges = true
     @ObservationIgnored private let observedRefreshDelayNanoseconds: UInt64
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private(set) var rebuildCount = 0
@@ -358,9 +365,18 @@ final class HomeDashboardModel {
         // Keep selectedServerId valid: if the server it points at isn't in
         // the live/launchable list, clear the scope. Default is no filter —
         // we do not auto-select the first connected server.
-        if let current = selectedServerId,
-           !connectedServers.contains(where: { $0.id == current && $0.canLaunchSessions }) {
+        let isLaunchable: (String) -> Bool = { id in
+            self.connectedServers.contains(where: { $0.id == id && $0.canLaunchSessions })
+        }
+        if let current = selectedServerId, !isLaunchable(current) {
+            persistSelectionChanges = false
             selectedServerId = nil
+            persistSelectionChanges = true
+        }
+        // Restore the last-used server as soon as it is launchable again.
+        if selectedServerId == nil, !userClearedSelection,
+           let persisted = persistence.selectedServerId(), isLaunchable(persisted) {
+            selectedServerId = persisted
         }
 
         reconcileSelectedProject()
@@ -388,10 +404,26 @@ final class HomeDashboardModel {
             return
         }
 
-        if let persistedId = persistence.selectedProjectId(),
-           let match = serverProjects.first(where: { $0.id == persistedId }) {
-            selectedProject = match
-            return
+        if let persistedId = persistence.selectedProjectId() {
+            if let match = serverProjects.first(where: { $0.id == persistedId }) {
+                selectedProject = match
+                return
+            }
+            // Last-used project on this server that has no threads loaded
+            // (yet): keep it instead of silently switching to another one.
+            let prefix = "\(serverId)::"
+            if persistedId.hasPrefix(prefix) {
+                let cwd = String(persistedId.dropFirst(prefix.count))
+                if !cwd.isEmpty {
+                    selectedProject = AppProject(
+                        id: persistedId,
+                        serverId: serverId,
+                        cwd: cwd,
+                        lastUsedAtMs: nil
+                    )
+                    return
+                }
+            }
         }
 
         selectedProject = serverProjects.first

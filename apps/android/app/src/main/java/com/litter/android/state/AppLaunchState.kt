@@ -23,6 +23,13 @@ data class ThreadPermissionOverride(
     val rawSandboxPolicy: AppSandboxPolicy? = null,
 )
 
+/** Last model the user picked on one server (see [AppLaunchState.rememberServerModel]). */
+data class RememberedModelSelection(
+    val model: String,
+    val agentRuntimeKind: AgentRuntimeKind?,
+    val reasoningEffort: String,
+)
+
 data class AppLaunchStateSnapshot(
     val currentCwd: String = "",
     val selectedModel: String = "",
@@ -36,6 +43,10 @@ data class AppLaunchStateSnapshot(
 private const val PREFS_NAME = "litter.launchState"
 private const val APPROVAL_POLICY_KEY = "litter.approvalPolicy"
 private const val SANDBOX_MODE_KEY = "litter.sandboxMode"
+private const val SELECTED_MODEL_KEY = "litter.preferredModel"
+private const val SELECTED_RUNTIME_KEY = "litter.preferredAgentRuntimeKind"
+private const val REASONING_EFFORT_KEY = "litter.preferredReasoningEffort"
+private const val SERVER_MODEL_KEY_PREFIX = "litter.preferredModelByServer."
 private const val DEFAULT_APPROVAL_POLICY = "inherit"
 private const val DEFAULT_SANDBOX_MODE = "inherit"
 private const val CUSTOM_PERMISSION_VALUE = "custom"
@@ -45,6 +56,12 @@ class AppLaunchState(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val _snapshot = MutableStateFlow(
         AppLaunchStateSnapshot(
+            // Last-used model / runtime / effort survive app restarts so the
+            // home composer opens on the user's previous choice.
+            selectedModel = prefs.getString(SELECTED_MODEL_KEY, null).normalizedOrEmpty(),
+            selectedAgentRuntimeKind = prefs.getString(SELECTED_RUNTIME_KEY, null).normalizedOrNull()
+                ?.takeIf { prefs.getString(SELECTED_MODEL_KEY, null).normalizedOrNull() != null },
+            reasoningEffort = prefs.getString(REASONING_EFFORT_KEY, null).normalizedOrEmpty(),
             approvalPolicy = prefs.getString(APPROVAL_POLICY_KEY, DEFAULT_APPROVAL_POLICY)
                 ?.trim()
                 ?.ifEmpty { DEFAULT_APPROVAL_POLICY }
@@ -71,6 +88,10 @@ class AppLaunchState(context: Context) {
     ) {
         val normalized = model.normalizedOrEmpty()
         val normalizedRuntime = if (normalized.isEmpty()) null else agentRuntimeKind
+        prefs.edit()
+            .putString(SELECTED_MODEL_KEY, normalized)
+            .putString(SELECTED_RUNTIME_KEY, normalizedRuntime.orEmpty())
+            .apply()
         _snapshot.update { state ->
             if (
                 state.selectedModel == normalized &&
@@ -88,9 +109,35 @@ class AppLaunchState(context: Context) {
 
     fun updateReasoningEffort(effort: String?) {
         val normalized = effort.normalizedOrEmpty()
+        prefs.edit().putString(REASONING_EFFORT_KEY, normalized).apply()
         _snapshot.update { state ->
             if (state.reasoningEffort == normalized) state else state.copy(reasoningEffort = normalized)
         }
+    }
+
+    /**
+     * Per-server memory of the user's last pick, used when the global
+     * last-used model is not offered by the selected server.
+     */
+    fun rememberServerModel(
+        serverId: String,
+        model: String,
+        agentRuntimeKind: AgentRuntimeKind?,
+        reasoningEffort: String,
+    ) {
+        val normalized = model.normalizedOrNull() ?: return
+        val value = listOf(normalized, agentRuntimeKind.orEmpty(), reasoningEffort.trim()).joinToString("\t")
+        prefs.edit().putString(SERVER_MODEL_KEY_PREFIX + serverId, value).apply()
+    }
+
+    fun rememberedServerModel(serverId: String): RememberedModelSelection? {
+        val parts = prefs.getString(SERVER_MODEL_KEY_PREFIX + serverId, null)?.split('\t') ?: return null
+        val model = parts.getOrNull(0).normalizedOrNull() ?: return null
+        return RememberedModelSelection(
+            model = model,
+            agentRuntimeKind = parts.getOrNull(1).normalizedOrNull(),
+            reasoningEffort = parts.getOrNull(2).normalizedOrEmpty(),
+        )
     }
 
     fun updateApprovalPolicy(policy: String?) {

@@ -100,37 +100,74 @@ fun HomeModelChip(
         .orEmpty()
 
     LaunchedEffect(serverId, availableRuntimeKinds) {
-        if (!serverId.isNullOrBlank()) {
-            val shouldReplaceSelection = availableModels.none {
-                it.matchesModelSelection(launchState.selectedModel, launchState.selectedAgentRuntimeKind)
-            } || autoSelectedModelKey == "${launchState.selectedAgentRuntimeKind.orEmpty()}:${launchState.selectedModel}"
-            runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
-            val loadedModels = appModel.snapshot.value?.servers
-                ?.firstOrNull { it.serverId == serverId }
-                ?.availableModels
-                .orEmpty()
-            if (
-                shouldReplaceSelection &&
-                usesServerConfiguredModelDefault(loadedModels.map { it.agentRuntimeKind })
-            ) {
-                appModel.launchState.updateSelectedModel(null)
-                appModel.launchState.updateReasoningEffort(null)
-                autoSelectedModelKey = null
-            } else {
-                val fallbackModel = loadedModels.firstOrNull {
-                    it.agentRuntimeKind == "codex" && it.isDefault
-                } ?: loadedModels.firstOrNull { it.isDefault }
-                    ?: loadedModels.firstOrNull()
-                if (shouldReplaceSelection && fallbackModel != null) {
-                    appModel.launchState.updateSelectedModel(
-                        fallbackModel.id,
-                        agentRuntimeKind = fallbackModel.agentRuntimeKind,
-                    )
-                    appModel.launchState.updateReasoningEffort(null)
-                    autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
-                }
-            }
+        if (serverId.isNullOrBlank()) return@LaunchedEffect
+        val before = appModel.launchState.snapshot.value
+        val wasAutoSelected =
+            autoSelectedModelKey == "${before.selectedAgentRuntimeKind.orEmpty()}:${before.selectedModel}"
+        runCatching { appModel.loadConversationMetadataIfNeeded(serverId) }
+        val loadedModels = appModel.snapshot.value?.servers
+            ?.firstOrNull { it.serverId == serverId }
+            ?.availableModels
+            .orEmpty()
+        val current = appModel.launchState.snapshot.value
+        // Judge the persisted pick against the *loaded* catalog. Checking
+        // before the load (empty list) replaced a valid last-used model
+        // with the server default on every launch / server switch.
+        val currentMatches = loadedModels.any {
+            it.matchesModelSelection(current.selectedModel, current.selectedAgentRuntimeKind)
         }
+        if (currentMatches && !wasAutoSelected) return@LaunchedEffect
+        if (loadedModels.isEmpty()) return@LaunchedEffect
+        val remembered = appModel.launchState.rememberedServerModel(serverId)
+        val rememberedModel = remembered?.let { r ->
+            loadedModels.firstOrNull { it.matchesModelSelection(r.model, r.agentRuntimeKind) }
+        }
+        if (remembered != null && rememberedModel != null) {
+            appModel.launchState.updateSelectedModel(
+                rememberedModel.id,
+                agentRuntimeKind = rememberedModel.agentRuntimeKind,
+            )
+            appModel.launchState.updateReasoningEffort(remembered.reasoningEffort)
+            autoSelectedModelKey = null
+        } else if (usesServerConfiguredModelDefault(loadedModels.map { it.agentRuntimeKind })) {
+            appModel.launchState.updateSelectedModel(null)
+            appModel.launchState.updateReasoningEffort(null)
+            autoSelectedModelKey = null
+        } else {
+            val fallbackModel = loadedModels.firstOrNull {
+                it.agentRuntimeKind == "codex" && it.isDefault
+            } ?: loadedModels.firstOrNull { it.isDefault }
+                ?: loadedModels.first()
+            appModel.launchState.updateSelectedModel(
+                fallbackModel.id,
+                agentRuntimeKind = fallbackModel.agentRuntimeKind,
+            )
+            appModel.launchState.updateReasoningEffort(null)
+            autoSelectedModelKey = "${fallbackModel.agentRuntimeKind}:${fallbackModel.id}"
+        }
+    }
+
+    // Remember the user's explicit pick per server (auto fallbacks excluded)
+    // so switching servers and back restores it.
+    LaunchedEffect(
+        serverId,
+        launchState.selectedModel,
+        launchState.selectedAgentRuntimeKind,
+        launchState.reasoningEffort,
+        selectedModelMatches,
+    ) {
+        val sid = serverId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val model = launchState.selectedModel
+        if (model.isBlank() || !selectedModelMatches) return@LaunchedEffect
+        if (autoSelectedModelKey == "${launchState.selectedAgentRuntimeKind.orEmpty()}:$model") {
+            return@LaunchedEffect
+        }
+        appModel.launchState.rememberServerModel(
+            sid,
+            model,
+            launchState.selectedAgentRuntimeKind,
+            launchState.reasoningEffort,
+        )
     }
 
     var showSheet by remember { mutableStateOf(false) }
