@@ -2,21 +2,18 @@
 
 Distribution wrapper for the [alleycat](https://github.com/0xSero/alleycat) daemon.
 
-The next host release is 0.3.11. After its GitHub release is published, install and pair it:
+Install and pair the current host release:
 
 ```sh
-npx --yes https://github.com/0xSero/litter/releases/download/v0.3.11/kittylitter-npm-package.tar.gz
+npx --yes https://github.com/0xSero/litter/releases/download/v0.3.10/kittylitter-npm-package.tar.gz
 ```
 
 The GitHub release package supports the same platforms as the npm wrapper.
 Registry publishing currently fails because the `kittylitter` npm package is
 owned by another account; `npx kittylitter` still resolves the older 0.3.4 release.
-The pinned GitHub package above is the coordinated host candidate; it is not
-available until the 0.3.11 release finishes. The currently published fallback is
-[0.3.10](https://github.com/0xSero/litter/releases/tag/v0.3.10).
+Use the pinned GitHub package above for the matching Litter 2.1.2 host adapters.
 
-The wrapper passes its package version and Kittylitter application identity to
-`alleycat::App::run()`. All daemon behavior lives in the alleycat crate; this crate exists so cargo-dist sees a `kittylitter` package name and produces correctly-named artifacts (`kittylitter-installer.sh`, `kittylitter.rb`, `kittylitter` on npm).
+The wrapper itself is a 3-line `main()` that re-exports `alleycat::run("kittylitter")`. All daemon behavior lives in the alleycat crate; this crate exists so cargo-dist sees a `kittylitter` package name and produces correctly-named artifacts (`kittylitter-installer.sh`, `kittylitter.rb`, `kittylitter` on npm).
 
 ## Preparing a release
 
