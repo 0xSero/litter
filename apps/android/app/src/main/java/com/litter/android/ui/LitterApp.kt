@@ -141,9 +141,12 @@ fun LitterApp(
             SavedProjectStore.setSelectedProjectId(context, selectedProject?.id)
         }
 
-        // Derive projects from current sessions
-        val projects = remember(snapshot) {
-            snapshot?.let { deriveProjects(it.sessionSummaries) } ?: emptyList()
+        // Derive projects from current sessions. Keyed on the summaries, not
+        // the whole snapshot, so streaming and server-status updates don't
+        // re-run the FFI copy and sort.
+        val sessionSummaries = snapshot?.sessionSummaries
+        val projects = remember(sessionSummaries) {
+            sessionSummaries?.let { deriveProjects(it) } ?: emptyList()
         }
 
         // Keep selectedServerId valid against connected servers. Default is
