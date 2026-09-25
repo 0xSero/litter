@@ -168,6 +168,7 @@
 		3D79967494F9235E83B7ABBA /* kanagawa-dragon-VscOyZL-.json in Resources */ = {isa = PBXBuildFile; fileRef = C4ED85CEB24FF82E4E2C4E36 /* kanagawa-dragon-VscOyZL-.json */; };
 		3E2EEDE5F9D0CC0EE517AF52 /* ToolCallCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BA392F9C2104B8B643C0F9E /* ToolCallCardView.swift */; };
 		3F40B95032B31B87D8DD870F /* dark-plus-B1yOZ-Hy.json in Resources */ = {isa = PBXBuildFile; fileRef = 9A59EFF7219CFC315A13C34D /* dark-plus-B1yOZ-Hy.json */; };
+		3FA82DC3081E779E7DAE1779 /* AlphaAnimatedImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF40F8000F592D0F16C5BE2 /* AlphaAnimatedImageTests.swift */; };
 		3FCF949480156948806B98DF /* ThemeDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B91C694EA050F1FE6738A7 /* ThemeDefinitionTests.swift */; };
 		3FD6A4A8B0B30CBB90573F44 /* WatchSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40561C060EDB76318FF345F3 /* WatchSize.swift */; };
 		40BE68DE19BEE162E0F2C25B /* MessageRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2325BAE1FF0D41A4D5ADE3AD /* MessageRecorder.swift */; };
@@ -243,6 +244,7 @@
 		5895E5C25C200FC3FF747049 /* slack-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 5DF2C84DD77E7A8282AE9831 /* slack-dark.json */; };
 		5935F15B5E258E3222780528 /* github-light-high-contrast.json in Resources */ = {isa = PBXBuildFile; fileRef = 70AB8E0BCCF3384EE9B4A0BF /* github-light-high-contrast.json */; };
 		595604C3346A5A3C0B4DBBEC /* SessionLaunchSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2EAAADB209274FFFB94CC0 /* SessionLaunchSupport.swift */; };
+		59B2B28DB1A50222F50424FD /* ConversationKeyboardWarmupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60AE4C8143436C1D1FE73CCF /* ConversationKeyboardWarmupTests.swift */; };
 		59B39287F39980DFD5D9E746 /* OnboardingCoachmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71F4E34844D8B42B4D170F9 /* OnboardingCoachmarks.swift */; };
 		59C4E5052033416829304E7E /* SSHLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9876F2929290D47ED57D77 /* SSHLoginSheet.swift */; };
 		59EEAB181A610B1ABF97CC7C /* StreamingAssistantRenderCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B606DE26237FA6DB5D4410B /* StreamingAssistantRenderCacheTests.swift */; };
@@ -855,6 +857,7 @@
 		3CB07F43FD670F05B9A43C55 /* BerkeleyMono-Bold-Oblique.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Bold-Oblique.otf"; sourceTree = "<group>"; };
 		3D474EF5B9680782FE5A71E4 /* WatchSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionBridge.swift; sourceTree = "<group>"; };
 		3E1172327AFBD0CF0947468A /* CatalystRuntimeStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystRuntimeStubs.swift; sourceTree = "<group>"; };
+		3FF40F8000F592D0F16C5BE2 /* AlphaAnimatedImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlphaAnimatedImageTests.swift; sourceTree = "<group>"; };
 		40561C060EDB76318FF345F3 /* WatchSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSize.swift; sourceTree = "<group>"; };
 		4065D6B859C111A7181A049D /* AppLifecycleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleController.swift; sourceTree = "<group>"; };
 		410A39A660132F845F3BA046 /* studio-sky.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "studio-sky.json"; sourceTree = "<group>"; };
@@ -913,6 +916,7 @@
 		5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "notion-dark-BTRKJ-yg.json"; sourceTree = "<group>"; };
 		5FD49D417BBD06E83D62FD53 /* home_cat_entrance.webp */ = {isa = PBXFileReference; path = home_cat_entrance.webp; sourceTree = "<group>"; };
 		6058552E839CA44F15DA3186 /* SavedAppDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppDetailView.swift; sourceTree = "<group>"; };
+		60AE4C8143436C1D1FE73CCF /* ConversationKeyboardWarmupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationKeyboardWarmupTests.swift; sourceTree = "<group>"; };
 		615E709D4D5722523052907E /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		61AB42B6F22D57D2F4BBE008 /* slack-ochin-CRg.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "slack-ochin-CRg.json"; sourceTree = "<group>"; };
 		62DD5EE6826564A0EA6AE3FA /* VoiceSessionControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSessionControl.swift; sourceTree = "<group>"; };
@@ -1254,12 +1258,14 @@
 			isa = PBXGroup;
 			children = (
 				8D9B7168247D5201C4795A69 /* AlleycatPairingModeTests.swift */,
+				3FF40F8000F592D0F16C5BE2 /* AlphaAnimatedImageTests.swift */,
 				2C72A058C8DA11CF66D018D9 /* AppModelLifecycleTests.swift */,
 				49496FAE8491262D2C8CC657 /* AppSnapshotRuntimeTests.swift */,
 				F3474B8EA8D3148C94A7583F /* AppStatePermissionTests.swift */,
 				33402D8F29D5CAA2DD07ED9F /* ChatGPTOAuthTests.swift */,
 				347FEEBE4E54174740D93E9D /* ConversationAttachmentSupportTests.swift */,
 				77969543FA36FEA8B621A3B9 /* ConversationDisplayPreferenceTests.swift */,
+				60AE4C8143436C1D1FE73CCF /* ConversationKeyboardWarmupTests.swift */,
 				B0C1A0569B4424123A37B0DA /* ConversationPlanSemanticsTests.swift */,
 				B66383694E80CDCBCF582C67 /* ConversationScreenModelTests.swift */,
 				8A6C1D1C48E7406BAD30F901 /* HexColorTests.swift */,
@@ -2292,12 +2298,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				421906FCD9348DE5EA7447D2 /* AlleycatPairingModeTests.swift in Sources */,
+				3FA82DC3081E779E7DAE1779 /* AlphaAnimatedImageTests.swift in Sources */,
 				659B7D5FC6C3159E837D1CC4 /* AppModelLifecycleTests.swift in Sources */,
 				D24451D266FD2443C0D7CBC4 /* AppSnapshotRuntimeTests.swift in Sources */,
 				620FC2343DCFADD1034E9CCB /* AppStatePermissionTests.swift in Sources */,
 				46C5F0B53F9EF54FE8F311A4 /* ChatGPTOAuthTests.swift in Sources */,
 				46B24CBC2FD5FD3799BE207D /* ConversationAttachmentSupportTests.swift in Sources */,
 				2F28DA245F84E87318A4D7E4 /* ConversationDisplayPreferenceTests.swift in Sources */,
+				59B2B28DB1A50222F50424FD /* ConversationKeyboardWarmupTests.swift in Sources */,
 				9C44ABDBA2399DD2C0B1E9E2 /* ConversationPlanSemanticsTests.swift in Sources */,
 				F1535DE46C8E5A530A8C131E /* ConversationScreenModelTests.swift in Sources */,
 				58547E503761BE6E1C2086C9 /* HexColorTests.swift in Sources */,
