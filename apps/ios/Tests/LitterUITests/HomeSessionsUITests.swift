@@ -88,6 +88,12 @@ final class HomeSessionsUITests: XCTestCase {
         // Zoom snaps to {1, 2, 4}: at 1.4 levels/octave, 0.7 reaches
         // 3.28 and correctly snaps back to 4. Halving crosses the 3.0 boundary.
         app.scrollViews.firstMatch.pinch(withScale: 0.5, velocity: -1)
+        let trace = app.staticTexts["homeHarness.pinchTrace"].value as? String ?? "missing"
+        print("RICH_PINCH_TRACE \(trace)")
+        let afterPinch = XCTAttachment(string: trace)
+        afterPinch.name = "Rich fixture after pinch"
+        afterPinch.lifetime = .keepAlways
+        add(afterPinch)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value != %@", "4"),
             object: app.staticTexts["homeHarness.zoom"]

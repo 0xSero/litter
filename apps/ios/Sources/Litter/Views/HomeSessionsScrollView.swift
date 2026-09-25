@@ -262,6 +262,7 @@ final class HomeSessionsScrollUIView: UIView {
 
     #if DEBUG
     var debugStateDidChange: (() -> Void)?
+    private(set) var debugPinchTrace = "none"
     var debugMountedRowCount: Int { containers.count }
     var debugSessionCount: Int { order.count }
     var debugVisibleThreadKeys: [ThreadKey] {
@@ -322,6 +323,9 @@ final class HomeSessionsScrollUIView: UIView {
         scrollView.contentInsetAdjustmentBehavior = .always
         scrollView.delegate = self
         scrollView.addGestureRecognizer(pinchRecognizer)
+        #if DEBUG
+        scrollView.accessibilityIdentifier = "home.sessionsViewport"
+        #endif
         catFooterHostingController.view.backgroundColor = .clear
         catFooterHostingController.view.isHidden = true
         contentView.addSubview(catFooterHostingController.view)
@@ -791,6 +795,17 @@ final class HomeSessionsScrollUIView: UIView {
     // MARK: - Pinch
 
     @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
+        #if DEBUG
+        let zoomBeforeHandling = continuousZoom
+        defer {
+            if g.state == .ended || g.state == .cancelled || g.state == .failed {
+                // Publish once after completion; observing every changed event
+                // would make the test harness redraw during the gesture.
+                debugPinchTrace = "state=\(g.state.rawValue) scale=\(g.scale) start=\(pinchStartScale) beforeSnap=\(zoomBeforeHandling) committed=\(zoomLevel) anchor=\(pinchAnchorKey?.threadId ?? "none")"
+                debugStateDidChange?()
+            }
+        }
+        #endif
         switch g.state {
         case .began:
             beginPinch(g)

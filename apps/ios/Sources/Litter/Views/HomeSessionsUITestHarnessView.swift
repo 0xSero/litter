@@ -45,6 +45,8 @@ struct HomeSessionsUITestHarnessView: View {
                 if Self.richContentEnabled {
                     HStack {
                         Text("Rich Markdown")
+                            .accessibilityIdentifier("homeHarness.pinchTrace")
+                            .accessibilityValue(probe.pinchTrace)
                         Button("Text 100%") { stressTextScale = 1 }
                             .accessibilityIdentifier("homeHarness.textScale.100")
                         Button("Text 150%") { stressTextScale = 1.5 }
@@ -223,6 +225,7 @@ private final class HomeSessionsHarnessProbe {
     var mounted = 0
     var total = 0
     var firstVisible = "none"
+    var pinchTrace = "none"
 
     func attach(_ view: HomeSessionsScrollUIView) {
         self.view = view
@@ -240,6 +243,7 @@ private final class HomeSessionsHarnessProbe {
             self.mounted = view.debugMountedRowCount
             self.total = view.debugSessionCount
             self.firstVisible = view.debugVisibleThreadKeys.first?.threadId ?? "none"
+            self.pinchTrace = view.debugPinchTrace
         }
     }
 }
