@@ -642,6 +642,7 @@ private struct HomeNavigationView: View {
     @State private var homeDashboardModel = HomeDashboardModel()
     @State private var savedAppsStore = SavedAppsStore.shared
     @State private var navigationPath: [HomeNavigationRoute] = []
+    @State private var homeActivationTask: Task<Void, Never>?
     @State private var directoryPickerSheet: SessionLaunchSupport.DirectoryPickerSheetModel?
     @State private var showProjectPicker = false
     @State private var openingRecentSessionKey: ThreadKey?
@@ -745,15 +746,15 @@ private struct HomeNavigationView: View {
 
     private var primaryNavigationStack: some View {
         NavigationStack(path: $navigationPath) {
+            // Keep the root mounted while routes are pushed. Swapping it in
+            // only when the path empties forced a full Home rebuild in the
+            // same frame as the pop, delaying the back animation and showing
+            // a blank gradient during edge-swipe.
             Group {
-                if isHomeRouteActive {
-                    if isEmbeddedInSplit {
-                        splitDetailRoot
-                    } else {
-                        homeDashboard
-                    }
+                if isEmbeddedInSplit {
+                    splitDetailRoot
                 } else {
-                    LitterTheme.backgroundGradient.ignoresSafeArea()
+                    homeDashboard
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -917,7 +918,7 @@ private struct HomeNavigationView: View {
         rootNavigationContent
         .task {
             homeDashboardModel.bind(appModel: appModel)
-            updateHomeDashboardActivity()
+            updateHomeDashboardActivity(deferActivation: false)
             hydratePinnedThreadsIfNeeded()
             seedInitialConversationIfNeeded(activeKey: appModel.snapshot?.activeThread)
         }
@@ -1879,11 +1880,24 @@ private struct HomeNavigationView: View {
         }
     }
 
-    private func updateHomeDashboardActivity() {
-        if isHomeRouteActive {
-            homeDashboardModel.activate()
-        } else {
+    private func updateHomeDashboardActivity(deferActivation: Bool = true) {
+        homeActivationTask?.cancel()
+        homeActivationTask = nil
+        guard isHomeRouteActive else {
             homeDashboardModel.deactivate()
+            return
+        }
+        guard deferActivation else {
+            homeDashboardModel.activate()
+            return
+        }
+        // Returning to Home: refreshState() runs synchronously on main
+        // (preferences reload, sort, project derivation) and republishes
+        // every row. Defer it past the pop transition so Back is instant.
+        homeActivationTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, isHomeRouteActive else { return }
+            homeDashboardModel.activate()
         }
     }
 
