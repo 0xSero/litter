@@ -7,7 +7,6 @@ struct HeaderView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let thread: AppThreadSnapshot
     var server: AppServerSnapshot?
-    @State private var pulsing = false
     @AppStorage("fastMode") private var fastMode = false
 
     private var isRegularSurface: Bool {
@@ -73,123 +72,95 @@ struct HeaderView: View {
     /// the tappable picker to one calm, readable row; its popover still has
     /// the full set of choices.
     private var compactHeaderRow: some View {
-        HStack(spacing: 5) {
-            statusDot
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(sessionModelLabel)
+                .font(LitterFont.styled(size: 15, weight: .semibold))
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            if sessionReasoningLabel != "default" {
+            if let connectionProblem {
+                Text(connectionProblem.word)
+                    .litterMeta(connectionProblem.color)
+                    .lineLimit(1)
+            } else if sessionReasoningLabel != "default" {
                 Text(sessionReasoningLabel)
-                    .foregroundColor(LitterTheme.textSecondary)
+                    .litterMeta()
                     .lineLimit(1)
             }
 
             Image(systemName: "chevron.down")
-                .font(LitterFont.styled(size: 9, weight: .semibold))
-                .foregroundColor(LitterTheme.textSecondary)
+                .font(LitterFont.styled(size: 11, weight: .semibold))
+                .foregroundColor(LitterTheme.meta)
                 .rotationEffect(.degrees(appState.showModelSelector ? 180 : 0))
+                .accessibilityHidden(true)
         }
-        .font(LitterFont.styled(size: 13, weight: .semibold))
         .lineLimit(1)
         .minimumScaleFactor(0.78)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var primaryHeaderRow: some View {
-        HStack(spacing: 6) {
-            statusDot
-
-            if fastMode {
-                Image(systemName: "bolt.fill")
-                    .font(LitterFont.styled(size: 10, weight: .semibold))
-                    .foregroundColor(LitterTheme.warning)
-            }
-
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(sessionModelLabel)
+                .font(LitterFont.styled(size: 17, weight: .semibold))
                 .foregroundColor(LitterTheme.textPrimary)
                 .allowsTightening(true)
             Text(sessionReasoningLabel)
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterMeta()
                 .allowsTightening(true)
             Image(systemName: "chevron.down")
-                .font(LitterFont.styled(size: 10, weight: .semibold))
-                .foregroundColor(LitterTheme.textSecondary)
+                .font(LitterFont.styled(size: 11, weight: .semibold))
+                .foregroundColor(LitterTheme.meta)
                 .rotationEffect(.degrees(appState.showModelSelector ? 180 : 0))
+                .accessibilityHidden(true)
         }
-        .font(LitterFont.styled(size: 14, weight: .semibold))
         .lineLimit(1)
         .minimumScaleFactor(isRegularSurface ? 1.0 : 0.75)
     }
 
     private var secondaryHeaderRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             Text(sessionDirectoryLabel)
-                .font(LitterFont.styled(size: 11, weight: .semibold))
-                .foregroundColor(LitterTheme.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-
+            if fastMode {
+                Text(" · fast")
+            }
             if thread.collaborationMode == .plan {
-                Text("plan")
-                    .font(LitterFont.styled(size: 11, weight: .bold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(LitterTheme.accent)
-                    .clipShape(Capsule())
+                Text(" · plan")
             }
-
             if headerPermissionPreset == .fullAccess {
-                Image(systemName: "lock.open.fill")
-                    .font(LitterFont.styled(size: 10, weight: .semibold))
-                    .foregroundColor(LitterTheme.danger)
+                Text(" · full access")
+                    .foregroundStyle(LitterTheme.danger)
             }
-
-        }
-    }
-
-    private var statusDot: some View {
-        Circle()
-            .fill(statusDotColor)
-            .frame(width: 6, height: 6)
-            .opacity(shouldPulse ? (pulsing ? 0.3 : 1.0) : 1.0)
-            .animation(
-                shouldPulse ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default,
-                value: pulsing
-            )
-            .onChange(of: shouldPulse) { _, pulse in
-                pulsing = pulse
+            if let connectionProblem {
+                Text(" · \(connectionProblem.word)")
+                    .foregroundStyle(connectionProblem.color)
             }
-    }
-
-    private var shouldPulse: Bool {
-        guard let transportState = server?.transportState else { return false }
-        return transportState == .connecting || transportState == .unresponsive
-    }
-
-    private var statusDotColor: Color {
-        guard let server else {
-            return LitterTheme.textMuted
         }
+        .litterMeta()
+    }
+
+    /// Healthy connections show nothing; anything else is one colored word.
+    private var connectionProblem: (word: String, color: Color)? {
+        guard let server else { return nil }
         switch server.transportState {
-        case .connecting, .unresponsive:
-            return .orange
+        case .connecting:
+            return ("connecting", LitterTheme.warning)
+        case .unresponsive:
+            return ("reconnecting", LitterTheme.warning)
         case .connected:
             if server.isLocal {
-                switch server.account {
-                case .chatgpt?, .apiKey?:
-                    return LitterTheme.success
-                case nil:
-                    return LitterTheme.danger
-                }
+                return server.account == nil ? ("signed out", LitterTheme.danger) : nil
             }
-            return server.requiresOpenaiAuth && server.account == nil ? .orange : LitterTheme.success
+            return server.requiresOpenaiAuth && server.account == nil
+                ? ("signed out", LitterTheme.warning)
+                : nil
         case .disconnected:
-            return LitterTheme.danger
+            return ("offline", LitterTheme.danger)
         case .unknown:
-            return LitterTheme.textMuted
+            return nil
         }
     }
 

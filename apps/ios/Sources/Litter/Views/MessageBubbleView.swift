@@ -107,10 +107,14 @@ struct UserBubble: View, Equatable {
         lhs.maxVisibleCharacters == rhs.maxVisibleCharacters
     }
 
+    // Litter Quiet: a user turn is plain text beside a 2pt rule with a small
+    // mono "you" label above. No bubble, tint, glass or trailing alignment.
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Spacer(minLength: compact ? 30 : 60)
-            VStack(alignment: .trailing, spacing: compact ? 4 : 8) {
+        VStack(alignment: .leading, spacing: compact ? LitterSpace.xs : LitterSpace.s) {
+            Text("you")
+                .litterMeta()
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: compact ? LitterSpace.xs : LitterSpace.s) {
                 ForEach(Array(images.chunked(into: 3).enumerated()), id: \.offset) { _, row in
                     HStack(spacing: 6) {
                         ForEach(row) { img in
@@ -119,11 +123,13 @@ struct UserBubble: View, Equatable {
                     }
                 }
                 if !text.isEmpty {
-                    VStack(alignment: .trailing, spacing: 4) {
+                    VStack(alignment: .leading, spacing: LitterSpace.xs) {
                         FormattedText(text: visibleText)
                             .litterFont(size: contentFontSize)
+                            .lineSpacing(LitterFont.conversationBodyLineSpacing)
                             .foregroundColor(LitterTheme.textPrimary)
                             .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         if shouldLimitText {
                             Button {
@@ -131,21 +137,26 @@ struct UserBubble: View, Equatable {
                                     expandedLongText.toggle()
                                 }
                             } label: {
-                                Text(expandedLongText ? "Show less" : "Show more")
-                                    .litterFont(.caption2, weight: .semibold)
-                                    .foregroundColor(LitterTheme.accent)
+                                Text(expandedLongText ? "show less" : "show more")
+                                    .litterMeta(LitterTheme.textSecondary)
+                                    .frame(minHeight: LitterSpace.hitTarget, alignment: .leading)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
                         }
                     }
-                    .padding(.horizontal, compact ? 12 : 18)
-                    .padding(.vertical, compact ? 8 : 14)
-                    .modifier(GlassRectModifier(cornerRadius: compact ? 14 : 18, tint: LitterTheme.accent.opacity(0.3)))
                 }
             }
+            .padding(.leading, LitterSpace.m)
+            .overlay(alignment: .leading) {
+                LitterTheme.userRule
+                    .frame(width: 2)
+                    .accessibilityHidden(true)
+            }
         }
-        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, compact ? LitterSpace.s : LitterSpace.l)
         .onChange(of: text) { _, _ in
             expandedLongText = false
         }
@@ -160,7 +171,7 @@ struct UserBubble: View, Equatable {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 100, height: 100)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: LitterRadius.raised, style: .continuous))
                     if let ui = state.imageContainer?.image {
                         thumb.draggable(Image(uiImage: ui)) {
                             Image(uiImage: ui)
@@ -649,8 +660,9 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
     // primary foreground rather than the muted metadata color so long replies
     // retain contrast on dark themes.
     theme.foregroundColor = LitterTheme.textPrimary
-    theme.paragraphSpacing = 8
-    theme.blockSpacing = 8
+    theme.lineSpacing = LitterFont.conversationBodyLineSpacing
+    theme.paragraphSpacing = LitterSpace.m
+    theme.blockSpacing = LitterSpace.m
 
     theme.headingStyleSet = HeadingStyleSet(
         h1: HeadingStyle(font: LitterFont.markdownHeadingFont(size: bodySize * 1.43, weight: .bold), fontSize: bodySize * 1.43, weight: .bold,
@@ -672,18 +684,18 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
     )
 
     theme.codeBlock = CodeBlockStyle(
-        backgroundColor: LitterTheme.codeBackground.opacity(0.8),
+        backgroundColor: LitterTheme.raised,
         textColor: LitterTheme.textPrimary,
         font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize,
-        cornerRadius: 8,
+        cornerRadius: LitterRadius.raised,
         showLanguageLabel: false,
         showCopyButton: false
     )
 
     theme.blockquote = BlockquoteStyle(
-        borderColor: LitterTheme.border,
-        borderWidth: 3,
+        borderColor: LitterTheme.userRule,
+        borderWidth: 2,
         textColor: LitterTheme.textSecondary,
         padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 4)
     )
@@ -711,7 +723,7 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
     theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
-        color: LitterTheme.border,
+        color: LitterTheme.turnDivider,
         verticalPadding: 12
     )
 
@@ -746,18 +758,18 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
     )
 
     theme.codeBlock = CodeBlockStyle(
-        backgroundColor: LitterTheme.codeBackground.opacity(0.8),
+        backgroundColor: LitterTheme.raised,
         textColor: LitterTheme.textPrimary,
         font: .custom(LitterFont.codeFontName, size: codeSize),
         fontSize: codeSize,
-        cornerRadius: 8,
+        cornerRadius: LitterRadius.raised,
         showLanguageLabel: false,
         showCopyButton: false
     )
 
     theme.blockquote = BlockquoteStyle(
-        borderColor: LitterTheme.border,
-        borderWidth: 3,
+        borderColor: LitterTheme.userRule,
+        borderWidth: 2,
         textColor: LitterTheme.textSecondary,
         padding: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 4)
     )
@@ -785,7 +797,7 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
     theme.link = LinkStyle(color: LitterTheme.linkColor, underline: true)
 
     theme.thematicBreak = ThematicBreakStyle(
-        color: LitterTheme.border,
+        color: LitterTheme.turnDivider,
         verticalPadding: 8
     )
 
@@ -819,12 +831,13 @@ struct LitterCodeBlockRenderer: CodeBlockRenderer {
                 }
             }
             .background(configuration.theme.codeBlock.backgroundColor)
-            .clipShape(RoundedRectangle(cornerRadius: configuration.theme.codeBlock.cornerRadius))
-            .modifier(GlassRectModifier(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: configuration.theme.codeBlock.cornerRadius, style: .continuous))
             .modifier(CodeBlockTerminalContextMenu(code: configuration.code))
         } else {
+            // Code is a raised surface: the theme's code background and a
+            // 14pt radius carry it. No glass layer or border on top.
             DefaultCodeBlockRenderer().makeBody(configuration: configuration)
-                .modifier(GlassRectModifier(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: configuration.theme.codeBlock.cornerRadius, style: .continuous))
                 .modifier(CodeBlockTerminalContextMenu(code: configuration.code))
         }
     }
@@ -1249,6 +1262,7 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
             )
             .codeSyntaxHighlighter(sharedHighlighter)
             .codeBlockRenderer(LitterCodeBlockRenderer())
+            .lineSpacing((scaledBody * 0.22).rounded())
             .id(fontPreferenceObserver.revision)
         if selectionEnabled {
             themed.textSelection(.enabled)

@@ -555,10 +555,9 @@ struct RateLimitBadgeView: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Text(label)
-                .font(LitterFont.monospaced(size: 9.5, weight: .semibold))
-                .foregroundColor(LitterTheme.textSecondary)
+                .litterMeta()
             ContextBadgeView(percent: percent, tint: tint)
         }
     }
@@ -658,13 +657,14 @@ struct ConversationMessageList: View {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(timelineProjection.entries) { entry in
                                 transcriptRow(entry)
+                                    .modifier(TurnBoundaryModifier(isTurnStart: entry.startsTurn))
                             }
 
                         }
                         .scrollTargetLayout()
                         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, LitterSpace.margin)
                         // Navigation owns the safe-area header. This keeps
                         // the first message below it without wasting the
                         // extra blank line that made an open chat feel
@@ -812,10 +812,14 @@ struct ConversationMessageList: View {
             VStack(alignment: .leading, spacing: 12) {
                 if entry.turn.isLive { TypingIndicator() }
                 if !entry.turn.isLive && entry.turn.isCollapsedByDefault {
-                    Button("Show Less", systemImage: "chevron.up") { toggleTurnExpansion(entry.turn) }
-                        .litterFont(.caption, weight: .semibold)
-                        .foregroundColor(LitterTheme.textSecondary)
-                        .buttonStyle(.plain)
+                    Button { toggleTurnExpansion(entry.turn) } label: {
+                        Text("show less")
+                            .litterMeta(LitterTheme.textSecondary)
+                            .frame(minHeight: LitterSpace.hitTarget, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show less")
                 }
             }
         case .row(let row, let isLast, let streamingItemID):
@@ -1049,98 +1053,33 @@ private struct ConversationTurnSummary: View, Equatable {
 
     var body: some View { collapsedCard }
 
+    /// An older turn folds to two quiet lines: what was asked, then a mono
+    /// metadata line ("12s · 3 tools ›"). No card, glass or fade mask.
     private var collapsedCard: some View {
         // `turn.preview` is derived from the turn's items on access, so bind it
         // once here instead of letting each sub-builder re-derive it.
         let preview = turn.preview
+        let meta = (footerMetadataItems(preview).map(\.text) + ["›"]).joined(separator: " · ")
         return Button(action: onToggleExpansion) {
-            previewTextBlock(preview)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, collapsedFooterReservedInset)
-                .modifier(GlassRectModifier(cornerRadius: 16, tint: LitterTheme.surface.opacity(0.34)))
-                .overlay(alignment: .bottomLeading) {
-                    footerRow(preview)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 10)
-                }
+            VStack(alignment: .leading, spacing: LitterSpace.xs) {
+                Text(verbatim: preview.primaryText)
+                    .litterFont(size: LitterFont.conversationBodyPointSize)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(verbatim: meta)
+                    .litterMeta()
+                    .lineLimit(1)
+            }
+            .frame(minHeight: LitterSpace.hitTarget, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 16))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary(preview))
+        .accessibilityHint("Expands this turn")
     }
-
-    private func previewTextBlock(_ preview: TranscriptTurn.Preview) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: preview.primaryText)
-                .litterFont(.body, weight: .semibold)
-                .foregroundColor(LitterTheme.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(0.82)
-                .allowsTightening(true)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(verbatim: responsePreviewText(preview))
-                .litterFont(.body)
-                .foregroundColor(LitterTheme.textSecondary.opacity(0.82))
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: collapsedResponseHeight,
-                    maxHeight: collapsedResponseHeight,
-                    alignment: .topLeading
-                )
-                .mask(responsePreviewMask)
-        }
-        .frame(maxWidth: .infinity, minHeight: collapsedPreviewHeight, maxHeight: collapsedPreviewHeight, alignment: .topLeading)
-    }
-
-    private func footerRow(_ preview: TranscriptTurn.Preview) -> some View {
-        let metadataItems = footerMetadataItems(preview)
-        return HStack(alignment: .center, spacing: 10) {
-            if !metadataItems.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(metadataItems, id: \.id) { item in
-                        CollapsedTurnMetaItem(systemImage: item.systemImage, text: item.text)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.down")
-                .litterFont(size: 11, weight: .semibold)
-                .foregroundColor(LitterTheme.textMuted)
-        }
-        .padding(.horizontal, 2)
-        .padding(.bottom, 2)
-    }
-
-    private var collapsedPreviewHeight: CGFloat { collapsedPrimaryLineHeight + collapsedResponseHeight + 4 }
-    private var collapsedFooterReservedInset: CGFloat { collapsedFooterHeight + 10 }
-    private var collapsedFooterHeight: CGFloat { max(UIFont.preferredFont(forTextStyle: .caption1).lineHeight * textScale, 14) }
-
-    private var responsePreviewMask: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .white, location: 0),
-                .init(color: .white, location: 0.55),
-                .init(color: .white.opacity(0.58), location: 0.82),
-                .init(color: .white.opacity(0.24), location: 1),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    private var collapsedPrimaryLineHeight: CGFloat { collapsedPreviewLineHeight }
-    private var collapsedResponseHeight: CGFloat { (collapsedPreviewLineHeight * 2) + 2 }
-    private var collapsedPreviewLineHeight: CGFloat { UIFont.preferredFont(forTextStyle: .body).lineHeight * textScale }
 
     private func footerMetadataItems(_ preview: TranscriptTurn.Preview) -> [CollapsedTurnMeta] {
         var items: [CollapsedTurnMeta] = []
@@ -1148,16 +1087,16 @@ private struct ConversationTurnSummary: View, Equatable {
             items.append(CollapsedTurnMeta(id: "duration", systemImage: "clock", text: durationText))
         }
         if preview.toolCallCount > 0 {
-            items.append(CollapsedTurnMeta(id: "tools", systemImage: "chevron.left.forwardslash.chevron.right", text: "\(preview.toolCallCount)"))
+            items.append(CollapsedTurnMeta(id: "tools", systemImage: "chevron.left.forwardslash.chevron.right", text: "\(preview.toolCallCount) \(preview.toolCallCount == 1 ? "tool" : "tools")"))
         }
         if preview.eventCount > 0 {
-            items.append(CollapsedTurnMeta(id: "events", systemImage: "sparkles", text: "\(preview.eventCount)"))
+            items.append(CollapsedTurnMeta(id: "events", systemImage: "sparkles", text: "\(preview.eventCount) \(preview.eventCount == 1 ? "event" : "events")"))
         }
         if preview.widgetCount > 0 {
-            items.append(CollapsedTurnMeta(id: "widgets", systemImage: "rectangle.3.group", text: "\(preview.widgetCount)"))
+            items.append(CollapsedTurnMeta(id: "widgets", systemImage: "rectangle.3.group", text: "\(preview.widgetCount) \(preview.widgetCount == 1 ? "widget" : "widgets")"))
         }
         if preview.imageCount > 0 {
-            items.append(CollapsedTurnMeta(id: "images", systemImage: "photo", text: "\(preview.imageCount)"))
+            items.append(CollapsedTurnMeta(id: "images", systemImage: "photo", text: "\(preview.imageCount) \(preview.imageCount == 1 ? "image" : "images")"))
         }
         return items
     }
@@ -1189,39 +1128,40 @@ private struct CollapsedTurnMeta: Identifiable {
     let text: String
 }
 
-private struct CollapsedTurnMetaItem: View {
-    let systemImage: String
-    let text: String
+/// Separates whole turns: 32pt of space with a faint 1pt line through the
+/// middle. The list's own 10pt spacing is part of the 32.
+private struct TurnBoundaryModifier: ViewModifier {
+    let isTurnStart: Bool
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .litterFont(size: 9, weight: .medium)
-                .foregroundColor(LitterTheme.textMuted)
-            Text(verbatim: text)
-                .litterMonoFont(size: 10)
-                .foregroundColor(LitterTheme.textSecondary)
-                .lineLimit(1)
+    func body(content: Content) -> some View {
+        if isTurnStart {
+            VStack(alignment: .leading, spacing: 0) {
+                LitterTheme.turnDivider
+                    .frame(height: 1)
+                    .padding(.top, 5)
+                    .padding(.bottom, LitterSpace.betweenTurns - 10 - 5 - 1)
+                    .accessibilityHidden(true)
+                content
+            }
+        } else {
+            content
         }
     }
 }
 
 private struct ScrollToBottomIndicator: View {
     let action: () -> Void
-    @State private var bob = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: "arrow.down")
-                .litterFont(.caption, weight: .bold)
-                .offset(y: bob ? 1.5 : -1.5)
-                .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
-            Text("Latest")
                 .litterFont(.caption, weight: .semibold)
+            Text("latest")
+                .litterMeta(LitterTheme.textPrimary)
         }
         .foregroundColor(LitterTheme.textPrimary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, LitterSpace.m)
+        .frame(minHeight: 36)
         .modifier(GlassCapsuleModifier())
         .contentShape(Capsule())
         // A normal Button tap can be consumed merely to stop an actively
@@ -1232,9 +1172,6 @@ private struct ScrollToBottomIndicator: View {
         .accessibilityLabel("Latest")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { action() }
-        .onAppear {
-            bob = true
-        }
     }
 }
 
@@ -3275,28 +3212,15 @@ private struct QueuedFollowUpPreviewStyle {
     }
 }
 
+/// Static mono status line. The old gradient shimmer ran a repeating
+/// animation for as long as the label was on screen.
 private struct ConversationLoadingIndicator: View {
     let label: String
-    @State private var shimmerOffset: CGFloat = -1
 
     var body: some View {
-        Text(label)
-            .litterFont(.body, weight: .medium)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        LitterTheme.textSecondary.opacity(0.4),
-                        LitterTheme.textSecondary.opacity(0.7),
-                        LitterTheme.textSecondary.opacity(0.4),
-                    ],
-                    startPoint: UnitPoint(x: shimmerOffset - 0.3, y: 0.5),
-                    endPoint: UnitPoint(x: shimmerOffset + 0.3, y: 0.5)
-                )
-            )
-            .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false), value: shimmerOffset)
-            .onAppear {
-                shimmerOffset = 2
-            }
+        Text(label.lowercased())
+            .litterMeta()
+            .accessibilityLabel(label)
     }
 }
 
@@ -3324,28 +3248,13 @@ private struct MinigameLaunchButton: View {
     }
 }
 
+/// "thinking…" in mono metadata while a turn is live. Static on purpose:
+/// the streaming text and stop button already show that work is happening.
 struct TypingIndicator: View {
-    @State private var shimmerOffset: CGFloat = -1
-
     var body: some View {
-        Text("Thinking")
-            .litterFont(.body, weight: .medium)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        LitterTheme.textSecondary.opacity(0.4),
-                        LitterTheme.accent,
-                        LitterTheme.textSecondary.opacity(0.4),
-                    ],
-                    startPoint: UnitPoint(x: shimmerOffset - 0.3, y: 0.5),
-                    endPoint: UnitPoint(x: shimmerOffset + 0.3, y: 0.5)
-                )
-            )
-            .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false), value: shimmerOffset)
-            .padding(.leading, 12)
-            .onAppear {
-                shimmerOffset = 2
-            }
+        Text("thinking…")
+            .litterMeta()
+            .accessibilityLabel("Thinking")
     }
 }
 
@@ -3391,33 +3300,25 @@ private struct SubagentBreadcrumbBar: View {
             Button(action: onNavigateToParent) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
-                        .litterFont(size: 10, weight: .semibold)
-                    Text("Parent")
-                        .litterFont(.caption, weight: .medium)
+                        .litterFont(size: 13, weight: .semibold)
+                    Text("parent")
+                        .litterMeta(LitterTheme.textPrimary)
                 }
-                .foregroundColor(LitterTheme.accent)
+                .foregroundColor(LitterTheme.textPrimary)
+                .frame(minHeight: LitterSpace.hitTarget)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Parent conversation")
 
-            Divider()
-                .frame(height: 14)
-                .background(LitterTheme.border)
-
-            HStack(spacing: 4) {
-                Image(systemName: "person.fill")
-                    .litterFont(size: 10, weight: .semibold)
-                    .foregroundColor(LitterTheme.success)
-                Text(thread.agentDisplayLabel ?? "Agent")
-                    .litterFont(.caption, weight: .medium)
-                    .foregroundColor(LitterTheme.textPrimary)
-                    .lineLimit(1)
-            }
+            Text("· \((thread.agentDisplayLabel ?? "agent").lowercased())")
+                .litterMeta()
+                .lineLimit(1)
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .padding(.top, topInset + 8)
+        .padding(.horizontal, LitterSpace.margin)
+        .padding(.top, topInset)
         .background(
             LitterTheme.surface.opacity(0.85)
                 .background(.ultraThinMaterial)
