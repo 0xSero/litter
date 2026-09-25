@@ -4,7 +4,8 @@ This is a measurement record for the performance work based on `a2f39d17`, recor
 on 2026-09-24. The measurements span successive commits on `perf/measured-mobile-host`;
 individual results below identify their scope and whether later changes supersede them. The results establish specific improvements and regression coverage; they do
 not establish production startup latency, a percentile ranking, or absence of all
-memory and storage leaks. Final native and device acceptance is still pending.
+memory and storage leaks. Native functional suites passed; physical-device and
+manual production-app acceptance remain pending.
 
 ## Session derivation: isolated host microbenchmark
 
@@ -74,8 +75,8 @@ Four subsequent geometry regressions passed in an isolated host harness using th
 production geometry helper and minimal value types: deep pinch page-fit anchoring,
 different pinch finger positions, offscreen height invalidation, and insertion or
 reordering above the viewport. Swift preconditions replace XCTest in that harness;
-the native versions and final idle-animation regression still need the coordinated
-native rerun.
+the native versions and final idle-animation regression subsequently passed in
+the combined run recorded below.
 
 ## Manual component harness and current acceptance
 
@@ -132,7 +133,7 @@ device or Release performance. CPU-heavy builds were deliberately paused for the
 run. Exact binary UUID, app version/build, host conditions, raw xcresult and
 exported metrics are under `artifacts/performance-steward/ios-resource-metrics-46a0acbb*`.
 Later source changes, including revisioned streaming and offscreen height
-comparison, are excluded from this run and require updated native acceptance.
+comparison, are excluded from this run; subsequent functional acceptance is recorded below.
 
 The Debug `BackToHomeAppear` signpost measures the actual final conversation Back
 callback through the recreated Home view's SwiftUI `onAppear` on compact layouts.
@@ -199,16 +200,214 @@ not a matched speedup or launch measurement.
 The preceding `46a0acbb` App Launch trace found WebP decoding on the main thread
 through Core Animation preparation after the background frame-construction pass.
 The candidate materializes independent RGBA bitmap frames before assigning them
-to the animation. The same animation remains visible at the same resolution and
-cadence, with the existing 96 MiB cache bound. A fresh profile must confirm that
-the main-thread redecoding has disappeared; pixel fidelity alone does not prove
-responsiveness.
+to the animation. The frame pixels, resolution and cadence are preserved, with the existing cache
+configured for a 96 MiB cost limit. The subsequent
+30-second App Launch trace contains no sampled main-thread WebP decoder frames,
+compared with 1,725 such rows in the earlier 20-second trace. A separate
+45-second Time Profiler capture includes both animation applications at 13.685
+and 32.306 seconds, with no sampled main-thread WebP decoding. The latter has
+17,940 background WebP CPU samples: background decoding remains expensive.
+Trace durations and templates differ; these are stack-location observations, not
+an end-to-end speedup or proof that every possible path is free of stalls.
 
 The native run also exposed an on-demand row-height cache bug: measurement before
 implicit layout did not record its width, preventing reuse after eviction. The
 fix records the width at measurement time and invalidates entries from a previous
-width. Its original offscreen regression and a new width-change regression await
-the focused native rerun.
+width. The focused `33da4e30` rerun passed all nine component tests, including the
+original offscreen case and new width-change case, plus all three Home UI
+scenarios. The preceding complete run passed 330 of 331 tests, with this
+height-cache case as its only failure.
+
+## Updated native resource measurements
+
+The frozen `33da4e30` simulator binary, with shared Rust `65741400`, passed all
+five resource tests. This compares two intermediate performance-branch builds;
+both already contain viewport virtualization. The same five-sample procedure,
+simulator, fixture and Debug configuration were retained, with heavy builds
+paused. Ordinary applications and the Android emulator remained running.
+
+| Zoom | App CPU per two open/Back cycles, prior → updated | Updated absolute physical memory | Updated peak physical memory | Updated automated wall duration |
+| --- | --- | --- | --- | --- |
+| 1 | 4.880 → 4.906 s | 195.66 MB | 199.21 MB | 13.577 s |
+| 2 | 3.146 → 3.070 s | 141.35 MB | 143.61 MB | 11.852 s |
+| 3 | 2.008 → 1.996 s | 121.37 MB | 124.35 MB | 10.865 s |
+| 4 | 1.152 → 1.136 s | 115.32 MB | 116.89 MB | 10.016 s |
+
+Navigation CPU is broadly unchanged and memory is modestly lower; no statistical
+significance or general navigation speedup is claimed from these five samples.
+The responsive first-frame launch metric averaged **2.290 s** (2.241–2.343 s),
+versus 2.590 s previously, an observed 11.6% reduction. Wall duration through
+hittable Settings averaged 4.574 s versus 4.612 s. Multiple source changes and
+uncontrolled host activity prevent attributing this difference to one fix. This
+still does not qualify instant launch or physical-device Release performance.
+Raw xcresult, metrics, sample-by-sample comparison and traces are under
+`artifacts/performance-steward/ios-resource-metrics-33da4e30*`,
+`ios-native-metrics-comparison.json`, and `ios-full-animation-33da4e30*`.
+
+Android diagnostics used the current Debug APK on the API 37 arm64 emulator.
+Five force-stop/launch attempts all returned `Status: ok`. ActivityManager labeled
+four COLD, with display-reporting durations 1,669, 1,610, 1,762 and 1,740 ms
+(median 1,704.5 ms), and one WARM at 1,873 ms; the labels are preserved rather
+than treating all attempts as cold. These are display-reporting times, not
+interactive readiness. A separate 15.301-second post-launch observation used
+5.44 process CPU seconds (35.55% of one core); RSS rose from 363,216 to
+378,640 KiB. This startup-adjacent window is not a steady-state leak measurement.
+The foreground route could not be visually verified because native screen capture
+failed, so these results are labeled MainActivity diagnostics, not accepted Home
+interaction measurements. A pilot launch batch overlapping trace export was
+excluded; the reported launch batch ran without other heavy profiling or builds.
+Evidence and exact collection scripts are under
+`artifacts/performance-steward/android-measure/`.
+
+A subsequent 19.832-second Android `simpleperf` capture recorded 700 user-space
+task-clock samples with none lost (3.518 sampled CPU seconds). The main thread
+accounted for 50.29%, RenderThread 32.43%, and AnimatedImageThread 9.71% of the
+sampled event count. Inclusive stacks identified onboarding arrow drawing and
+path construction, status-dot recomposition, and animated WebP decoding. These
+percentages divide sampled CPU work, not elapsed time; they exclude kernel work
+and do not identify a leak. The exact recording and reports are under
+`artifacts/performance-steward/android-cpu/`.
+
+After `3307e89f` cached static coachmark paths and deferred status-dot state reads
+to drawing/layer updates, a quiet 19.845-second capture recorded 526 samples with
+none lost (2.643 sampled CPU seconds, versus 3.518 previously). Main-thread sampled
+CPU was 1.382 versus 1.769 seconds; RenderThread was 0.879 versus 1.141 seconds.
+The previously prominent path-construction and dot-composition methods no longer
+appear above the report's 1% threshold. This is a diagnostic before/after capture,
+not a randomized comparison or visual acceptance; JIT and process age differ.
+The same animation timings, colors and geometry remain in source.
+
+The candidate's five force-stop launches were all labeled COLD: 1,819, 1,800,
+1,714, 1,590 and 1,715 ms (median 1,715 ms), so there is no observed startup
+improvement here. Its subsequent 15.240-second observation used 4.16 process CPU
+seconds (27.30% of one core), versus 5.44 in the earlier 15.301-second window.
+RSS rose from 362,736 to 375,568 KiB. These short startup-adjacent observations
+remain insufficient for a leak claim. All 91 Android unit tests and 11 native
+instrumentation tests passed with the rebuilt retention library; packaged JNI
+bytes match the current merged and stripped build outputs.
+
+## Bounded inactive transcript memory
+
+Commit `6e5855a4` introduces a shared Rust retention policy, documented in
+[`inactive-history-cache.md`](inactive-history-cache.md). Eligible inactive
+transcript capacity exceeding 64 MiB is trimmed toward 48 MiB in least-recently-used
+order. Active work, unfinished tools, pending input/approvals, offline servers and
+in-flight history reads remain protected. This is a soft budget for eligible
+transcripts, not a total app memory limit. An online-evicted history requires its
+server to reload; if the connection subsequently drops, that history is unavailable
+until reconnection.
+
+Selection schedules trimming off the caller's thread. Large evicted buffers are
+released outside the canonical state lock. Revisioned native updates clear the
+corresponding renderer caches and preserve the authoritative pagination state.
+The final host suite passed 863 tests, with zero failures and four ignored tests,
+including cancellation, automatic final-lease release, late tool completion,
+reconnect, reload and stale-snapshot regressions. A separate host contention
+diagnostic selected threads 4,310 times while trimming 128 MiB of reserved
+capacity: p99 was 1 microsecond and the maximum 850 microseconds. Those numbers
+measure that host lock path, not device interaction latency. The rebuilt library
+subsequently passed both native platforms' suites described below.
+
+## Lossless animation encoding
+
+Commit `cf08e47f` replaces the two iOS home WebPs with APNGs encoded from the
+current assets. All 285 composited frames matched their originals pixel for
+pixel in an isolated ImageIO experiment, including alpha, canvas dimensions and
+color-space identity. Exact 1/15-second frame delays preserve the 11-second
+entrance and 8-second loop. Historical APNG assets were rejected because their
+pixels differ from the current design.
+
+Changing ImageIO cache hints did not materially improve the original decoder:
+preparing owned RGBA frames took approximately 10.7 seconds for the entrance and
+7.5 seconds for the loop on the host. The equivalent APNGs took 0.185 and 0.152
+seconds in one fresh-process observation each; combined CPU time was 0.330 seconds.
+These are host decode observations, not mobile launch measurements. Native
+all-frame comparisons subsequently passed.
+
+The tradeoff is explicit: combined source assets grow from 4,679,510 to 21,614,000
+bytes, an increase of 16.15 MiB. Logical owned RGBA pixel storage remains approximately
+79.29 MiB, with the same existing cache limit. No memory reduction is claimed.
+Original WebPs remain Android resources and test-only iOS references, not
+duplicate shipping iOS assets. `tools/scripts/convert-home-animations.py` and
+its ImageIO helper reproduce the conversion and validate every frame. Experiment
+inputs, per-frame hashes, timing data and caveats are under
+`artifacts/performance-steward/imageio-cache/`.
+
+The subsequent completion fix retains the final entrance frame during the
+immediate same-view replacement load. Generation and view-identity guards reject
+stale decode and Core Animation completion callbacks. Interrupted replacements
+still clear their image. Five native regressions cover the transition and
+cancellation contract. The combined `6368f710` native run passed all **338 tests**:
+323 unit tests and 15 UI tests, with zero failures or skips. This includes all
+285 animation frame comparisons, the five transition regressions, retention
+pagination fences, keyboard focus/input, large-session pinch/swipe/Back, transcript
+follow-ups and settings navigation. Entrance and loop preparation took 0.195 and
+0.147 seconds in the native pixel test; comparison against the old WebPs is outside
+those preparation timers. The earlier simulator tests measured 10.443 and
+8.345 seconds with WebP input. These test observations are not launch timing.
+
+The annotation-only `a9f65dbd` follow-up explicitly marks the pure decoder helpers
+as nonisolated and their immutable output as Sendable. All seven focused native
+animation tests passed again after that rebuild.
+
+A fresh 45-second Time Profiler capture of `a9f65dbd` found 377 background samples
+inside the home animation decoder helpers, versus 17,989 background bitmap-helper
+samples in the prior WebP capture. The first animation apply was sampled at
+3.451 seconds, versus 13.685 seconds previously; the second decode wave finished
+by 14.622 seconds. No main-thread PNG or WebP decoder stack was sampled. The
+second apply was too brief to appear in this sample capture, so its exact time is
+not established. Total main-thread sample counts were higher (6,547 versus 5,593);
+the animation is applied earlier and can run for more of the observation
+window. This is not an overall main-thread CPU reduction claim or first-frame
+metric. Raw traces and summaries are under
+`artifacts/performance-steward/ios-full-animation-a9f65dbd*`.
+
+## Final simulator resource measurements
+
+The final `a9f65dbd` simulator binary passed all five resource tests using the
+same Debug simulator and five-sample procedure described above. Navigation uses
+the synthetic production viewport; normal Home launch uses no fixture flags.
+Comparison with `33da4e30` is between two already-virtualized intermediate
+and final candidates, not against the original unoptimized app. Runs were
+sequential, not randomized; ordinary host applications and the Android emulator
+remained present. These measurements do not establish physical-device or Release
+performance.
+
+| Zoom | App CPU per two open/Back cycles, prior → final | CPU change | Final absolute physical memory | Final peak physical memory | Final automated wall duration |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 4.906 → 5.154 s | +5.07% | 191.19 MB | 195.75 MB | 13.699 s |
+| 2 | 3.070 → 3.260 s | +6.19% | 143.04 MB | 146.36 MB | 11.967 s |
+| 3 | 1.996 → 2.077 s | +4.05% | 119.07 MB | 121.22 MB | 10.899 s |
+| 4 | 1.136 → 1.136 s | unchanged (+0.002%) | 111.31 MB | 113.44 MB | 9.984 s |
+
+Navigation CPU increased at zooms 1–3; the faster animation decoder does not
+establish a general navigation improvement. Retired instruction counts changed
+by +0.07%, −0.07%, +0.56%, and −0.26% at zooms 1–4, while measured CPU cycles
+rose by 5.64%, 8.39%, 7.71%, and 7.06%. More cycles per retired instruction is
+observed here, but these counters do not determine whether application/cache
+behavior or host conditions caused it. They do not rule out an application
+regression. Memory changes were mixed, including an increase at zoom 2; five
+samples cannot establish a retained-memory leak slope.
+
+Responsive first-frame launch averaged **2.513290 s**, versus **2.290224 s** in
+`33da4e30`: an observed **9.74% regression**. All five samples are retained
+(range 2.414316–2.851118 s). Automated wall duration through hittable Settings
+averaged 4.774152 s versus 4.573978 s (+4.38%). No startup improvement or instant
+launch is claimed for the final candidate. The large reduction in animation
+preparation cost and absence of sampled main-thread decoder stacks remain
+separate findings; they do not override this launch result.
+
+The comparison was checked against the raw xcresult metric arrays in
+`artifacts/performance-steward/ios-resource-metrics-a9f65dbd.json`.
+`ios-native-metrics-final-comparison.json` retains all samples, units, means and
+deltas; the corresponding xcresult and summary retain the test evidence.
+
+The saved test screenshots were inspected: the deep-session view shows session
+900 after four open/Back cycles, with four mounted rows out of 1,000; the long-turn
+fixture shows readable history after a follow-up and scroll. This is visual review
+of automated fixture artifacts, not manual production-app interaction.
+
+![Synthetic session 900 after Back, with four mounted rows out of 1,000](performance-home-session-900.png)
 
 ## Compact fork ancestry: matched Android host experiment
 
@@ -248,7 +447,7 @@ separate but equal 1,000-member family buffers and one changed response. Eleven
 samples assert exactly 999 unchanged rows. Median comparison time fell from
 13.730 ms to 0.552 ms. This measures the comparison pass only, not whole viewport
 apply or device frames. Native regressions for mounted content freshness and
-height-cache invalidation are pending the coordinated build. Full apply still
+height-cache invalidation subsequently passed in the combined native run. Full apply still
 includes linear geometry/dictionary work and worst-case visible-row × family-size
 comparisons. Source, runner, raw output and caveats are retained under
 `artifacts/performance-steward/height-invalidation/`.
@@ -287,10 +486,52 @@ previously shipped `dcda34d` pin as well as these performance fixes. Its complet
 delta against upstream main is broader than a standalone performance patch;
 [PR #54](https://github.com/0xSero/alleycat/pull/54) documents that review scope.
 
+The exact wrapper candidate `888d9675` subsequently passed the complete
+[release dry run](https://github.com/0xSero/litter/actions/runs/36085779007): five
+native target builds, finalized npm packaging, and the actual 0.3.11 Windows
+installer test. The finalized npm tarball SHA-256 is
+`789adfff2e4d7165baf327c9b268e45976c28d9e747cc78dde149070658c571a`.
+Native version/help checks passed on macOS arm64, macOS x86_64 through Rosetta,
+and both Linux architectures. Fresh private npm-cache installs also passed on
+macOS arm64 and both Linux architectures after redirecting only the unpacked
+installer's download URL to the corresponding local candidate archive; installed
+binary hashes matched. Windows CI tested the actual candidate archive, not its
+older packaging fixture. The macOS arm64 release binary also completed six
+authenticated mobile-client RPCs across two fresh connections and shut down cleanly.
+
+The exact packaged macOS arm64 candidate was also retested with 1,000 header-only
+Pi sessions, using release archive SHA-256
+`db0c2410932d7a7a7019ea3a3b7627f9085ae1e6a7a7ab06a31fc0a5006db099`.
+All three cycles passed: each fetched forty pages of 25 unique sessions and
+repeated the first page 100 times, for 420 authenticated `thread/list` requests
+with no duplicate or missing session/thread IDs. No prompts, `thread/start`, or
+`turn/start` calls were sent. The mobile client's locked Iroh 1.0.3 used an
+explicit local IP path to host Iroh 1.2.0; this is not remote-relay latency.
+
+Index hydration took 146.965 ms. First pages took 148.766, 56.322, and 75.859 ms;
+warm first-page medians were 57.974, 60.528, and 59.795 ms, with p95 values of
+66.631, 74.369, and 74.775 ms. Android Gradle compilation overlapped this run, so
+these are exact-artifact correctness diagnostics, not a controlled speedup over
+the earlier host measurements. Daemon RSS was 30,864 KiB before listing, 50,080,
+50,080, and 41,648 KiB after each cycle, and 34,048 KiB after idle. Open files
+settled from 40 during startup to 25. Disk growth was 48,010 bytes; all 1,000
+fixtures remained unchanged. The process tree peaked at 174,144 KiB with two
+descendants. Shutdown exited zero with no surviving children, and the temporary
+profile was removed. This bounded result does not prove long-term leak freedom.
+Exact observations are in
+`artifacts/performance-steward/kittylitter-release-dry-run-36085779007/macos-arm64/pi-1000-session-smoke.json`.
+
+These checks do not establish public `npx kittylitter@0.3.11` availability. Hosting,
+npm publication and announcement were skipped, and 0.3.11 remains unpublished.
+The dry-run macOS arm64 artifact is ad-hoc signed and x86_64 is unsigned; the run
+had no Developer ID signing inputs. Verify final public artifacts' signing
+identity separately. Exact checksums, source provenance and scripts are under
+`artifacts/performance-steward/kittylitter-release-dry-run-36085779007/`.
+
 ## Remaining release gates
 
-- Run the final focused iOS suites and UI harness after rebuilding current Rust
-  libraries and bindings. Run Android tests and install the current build.
+- Finish remote CI and investigate the final simulator launch/CPU regressions;
+  final resource measurements are recorded above.
 - On physical iOS and Android devices, measure cold and warm launch to usable
   content, first interaction, conversation open, Back, scroll, swipe, and pinch at
   100 and 1,000 sessions. Record hardware, OS, build, thermal state, repetitions,
@@ -305,9 +546,9 @@ delta against upstream main is broader than a standalone performance patch;
   and shutdown with real transport. Verify that failures and cancellations finish
   cleanly and surface appropriate state. Retain bounded network deadlines rather
   than allowing stalled operations to run indefinitely.
-- Validate the packaged Kittylitter install and launch on supported targets,
-  including session pagination and cache/log retention, independently of mobile
-  component results.
+- Validate unmodified public Kittylitter downloads and a fresh-cache registry
+  install after publication; retain separate pagination and cache/log acceptance
+  for the final release artifact.
 - Record final commit IDs and artifact versions, then verify store processing,
   submission, and review state separately. A build, upload, or test pass does not
   imply App Store or Google Play approval or availability to users.
@@ -335,8 +576,20 @@ and reconnect policy remain in the existing shared runtime.
 three times, checks that each replacement uses the same process model, and records
 elapsed time to its main-thread callback. This is a responsiveness and ownership
 smoke test, not proof of transport usability or a device latency budget. Native
-execution is pending the coordinated Android run. Endpoint identity or secret-key
+execution passed in the coordinated Android run. Endpoint identity or secret-key
 readback alone cannot establish liveness because a closed endpoint retains both.
-The separate runtime gate is an authenticated host RPC before and after Activity
-recreation and finish/relaunch in the same process, including with the overlay
-service active. No paired Android host was available for that check in this pass.
+The optional authenticated test added in `e58eeb9f` subsequently passed on the
+API 37 arm64 emulator against an isolated packaged Kittylitter 0.3.11 daemon.
+Five new `list_agents` RPCs used the production shared endpoint: before recreation,
+after each of three recreations, and after Activity close/relaunch in the same
+process. The initial call took 1,493 ms; later calls took 636, 624, 636, and 647 ms.
+The complete authenticated test took 7.988 seconds; the endpoint-only mode passed
+separately in 4.301 seconds. Whole-test duration is not an interaction metric.
+
+The test used a private app-owned pairing fixture, did not save a server or alter
+the endpoint identity, sanitized failures, and verified fixture deletion. These
+results establish fresh authenticated RPC liveness across these lifecycle changes,
+not continuity of an existing agent stream or behavior with the overlay service
+active. Those remain separate gates. Logs are under
+`artifacts/performance-steward/android-lifecycle-authenticated.log`,
+`android-lifecycle-endpoint-only.log`, and `android-lifecycle-timings.log`.
