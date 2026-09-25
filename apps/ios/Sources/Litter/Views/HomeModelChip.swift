@@ -145,53 +145,37 @@ struct HomeModelChip: View {
             selectedDetent = .large
             showSheet = true
         } label: {
+            // "model effort · fast · plan · full access" as one mono line.
             HStack(spacing: 6) {
-                if fastMode {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(LitterTheme.warning)
-                }
-                Image(systemName: "cpu")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(disabled ? LitterTheme.textMuted : LitterTheme.accent)
                 Text(selectedModelLabel)
-                    .litterMonoFont(size: 12, weight: .semibold)
+                    .litterMonoFont(size: 13)
                     .foregroundStyle(disabled ? LitterTheme.textSecondary : LitterTheme.textPrimary)
                     .lineLimit(1)
                 if !reasoningLabel.isEmpty {
                     Text(reasoningLabel)
-                        .litterMonoFont(size: 11, weight: .regular)
-                        .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
+                        .litterMeta()
                         .lineLimit(1)
                 }
+                if fastMode {
+                    Text("fast").litterMeta()
+                }
                 if isPlanMode {
-                    Text("plan")
-                        .litterMonoFont(size: 10, weight: .bold)
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(LitterTheme.accent, in: Capsule())
+                    Text("plan").litterMeta(LitterTheme.textPrimary)
                 }
                 if isFullAccess {
-                    Image(systemName: "lock.open.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(LitterTheme.danger)
+                    Text("full access").litterMeta(LitterTheme.danger)
                 }
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(LitterTheme.textMuted)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LitterTheme.meta)
+                    .accessibilityHidden(true)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, LitterSpace.m)
+            .frame(minHeight: 36)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .modifier(GlassCapsuleModifier(interactive: true))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(LitterTheme.textMuted.opacity(0.55), lineWidth: 0.8)
-                .allowsHitTesting(false)
-        )
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)
         .sheet(isPresented: $showSheet) {
