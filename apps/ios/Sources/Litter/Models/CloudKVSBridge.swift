@@ -205,16 +205,20 @@ final class CloudKVSBridge {
         pendingExportTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.debounceInterval * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
-            self.exportNow()
+            await self.exportNow()
         }
     }
 
-    private func exportNow() {
+    /// Builds the envelope (file read + CBOR encode in Rust) off the main
+    /// actor; only the KVS write and hash bookkeeping hop back to main.
+    private func exportNow() async {
+        let directory = preferencesDirectory
+        let deviceId = deviceId
         do {
-            let bytes = try cloudSyncExportSnapshot(
-                directory: preferencesDirectory,
-                deviceId: deviceId
-            )
+            let bytes = try await Task.detached(priority: .utility) {
+                try cloudSyncExportSnapshot(directory: directory, deviceId: deviceId)
+            }.value
+            guard !Task.isCancelled else { return }
             // Avoid bouncing our own writes back through external-change
             // notifications: track the hash of what we just pushed.
             lastAppliedEnvelopeHash = bytes.hashValue

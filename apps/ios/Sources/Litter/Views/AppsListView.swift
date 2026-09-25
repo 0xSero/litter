@@ -151,10 +151,14 @@ struct AppsListView: View {
 
     private func relativeUpdated(_ app: SavedApp) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(app.updatedAtMs) / 1000.0)
+        return "Updated \(Self.relativeFormatter.localizedString(for: date, relativeTo: Date()))"
+    }
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return "Updated \(formatter.localizedString(for: date, relativeTo: Date()))"
-    }
+        return formatter
+    }()
 
     private var emptyState: some View {
         VStack(spacing: 12) {

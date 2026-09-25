@@ -1235,17 +1235,26 @@ final class AppModel {
         var mutated = false
         var touchedThreads: Set<Int> = []
         var droppedThreadKeys: Set<ThreadKey> = []
+        // Resolve each thread index once per flush instead of a linear scan
+        // per drained batch.
+        var threadIndexByKey: [ThreadKey: Int] = [:]
+        for key in Set(drained.map(\.batchKey.key)) {
+            if let index = snapshot.threads.firstIndex(where: { $0.key == key }) {
+                threadIndexByKey[key] = index
+            }
+        }
         for entry in drained {
-            guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == entry.batchKey.key }) else {
+            guard let threadIndex = threadIndexByKey[entry.batchKey.key] else {
                 droppedThreadKeys.insert(entry.batchKey.key)
                 continue
             }
-            var thread = snapshot.threads[threadIndex]
-            guard let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == entry.batchKey.itemId }) else {
+            guard let itemIndex = snapshot.threads[threadIndex].hydratedConversationItems
+                .firstIndex(where: { $0.id == entry.batchKey.itemId }) else {
                 droppedThreadKeys.insert(entry.batchKey.key)
                 continue
             }
-            var item = thread.hydratedConversationItems[itemIndex]
+            let currentItem = snapshot.threads[threadIndex].hydratedConversationItems[itemIndex]
+            var item = currentItem
             guard let updatedContent = applyingStreamingDelta(
                 kind: entry.batchKey.kind,
                 text: entry.pending.text,
@@ -1255,9 +1264,11 @@ final class AppModel {
                 continue
             }
             item.content = updatedContent
-            guard thread.hydratedConversationItems[itemIndex] != item else { continue }
-            thread.hydratedConversationItems[itemIndex] = item
-            snapshot.threads[threadIndex] = thread
+            guard currentItem != item else { continue }
+            // Write in place through the nested subscripts: copying the
+            // thread out and writing it back forced a full copy of
+            // `hydratedConversationItems` for every drained batch.
+            snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] = item
             touchedThreads.insert(threadIndex)
             mutated = true
         }

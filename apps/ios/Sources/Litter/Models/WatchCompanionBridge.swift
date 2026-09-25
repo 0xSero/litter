@@ -56,6 +56,10 @@ final class WatchCompanionBridge: NSObject {
     private var lastPushedPayload: WatchSnapshotPayload?
     private var lastPushedComplication: Data?
     private var pushThrottle: Task<Void, Never>?
+    /// Coalesces snapshot-change notifications so the (fairly expensive)
+    /// payload projection + app-group UserDefaults writes run at most a few
+    /// times per second during streaming instead of on every snapshot tick.
+    private var projectionThrottle: Task<Void, Never>?
     private var themeObserver: NSObjectProtocol?
     private var preferencesObserver: NSObjectProtocol?
     /// Request ids the bridge has already scheduled an approval push for.
@@ -149,13 +153,26 @@ final class WatchCompanionBridge: NSObject {
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.pushIfChanged()
+                self.schedulePushIfChanged()
                 self.observe()
             }
         }
         // Run an initial push so first-launch state lands on the watch
         // even before the snapshot mutates.
         pushIfChanged()
+    }
+
+    /// Throttle BEFORE projecting: collapse bursts of snapshot changes into
+    /// one `pushIfChanged()` per window (trailing edge, so the latest state
+    /// always lands).
+    private func schedulePushIfChanged() {
+        guard projectionThrottle == nil else { return }
+        projectionThrottle = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self else { return }
+            self.projectionThrottle = nil
+            self.pushIfChanged()
+        }
     }
 
     private func pushIfChanged() {

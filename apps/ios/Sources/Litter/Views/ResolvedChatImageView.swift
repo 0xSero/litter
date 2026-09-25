@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 import WebKit
@@ -33,16 +34,27 @@ struct ResolvedChatImageView: View {
     @State private var imageData: Data?
     @State private var loadError: String?
     @State private var isLoading = false
+    @State private var isSVGData = false
+    @State private var decodedImage: UIImage?
 
     private static let dataCache = NSCache<NSString, NSData>()
+    private static let imageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+    /// Longest edge (pixels) for decoded raster previews. Transcript images
+    /// are capped at `maxHeight` points, so full-resolution decodes only
+    /// waste memory and main-thread time.
+    private static let maxDecodePixelSize: CGFloat = 2048
 
     var body: some View {
         Group {
             if let imageData {
-                if Self.isSVG(imageData, source: source) {
+                if isSVGData {
                     SafeSVGImageView(data: imageData)
                         .aspectRatio(Self.svgAspectRatio(imageData), contentMode: .fit)
-                } else if let image = UIImage(data: imageData) {
+                } else if let image = decodedImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
@@ -114,8 +126,18 @@ struct ResolvedChatImageView: View {
     }
 
     private func loadImage() async {
-        if let cached = Self.dataCache.object(forKey: taskKey as NSString) {
-            imageData = cached as Data
+        let key = taskKey as NSString
+        if let cached = Self.dataCache.object(forKey: key) {
+            let data = cached as Data
+            let svg = Self.isSVG(data, source: source)
+            if !svg, Self.imageCache.object(forKey: key) == nil {
+                if let image = await Self.decodeOffMain(data) {
+                    Self.imageCache.setObject(image, forKey: key)
+                }
+            }
+            isSVGData = svg
+            decodedImage = svg ? nil : Self.imageCache.object(forKey: key)
+            imageData = data
             loadError = nil
             isLoading = false
             return
@@ -142,13 +164,44 @@ struct ResolvedChatImageView: View {
             guard !data.isEmpty else {
                 throw ResolvedChatImageError.emptyImage
             }
-            Self.dataCache.setObject(data as NSData, forKey: taskKey as NSString)
+            let svg = Self.isSVG(data, source: source)
+            var image: UIImage?
+            if !svg {
+                image = await Self.decodeOffMain(data)
+                if let image { Self.imageCache.setObject(image, forKey: key) }
+            }
+            Self.dataCache.setObject(data as NSData, forKey: key)
+            isSVGData = svg
+            decodedImage = image
             imageData = data
         } catch {
             imageData = nil
+            decodedImage = nil
             let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             loadError = message.isEmpty ? "Image unavailable" : message
         }
+    }
+
+    /// Decodes (and downsamples) raster bytes off the main actor via ImageIO.
+    /// Falls back to `UIImage(data:)` for formats ImageIO can't thumbnail.
+    private static func decodeOffMain(_ data: Data) async -> UIImage? {
+        let maxPixel = maxDecodePixelSize
+        return await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+            if let imageSource = CGImageSourceCreateWithData(data as CFData, sourceOptions) {
+                let thumbOptions = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                ] as [CFString: Any] as CFDictionary
+                if let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, thumbOptions) {
+                    return UIImage(cgImage: cgImage)
+                }
+            }
+            guard let fallback = UIImage(data: data) else { return nil }
+            return fallback.preparingForDisplay() ?? fallback
+        }.value
     }
 
     private static func isSVG(_ data: Data, source: ResolvedChatImageSource) -> Bool {

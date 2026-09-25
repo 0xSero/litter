@@ -2,9 +2,19 @@ import Foundation
 import UniformTypeIdentifiers
 import UIKit
 
-struct PreparedImageAttachment {
+struct PreparedImageAttachment: Sendable {
     let data: Data
     let mimeType: String
+    /// Built once at preparation time (off the main actor via
+    /// `prepareImages`) so base64-encoding a multi-MB image never happens on
+    /// the main thread when the composer payload is assembled.
+    let dataURI: String
+
+    init(data: Data, mimeType: String) {
+        self.data = data
+        self.mimeType = mimeType
+        self.dataURI = "data:\(mimeType);base64,\(data.base64EncodedString())"
+    }
 
     var userInput: AppUserInput {
         .image(url: dataURI)
@@ -12,10 +22,6 @@ struct PreparedImageAttachment {
 
     var chatImage: ChatImage {
         ChatImage(data: data, mimeType: mimeType)
-    }
-
-    private var dataURI: String {
-        "data:\(mimeType);base64,\(data.base64EncodedString())"
     }
 }
 
@@ -31,6 +37,16 @@ enum ConversationAttachmentSupport {
     static func prepareImage(_ image: UIImage) -> PreparedImageAttachment? {
         guard let encodedImage = encodedImageData(for: image) else { return nil }
         return PreparedImageAttachment(data: encodedImage.data, mimeType: encodedImage.mimeType)
+    }
+
+    /// Resize + JPEG/PNG encode + base64 for a batch of images on a
+    /// background executor. Order is preserved; undecodable images are
+    /// dropped (same as `compactMap(prepareImage)`).
+    static func prepareImages(_ images: [UIImage]) async -> [PreparedImageAttachment] {
+        guard !images.isEmpty else { return [] }
+        return await Task.detached(priority: .userInitiated) {
+            images.compactMap { prepareImage($0) }
+        }.value
     }
 
     static func loadImageFile(at url: URL) -> UIImage? {

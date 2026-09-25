@@ -9,14 +9,30 @@ extension Notification.Name {
 enum SavedServerStore {
     private static let savedServersKey = "codex_saved_servers"
 
+    /// Last raw bytes read/written plus their decoded+migrated result. Keyed
+    /// by the stored bytes (not a flag) so writes from elsewhere — e.g. the
+    /// iCloud KVS writeback path — still invalidate it. `Data ==` is a
+    /// memcmp, far cheaper than a JSON decode + migration on every access.
+    private static var cachedRaw: Data?
+    private static var cachedServers: [SavedServer] = []
+
     static func save(_ servers: [SavedServer]) {
         guard let data = try? JSONEncoder().encode(servers) else { return }
         UserDefaults.standard.set(data, forKey: savedServersKey)
+        cachedRaw = data
+        cachedServers = servers
         NotificationCenter.default.post(name: .litterSavedServersDidChange, object: nil)
     }
 
     static func load() -> [SavedServer] {
-        guard let data = UserDefaults.standard.data(forKey: savedServersKey) else { return [] }
+        guard let data = UserDefaults.standard.data(forKey: savedServersKey) else {
+            cachedRaw = nil
+            cachedServers = []
+            return []
+        }
+        if let cachedRaw, cachedRaw == data {
+            return cachedServers
+        }
         let decoded = (try? JSONDecoder().decode([SavedServer].self, from: data)) ?? []
         let migrated = decoded.map { saved -> SavedServer in
             let server = saved.toDiscoveredServer()
@@ -39,6 +55,9 @@ enum SavedServerStore {
         }
         if migrated != decoded {
             save(migrated)
+        } else {
+            cachedRaw = data
+            cachedServers = migrated
         }
         return migrated
     }
