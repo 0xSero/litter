@@ -189,7 +189,9 @@ fun HomeDashboardScreen(
     }
     // Every session across connected servers — unlimited, used by the search
     // view so the user can pin any thread.
-    val allSessions = remember(snap?.servers, snap?.sessionSummaries) {
+    // Launch-cache visibility depends on membership, not hydrated transcript contents.
+    val liveThreadKeys = snap?.threads.orEmpty().mapTo(HashSet()) { it.key }
+    val allSessions = remember(snap?.servers, snap?.sessionSummaries, liveThreadKeys) {
         snap?.let { HomeDashboardSupport.recentSessions(it, limit = Int.MAX_VALUE) } ?: emptyList()
     }
     // Fork lineage map computed from the unfiltered snapshot so a fork
