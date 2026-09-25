@@ -1,5 +1,7 @@
 package com.litter.android.auth
 
+import android.content.res.Configuration
+import com.litter.android.util.EdgeToEdge
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -8,7 +10,6 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -67,8 +68,12 @@ class ChatGPTOAuthActivity : ComponentActivity() {
     private var browserReturnGeneration = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        EdgeToEdge.apply(
+            this,
+            darkBars = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES,
+        )
 
         val authAttempt = parseAttempt(intent)
         if (authAttempt == null) {
