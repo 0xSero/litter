@@ -113,9 +113,9 @@ callback through the recreated Home view's SwiftUI `onAppear` on compact layouts
 It excludes nested navigation, interactive edge-swipe pop, and split layouts. Its
 endpoint is appearance callback delivery, not a displayed frame or touch latency.
 
-Android `:app:testDebugUnitTest` and `:app:assembleDebug` completed successfully in
-the earlier native run. Shared subscription cancellation and subsequent lifecycle
-changes require regenerated bindings and a new native run. The final shared Rust
+Android `:app:testDebugUnitTest` passed all 71 tests in 16 suites with current
+sources and regenerated bindings. The earlier `:app:assembleDebug` run passed,
+but installation with the final rebuilt Rust library is still pending. The final shared Rust
 library suite passed 844 tests with zero failures and three ignored tests, including
 idle subscription cancellation, removed-thread cache cleanup, removed-server
 launch-row cleanup, and launch-cache projection without cloning conversation history.
@@ -133,7 +133,10 @@ and output are under `artifacts/performance-steward/android-projection/`.
 
 ## Kittylitter daemon and transport
 
-The 0.3.11 wrapper pins Alleycat `c27278bf`. An isolated real daemon loaded 1,000
+The separately prepared 0.3.11 wrapper pins Alleycat `c27278bf`. Its release
+preparation is [PR #381](https://github.com/0xSero/litter/pull/381); the mobile
+performance candidate retains the published 0.3.10 download links until the new
+artifacts are available and validated. An isolated real daemon loaded 1,000
 header-only native Pi session files in a temporary home and Git project, with only
 Pi enabled and no model credentials. A client using the mobile app's locked Iroh
 1.0.3 connected to the host's Iroh 1.2.0 over explicit loopback. It sent no prompts,
