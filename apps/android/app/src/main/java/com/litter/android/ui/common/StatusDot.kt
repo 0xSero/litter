@@ -12,16 +12,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.litter.android.ui.LitterTheme
@@ -87,7 +85,7 @@ private fun SolidDot(color: Color, size: Dp) {
 @Composable
 private fun PulsingDot(color: Color, size: Dp, withShimmer: Boolean = false) {
     val transition = rememberInfiniteTransition(label = "status-dot-pulse")
-    val phase by transition.animateFloat(
+    val phase = transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -96,12 +94,9 @@ private fun PulsingDot(color: Color, size: Dp, withShimmer: Boolean = false) {
         ),
         label = "status-dot-pulse-phase",
     )
-    val alpha = 1.0f - (0.65f * phase)
-    val scale = 1.0f - (0.15f * phase)
-
     val sweepPhase = if (withShimmer) {
         val sweepTransition = rememberInfiniteTransition(label = "status-dot-sweep")
-        val sweep by sweepTransition.animateFloat(
+        val sweep = sweepTransition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -118,8 +113,13 @@ private fun PulsingDot(color: Color, size: Dp, withShimmer: Boolean = false) {
     Box(
         modifier = Modifier
             .size(size)
-            .scale(scale)
-            .alpha(alpha)
+            .graphicsLayer {
+                // Read animation state in the layer phase, not composition.
+                val value = phase.value
+                scaleX = 1.0f - (0.15f * value)
+                scaleY = scaleX
+                alpha = 1.0f - (0.65f * value)
+            }
             .clip(CircleShape)
             .background(color)
             .then(
@@ -131,7 +131,7 @@ private fun PulsingDot(color: Color, size: Dp, withShimmer: Boolean = false) {
                         // Sweep travels from fully-offscreen-left to fully-offscreen-right
                         // so the gradient band reads as a moving highlight across the dot.
                         val bandHalf = w * 0.3f
-                        val center = -bandHalf + sweepPhase * (w + 2f * bandHalf)
+                        val center = -bandHalf + sweepPhase.value * (w + 2f * bandHalf)
                         val brush = Brush.linearGradient(
                             colorStops = arrayOf(
                                 0f to Color.White.copy(alpha = 0f),
