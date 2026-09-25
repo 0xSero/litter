@@ -243,9 +243,24 @@ impl ThreadItems {
         }
     }
 
+    /// Retained allocation capacity, including spare vector/index storage.
+    pub(super) fn retained_bytes(&self) -> usize {
+        use super::retention::HeapBytes;
+        // HashMap capacity excludes empty buckets; twice the exposed capacity
+        // conservatively covers bucket slack/control bytes without unsafe APIs.
+        self.items.heap_bytes()
+            + self.index.capacity() * 2 * (std::mem::size_of::<(String, usize)>() + 1)
+            + self.index.keys().map(String::capacity).sum::<usize>()
+    }
+
     /// Monotonic, globally unique stamp that changes on every mutation.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Rebase a replacement built outside the store onto its commit order.
+    pub(crate) fn mark_committed(&mut self) {
+        self.revision = next_items_revision();
     }
 
     pub fn as_slice(&self) -> &[HydratedConversationItem] {
@@ -286,7 +301,9 @@ impl ThreadItems {
 
     pub fn push(&mut self, item: HydratedConversationItem) {
         self.revision = next_items_revision();
-        self.index.entry(item.id.clone()).or_insert(self.items.len());
+        self.index
+            .entry(item.id.clone())
+            .or_insert(self.items.len());
         self.items.push(item);
     }
 
@@ -376,7 +393,9 @@ impl Extend<HydratedConversationItem> for ThreadItems {
     fn extend<I: IntoIterator<Item = HydratedConversationItem>>(&mut self, iter: I) {
         self.revision = next_items_revision();
         for item in iter {
-            self.index.entry(item.id.clone()).or_insert(self.items.len());
+            self.index
+                .entry(item.id.clone())
+                .or_insert(self.items.len());
             self.items.push(item);
         }
     }
@@ -402,6 +421,9 @@ pub struct ThreadSnapshot {
     pub effective_approval_policy: Option<crate::types::AppAskForApproval>,
     pub effective_sandbox_policy: Option<crate::types::AppSandboxPolicy>,
     pub items: ThreadItems,
+    /// Provenance of an unchanged item list in a detached metadata clone.
+    /// Never retained in canonical state; fresh hydration has no provenance.
+    pub(crate) items_source_revision: Option<u64>,
     pub local_overlay_items: ThreadItems,
     /// Memoized `extract_conversation_activity` output for this thread,
     /// invalidated by `items` / `local_overlay_items` revisions. Purely
@@ -469,6 +491,7 @@ impl ThreadSnapshot {
             effective_approval_policy: None,
             effective_sandbox_policy: None,
             items: ThreadItems::new(),
+            items_source_revision: None,
             local_overlay_items: ThreadItems::new(),
             activity_cache: super::boundary::ThreadActivityCache::default(),
             queued_follow_ups: Vec::new(),
@@ -565,6 +588,7 @@ mod thread_items_tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 
@@ -635,7 +659,10 @@ mod thread_items_tests {
         items.push(item("other", "x"));
         items.push(item("dup", "second"));
         assert_eq!(items.index_of("dup"), Some(0));
-        assert_eq!(items.get_by_id("dup").map(|entry| entry.id.as_str()), Some("dup"));
+        assert_eq!(
+            items.get_by_id("dup").map(|entry| entry.id.as_str()),
+            Some("dup")
+        );
 
         items.retain(|entry| entry.id != "other");
         assert_eq!(items.index_of("dup"), Some(0));
@@ -672,7 +699,10 @@ mod thread_items_tests {
         seen.push(ThreadItems::from(vec![item("a", "1")]).revision());
         seen.push(next_items_revision());
 
-        let unique = seen.iter().copied().collect::<std::collections::HashSet<_>>();
+        let unique = seen
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), seen.len(), "revisions repeated: {seen:?}");
     }
 

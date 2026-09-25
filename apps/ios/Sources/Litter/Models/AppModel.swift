@@ -39,7 +39,7 @@ final class AppModel {
     /// so we can flush all accumulated tokens in a single `snapshot`
     /// mutation (~8 fps) instead of reassigning `snapshot` per token.
     private struct PendingStreamingDelta: Sendable {
-        var text: String = ""
+        var chunks: [ThreadStreamingDeltaChunk] = []
     }
 
     /// Dictionary key for streaming-delta batches. Bundles the identifying
@@ -131,6 +131,7 @@ final class AppModel {
             // `updateActiveThread`).
             threadIndexCache = nil
             snapshotRevision &+= 1
+            snapshotRefreshFence.invalidate()
         }
     }
     private(set) var snapshotRevision: UInt64 = 0
@@ -138,6 +139,7 @@ final class AppModel {
     private(set) var composerPrefillRequest: ComposerPrefillRequest?
     private(set) var sshHostKeyChangeChallenge: SshHostKeyChangeChallenge?
 
+    @ObservationIgnored private var snapshotRefreshFence = SnapshotRefreshFence()
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: [String: Int] = [:]
@@ -227,6 +229,7 @@ final class AppModel {
 
     deinit {
         updateTask?.cancel()
+        subscription?.cancel()
         pendingThreadRefreshTask?.cancel()
         pendingActiveThreadHydrationTask?.cancel()
         pendingSnapshotRefreshTask?.cancel()
@@ -237,18 +240,22 @@ final class AppModel {
 
     func start() {
         guard updateTask == nil else { return }
+        snapshotRefreshFence.start()
         let subscription = store.subscribeUpdates()
         self.subscription = subscription
         updateTask = Task.detached(priority: .userInitiated) { [weak self, subscription] in
-            guard let self else { return }
-            await self.refreshSnapshot()
+            defer { subscription.cancel() }
+            await self?.refreshSnapshot()
             while !Task.isCancelled {
                 do {
+                    // Do not retain the model while waiting for the next event:
+                    // it owns this task, and an idle subscription may wait forever.
                     let update = try await subscription.nextUpdate()
+                    guard let self else { return }
                     await self.handleStoreUpdate(update)
                 } catch {
                     if Task.isCancelled { break }
-                    await self.recordStoreSubscriptionError(error)
+                    await self?.recordStoreSubscriptionError(error)
                     break
                 }
             }
@@ -256,7 +263,9 @@ final class AppModel {
     }
 
     func stop() {
+        snapshotRefreshFence.stop()
         updateTask?.cancel()
+        subscription?.cancel()
         updateTask = nil
         pendingThreadRefreshTask?.cancel()
         pendingThreadRefreshTask = nil
@@ -267,6 +276,11 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
         pendingSnapshotRefreshDeadline = nil
+        discardPendingSnapshotProjections()
+        subscription = nil
+    }
+
+    private func discardPendingSnapshotProjections() {
         pendingThreadStateTask?.cancel()
         pendingThreadStateTask = nil
         pendingThreadStateEvents.removeAll()
@@ -276,21 +290,43 @@ final class AppModel {
         pendingStreamingDeltaTask?.cancel()
         pendingStreamingDeltaTask = nil
         pendingStreamingDeltas.removeAll()
-        subscription = nil
     }
 
-    func refreshSnapshot() async {
+    @discardableResult
+    func refreshSnapshot() async -> AppSnapshotRecord? {
+        guard !Task.isCancelled else { return nil }
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
         pendingSnapshotRefreshDeadline = nil
-        await performSnapshotRefresh()
+        return await performSnapshotRefresh()
     }
 
-    private func performSnapshotRefresh() async {
+    @discardableResult
+    private func performSnapshotRefresh() async -> AppSnapshotRecord? {
+        guard !Task.isCancelled, let ticket = snapshotRefreshFence.begin() else { return nil }
         do {
-            applySnapshot(try await store.snapshot())
+            let captured = try await store.snapshot()
+            guard !Task.isCancelled else { return nil }
+            switch snapshotRefreshFence.disposition(of: ticket) {
+            case .apply:
+                // Rust captured all events received before this request. Do not
+                // append those queued deltas a second time after publication.
+                discardPendingSnapshotProjections()
+                applySnapshot(captured)
+            case .retry:
+                // Keep the newer projection. One weakly-owned trailing task
+                // uses a coalesced 250ms trailing retry; live updates remain responsive.
+                scheduleSnapshotRefreshDebounced(within: 250_000_000)
+            case .superseded:
+                break
+            }
+            return captured
+        } catch is CancellationError {
+            return nil
         } catch {
+            guard !Task.isCancelled, snapshotRefreshFence.disposition(of: ticket) != .superseded else { return nil }
             lastError = error.localizedDescription
+            return nil
         }
     }
 
@@ -312,6 +348,7 @@ final class AppModel {
     private func scheduleSnapshotRefreshDebounced(
         within nanoseconds: UInt64 = AppModel.snapshotRefreshDebounceNanoseconds
     ) {
+        guard !snapshotRefreshFence.isStopped else { return }
         let deadline = DispatchTime.now() + .nanoseconds(Int(nanoseconds))
         if pendingSnapshotRefreshTask != nil,
            let existing = pendingSnapshotRefreshDeadline,
@@ -329,7 +366,7 @@ final class AppModel {
             guard let self else { return }
             self.pendingSnapshotRefreshTask = nil
             self.pendingSnapshotRefreshDeadline = nil
-            await self.performSnapshotRefresh()
+            _ = await self.performSnapshotRefresh()
         }
     }
 
@@ -571,7 +608,8 @@ final class AppModel {
             return false
         }
 
-        guard snapshot?.serverSnapshot(for: serverId)?.account != nil else {
+        let confirmed = await refreshSnapshot()
+        guard (confirmed ?? snapshot)?.serverSnapshot(for: serverId)?.account != nil else {
             throw LocalAccountLoginFlowError.loginDidNotAttach
         }
         return true
@@ -600,7 +638,8 @@ final class AppModel {
             ]
         )
         await restoreStoredLocalAuthState(serverId: serverId)
-        return snapshot?.serverSnapshot(for: serverId)?.account != nil
+        let confirmed = await refreshSnapshot()
+        return (confirmed ?? snapshot)?.serverSnapshot(for: serverId)?.account != nil
     }
 
     func resolvedLocalServerDisplayName() -> String {
@@ -894,7 +933,7 @@ final class AppModel {
             self.snapshot = mergedSnapshot
             if let mergedSnapshot {
                 persistWakeMACs(from: mergedSnapshot.servers)
-                mergedSnapshot.threads.forEach(cacheThreadSnapshot)
+                mergedSnapshot.threads.forEach { cacheThreadSnapshot($0) }
                 lastError = nil
             }
         }
@@ -958,7 +997,8 @@ final class AppModel {
         }
     }
 
-    private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+    func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+        snapshotRefreshFence.invalidate()
         // Argument is an `@autoclosure`: nothing below is evaluated outside
         // DEBUG, and even in DEBUG it only reads the case discriminant.
         PerfTracker.event("storeUpdate", ["type": Self.updateLabel(update)])
@@ -1009,7 +1049,7 @@ final class AppModel {
             // fields (stats, last tool label, etc.) stay in sync with the
             // stream without waiting for a full snapshot rebuild.
             applySessionSummary(sessionSummary)
-        case .threadStreamingDelta(let key, let itemId, let kind, let text):
+        case .threadStreamingDelta(let key, let itemId, let kind, let chunks):
             // Feed the live transcript renderer immediately so the streaming
             // bubble stays smooth at the token rate. The snapshot mutation
             // is coalesced below so the rest of the UI (home, overlays,
@@ -1020,9 +1060,21 @@ final class AppModel {
                 // when no interval is pending (deltas can arrive for a
                 // turn this device did not start).
                 PerfTracker.endInterval("SendMessage", key: PerfTracker.intervalKey(key))
-                StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
+                // Background threads must not finish the viewed thread's
+                // renderer merely by changing the coordinator's active item.
+                if snapshot?.activeThread == key {
+                    let thread = threadSnapshot(for: key)
+                    let included = thread?.hydratedConversationItems
+                        .first(where: { $0.id == itemId })?.capturedItemsRevision ?? thread?.capturedItemsRevision ?? 0
+                    let pending = chunks.filter { $0.revision > included }
+                    if let revision = pending.last?.revision {
+                        StreamingRendererCoordinator.shared.appendDelta(
+                            pending.map(\.text).joined(), for: itemId, revision: revision
+                        )
+                    }
+                }
             }
-            enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
+            enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, chunks: chunks)
         case .threadRemoved(let key, let agentDirectoryVersion):
             flushPendingStreamingDeltas(for: key)
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
@@ -1164,8 +1216,13 @@ final class AppModel {
         key: ThreadKey,
         itemId: String,
         kind: ThreadStreamingDeltaKind,
-        text: String
+        chunks: [ThreadStreamingDeltaChunk]
     ) {
+        let thread = threadSnapshot(for: key)
+        let included = thread?.hydratedConversationItems.first(where: { $0.id == itemId })?.capturedItemsRevision
+            ?? thread?.capturedItemsRevision ?? 0
+        let chunks = chunks.filter { $0.revision > included }
+        guard !chunks.isEmpty else { return }
         // If the target item is not yet in the snapshot, batching would just
         // accumulate text against a missing row; fall back to the debounced
         // full-thread refresh so the item appears and then streams.
@@ -1179,13 +1236,13 @@ final class AppModel {
 
         let batchKey = StreamingDeltaBatchKey(key: key, itemId: itemId, kind: kind)
         var pending = pendingStreamingDeltas[batchKey] ?? PendingStreamingDelta()
-        pending.text += text
+        pending.chunks.append(contentsOf: chunks)
         pendingStreamingDeltas[batchKey] = pending
 
         guard pendingStreamingDeltaTask == nil else { return }
         pendingStreamingDeltaTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingStreamingDeltas()
         }
     }
@@ -1204,7 +1261,7 @@ final class AppModel {
     /// mutation, bumping `snapshotRevision` once per flush instead of per
     /// token. Passing a `ThreadKey` flushes only that thread's deltas
     /// (used on turn completion); passing `nil` flushes everything.
-    private func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
+    func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
         PerfTracker.time("flushStreamingDeltas") {
             flushPendingStreamingDeltasImpl(for: key)
         }
@@ -1246,15 +1303,20 @@ final class AppModel {
                 continue
             }
             var item = thread.hydratedConversationItems[itemIndex]
-            guard let updatedContent = applyingStreamingDelta(
-                kind: entry.batchKey.kind,
-                text: entry.pending.text,
-                to: item.content
-            ) else {
-                droppedThreadKeys.insert(entry.batchKey.key)
-                continue
+            let pending = entry.pending.chunks.filter { $0.revision > item.capturedItemsRevision }
+            guard let revision = pending.last?.revision else { continue }
+            // Filter by revision before joining, then copy transcript text once.
+            if entry.batchKey.kind == .mcpProgress, case .mcpToolCall(var data) = item.content {
+                data.progressMessages += pending.map(\.text).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                item.content = .mcpToolCall(data)
+            } else {
+                guard let content = applyingStreamingDelta(kind: entry.batchKey.kind, text: pending.map(\.text).joined(), to: item.content) else {
+                    droppedThreadKeys.insert(entry.batchKey.key)
+                    continue
+                }
+                item.content = content
             }
-            item.content = updatedContent
+            item.capturedItemsRevision = revision
             guard thread.hydratedConversationItems[itemIndex] != item else { continue }
             thread.hydratedConversationItems[itemIndex] = item
             snapshot.threads[threadIndex] = thread
@@ -1273,7 +1335,7 @@ final class AppModel {
         if mutated {
             self.snapshot = snapshot
             for threadIndex in touchedThreads {
-                cacheThreadSnapshot(snapshot.threads[threadIndex])
+                cacheThreadSnapshot(snapshot.threads[threadIndex], synchronizeRenderer: false)
             }
             lastError = nil
         }
@@ -1285,7 +1347,7 @@ final class AppModel {
         if !pendingStreamingDeltas.isEmpty && pendingStreamingDeltaTask == nil {
             pendingStreamingDeltaTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 await self.flushPendingStreamingDeltas()
             }
         }
@@ -1368,7 +1430,7 @@ final class AppModel {
         guard pendingThreadStateTask == nil else { return }
         pendingThreadStateTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.liveThreadStateCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingThreadStateUpdates()
         }
     }
@@ -1421,7 +1483,7 @@ final class AppModel {
         guard pendingCommandRowMutationTask == nil else { return }
         pendingCommandRowMutationTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.liveItemMutationCoalescingNanoseconds)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.flushPendingCommandRowMutations()
         }
     }
@@ -1593,8 +1655,8 @@ final class AppModel {
         thread.rateLimits = state.rateLimits
         thread.realtimeSessionId = state.realtimeSessionId
         thread.goal = state.goal
-        thread.olderTurnsCursor = state.olderTurnsCursor
-        thread.initialTurnsLoaded = state.initialTurnsLoaded
+        // Pagination belongs to revisioned full-content updates. A delayed
+        // metadata event must not mark an evicted transcript loaded again.
         let threadChanged = snapshot.threads[threadIndex] != thread
         snapshot.threads[threadIndex] = thread
 
@@ -1645,9 +1707,11 @@ final class AppModel {
             var thread = snapshot.threads[threadIndex]
 
             if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
-                guard thread.hydratedConversationItems[itemIndex] != item else { continue }
+                guard item.capturedItemsRevision >= thread.hydratedConversationItems[itemIndex].capturedItemsRevision,
+                      thread.hydratedConversationItems[itemIndex] != item else { continue }
                 thread.hydratedConversationItems[itemIndex] = item
             } else {
+                guard item.capturedItemsRevision == 0 || item.capturedItemsRevision > thread.capturedItemsRevision else { continue }
                 let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
                 thread.hydratedConversationItems.insert(item, at: insertionIndex)
             }
@@ -1833,9 +1897,11 @@ final class AppModel {
 
         var thread = snapshot.threads[threadIndex]
         if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
-            guard thread.hydratedConversationItems[itemIndex] != item else { return true }
+            guard item.capturedItemsRevision >= thread.hydratedConversationItems[itemIndex].capturedItemsRevision,
+                  thread.hydratedConversationItems[itemIndex] != item else { return true }
             thread.hydratedConversationItems[itemIndex] = item
         } else {
+            guard item.capturedItemsRevision == 0 || item.capturedItemsRevision > thread.capturedItemsRevision else { return true }
             let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
             thread.hydratedConversationItems.insert(item, at: insertionIndex)
         }
@@ -1907,7 +1973,12 @@ final class AppModel {
             guard let oldItem = oldItemsById[newItem.id] else {
                 continue
             }
-            if let preserved = preservedStreamingContent(old: oldItem.content, new: newItem.content) {
+            if oldItem.capturedItemsRevision > newItem.capturedItemsRevision {
+                newThread.hydratedConversationItems[newIndex] = oldItem
+                continue
+            }
+            if newItem.capturedItemsRevision == 0,
+               let preserved = preservedStreamingContent(old: oldItem.content, new: newItem.content) {
                 newThread.hydratedConversationItems[newIndex].content = preserved
             }
         }
@@ -2406,33 +2477,60 @@ final class AppModel {
         applyThreadSnapshot(cached)
     }
 
-    private func cacheThreadSnapshot(_ thread: AppThreadSnapshot) {
+    private func cacheThreadSnapshot(_ thread: AppThreadSnapshot, synchronizeRenderer: Bool = true) {
         cachedThreadSnapshots[thread.key] = thread
+        if synchronizeRenderer && snapshot?.activeThread == thread.key {
+            for item in thread.hydratedConversationItems {
+                if case .assistant(let data) = item.content {
+                    StreamingRendererCoordinator.shared.synchronizeAuthoritativeText(
+                        data.text, for: item.id, revision: item.capturedItemsRevision
+                    )
+                }
+            }
+        }
     }
 
     private func mergedThreadSnapshotPreservingHydratedItems(_ thread: AppThreadSnapshot) -> AppThreadSnapshot {
-        guard let cached = cachedThreadSnapshots[thread.key],
-              !cached.hydratedConversationItems.isEmpty else {
-            return thread
-        }
-
-        if thread.hydratedConversationItems.count < cached.hydratedConversationItems.count {
-            LLog.warn("streaming", "threadUpsert arrived with fewer items than cached", fields: [
-                "threadId": thread.key.threadId,
-                "incoming": thread.hydratedConversationItems.count,
-                "cached": cached.hydratedConversationItems.count,
-                "status": String(describing: thread.info.status)
-            ])
-        }
-
-        // Incoming has no items → use cached items entirely.
-        if thread.hydratedConversationItems.isEmpty {
-            var merged = thread
+        guard let cached = cachedThreadSnapshots[thread.key] else { return thread }
+        var merged = thread
+        if thread.capturedItemsRevision != 0 && thread.capturedItemsRevision < cached.capturedItemsRevision {
             merged.hydratedConversationItems = cached.hydratedConversationItems
+            merged.capturedItemsRevision = cached.capturedItemsRevision
+            merged.initialTurnsLoaded = cached.initialTurnsLoaded
+            merged.olderTurnsCursor = cached.olderTurnsCursor
             return merged
         }
-
-        return thread
+        // Rust projects the entire canonical list for every captured snapshot.
+        // Only legacy revision-zero projections can omit hydrated history.
+        if thread.hydratedConversationItems.isEmpty && thread.capturedItemsRevision == 0 {
+            merged.hydratedConversationItems = cached.hydratedConversationItems
+        } else {
+            let byID = Dictionary(cached.hydratedConversationItems.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            merged.hydratedConversationItems = thread.hydratedConversationItems.compactMap { incoming in
+                if let old = byID[incoming.id] {
+                    return old.capturedItemsRevision > incoming.capturedItemsRevision ? old : incoming
+                }
+                // An authoritative captured list also records which items were absent.
+                guard cached.capturedItemsRevision == 0 || incoming.capturedItemsRevision > cached.capturedItemsRevision else { return nil }
+                return incoming
+            }
+            let present = Set(merged.hydratedConversationItems.map(\.id))
+            var retainedBefore: [String: [HydratedConversationItem]] = [:]
+            var pending: [HydratedConversationItem] = []
+            for item in cached.hydratedConversationItems {
+                if present.contains(item.id) {
+                    if !pending.isEmpty { retainedBefore[item.id] = pending; pending = [] }
+                } else if item.capturedItemsRevision > thread.capturedItemsRevision {
+                    pending.append(item)
+                }
+            }
+            // Keep newer retained items before their next surviving cached peer.
+            merged.hydratedConversationItems = merged.hydratedConversationItems.flatMap {
+                (retainedBefore[$0.id] ?? []) + [$0]
+            } + pending
+        }
+        merged.capturedItemsRevision = max(thread.capturedItemsRevision, cached.capturedItemsRevision)
+        return merged
     }
 
     private func mergingCachedThreadSnapshots(_ snapshot: AppSnapshotRecord) -> AppSnapshotRecord {
@@ -2457,6 +2555,12 @@ final class AppModel {
             summaryKeys.insert(snapshot.sessionSummaries[index].key)
         }
 
+        // A full resync may follow dropped incremental events, including
+        // ThreadRemoved. Rust's membership is authoritative; retain offline
+        // summaries and the active thread, but discard unreachable cache rows.
+        cachedThreadSnapshots = cachedThreadSnapshots.filter { key, _ in
+            presentThreadKeys.contains(key) || summaryKeys.contains(key) || snapshot.activeThread == key
+        }
         for (key, cached) in cachedThreadSnapshots {
             guard !presentThreadKeys.contains(key) else { continue }
             guard snapshot.activeThread == key || summaryKeys.contains(key) else {
@@ -2507,5 +2611,30 @@ extension AppSnapshotRecord {
             return summary.agentDisplayLabel ?? AgentLabelFormatter.sanitized(target)
         }
         return nil
+    }
+}
+
+/// Orders only native projection publication, not canonical Rust events.
+struct SnapshotRefreshFence {
+    struct Ticket {
+        fileprivate let request: UInt64
+        fileprivate let mutation: UInt64
+    }
+    enum Disposition: Equatable { case apply, retry, superseded }
+    private var request: UInt64 = 0
+    private var mutation: UInt64 = 0
+    private(set) var isStopped = false
+
+    mutating func begin() -> Ticket? {
+        guard !isStopped else { return nil }
+        request &+= 1
+        return Ticket(request: request, mutation: mutation)
+    }
+    mutating func invalidate() { mutation &+= 1 }
+    mutating func stop() { isStopped = true; request &+= 1 }
+    mutating func start() { isStopped = false }
+    func disposition(of ticket: Ticket) -> Disposition {
+        guard !isStopped, ticket.request == request else { return .superseded }
+        return ticket.mutation == mutation ? .apply : .retry
     }
 }

@@ -81,6 +81,9 @@ pub struct AppRateLimitsForRuntime {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AppThreadSnapshot {
     pub key: ThreadKey,
+    /// Content/membership capture boundary, not a metadata version.
+    #[uniffi(default = 0)]
+    pub captured_items_revision: u64,
     pub info: ThreadInfo,
     pub agent_runtime_kind: crate::types::AgentRuntimeKind,
     pub collaboration_mode: AppModeKind,
@@ -546,6 +549,21 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
     }
 }
 
+/// Keep the captured content and its revision from the same store read guard.
+pub(crate) fn project_captured_thread_item(
+    snapshot: &AppSnapshot,
+    thread: &ThreadSnapshot,
+    item: &HydratedConversationItem,
+) -> HydratedConversationItem {
+    let mut projected = project_hydrated_item(snapshot, &thread.key.server_id, item).into_owned();
+    projected.captured_items_revision = if thread.items.contains_id(&item.id) {
+        thread.items.revision()
+    } else {
+        thread.local_overlay_items.revision()
+    };
+    projected
+}
+
 pub(crate) fn app_thread_snapshot_from_state(
     snapshot: &AppSnapshot,
     thread: &ThreadSnapshot,
@@ -567,10 +585,14 @@ pub(crate) fn app_thread_snapshot_from_state(
     };
     let hydrated_conversation_items = merged
         .into_iter()
-        .map(|item| project_hydrated_item(snapshot, &thread.key.server_id, item).into_owned())
+        .map(|item| project_captured_thread_item(snapshot, thread, item))
         .collect::<Vec<_>>();
     Ok(AppThreadSnapshot {
         key: thread.key.clone(),
+        captured_items_revision: thread
+            .items
+            .revision()
+            .max(thread.local_overlay_items.revision()),
         info: thread.info.clone(),
         agent_runtime_kind: thread.agent_runtime_kind.clone(),
         collaboration_mode: thread.collaboration_mode,
@@ -808,7 +830,11 @@ pub(crate) fn app_session_summary(
         recent_tool_log: activity.log.clone(),
         last_turn_start_ms: activity.last_turn_start_ms,
         last_turn_end_ms: activity.last_turn_end_ms,
-        stats: if thread.items.is_empty() {
+        stats: if thread.items.is_empty()
+            && !thread
+                .activity_cache
+                .has_retained_summary(thread.items.revision())
+        {
             None
         } else {
             Some(activity.stats.clone())
@@ -919,6 +945,7 @@ fn compute_server_usage_stats(
     })
 }
 
+#[derive(Clone)]
 pub(crate) struct ConversationActivity {
     last_response: Option<String>,
     last_response_turn_id: Option<String>,
@@ -945,11 +972,76 @@ pub(crate) struct ThreadActivityCache {
 
 #[derive(Default)]
 struct ThreadActivityCacheInner {
+    retained_revision: Option<u64>,
     items_only: Option<(u64, Arc<ConversationActivity>)>,
     merged: Option<((u64, u64), Arc<ConversationActivity>)>,
 }
 
 impl ThreadActivityCache {
+    pub(super) fn retained_bytes(&self) -> usize {
+        fn activity_bytes(a: &ConversationActivity) -> usize {
+            use super::retention::HeapBytes;
+            a.last_response.heap_bytes()
+                + a.last_response_turn_id.heap_bytes()
+                + a.last_user_message.heap_bytes()
+                + a.last_tool.heap_bytes()
+                + a.log.capacity() * std::mem::size_of::<AppToolLogEntry>()
+                + a.log
+                    .iter()
+                    .map(|e| e.tool.capacity() + e.detail.capacity() + e.status.capacity())
+                    .sum::<usize>()
+        }
+        let inner = self.inner.lock().expect("thread activity cache poisoned");
+        let first = inner.items_only.as_ref().map(|(_, value)| value);
+        let second = inner.merged.as_ref().map(|(_, value)| value);
+        first.map_or(0, |value| activity_bytes(value))
+            + second
+                .filter(|value| first.is_none_or(|first| !Arc::ptr_eq(first, value)))
+                .map_or(0, |value| activity_bytes(value))
+    }
+
+    pub(super) fn retain_evicted_summary(&self, items: &ThreadItems, empty_revision: u64) {
+        fn bounded(value: &str) -> String {
+            value.chars().take(1024).collect()
+        }
+        let source = self.items_only(items);
+        let activity = ConversationActivity {
+            last_response: source.last_response.as_deref().map(bounded),
+            last_response_turn_id: source.last_response_turn_id.as_deref().map(bounded),
+            last_user_message: source.last_user_message.as_deref().map(bounded),
+            last_tool: source.last_tool.as_deref().map(bounded),
+            stats: source.stats.clone(),
+            last_turn_start_ms: source.last_turn_start_ms,
+            last_turn_end_ms: source.last_turn_end_ms,
+            log: source
+                .log
+                .iter()
+                .rev()
+                .take(8)
+                .map(|entry| AppToolLogEntry {
+                    tool: bounded(&entry.tool),
+                    detail: bounded(&entry.detail),
+                    status: bounded(&entry.status),
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+        };
+        let mut inner = self.inner.lock().expect("thread activity cache poisoned");
+        inner.items_only = Some((empty_revision, Arc::new(activity)));
+        inner.merged = None;
+        inner.retained_revision = Some(empty_revision);
+    }
+
+    fn has_retained_summary(&self, revision: u64) -> bool {
+        self.inner
+            .lock()
+            .expect("thread activity cache poisoned")
+            .retained_revision
+            == Some(revision)
+    }
+
     pub(crate) fn items_only(&self, items: &ThreadItems) -> Arc<ConversationActivity> {
         let key = items.revision();
         if let Some((cached_key, cached)) = self
@@ -1003,6 +1095,7 @@ impl Clone for ThreadActivityCache {
             inner: std::sync::Mutex::new(ThreadActivityCacheInner {
                 items_only: inner.items_only.clone(),
                 merged: inner.merged.clone(),
+                retained_revision: inner.retained_revision,
             }),
         }
     }
@@ -1125,7 +1218,12 @@ impl ToolLogSeed<'_> {
                     ));
                 }
                 let detail = if parts.is_empty() {
-                    format!("{} {} step{}", prefix, count, if count == 1 { "" } else { "s" })
+                    format!(
+                        "{} {} step{}",
+                        prefix,
+                        count,
+                        if count == 1 { "" } else { "s" }
+                    )
                 } else {
                     format!("{} {}", prefix, parts.join(", "))
                 };
@@ -1709,8 +1807,8 @@ mod tests {
     };
     use crate::store::{AppSnapshot, ThreadSnapshot};
     use crate::types::{
-        AppModeKind, AppPlanImplementationPromptSnapshot,
-        PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
+        AppModeKind, AppPlanImplementationPromptSnapshot, PendingUserInputRequest, ThreadInfo,
+        ThreadKey, ThreadSummaryStatus,
     };
 
     #[test]
@@ -1772,6 +1870,7 @@ mod tests {
                 effective_approval_policy: None,
                 effective_sandbox_policy: None,
                 items: Default::default(),
+                items_source_revision: None,
                 local_overlay_items: Default::default(),
                 activity_cache: Default::default(),
                 queued_follow_ups: Vec::new(),
@@ -1945,6 +2044,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         thread
             .local_overlay_items
@@ -1960,6 +2060,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2012,6 +2113,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         // Bound overlay for the same message.
         thread
@@ -2028,6 +2130,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2079,6 +2182,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         thread
             .items
@@ -2096,6 +2200,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         thread
             .items
@@ -2113,6 +2218,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         thread
             .local_overlay_items
@@ -2128,6 +2234,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2228,6 +2335,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
 
         let projected =

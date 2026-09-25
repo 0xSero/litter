@@ -43,7 +43,6 @@ enum SessionsDerivation {
         }
 
         var parentByKey: [ThreadKey: AppSessionSummary] = [:]
-        var siblingsByKey: [ThreadKey: [AppSessionSummary]] = [:]
         var childrenByKey: [ThreadKey: [AppSessionSummary]] = [:]
 
         for thread in allThreads {
@@ -51,10 +50,6 @@ enum SessionsDerivation {
             if let parentId = parentIdByThreadKey[thread.key],
                let parent = serverThreads[parentId] {
                 parentByKey[thread.key] = parent
-                let siblingCandidates = sortedChildrenByServerAndParentId[thread.serverId]?[parentId] ?? []
-                siblingsByKey[thread.key] = siblingCandidates.filter { $0.threadId != thread.threadId }
-            } else {
-                siblingsByKey[thread.key] = []
             }
             childrenByKey[thread.key] = sortedChildrenByServerAndParentId[thread.serverId]?[thread.threadId] ?? []
         }
@@ -119,7 +114,6 @@ enum SessionsDerivation {
             workspaceGroupIDs: workspaceGroupIDs,
             workspaceGroupIDByThreadKey: workspaceGroupIDByThreadKey,
             parentByKey: parentByKey,
-            siblingsByKey: siblingsByKey,
             childrenByKey: childrenByKey
         )
     }

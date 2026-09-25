@@ -18,6 +18,7 @@ pub struct AppStore {
 #[derive(uniffi::Object)]
 pub struct AppStoreSubscription {
     pub(crate) state: std::sync::Mutex<Option<AppStoreSubscriptionState>>,
+    closed: tokio::sync::watch::Sender<bool>,
 }
 
 pub(crate) struct AppStoreSubscriptionState {
@@ -26,11 +27,12 @@ pub(crate) struct AppStoreSubscriptionState {
 }
 
 const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
+const MAX_COALESCED_STREAMING_CHUNKS: usize = 256;
 
 #[cfg(test)]
 mod tests {
+    use super::AppStoreSubscription;
     use super::should_preserve_thread_item_update_boundary;
-    use super::{AppStoreSubscription, AppStoreSubscriptionState};
     use crate::conversation_uniffi::{
         HydratedAssistantMessageData, HydratedConversationItem, HydratedConversationItemContent,
         HydratedFileChangeData, HydratedFileChangeEntryData, HydratedMcpToolCallData,
@@ -40,7 +42,7 @@ mod tests {
     use crate::types::{AppOperationStatus, AppSubagentStatus, ThreadKey};
     use codex_app_server_protocol as upstream;
     use serde_json::json;
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::HashMap;
 
     #[test]
     fn thread_item_parses_mcp_arguments_json() {
@@ -99,15 +101,68 @@ mod tests {
         assert_eq!(state.message.as_deref(), Some("Working"));
     }
 
+    #[tokio::test]
+    async fn app_store_subscription_cancel_releases_idle_receive() {
+        use std::future::Future;
+        use std::task::Poll;
+
+        let (sender, receiver) = tokio::sync::broadcast::channel(8);
+        let subscription = AppStoreSubscription::new(receiver);
+        let other = AppStoreSubscription::new(sender.subscribe());
+        let mut pending = std::pin::pin!(subscription.next_update());
+        std::future::poll_fn(|context| {
+            assert!(pending.as_mut().poll(context).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(sender.receiver_count(), 2);
+        subscription.cancel();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), pending)
+            .await
+            .expect("closing an idle subscription must wake its receive");
+        assert!(matches!(
+            result,
+            Err(crate::ffi::ClientError::EventClosed(_))
+        ));
+        assert_eq!(sender.receiver_count(), 1);
+        assert!(subscription.state.lock().unwrap().is_none());
+
+        // Closing one subscriber must not close the shared store or another
+        // observer, and repeated close/receive calls must remain terminal.
+        subscription.cancel();
+        sender.send(AppStoreUpdateRecord::FullResync).unwrap();
+        assert!(subscription.next_update().await.is_err());
+        assert!(matches!(
+            other.next_update().await.unwrap(),
+            AppStoreUpdateRecord::FullResync
+        ));
+        other.cancel();
+        assert_eq!(sender.receiver_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn app_store_subscription_cancel_discards_buffered_updates() {
+        let (sender, receiver) = tokio::sync::broadcast::channel(8);
+        let subscription = AppStoreSubscription::new(receiver);
+        subscription
+            .state
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .buffered
+            .push_back(AppStoreUpdateRecord::FullResync);
+        sender.send(AppStoreUpdateRecord::FullResync).unwrap();
+        subscription.cancel();
+        assert_eq!(sender.receiver_count(), 0);
+        assert!(subscription.next_update().await.is_err());
+        assert!(subscription.state.lock().unwrap().is_none());
+    }
+
     #[test]
     fn app_store_subscription_returns_full_resync_when_updates_lag() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         // AppStoreReducer keeps a 1024-event broadcast buffer to absorb normal
         // streaming bursts. Exceed it decisively so this test still exercises
@@ -127,36 +182,155 @@ mod tests {
     }
 
     #[test]
+    fn coalescing_cannot_discard_newer_authoritative_content() {
+        use crate::store::ThreadSnapshot;
+        use crate::store::boundary::empty_session_summary;
+        use crate::types::{ThreadInfo, ThreadSummaryStatus};
+        let key = ThreadKey {
+            server_id: "srv".into(),
+            thread_id: "thread".into(),
+        };
+        let item = |revision, text: &str| {
+            let mut item = hydrated_item(
+                "assistant",
+                HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                    text: text.into(),
+                    agent_nickname: None,
+                    agent_role: None,
+                    phase: None,
+                }),
+            );
+            item.captured_items_revision = revision;
+            item
+        };
+        let changed = |revision, text| AppStoreUpdateRecord::ThreadItemChanged {
+            key: key.clone(),
+            item: item(revision, text),
+            session_summary: empty_session_summary(key.clone()),
+        };
+        let mut newest = changed(20, "AB");
+        assert!(super::merge_app_update(&mut newest, changed(10, "A"), &mut 0).is_ok());
+        let AppStoreUpdateRecord::ThreadItemChanged { item: retained, .. } = newest else {
+            panic!()
+        };
+        assert_eq!(retained.captured_items_revision, 20);
+        let reducer = AppStoreReducer::new();
+        let mut canonical = ThreadSnapshot::from_info(
+            "srv",
+            ThreadInfo {
+                id: "thread".into(),
+                title: None,
+                model: None,
+                status: ThreadSummaryStatus::Idle,
+                preview: None,
+                cwd: None,
+                path: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                forked_from_id: None,
+                agent_status: None,
+                created_at: None,
+                updated_at: None,
+            },
+        );
+        canonical.items.push(item(0, "AB"));
+        reducer.upsert_thread_snapshot(canonical);
+        let mut latest = reducer.project_thread_snapshot(&key).unwrap().unwrap();
+        latest.captured_items_revision = 20;
+        let mut older = latest.clone();
+        older.captured_items_revision = 10;
+        older.info.title = Some("metadata still delivered".into());
+        let upsert = |thread| AppStoreUpdateRecord::ThreadUpserted {
+            thread,
+            session_summary: empty_session_summary(key.clone()),
+            agent_directory_version: 0,
+        };
+        let mut current = upsert(latest.clone());
+        assert!(super::merge_app_update(&mut current, upsert(older), &mut 0).is_err());
+        let mut same_revision_metadata = latest;
+        same_revision_metadata.info.title = Some("updated metadata".into());
+        assert!(
+            super::merge_app_update(&mut current, upsert(same_revision_metadata), &mut 0).is_ok()
+        );
+        let AppStoreUpdateRecord::ThreadUpserted { thread, .. } = current else {
+            panic!()
+        };
+        assert_eq!(thread.info.title.as_deref(), Some("updated metadata"));
+    }
+
+    #[test]
+    fn streaming_coalescing_preserves_capture_boundary_and_caps_metadata() {
+        use crate::store::ThreadStreamingDeltaChunk;
+        let make = |revision, text: String| AppStoreUpdateRecord::ThreadStreamingDelta {
+            key: ThreadKey {
+                server_id: "srv".into(),
+                thread_id: "thread".into(),
+            },
+            item_id: "assistant".into(),
+            kind: ThreadStreamingDeltaKind::AssistantText,
+            chunks: vec![ThreadStreamingDeltaChunk { revision, text }],
+        };
+        let mut current = make(10, "B".into());
+        let mut bytes = super::streaming_update_bytes(&current);
+        assert!(super::merge_app_update(&mut current, make(11, "C".into()), &mut bytes).is_ok());
+        let AppStoreUpdateRecord::ThreadStreamingDelta { chunks, .. } = &current else {
+            panic!()
+        };
+        assert_eq!(
+            chunks
+                .iter()
+                .filter(|chunk| chunk.revision > 10)
+                .map(|chunk| chunk.text.as_str())
+                .collect::<String>(),
+            "C"
+        );
+        let mut full = make(1, "x".repeat(super::MAX_COALESCED_STREAMING_TEXT_BYTES));
+        let mut bytes = super::streaming_update_bytes(&full);
+        assert!(super::merge_app_update(&mut full, make(2, "x".into()), &mut bytes).is_err());
+        let mut empty = make(1, String::new());
+        let mut bytes = 0;
+        for revision in 2..=super::MAX_COALESCED_STREAMING_CHUNKS as u64 {
+            assert!(
+                super::merge_app_update(&mut empty, make(revision, String::new()), &mut bytes)
+                    .is_ok()
+            );
+        }
+        assert!(
+            super::merge_app_update(&mut empty, make(1000, String::new()), &mut bytes).is_err()
+        );
+    }
+
+    #[test]
     fn app_store_subscription_coalesces_contiguous_streaming_deltas() {
         let reducer = AppStoreReducer::new();
         let key = ThreadKey {
             server_id: "srv".to_string(),
             thread_id: "thread-1".to_string(),
         };
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.emit_thread_streaming_delta(
             &key,
             "assistant-1",
             ThreadStreamingDeltaKind::AssistantText,
             "hel",
+            1,
         );
         reducer.emit_thread_streaming_delta(
             &key,
             "assistant-1",
             ThreadStreamingDeltaKind::AssistantText,
             "lo",
+            2,
         );
         reducer.emit_thread_streaming_delta(
             &key,
             "assistant-1",
             ThreadStreamingDeltaKind::AssistantText,
             " world",
+            3,
         );
 
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -170,8 +344,10 @@ mod tests {
                 key: emitted_key,
                 item_id,
                 kind: crate::store::ThreadStreamingDeltaKind::AssistantText,
-                text,
-            } if emitted_key == key && item_id == "assistant-1" && text == "hello world"
+                chunks,
+            } if emitted_key == key && item_id == "assistant-1"
+                && chunks.iter().map(|chunk| chunk.text.as_str()).collect::<String>() == "hello world"
+                && chunks.iter().map(|chunk| chunk.revision).collect::<Vec<_>>() == [1, 2, 3]
         ));
     }
 
@@ -223,12 +399,7 @@ mod tests {
     #[test]
     fn app_store_subscription_keeps_unrelated_refresh_updates_distinct() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.update_server_health("srv", crate::store::ServerHealthSnapshot::Connected);
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
@@ -252,12 +423,7 @@ mod tests {
     #[test]
     fn app_store_subscription_collapses_repeated_same_kind_refresh_updates() {
         let reducer = AppStoreReducer::new();
-        let subscription = AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: reducer.subscribe(),
-                buffered: VecDeque::new(),
-            })),
-        };
+        let subscription = AppStoreSubscription::new(reducer.subscribe());
 
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-1")]);
         reducer.replace_pending_approvals(vec![test_pending_approval("approval-2")]);
@@ -400,6 +566,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 
@@ -578,12 +745,7 @@ impl AppStore {
     }
 
     pub fn subscribe_updates(&self) -> AppStoreSubscription {
-        AppStoreSubscription {
-            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
-                rx: self.inner.subscribe_app_updates(),
-                buffered: VecDeque::new(),
-            })),
-        }
+        AppStoreSubscription::new(self.inner.subscribe_app_updates())
     }
 
     pub async fn edit_message(
@@ -779,19 +941,45 @@ impl AppStore {
     }
 }
 
+impl AppStoreSubscription {
+    fn new(rx: tokio::sync::broadcast::Receiver<AppStoreUpdateRecord>) -> Self {
+        Self {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx,
+                buffered: VecDeque::new(),
+            })),
+            closed: tokio::sync::watch::channel(false).0,
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl AppStoreSubscription {
+    /// Release buffered updates and wake any pending receive. Swift's generated
+    /// async bridge does not propagate Task cancellation to the Rust future.
+    pub fn cancel(&self) {
+        let mut state = self.state.lock().unwrap();
+        self.closed.send_replace(true);
+        *state = None;
+    }
+
     pub async fn next_update(&self) -> Result<AppStoreUpdateRecord, ClientError> {
+        let mut closed = self.closed.subscribe();
         let mut state = {
-            self.state
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or(ClientError::EventClosed(
-                    "no app-store subscriber".to_string(),
-                ))?
+            let mut guard = self.state.lock().unwrap();
+            if *closed.borrow() {
+                return Err(ClientError::EventClosed("closed".to_string()));
+            }
+            guard.take().ok_or(ClientError::EventClosed(
+                "no app-store subscriber".to_string(),
+            ))?
         };
-        let result = match receive_next_update(&mut state).await {
+        let received = tokio::select! {
+            biased;
+            _ = closed.changed() => Err(tokio::sync::broadcast::error::RecvError::Closed),
+            update = receive_next_update(&mut state) => update,
+        };
+        let result = match received {
             Ok(update) => Ok(update),
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                 Ok(AppStoreUpdateRecord::FullResync)
@@ -800,7 +988,13 @@ impl AppStoreSubscription {
                 Err(ClientError::EventClosed("closed".to_string()))
             }
         };
-        *self.state.lock().unwrap() = Some(state);
+        let mut guard = self.state.lock().unwrap();
+        // Synchronize with close so an in-flight receive cannot restore the
+        // receiver or its buffered transcript after the owner releases it.
+        if *closed.borrow() {
+            return Err(ClientError::EventClosed("closed".to_string()));
+        }
+        *guard = Some(state);
         result
     }
 }
@@ -821,6 +1015,7 @@ fn coalesce_ready_updates(
     state: &mut AppStoreSubscriptionState,
     mut update: AppStoreUpdateRecord,
 ) -> Result<AppStoreUpdateRecord, tokio::sync::broadcast::error::RecvError> {
+    let mut streaming_bytes = streaming_update_bytes(&update);
     loop {
         let next = if let Some(update) = state.buffered.pop_front() {
             Some(update)
@@ -839,16 +1034,26 @@ fn coalesce_ready_updates(
             return Ok(update);
         };
 
-        if let Err(next) = merge_app_update(&mut update, next) {
+        if let Err(next) = merge_app_update(&mut update, next, &mut streaming_bytes) {
             state.buffered.push_front(*next);
             return Ok(update);
         }
     }
 }
 
+fn streaming_update_bytes(update: &AppStoreUpdateRecord) -> usize {
+    match update {
+        AppStoreUpdateRecord::ThreadStreamingDelta { chunks, .. } => {
+            chunks.iter().map(|chunk| chunk.text.len()).sum()
+        }
+        _ => 0,
+    }
+}
+
 fn merge_app_update(
     current: &mut AppStoreUpdateRecord,
     next: AppStoreUpdateRecord,
+    streaming_bytes: &mut usize,
 ) -> Result<(), Box<AppStoreUpdateRecord>> {
     if matches!(current, AppStoreUpdateRecord::FullResync) {
         return Ok(());
@@ -858,26 +1063,30 @@ fn merge_app_update(
         return Ok(());
     }
 
+    let next_streaming_bytes = streaming_update_bytes(&next);
     match (current, next) {
         (
             AppStoreUpdateRecord::ThreadStreamingDelta {
                 key,
                 item_id,
                 kind,
-                text,
+                chunks,
             },
             AppStoreUpdateRecord::ThreadStreamingDelta {
                 key: next_key,
                 item_id: next_item_id,
                 kind: next_kind,
-                text: next_text,
+                chunks: next_chunks,
             },
         ) if *key == next_key
             && *item_id == next_item_id
             && *kind == next_kind
-            && text.len().saturating_add(next_text.len()) <= MAX_COALESCED_STREAMING_TEXT_BYTES =>
+            && chunks.len().saturating_add(next_chunks.len()) <= MAX_COALESCED_STREAMING_CHUNKS
+            && streaming_bytes.saturating_add(next_streaming_bytes)
+                <= MAX_COALESCED_STREAMING_TEXT_BYTES =>
         {
-            text.push_str(&next_text);
+            *streaming_bytes += next_streaming_bytes;
+            chunks.extend(next_chunks);
             Ok(())
         }
         (
@@ -909,6 +1118,9 @@ fn merge_app_update(
                 session_summary: next_summary,
             },
         ) if *key == next_key && item.id == next_item.id => {
+            if next_item.captured_items_revision < item.captured_items_revision {
+                return Ok(());
+            }
             if should_preserve_thread_item_update_boundary(item, &next_item) {
                 return Err(Box::new(AppStoreUpdateRecord::ThreadItemChanged {
                     key: next_key,
@@ -932,6 +1144,15 @@ fn merge_app_update(
                 agent_directory_version: next_version,
             },
         ) if thread.key == next_thread.key => {
+            // Preserve both events when coalescing would erase newer content.
+            // Metadata is still delivered; native code fences content only.
+            if next_thread.captured_items_revision < thread.captured_items_revision {
+                return Err(Box::new(AppStoreUpdateRecord::ThreadUpserted {
+                    thread: next_thread,
+                    session_summary: next_summary,
+                    agent_directory_version: next_version,
+                }));
+            }
             *thread = next_thread;
             *session_summary = next_summary;
             *agent_directory_version = next_version;
@@ -980,10 +1201,9 @@ fn merge_app_update(
             *requests = next_requests;
             Ok(())
         }
-        (
-            AppStoreUpdateRecord::VoiceSessionChanged,
-            AppStoreUpdateRecord::VoiceSessionChanged,
-        ) => Ok(()),
+        (AppStoreUpdateRecord::VoiceSessionChanged, AppStoreUpdateRecord::VoiceSessionChanged) => {
+            Ok(())
+        }
         (_current, next) => Err(Box::new(next)),
     }
 }
@@ -1034,4 +1254,3 @@ fn should_preserve_thread_item_update_boundary(
         _ => false,
     }
 }
-

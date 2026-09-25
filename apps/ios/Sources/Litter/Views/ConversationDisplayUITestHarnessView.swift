@@ -16,7 +16,8 @@ struct ConversationDisplayUITestHarnessView: View {
     @State private var voiceManager = VoiceTranscriptionManager()
 
     static var isEnabled: Bool {
-        ProcessInfo.processInfo.arguments.contains("--ui-test-conversation-display")
+        ProcessInfo.processInfo.arguments.contains("--ui-test-conversation-display") ||
+            ProcessInfo.processInfo.arguments.contains("--ui-test-home-sessions")
     }
 
     static var opensSettingsOnLaunch: Bool {
@@ -24,7 +25,9 @@ struct ConversationDisplayUITestHarnessView: View {
     }
 
     var body: some View {
-        if ProcessInfo.processInfo.arguments.contains("--ui-test-multiturn") {
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-home-sessions") {
+            HomeSessionsUITestHarnessView()
+        } else if ProcessInfo.processInfo.arguments.contains("--ui-test-multiturn") {
             ConversationMultiTurnUITestHarnessView()
         } else {
             displayHarness

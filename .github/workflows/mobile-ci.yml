@@ -132,6 +132,7 @@ jobs:
           bash apps/ios/scripts/tests/testflight-finalize.test.sh
           bash apps/ios/scripts/tests/app-store-release.test.sh
           python3 tools/scripts/tests/test_fetch_mobile_store_artifacts.py
+          python3 tools/scripts/test-opencode-logging.py --shell /bin/sh -v
 
       - name: Package shared mobile sources
         run: |
@@ -164,6 +165,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      ANDROID_ABIS: arm64-v8a
+      LITTER_ENABLE_GHOSTTY_ANDROID: "1"
       SCCACHE_BUCKET: rust-cache
       SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
       SCCACHE_REGION: auto
@@ -254,12 +257,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      - name: Assemble debug
-        run: apps/android/gradlew -p apps/android :app:assembleDebug
+      - name: Assemble debug and optimized release
+        run: apps/android/gradlew -p apps/android :app:assembleDebug :app:assembleRelease
 
-      # There is no Android toolchain on the primary development machine, so
-      # this job is the only place Android behavior is ever exercised. Keep it
-      # running tests, not just compiling.
+      # Compilation does not replace JVM behavior checks or native-device QA.
       - name: Unit tests
         run: apps/android/gradlew -p apps/android :app:testDebugUnitTest
 

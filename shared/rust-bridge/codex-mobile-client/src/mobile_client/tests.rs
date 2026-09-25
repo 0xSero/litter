@@ -264,6 +264,7 @@ mod mobile_client_tests {
             effective_approval_policy: None,
             effective_sandbox_policy: None,
             items: Default::default(),
+            items_source_revision: None,
             local_overlay_items: Default::default(),
             activity_cache: Default::default(),
             queued_follow_ups: vec![AppQueuedFollowUpPreview {
@@ -346,6 +347,7 @@ mod mobile_client_tests {
             effective_approval_policy: Some(crate::types::AppAskForApproval::Never),
             effective_sandbox_policy: Some(crate::types::AppSandboxPolicy::DangerFullAccess),
             items: Default::default(),
+            items_source_revision: None,
             local_overlay_items: Default::default(),
             activity_cache: Default::default(),
             queued_follow_ups: Vec::new(),
@@ -1860,7 +1862,7 @@ mod mobile_client_tests {
     }
 
     #[tokio::test]
-    async fn external_resume_refreshes_direct_marker_when_thread_is_empty_and_unloaded() {
+    async fn external_resume_refreshes_direct_marker_when_partial_items_are_unloaded() {
         let client = MobileClient::new();
         let server_id = "srv";
         let thread_id = "thread-1";
@@ -1953,6 +1955,16 @@ mod mobile_client_tests {
         client
             .app_store
             .set_server_supports_turn_pagination(server_id, false);
+        client
+            .app_store
+            .apply_ui_event(&crate::session::events::UiEvent::MessageDelta {
+                key: ThreadKey {
+                    server_id: server_id.into(),
+                    thread_id: thread_id.into(),
+                },
+                item_id: "late-partial".into(),
+                delta: "Only a late live suffix".into(),
+            });
         client
             .external_resume_thread(server_id, thread_id, None)
             .await
@@ -2067,6 +2079,23 @@ mod mobile_client_tests {
             .write()
             .expect("sessions lock should not be poisoned")
             .insert(server_id.to_string(), session);
+
+        client
+            .app_store
+            .upsert_thread_snapshot(ThreadSnapshot::from_info(
+                server_id,
+                make_thread_info(thread_id),
+            ));
+        client
+            .app_store
+            .apply_ui_event(&crate::session::events::UiEvent::MessageDelta {
+                key: ThreadKey {
+                    server_id: server_id.into(),
+                    thread_id: thread_id.into(),
+                },
+                item_id: "late-partial".into(),
+                delta: "Only a late live suffix".into(),
+            });
 
         let outcome = client
             .load_thread_turns_page(server_id, thread_id, None, Some(5))
@@ -2394,6 +2423,87 @@ mod mobile_client_tests {
                 .expect("thread snapshot")
                 .collaboration_mode,
             AppModeKind::Plan
+        );
+    }
+    #[tokio::test]
+    async fn older_page_holds_history_through_response_reconciliation() {
+        use crate::conversation_uniffi::{
+            HydratedAssistantMessageData, HydratedConversationItem, HydratedConversationItemContent,
+        };
+        let client = MobileClient::new();
+        let config = make_server_config("srv");
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        let key = ThreadKey {
+            server_id: "srv".into(),
+            thread_id: "thread-1".into(),
+        };
+        let mut info = make_thread_info(&key.thread_id);
+        info.status = ThreadSummaryStatus::Idle;
+        let mut thread = ThreadSnapshot::from_info("srv", info);
+        thread.items.push(HydratedConversationItem {
+            id: "latest".into(),
+            content: HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                text: "Recent history must survive the older-page request".into(),
+                agent_nickname: None,
+                agent_role: None,
+                phase: None,
+            }),
+            source_turn_id: Some("recent-turn".into()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
+        });
+        thread.initial_turns_loaded = true;
+        thread.older_turns_cursor = Some("older-page".into());
+        client.app_store.upsert_thread_snapshot(thread);
+        let store = client.app_store.clone();
+        let request_key = key.clone();
+        let handler: TestRequestHandler = Arc::new(move |request| {
+            let upstream::ClientRequest::ThreadTurnsList { params, .. } = request else {
+                panic!("expected page request");
+            };
+            assert_eq!(params.cursor.as_deref(), Some("older-page"));
+            store.trim_history_to_budget(1, 0, true);
+            assert!(
+                store
+                    .thread_snapshot(&request_key)
+                    .unwrap()
+                    .items
+                    .contains_id("latest")
+            );
+            Ok(json!({ "data": [{ "id": "older-turn", "items": [{
+                "id": "older", "type": "userMessage", "content": [{ "type": "text", "text": "Earlier", "textElements": [] }]
+            }], "status": "completed", "error": null, "startedAt": null, "completedAt": 1, "durationMs": 1 }], "nextCursor": null }))
+        });
+        client.sessions.write().unwrap().insert(
+            "srv".into(),
+            Arc::new(ServerSession::test_stub_with_handlers(
+                config,
+                Some(handler),
+                None,
+                None,
+            )),
+        );
+        client
+            .load_thread_turns_page("srv", "thread-1", Some("older-page".into()), Some(20))
+            .await
+            .unwrap();
+        let result = client.app_store.thread_snapshot(&key).unwrap();
+        assert!(result.initial_turns_loaded);
+        assert!(result.items.contains_id("latest"));
+        assert!(result.items.contains_id("older"));
+        assert_eq!(result.older_turns_cursor, None);
+        client.app_store.trim_history_to_budget(1, 0, true);
+        assert!(
+            client
+                .app_store
+                .thread_snapshot(&key)
+                .unwrap()
+                .items
+                .is_empty()
         );
     }
 }

@@ -7,6 +7,8 @@ import os
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var pendingPushToken: Data?
     private var pendingNotificationThreadKey: ThreadKey?
+    // Bind only after startup; termination must never initialize AppModel.
+    weak var alleycatShutdownClient: AppClient?
 
     weak var appRuntime: AppRuntimeController? {
         didSet {
@@ -97,39 +99,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
         }
-        scheduleKeyboardWarmup()
-        // Start pushing state to the paired Apple Watch, gated behind the
-        // experimental feature flag. Flip the `appleWatch` feature in
-        // Settings → Experimental Features to enable. No-op when disabled.
-        DispatchQueue.main.async {
-            if ExperimentalFeatures.shared.isEnabled(.appleWatch) {
-                WatchCompanionBridge.shared.start()
-            }
-        }
         return true
-    }
-
-    // MARK: - Keyboard warmup
-
-    private func scheduleKeyboardWarmup() {
-        // Warm the real system keyboard after the main app window is visible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = scene.windows.first else {
-                self.scheduleKeyboardWarmup()
-                return
-            }
-            let field = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
-            field.autocorrectionType = .no
-            field.autocapitalizationType = .none
-            field.spellCheckingType = .no
-            window.addSubview(field)
-            field.becomeFirstResponder()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                field.resignFirstResponder()
-                field.removeFromSuperview()
-            }
-        }
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -155,15 +125,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // side and the daemon waiting up to its idle timeout to reap
         // the final zombie.
         LLog.info("lifecycle", "applicationWillTerminate — closing alleycat endpoint")
-        let semaphore = DispatchSemaphore(value: 0)
-        Task { @MainActor in
-            await self.appRuntime?.shutdownAlleycatEndpoint()
-            semaphore.signal()
-        }
-        // applicationWillTerminate gets ~5s before the OS kills us.
-        // Block briefly on the close handshake so iroh can flush
-        // CONNECTION_CLOSE frames; bail if iroh's drain takes too long.
-        _ = semaphore.wait(timeout: .now() + 2.5)
+        guard let client = alleycatShutdownClient else { return }
+        // This terminal callback cannot await MainActor work while blocking it.
+        // The already-bound native client is Sendable; close on an independent
+        // executor, retaining the existing bounded best-effort termination budget.
+        _ = AppTerminationShutdown.close(client: client)
     }
 
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
@@ -265,6 +231,28 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 }
 
+/// UIKit's synchronous termination callback allows only a bounded best effort.
+/// No actor-owned app state is accessed from the detached operation.
+enum AppTerminationShutdown {
+    nonisolated static func close(client: AppClient) -> Bool {
+        finish(timeout: 2.5) { await client.shutdownAlleycatEndpoint() }
+    }
+
+    nonisolated static func finish(
+        timeout: TimeInterval,
+        operation: @escaping @Sendable () async -> Void
+    ) -> Bool {
+        let completed = DispatchSemaphore(value: 0)
+        let task = Task.detached(priority: .high) {
+            await operation()
+            completed.signal()
+        }
+        let finished = completed.wait(timeout: .now() + timeout) == .success
+        if !finished { task.cancel() }
+        return finished
+    }
+}
+
 @main
 struct LitterApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -343,6 +331,12 @@ struct LitterApp: App {
                 voiceRuntime.bind(appModel: appModel)
                 appRuntime.bind(appModel: appModel, voiceRuntime: voiceRuntime)
                 appDelegate.appRuntime = appRuntime
+                appDelegate.alleycatShutdownClient = appModel.client
+                // Observation touches AppModel.shared. Start only after its
+                // background bridge prewarm and credential binding have finished.
+                if ExperimentalFeatures.shared.isEnabled(.appleWatch) {
+                    WatchCompanionBridge.shared.start()
+                }
                 if scenePhase == .active {
                     appRuntime.appDidBecomeActive()
                 }
@@ -642,6 +636,9 @@ private struct HomeNavigationView: View {
     @State private var homeDashboardModel = HomeDashboardModel()
     @State private var savedAppsStore = SavedAppsStore.shared
     @State private var navigationPath: [HomeNavigationRoute] = []
+    #if DEBUG
+    @State private var measuringBackToHomeAppearance = false
+    #endif
     @State private var directoryPickerSheet: SessionLaunchSupport.DirectoryPickerSheetModel?
     @State private var showProjectPicker = false
     @State private var openingRecentSessionKey: ThreadKey?
@@ -926,6 +923,14 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
+            // A pop out of the transcript releases its rendering cache. Sheet
+            // presentation and backgrounding leave this navigation path intact.
+            if !navigationPath.contains(where: { route in
+                if case .conversation = route { return true }
+                return false
+            }) {
+                StreamingRendererCoordinator.shared.reset()
+            }
         }
         .onChange(of: pinnedThreadHydrationSignature) { _, _ in
             hydratePinnedThreadsIfNeeded()
@@ -1430,6 +1435,15 @@ private struct HomeNavigationView: View {
 
     private func popCurrentRoute() {
         guard !navigationPath.isEmpty else { return }
+        #if DEBUG
+        // Compact Home is recreated after this final conversation pop. Measure
+        // action callback -> SwiftUI onAppear, not touch -> displayed frame.
+        if navigationPath.count == 1, !isEmbeddedInSplit,
+           case .conversation = navigationPath.last {
+            measuringBackToHomeAppearance = true
+            PerfTracker.beginInterval("BackToHomeAppear", key: "primary")
+        }
+        #endif
         appState.showModelSelector = false
         navigationPath.removeLast()
     }
@@ -1531,6 +1545,14 @@ private struct HomeNavigationView: View {
             },
             onSearchThreads: loadSearchThreads
         )
+        #if DEBUG
+        .onAppear {
+            if measuringBackToHomeAppearance {
+                PerfTracker.endInterval("BackToHomeAppear", key: "primary")
+                measuringBackToHomeAppearance = false
+            }
+        }
+        #endif
     }
 
     private func handleSelectServer(_ server: HomeDashboardServer) {

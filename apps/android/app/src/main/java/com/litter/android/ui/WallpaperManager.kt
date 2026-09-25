@@ -20,6 +20,7 @@ import org.json.JSONObject
 import uniffi.codex_mobile_client.ThreadKey
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -238,7 +239,7 @@ object WallpaperManager {
         if (pendingConfig == config && config.type == WallpaperType.CUSTOM_IMAGE) {
             val pendingFile = imageFileForScope(WallpaperScope.Pending)
             if (pendingFile?.exists() == true) {
-                return BitmapFactory.decodeFile(pendingFile.absolutePath)
+                return decodeBitmapFile(pendingFile)
             }
         }
         return resolvedBitmapForConfig(config, threadKey = threadKey, serverId = serverId)
@@ -509,15 +510,15 @@ object WallpaperManager {
                         // Try server-scoped
                         val serverFile = File(context.filesDir, "wallpaper_server_${threadKey.serverId}.jpg")
                         if (serverFile.exists()) {
-                            BitmapFactory.decodeFile(serverFile.absolutePath)
+                            decodeBitmapFile(serverFile)
                         } else null
                     } else {
-                        BitmapFactory.decodeFile(file.absolutePath)
+                        decodeBitmapFile(file)
                     }
                 } else if (resolvedServerId != null) {
                     val serverFile = File(context.filesDir, "wallpaper_server_${resolvedServerId}.jpg")
                     if (serverFile.exists()) {
-                        BitmapFactory.decodeFile(serverFile.absolutePath)
+                        decodeBitmapFile(serverFile)
                     } else null
                 } else {
                     null
@@ -664,21 +665,35 @@ object WallpaperManager {
                 }.getOrNull()?.let { return@withContext it }
             }
 
-            val resolver = context.contentResolver
+            decodeSampledBitmap { context.contentResolver.openInputStream(uri) }
+        }
+
+    private fun decodeBitmapFile(file: File): Bitmap? = decodeSampledBitmap { file.inputStream() }
+
+    internal fun decodeSampledBitmap(openStream: () -> InputStream?): Bitmap? {
+        return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                ?: return@withContext null
+            val input = openStream() ?: return null
+            // A bounds-only decode intentionally returns null; its dimensions are the result.
+            input.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             val options = BitmapFactory.Options().apply {
                 inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight)
             }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            openStream()?.use { BitmapFactory.decodeStream(it, null, options) }
+        } catch (error: Exception) {
+            Log.w(TAG, "Failed to decode wallpaper", error)
+            null
         }
+    }
 
     private fun calculateInSampleSize(width: Int, height: Int): Int {
         var sampleSize = 1
         if (width <= 0 || height <= 0) return sampleSize
-        while ((width / sampleSize) > MAX_WALLPAPER_DIMENSION || (height / sampleSize) > MAX_WALLPAPER_DIMENSION) {
+        while (width.toLong() > MAX_WALLPAPER_DIMENSION.toLong() * sampleSize ||
+            height.toLong() > MAX_WALLPAPER_DIMENSION.toLong() * sampleSize
+        ) {
             sampleSize *= 2
         }
         return sampleSize

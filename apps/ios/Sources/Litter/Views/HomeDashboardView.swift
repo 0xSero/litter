@@ -655,8 +655,8 @@ struct HomeDashboardView: View {
 private struct EmptyHomeFatCatView: View {
     @State private var showingLoop = false
 
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "webp")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "webp")
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
 
     var body: some View {
         CatTransmissionPressView {
@@ -1629,6 +1629,11 @@ struct SessionCanvasLine: View {
             HStack(spacing: 0) {
                 ForEach(Array(lineage.ancestors.enumerated()), id: \.offset) { idx, ancestor in
                     if idx > 0 {
+                        if idx == 1 && lineage.omittedAncestorCount > 0 {
+                            Text(" › …")
+                                .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
+                                .accessibilityLabel("\(lineage.omittedAncestorCount) ancestors omitted")
+                        }
                         Text(" › ")
                             .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
                     }
@@ -1651,15 +1656,23 @@ struct SessionCanvasLine: View {
     /// pickers when wired up by the host.
     @ViewBuilder
     private var siblingPillsRow: some View {
-        if let lineage = session.lineage, lineage.hasMultipleBranches {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(lineage.members, id: \.key) { member in
-                        siblingPill(member: member, isCurrent: member.key == session.key)
+        if let lineage = session.lineage, lineage.hasMultipleBranches, let first = lineage.members.first {
+            // A single hidden pill supplies the exact font-scaled height.
+            // The lazy horizontal viewport must not expand this measured row.
+            siblingPill(member: first, isCurrent: first.key == session.key)
+                .hidden()
+                .accessibilityHidden(true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .leading) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 6) {
+                            ForEach(lineage.members, id: \.key) { member in
+                                siblingPill(member: member, isCurrent: member.key == session.key)
+                            }
+                        }
                     }
                 }
-            }
-            .padding(.top, 6)
+                .padding(.top, 6)
         }
     }
 

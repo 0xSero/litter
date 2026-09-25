@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::{DefaultHasher, Hasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use codex_app_server_protocol as upstream;
 use tokio::sync::broadcast;
@@ -36,7 +36,7 @@ use super::actions::{
 };
 use super::boundary::{
     AppSessionSummary, app_session_summary, current_agent_directory_version, empty_session_summary,
-    project_hydrated_item, project_thread_state_update, project_thread_update,
+    project_captured_thread_item, project_thread_state_update, project_thread_update,
 };
 use super::snapshot::{
     AppConnectionProgressSnapshot, AppLifecyclePhaseSnapshot, AppQueuedFollowUpPreview,
@@ -44,7 +44,7 @@ use super::snapshot::{
     QueuedFollowUpDraft, ServerHealthSnapshot, ServerMutatingCommandKind, ServerSnapshot,
     ServerTransportDiagnostics, TerminalSessionSnapshot, ThreadSnapshot,
 };
-use super::updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
+use super::updates::{AppStoreUpdateRecord, ThreadStreamingDeltaChunk, ThreadStreamingDeltaKind};
 use super::voice::{VoiceDerivedUpdate, VoiceRealtimeState};
 use crate::terminal::TerminalBackendKind;
 
@@ -145,6 +145,7 @@ impl std::io::Write for BoundedHashWriter<'_> {
 /// delta), which is acceptable at our item counts.
 fn item_fingerprint(item: &HydratedConversationItem) -> u64 {
     let mut hasher = DefaultHasher::new();
+    item.captured_items_revision.hash(&mut hasher);
     let mut writer = BoundedHashWriter::new(&mut hasher);
     serde_json::to_writer(&mut writer, item)
         .expect("HydratedConversationItem Serialize impl is infallible");
@@ -169,6 +170,7 @@ fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInf
 }
 
 pub struct AppStoreReducer {
+    pub(super) retention: Mutex<super::retention::RetentionState>,
     snapshot: RwLock<AppSnapshot>,
     /// Local Studio notifications can arrive before the asynchronous store
     /// listener has inserted their thread. Preserve that transport-owned
@@ -204,7 +206,8 @@ pub struct AppStoreReducer {
     /// call completes or fails (via `ItemCompleted` on the matching
     /// item). The partial buffer is parsed tolerantly so platforms can
     /// render widgets as the model streams the HTML body.
-    dynamic_tool_arg_buffers: RwLock<HashMap<(ThreadKey, String), DynamicToolCallArgBuffer>>,
+    pub(super) dynamic_tool_arg_buffers:
+        RwLock<HashMap<(ThreadKey, String), DynamicToolCallArgBuffer>>,
     updates_tx: broadcast::Sender<AppStoreUpdateRecord>,
     voice_state: VoiceRealtimeState,
 }
@@ -230,7 +233,7 @@ enum ItemMutationUpdate {
 /// The memo is cleared *before* the underlying write lock is dropped (fields
 /// drop after the `Drop` body), so no reader can observe the new snapshot
 /// alongside a memo computed from the old one.
-struct SnapshotWriteGuard<'a> {
+pub(super) struct SnapshotWriteGuard<'a> {
     guard: std::sync::RwLockWriteGuard<'a, AppSnapshot>,
     agent_directory_memo: &'a RwLock<Option<u64>>,
 }
@@ -265,6 +268,7 @@ impl AppStoreReducer {
         let (updates_tx, _) = broadcast::channel(1024);
         Self {
             snapshot: RwLock::new(AppSnapshot::default()),
+            retention: Mutex::new(super::retention::RetentionState::default()),
             pending_local_studio_thread_routes: RwLock::new(HashSet::new()),
             last_thread_state_updates: RwLock::new(HashMap::new()),
             last_thread_item_upserts: RwLock::new(HashMap::new()),
@@ -282,10 +286,21 @@ impl AppStoreReducer {
             .clone()
     }
 
+    /// Project the bounded launch cache without cloning hydrated transcripts.
+    /// The read guard is released before the caller performs disk IO.
+    pub(crate) fn home_cache_summaries(&self) -> Vec<AppSessionSummary> {
+        let snapshot = self.snapshot.read().expect("app store lock poisoned");
+        super::boundary::session_summaries_from_snapshot(&snapshot)
+            .into_iter()
+            .filter(|summary| snapshot.servers.contains_key(&summary.key.server_id))
+            .take(crate::home_cache::MAX_CACHED_SESSIONS)
+            .collect()
+    }
+
     /// Acquire the snapshot write lock. Releasing the returned guard drops
     /// every memo derived from the snapshot, so derived-state caches cannot
     /// outlive the state they were computed from.
-    fn write_snapshot(&self) -> SnapshotWriteGuard<'_> {
+    pub(super) fn write_snapshot(&self) -> SnapshotWriteGuard<'_> {
         SnapshotWriteGuard {
             guard: self.snapshot.write().expect("app store lock poisoned"),
             agent_directory_memo: &self.agent_directory_memo,
@@ -316,7 +331,11 @@ impl AppStoreReducer {
             .expect("app store lock poisoned")
             .threads
             .get(key)
-            .cloned()
+            .map(|thread| {
+                let mut detached = thread.clone();
+                detached.items_source_revision = Some(thread.items.revision());
+                detached
+            })
     }
 
     /// Project a single thread for the FFI boundary without cloning the rest
@@ -423,6 +442,22 @@ impl AppStoreReducer {
         {
             let mut snapshot = self.write_snapshot();
             snapshot.servers.remove(server_id);
+            {
+                let AppSnapshot {
+                    threads,
+                    cached_session_summaries,
+                    ..
+                } = &mut *snapshot;
+                cached_session_summaries.retain(|cached| {
+                    if cached.key.server_id != server_id {
+                        return true;
+                    }
+                    if !threads.contains_key(&cached.key) {
+                        removed_thread_keys.push(cached.key.clone());
+                    }
+                    false
+                });
+            }
             snapshot.threads.retain(|key, _| {
                 let keep = key.server_id != server_id;
                 if !keep {
@@ -466,7 +501,7 @@ impl AppStoreReducer {
             server_id: server_id.to_string(),
         });
         for key in removed_thread_keys {
-            self.clear_thread_update_caches(&key);
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -630,7 +665,7 @@ impl AppStoreReducer {
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
-            self.clear_thread_update_caches(&key);
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -787,6 +822,7 @@ impl AppStoreReducer {
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
+            self.clear_removed_thread_caches(&key);
             self.emit(AppStoreUpdateRecord::ThreadRemoved {
                 key,
                 agent_directory_version,
@@ -852,6 +888,24 @@ impl AppStoreReducer {
             // preserved fields.
             let existing = snapshot.threads.get(&key);
             if let Some(existing) = existing {
+                if existing.items.is_empty()
+                    && !existing.initial_turns_loaded
+                    && thread.items.is_empty()
+                    && !thread.initial_turns_loaded
+                {
+                    // Metadata-only refreshes must not discard the bounded
+                    // home summary retained when this history was evicted.
+                    thread.items = existing.items.clone();
+                    thread.activity_cache = existing.activity_cache.clone();
+                }
+                // Metadata probes retain a detached item list verbatim. A live
+                // mutation since that clone must not be overwritten by it.
+                // Explicit list edits and fresh hydration remain authoritative.
+                if thread.items_source_revision == Some(thread.items.revision())
+                    && thread.items.revision() != existing.items.revision()
+                {
+                    thread.items = existing.items.clone();
+                }
                 preserve_thread_title(&existing.info, &mut thread.info);
                 preserve_thread_preview(&existing.info, &mut thread.info);
                 preserve_thread_created_at(&existing.info, &mut thread.info);
@@ -874,9 +928,22 @@ impl AppStoreReducer {
             if !thread.queued_follow_up_drafts.is_empty() || thread.queued_follow_ups.is_empty() {
                 sync_thread_follow_up_projection(&mut thread);
             }
+            // Hydration may have built these lists before newer live events.
+            // Stamp replacements at commit, while retained lists keep their
+            // revision across metadata-only refreshes.
+            if existing.is_none_or(|old| old.items.revision() != thread.items.revision()) {
+                thread.items.mark_committed();
+            }
+            if existing.is_none_or(|old| {
+                old.local_overlay_items.revision() != thread.local_overlay_items.revision()
+            }) {
+                thread.local_overlay_items.mark_committed();
+            }
+            thread.items_source_revision = None;
             snapshot.threads.insert(key.clone(), thread);
         }
         self.emit_thread_upsert(&key);
+        self.trim_inactive_history(false);
         true
     }
 
@@ -1248,7 +1315,7 @@ impl AppStoreReducer {
                 .retain(|key, _| remaining_user_input_keys.contains(key));
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
-        self.clear_thread_update_caches(key);
+        self.clear_removed_thread_caches(key);
         self.emit(AppStoreUpdateRecord::ThreadRemoved {
             key: key.clone(),
             agent_directory_version,
@@ -1260,7 +1327,8 @@ impl AppStoreReducer {
             let mut snapshot = self.write_snapshot();
             snapshot.active_thread = key.clone();
         }
-        self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key });
+        self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: key.clone() });
+        self.note_history_viewed(key.as_ref());
     }
 
     pub fn set_voice_handoff_thread(&self, key: Option<ThreadKey>) {
@@ -1953,39 +2021,38 @@ impl AppStoreReducer {
                 item_id,
                 delta,
             } => {
-                let inserted_placeholder = self
-                    .mutate_thread_with_result(key, |thread| {
-                        append_assistant_delta(thread, item_id, delta)
-                    })
-                    .unwrap_or(false);
-                if inserted_placeholder {
+                let result = self.mutate_streaming_item(
+                    key,
+                    item_id,
+                    ThreadStreamingDeltaKind::AssistantText,
+                    delta,
+                    |thread| {
+                        if append_assistant_delta(thread, item_id, delta) {
+                            LiveDeltaApplyResult::InsertedPlaceholder
+                        } else {
+                            LiveDeltaApplyResult::Streamed
+                        }
+                    },
+                );
+                if result.requires_item_upsert() {
                     self.emit_thread_item_changed_by_id(key, item_id);
-                } else {
-                    self.emit_thread_streaming_delta(
-                        key,
-                        item_id,
-                        ThreadStreamingDeltaKind::AssistantText,
-                        delta,
-                    );
                 }
             }
+
             UiEvent::ReasoningDelta {
                 key,
                 item_id,
                 delta,
             } => {
-                let result = self
-                    .mutate_thread_with_result(key, |thread| {
-                        append_reasoning_delta(thread, item_id, delta)
-                    })
-                    .unwrap_or(LiveDeltaApplyResult::Failed);
+                let result = self.mutate_streaming_item(
+                    key,
+                    item_id,
+                    ThreadStreamingDeltaKind::ReasoningText,
+                    delta,
+                    |thread| append_reasoning_delta(thread, item_id, delta),
+                );
                 if result.streamed() {
-                    self.emit_thread_streaming_delta(
-                        key,
-                        item_id,
-                        ThreadStreamingDeltaKind::ReasoningText,
-                        delta,
-                    );
+                    // The delta was broadcast atomically with its mutation.
                 } else if result.requires_item_upsert() {
                     self.emit_thread_item_changed_by_id(key, item_id);
                 } else {
@@ -2005,18 +2072,15 @@ impl AppStoreReducer {
                 item_id,
                 delta,
             } => {
-                let result = self
-                    .mutate_thread_with_result(key, |thread| {
-                        append_plan_delta(thread, item_id, delta)
-                    })
-                    .unwrap_or(LiveDeltaApplyResult::Failed);
+                let result = self.mutate_streaming_item(
+                    key,
+                    item_id,
+                    ThreadStreamingDeltaKind::PlanText,
+                    delta,
+                    |thread| append_plan_delta(thread, item_id, delta),
+                );
                 if result.streamed() {
-                    self.emit_thread_streaming_delta(
-                        key,
-                        item_id,
-                        ThreadStreamingDeltaKind::PlanText,
-                        delta,
-                    );
+                    // The delta was broadcast atomically with its mutation.
                 } else if result.requires_item_upsert() {
                     self.emit_thread_item_changed_by_id(key, item_id);
                 } else {
@@ -2036,18 +2100,15 @@ impl AppStoreReducer {
                 item_id,
                 delta,
             } => {
-                let result = self
-                    .mutate_thread_with_result(key, |thread| {
-                        append_command_output_delta(thread, item_id, delta)
-                    })
-                    .unwrap_or(LiveDeltaApplyResult::Failed);
+                let result = self.mutate_streaming_item(
+                    key,
+                    item_id,
+                    ThreadStreamingDeltaKind::CommandOutput,
+                    delta,
+                    |thread| append_command_output_delta(thread, item_id, delta),
+                );
                 if result.streamed() {
-                    self.emit_thread_streaming_delta(
-                        key,
-                        item_id,
-                        ThreadStreamingDeltaKind::CommandOutput,
-                        delta,
-                    );
+                    // The delta was broadcast atomically with its mutation.
                 } else if result.requires_item_upsert() {
                     self.emit_thread_item_changed_by_id(key, item_id);
                 } else {
@@ -2081,6 +2142,12 @@ impl AppStoreReducer {
                 // final ItemCompleted still delivers the full payload.
                 const MAX_BUFFER_BYTES: usize = 256 * 1024;
                 let (partial, known_item_id) = {
+                    // Hold the read guard through insertion so a late delta
+                    // cannot recreate a buffer after thread removal cleans up.
+                    let snapshot = self.snapshot.read().expect("app store lock poisoned");
+                    if !snapshot.threads.contains_key(key) {
+                        return;
+                    }
                     let mut guard = self
                         .dynamic_tool_arg_buffers
                         .write()
@@ -2170,18 +2237,17 @@ impl AppStoreReducer {
                 }
             }
             UiEvent::McpToolCallProgress { key, notification } => {
-                let result = self
-                    .mutate_thread_with_result(key, |thread| {
+                let result = self.mutate_streaming_item(
+                    key,
+                    &notification.item_id,
+                    ThreadStreamingDeltaKind::McpProgress,
+                    &notification.message,
+                    |thread| {
                         append_mcp_progress(thread, &notification.item_id, &notification.message)
-                    })
-                    .unwrap_or(LiveDeltaApplyResult::Failed);
+                    },
+                );
                 if result.streamed() {
-                    self.emit_thread_streaming_delta(
-                        key,
-                        &notification.item_id,
-                        ThreadStreamingDeltaKind::McpProgress,
-                        &notification.message,
-                    );
+                    // The delta was broadcast atomically with its mutation.
                 } else if result.requires_item_upsert() {
                     self.emit_thread_item_changed_by_id(key, &notification.item_id);
                 } else {
@@ -2477,6 +2543,24 @@ impl AppStoreReducer {
             }
             UiEvent::RawNotification { .. } => {}
         }
+        let enforce_history_budget = match event {
+            UiEvent::TurnCompleted { .. } | UiEvent::RealtimeClosed { .. } => true,
+            // Some servers finalize the last tool after the turn. Its unfinished
+            // payload/argument buffer protected history at TurnCompleted; release
+            // that protection without waiting for another navigation or RPC.
+            UiEvent::ItemCompleted { key, .. } => {
+                let snapshot = self.snapshot.read().expect("app store lock poisoned");
+                snapshot.active_thread.as_ref() != Some(key)
+                    && snapshot.threads.get(key).is_some_and(|thread| {
+                        thread.active_turn_id.is_none()
+                            && thread.info.status != ThreadSummaryStatus::Active
+                    })
+            }
+            _ => false,
+        };
+        if enforce_history_budget {
+            self.trim_inactive_history(true);
+        }
     }
 
     fn upsert_or_merge_thread<F>(&self, key: ThreadKey, info: ThreadInfo, mutate: F)
@@ -2654,6 +2738,16 @@ impl AppStoreReducer {
         }
     }
 
+    /// Only removal invalidates unfinished argument streams. A normal thread
+    /// upsert can happen during hydration while those streams are still live.
+    fn clear_removed_thread_caches(&self, key: &ThreadKey) {
+        self.clear_thread_update_caches(key);
+        self.dynamic_tool_arg_buffers
+            .write()
+            .expect("app store dynamic_tool_arg_buffers poisoned")
+            .retain(|(thread_key, _), _| thread_key != key);
+    }
+
     fn clear_thread_update_caches(&self, key: &ThreadKey) {
         self.last_thread_state_updates
             .write()
@@ -2701,7 +2795,17 @@ impl AppStoreReducer {
     pub(crate) fn emit_thread_item_changed(&self, key: &ThreadKey, item: HydratedConversationItem) {
         let item = {
             let snapshot = self.snapshot.read().expect("app store lock poisoned");
-            project_hydrated_item(&snapshot, &key.server_id, &item).into_owned()
+            let Some(thread) = snapshot.threads.get(key) else {
+                return;
+            };
+            let Some(current) = thread
+                .items
+                .get_by_id(&item.id)
+                .or_else(|| thread.local_overlay_items.get_by_id(&item.id))
+            else {
+                return;
+            };
+            project_captured_thread_item(&snapshot, thread, current)
         };
         let fingerprint = item_fingerprint(&item);
         {
@@ -2751,18 +2855,43 @@ impl AppStoreReducer {
         }
     }
 
+    /// Send under the same write guard as mutation so two delta producers
+    /// cannot reverse chunk order after releasing the canonical lock.
+    fn mutate_streaming_item(
+        &self,
+        key: &ThreadKey,
+        item_id: &str,
+        kind: ThreadStreamingDeltaKind,
+        text: &str,
+        mutate: impl FnOnce(&mut ThreadSnapshot) -> LiveDeltaApplyResult,
+    ) -> LiveDeltaApplyResult {
+        let mut snapshot = self.write_snapshot();
+        let Some(thread) = snapshot.threads.get_mut(key) else {
+            return LiveDeltaApplyResult::Failed;
+        };
+        let result = mutate(thread);
+        if result.streamed() {
+            self.emit_thread_streaming_delta(key, item_id, kind, text, thread.items.revision());
+        }
+        result
+    }
+
     pub(crate) fn emit_thread_streaming_delta(
         &self,
         key: &ThreadKey,
         item_id: &str,
         kind: ThreadStreamingDeltaKind,
         text: &str,
+        revision: u64,
     ) {
         self.emit(AppStoreUpdateRecord::ThreadStreamingDelta {
             key: key.clone(),
             item_id: item_id.to_string(),
             kind,
-            text: text.to_string(),
+            chunks: vec![ThreadStreamingDeltaChunk {
+                revision,
+                text: text.to_string(),
+            }],
         });
     }
 
@@ -3203,6 +3332,7 @@ fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &st
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         });
         inserted_placeholder = true;
     }
@@ -3278,6 +3408,7 @@ fn append_reasoning_delta(
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
             LiveDeltaApplyResult::InsertedPlaceholder
         }
@@ -3322,6 +3453,7 @@ fn append_plan_delta(
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
             LiveDeltaApplyResult::InsertedPlaceholder
         }
@@ -3389,6 +3521,7 @@ fn append_command_output_delta(
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
             LiveDeltaApplyResult::InsertedPlaceholder
         }
@@ -3463,6 +3596,7 @@ fn append_mcp_progress(
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
             LiveDeltaApplyResult::InsertedPlaceholder
         }
@@ -3494,6 +3628,7 @@ fn local_user_message_overlay_item(
         source_turn_index: None,
         timestamp: None,
         is_from_user_turn_boundary: true,
+        captured_items_revision: 0,
     })
 }
 
@@ -3937,6 +4072,7 @@ fn answered_user_input_item(
         source_turn_index: None,
         timestamp: None,
         is_from_user_turn_boundary: false,
+        captured_items_revision: 0,
     }
 }
 
@@ -4042,6 +4178,7 @@ mod tests {
             source_turn_index: Some(0),
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 
@@ -4217,6 +4354,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
 
         assert_eq!(stats(&snapshot).user_message_count, 1);
@@ -4240,6 +4378,11 @@ mod tests {
             thread_id: "thread-2".to_string(),
         };
 
+        for key in [&key_one, &key_two] {
+            reducer.mutate_thread_with_result(key, |thread| {
+                thread.items.push(assistant_item_named("shared", "text"))
+            });
+        }
         let mut receiver = reducer.subscribe();
         reducer.emit_thread_item_changed(&key_one, assistant_item_named("shared", "text"));
         reducer.emit_thread_item_changed(&key_two, assistant_item_named("shared", "text"));
@@ -4277,6 +4420,103 @@ mod tests {
         assert_eq!(emitted, vec![key_one]);
     }
 
+    #[test]
+    fn removed_threads_release_derived_caches_and_argument_buffers() {
+        for removal in ["thread", "server", "list", "paginated_list"] {
+            let reducer = AppStoreReducer::new();
+            let removed = key_thread("removed");
+            let retained = ThreadKey {
+                server_id: "other-server".into(),
+                thread_id: "retained".into(),
+            };
+            for key in [&removed, &retained] {
+                let mut info = make_thread_info(&key.thread_id);
+                info.created_at = Some(1);
+                reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+                reducer.emit_thread_metadata_changed(key);
+                reducer.mutate_thread_with_result(key, |thread| {
+                    thread.items.push(assistant_item_named("item", "text"))
+                });
+                reducer.emit_thread_item_changed(key, assistant_item_named("item", "text"));
+                reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+                    key: key.clone(),
+                    item_id: "widget".into(),
+                    call_id: Some("call".into()),
+                    delta: r#"{"widget_code":"<div"#.into(),
+                });
+            }
+            assert_eq!(reducer.last_thread_state_updates.read().unwrap().len(), 2);
+            assert_eq!(reducer.last_thread_item_upserts.read().unwrap().len(), 2);
+            assert_eq!(reducer.dynamic_tool_arg_buffers.read().unwrap().len(), 2);
+
+            match removal {
+                "thread" => reducer.remove_thread(&removed),
+                "server" => reducer.remove_server("srv"),
+                "list" => reducer.sync_thread_list("srv", &[]),
+                _ => reducer.finalize_thread_list_sync("srv", &HashSet::new()),
+            }
+            assert!(
+                !reducer.snapshot().threads.contains_key(&removed),
+                "{removal}"
+            );
+            let states = reducer.last_thread_state_updates.read().unwrap();
+            assert!(!states.contains_key(&removed), "{removal}");
+            assert!(states.contains_key(&retained), "{removal}");
+            drop(states);
+            let items = reducer.last_thread_item_upserts.read().unwrap();
+            assert!(!items.contains_key(&removed), "{removal}");
+            assert!(items.contains_key(&retained), "{removal}");
+            drop(items);
+            let buffers = reducer.dynamic_tool_arg_buffers.read().unwrap();
+            assert_eq!(buffers.len(), 1, "{removal}");
+            assert!(
+                buffers.contains_key(&(retained.clone(), "call".into())),
+                "{removal}"
+            );
+            drop(buffers);
+
+            reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+                key: removed.clone(),
+                item_id: "widget".into(),
+                call_id: Some("call".into()),
+                delta: "late delta".into(),
+            });
+            assert_eq!(
+                reducer.dynamic_tool_arg_buffers.read().unwrap().len(),
+                1,
+                "{removal}"
+            );
+        }
+    }
+
+    #[test]
+    fn thread_hydration_preserves_unfinished_argument_buffers() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("streaming");
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            "srv",
+            make_thread_info("streaming"),
+        ));
+        reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+            key: key.clone(),
+            item_id: "widget".into(),
+            call_id: Some("call".into()),
+            delta: r#"{"widget_code":"<div"#.into(),
+        });
+        reducer.emit_thread_upsert(&key);
+        reducer.apply_ui_event(&UiEvent::DynamicToolCallArgumentsDelta {
+            key: key.clone(),
+            item_id: "widget".into(),
+            call_id: Some("call".into()),
+            delta: ">continued".into(),
+        });
+        let buffers = reducer.dynamic_tool_arg_buffers.read().unwrap();
+        assert_eq!(
+            buffers[&(key, "call".into())].buffer,
+            r#"{"widget_code":"<div>continued"#
+        );
+    }
+
     /// The bounded item fingerprint must still discriminate the changes the
     /// dedup cache exists to catch, including ones buried behind a large
     /// captured command output.
@@ -4300,6 +4540,7 @@ mod tests {
             source_turn_index: Some(0),
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         };
 
         let big = "x".repeat(200_000);
@@ -4641,6 +4882,74 @@ mod tests {
     }
 
     #[test]
+    fn remove_server_clears_launch_cache_rows_without_duplicate_removals() {
+        let reducer = AppStoreReducer::new();
+        let live = key_thread("live");
+        let cached_only = key_thread("cached-only");
+        let retained = ThreadKey {
+            server_id: "other".into(),
+            thread_id: "offline".into(),
+        };
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", make_thread_info("live")));
+        reducer.seed_cached_session_summaries(vec![
+            empty_session_summary(live.clone()),
+            empty_session_summary(cached_only.clone()),
+            empty_session_summary(retained.clone()),
+        ]);
+        let mut receiver = reducer.subscribe();
+        reducer.remove_server("srv");
+        let snapshot = reducer.snapshot();
+        assert_eq!(snapshot.cached_session_summaries.len(), 1);
+        assert_eq!(snapshot.cached_session_summaries[0].key, retained);
+        let removed = drain_updates(&mut receiver)
+            .into_iter()
+            .filter_map(|update| {
+                if let AppStoreUpdateRecord::ThreadRemoved { key, .. } = update {
+                    Some(key)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&live));
+        assert!(removed.contains(&cached_only));
+    }
+
+    #[test]
+    fn home_cache_projection_keeps_recent_known_server_rows_without_evicting_history() {
+        let reducer = AppStoreReducer::new();
+        reducer.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Disconnected,
+        );
+        for index in 0..65 {
+            let mut info = make_thread_info(&format!("thread-{index}"));
+            info.updated_at = Some(index);
+            reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", info));
+        }
+        let mut unknown = make_thread_info("unknown-server");
+        unknown.updated_at = Some(1000);
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("removed-server", unknown));
+        let mut cached = empty_session_summary(key_thread("offline-cached"));
+        cached.updated_at = Some(100);
+        reducer.seed_cached_session_summaries(vec![cached]);
+
+        let summaries = reducer.home_cache_summaries();
+        assert_eq!(summaries.len(), crate::home_cache::MAX_CACHED_SESSIONS);
+        assert!(summaries.iter().all(|row| row.key.server_id == "srv"));
+        assert_eq!(summaries.first().unwrap().key.thread_id, "offline-cached");
+        assert_eq!(summaries[1].key.thread_id, "thread-64");
+        assert_eq!(summaries.last().unwrap().key.thread_id, "thread-6");
+        // Bounded persistence is only a projection; even the oldest canonical
+        // conversation and the disconnected server's cached row remain intact.
+        let snapshot = reducer.snapshot();
+        assert_eq!(snapshot.threads.len(), 66);
+        assert!(snapshot.threads.contains_key(&key_thread("thread-0")));
+        assert_eq!(snapshot.cached_session_summaries.len(), 1);
+    }
+
+    #[test]
     fn launch_cache_rows_show_until_authoritative_listing_for_their_server() {
         let reducer = AppStoreReducer::new();
         let cached = |server: &str, thread: &str| {
@@ -4670,7 +4979,8 @@ mod tests {
         // A live thread shadows its cached row instead of duplicating it.
         let kept = make_thread_info("kept");
         reducer.upsert_thread_list_page("srv", std::slice::from_ref(&kept));
-        let summaries = crate::store::boundary::session_summaries_from_snapshot(&reducer.snapshot());
+        let summaries =
+            crate::store::boundary::session_summaries_from_snapshot(&reducer.snapshot());
         assert_eq!(
             summaries
                 .iter()
@@ -4888,6 +5198,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         reducer.upsert_thread_snapshot(thread);
 
@@ -5091,6 +5402,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             },
         );
 
@@ -5133,6 +5445,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         });
         reducer.upsert_thread_snapshot(thread);
         let mut receiver = reducer.subscribe();
@@ -5466,6 +5779,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         });
         reducer.upsert_thread_snapshot(local);
 
@@ -5487,6 +5801,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         });
         reducer.upsert_thread_snapshot(server);
 
@@ -5572,6 +5887,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
         );
 
@@ -5625,6 +5941,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
         );
 
@@ -5678,6 +5995,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
         );
 
@@ -5957,6 +6275,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         };
         let mut live = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
         live.items.push(item(
@@ -6036,6 +6355,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
 
         reducer.upsert_thread_snapshot(incoming);
@@ -6087,6 +6407,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
 
         reducer.upsert_thread_snapshot(incoming);
@@ -6145,6 +6466,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
         );
 
@@ -6321,6 +6643,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         reducer.upsert_thread_snapshot(thread);
         let overlay_id = reducer
@@ -6420,6 +6743,190 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_revision_covers_queued_deltas_but_not_later_chunks() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(assistant_item_named("assistant", "A"));
+        reducer.upsert_thread_snapshot(thread);
+        let mut receiver = reducer.subscribe();
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            item_id: "assistant".into(),
+            delta: "🐈".into(),
+        });
+        let captured = reducer.project_thread_snapshot(&key).unwrap().unwrap();
+        let captured_item = &captured.hydrated_conversation_items[0];
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            item_id: "assistant".into(),
+            delta: "🐈".into(),
+        });
+        let chunks = drain_updates(&mut receiver)
+            .into_iter()
+            .flat_map(|update| match update {
+                AppStoreUpdateRecord::ThreadStreamingDelta { chunks, .. } => chunks,
+                _ => panic!("expected existing-item delta"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].revision <= captured_item.captured_items_revision);
+        assert!(chunks[1].revision > captured_item.captured_items_revision);
+        let HydratedConversationItemContent::Assistant(data) = &captured_item.content else {
+            panic!()
+        };
+        let mut rendered = data.text.clone();
+        for chunk in chunks
+            .iter()
+            .filter(|chunk| chunk.revision > captured_item.captured_items_revision)
+        {
+            rendered.push_str(&chunk.text);
+        }
+        assert_eq!(rendered, "A🐈🐈");
+    }
+
+    #[test]
+    fn concurrent_delta_producers_publish_in_mutation_order() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(assistant_item_named("assistant", "A"));
+        reducer.upsert_thread_snapshot(thread);
+        let mut receiver = reducer.subscribe();
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                scope.spawn(|| {
+                    for _ in 0..32 {
+                        reducer.apply_ui_event(&UiEvent::MessageDelta {
+                            key: key.clone(),
+                            item_id: "assistant".into(),
+                            delta: "x".into(),
+                        });
+                    }
+                });
+            }
+        });
+        let revisions = drain_updates(&mut receiver)
+            .into_iter()
+            .flat_map(|update| match update {
+                AppStoreUpdateRecord::ThreadStreamingDelta { chunks, .. } => chunks
+                    .into_iter()
+                    .map(|chunk| chunk.revision)
+                    .collect::<Vec<_>>(),
+                _ => panic!(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(revisions.len(), 64);
+        assert!(revisions.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn authoritative_item_emit_recaptures_content_and_revision_together() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let stale = assistant_item_named("assistant", "A");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(stale.clone());
+        reducer.upsert_thread_snapshot(thread);
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            item_id: "assistant".into(),
+            delta: "B".into(),
+        });
+        let mut receiver = reducer.subscribe();
+        reducer.emit_thread_item_changed(&key, stale);
+        let captured = reducer.project_thread_snapshot(&key).unwrap().unwrap();
+        let update = receiver.try_recv().unwrap();
+        let AppStoreUpdateRecord::ThreadItemChanged { item, .. } = update else {
+            panic!()
+        };
+        assert_eq!(item, captured.hydrated_conversation_items[0]);
+        let HydratedConversationItemContent::Assistant(data) = item.content else {
+            panic!()
+        };
+        assert_eq!(data.text, "AB");
+    }
+
+    #[test]
+    fn whole_thread_replacement_uses_commit_order_without_metadata_churn() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(assistant_item_named("assistant", "A"));
+        reducer.upsert_thread_snapshot(thread);
+        let older = reducer.thread_snapshot(&key).unwrap();
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            item_id: "assistant".into(),
+            delta: "B".into(),
+        });
+        let live_revision = reducer.thread_snapshot(&key).unwrap().items.revision();
+        reducer.upsert_thread_snapshot(older);
+        let committed_revision = reducer.thread_snapshot(&key).unwrap().items.revision();
+        assert_eq!(committed_revision, live_revision);
+        let current = reducer.thread_snapshot(&key).unwrap();
+        let HydratedConversationItemContent::Assistant(data) = &current.items[0].content else {
+            panic!()
+        };
+        assert_eq!(
+            data.text, "AB",
+            "A stale metadata clone must retain the live suffix"
+        );
+        assert!(
+            reducer.snapshot().threads[&key]
+                .items_source_revision
+                .is_none()
+        );
+        let mut metadata = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        metadata.info.title = Some("Renamed".into());
+        reducer.upsert_thread_snapshot(metadata);
+        assert_eq!(
+            reducer.thread_snapshot(&key).unwrap().items.revision(),
+            committed_revision
+        );
+    }
+
+    #[test]
+    fn deliberately_replaced_clone_content_remains_authoritative() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(assistant_item_named("assistant", "AB"));
+        thread.items.push(assistant_item_named("removed", "old"));
+        reducer.upsert_thread_snapshot(thread);
+        let mut replacement = reducer.thread_snapshot(&key).unwrap();
+        replacement.items = vec![assistant_item_named("assistant", "Corrected")].into();
+        reducer.upsert_thread_snapshot(replacement);
+        let current = reducer.thread_snapshot(&key).unwrap();
+        assert_eq!(current.items.len(), 1);
+        let HydratedConversationItemContent::Assistant(data) = &current.items[0].content else {
+            panic!()
+        };
+        assert_eq!(data.text, "Corrected");
+    }
+
+    #[test]
+    fn authoritative_correction_matching_old_fingerprint_is_not_suppressed() {
+        let reducer = AppStoreReducer::new();
+        let key = key_thread("stream");
+        let item = assistant_item_named("assistant", "A");
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("stream"));
+        thread.items.push(item.clone());
+        reducer.upsert_thread_snapshot(thread);
+        reducer.emit_thread_item_changed(&key, item.clone());
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            item_id: "assistant".into(),
+            delta: "B".into(),
+        });
+        let mut receiver = reducer.subscribe();
+        reducer.apply_item_update(&key, item);
+        assert!(drain_updates(&mut receiver).iter().any(|update| matches!(update,
+            AppStoreUpdateRecord::ThreadItemChanged { item, .. }
+            if matches!(&item.content, HydratedConversationItemContent::Assistant(data) if data.text == "A"))));
+    }
+
+    #[test]
     fn duplicate_thread_item_upsert_is_suppressed() {
         let reducer = AppStoreReducer::new();
         let key = ThreadKey {
@@ -6449,8 +6956,10 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         };
 
+        reducer.mutate_thread_with_result(&key, |thread| thread.items.push(item.clone()));
         reducer.emit_thread_item_changed(&key, item.clone());
         reducer.emit_thread_item_changed(&key, item);
 
@@ -6493,6 +7002,7 @@ mod tests {
                 source_turn_index: Some(1),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
             HydratedConversationItem {
                 id: "assistant-1".to_string(),
@@ -6506,6 +7016,7 @@ mod tests {
                 source_turn_index: Some(1),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             },
         ]
         .into();
@@ -6525,6 +7036,7 @@ mod tests {
                 source_turn_index: Some(1),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             },
             HydratedConversationItem {
                 id: "assistant-1".to_string(),
@@ -6538,6 +7050,7 @@ mod tests {
                 source_turn_index: Some(1),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             },
         ]
         .into();
@@ -6576,6 +7089,7 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }]
         .into();
         reducer.upsert_thread_snapshot(existing);
@@ -6593,6 +7107,7 @@ mod tests {
             source_turn_index: Some(1),
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }]
         .into();
 
@@ -6849,6 +7364,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 
@@ -6863,6 +7379,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: true,
+            captured_items_revision: 0,
         }
     }
 

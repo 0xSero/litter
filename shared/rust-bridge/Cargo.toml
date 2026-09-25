@@ -22,14 +22,14 @@ codex-cloud-config = { path = "../third_party/codex/codex-rs/cloud-config" }
 codex-config = { path = "../third_party/codex/codex-rs/config" }
 codex-utils-absolute-path = { path = "../third_party/codex/codex-rs/utils/absolute-path" }
 codex-git-utils = { path = "../third_party/codex/codex-rs/git-utils" }
-# Pinned to the same immutable commit as the kittylitter daemon so the phone
-# and host share one immutable Alleycat release revision. All crates come from
-# the same source so the `Bridge` trait identity is consistent; forked until
-# the production-lineage OpenCode and Amp fixes land in the upstream release.
-alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "dcda34d17d5d13d9e3c9949fdf9cb4d570652539" }
-alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "dcda34d17d5d13d9e3c9949fdf9cb4d570652539" }
-alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "dcda34d17d5d13d9e3c9949fdf9cb4d570652539" }
-alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "dcda34d17d5d13d9e3c9949fdf9cb4d570652539" }
+# Keep mobile bridge crates on one immutable revision so their `Bridge` trait
+# identity is consistent. Compatible daemon-only fixes may advance the host pin
+# independently. This fork includes the production-lineage OpenCode and Amp fixes
+# pending their upstream release.
+alleycat-bridge-core = { git = "https://github.com/0xSero/alleycat.git", rev = "c27278bf8ed3f0f36484cd0996c01be2a8791caa" }
+alleycat-pi-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "c27278bf8ed3f0f36484cd0996c01be2a8791caa" }
+alleycat-claude-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "c27278bf8ed3f0f36484cd0996c01be2a8791caa" }
+alleycat-opencode-bridge = { git = "https://github.com/0xSero/alleycat.git", rev = "c27278bf8ed3f0f36484cd0996c01be2a8791caa" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

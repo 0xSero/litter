@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -153,21 +155,35 @@ internal fun OnboardingCoachmarks(
             item.id to Rect(clampedX, clampedY, clampedX + labelWidthPx, clampedY + labelHeightPx)
         }
 
-        Canvas(modifier = Modifier.matchParentSize()) {
-            resolved.forEach { (item, targetRect) ->
-                val labelRect = labelRects[item.id] ?: return@forEach
-                if (item.isPrimary) {
+        resolved.forEach { (item, targetRect) ->
+            val labelRect = labelRects[item.id] ?: return@forEach
+            // Keep the original painter order: each halo precedes its arrow.
+            // Only this canvas observes time; static arrows retain their layers.
+            if (item.isPrimary) {
+                Canvas(modifier = Modifier.matchParentSize()) {
                     drawCoachmarkHalo(targetRect, haloPhase)
                 }
-                drawCoachmarkArrow(
-                    from = labelRect.center,
-                    to = targetRect.center,
-                    targetRect = targetRect,
-                    labelRect = labelRect,
-                    style = item.style,
-                    isPrimary = item.isPrimary,
-                )
             }
+            Box(
+                modifier = Modifier.matchParentSize().graphicsLayer().drawWithCache {
+                    val arrow = makeCoachmarkArrow(
+                        from = labelRect.center,
+                        to = targetRect.center,
+                        targetRect = targetRect,
+                        labelRect = labelRect,
+                        style = item.style,
+                        isPrimary = item.isPrimary,
+                    )
+                    onDrawBehind {
+                        drawPath(
+                            arrow.path,
+                            LitterTheme.accent.copy(alpha = if (item.isPrimary) 0.95f else 0.80f),
+                            style = arrow.stroke,
+                        )
+                        drawPath(arrow.head, LitterTheme.accent.copy(alpha = if (item.isPrimary) 0.95f else 0.9f))
+                    }
+                },
+            )
         }
 
         resolved.forEach { (item, _) ->
@@ -277,14 +293,16 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCoachmarkHalo(
     )
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCoachmarkArrow(
+private data class CoachmarkArrow(val path: Path, val head: Path, val stroke: Stroke)
+
+private fun makeCoachmarkArrow(
     from: Offset,
     to: Offset,
     targetRect: Rect,
     labelRect: Rect,
     style: CoachmarkLineStyle,
     isPrimary: Boolean,
-) {
+): CoachmarkArrow {
     val start = trimToRect(from = to, toward = from, rect = labelRect.inflate(6f))
     val endInset = if (style == CoachmarkLineStyle.SmoothCurve) -11f else -6f
     val end = trimToRect(from = from, toward = to, rect = targetRect.inflate(endInset))
@@ -311,12 +329,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCoachmarkArrow(
             amplitude = squiggleAmplitude(style, length),
         )
     }
-    drawPath(
-        path = path,
-        color = LitterTheme.accent.copy(alpha = if (isPrimary) 0.95f else 0.80f),
-        style = strokeStyle(style, isPrimary),
-    )
-
     val headLen = 8f
     val headHalfWidth = 4.5f
     val baseX = end.x - ux * headLen
@@ -331,7 +343,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCoachmarkArrow(
         lineTo(rightX, rightY)
         close()
     }
-    drawPath(head, LitterTheme.accent.copy(alpha = if (isPrimary) 0.95f else 0.9f))
+    return CoachmarkArrow(path, head, strokeStyle(style, isPrimary))
 }
 
 private fun squiggleAmplitude(style: CoachmarkLineStyle, length: Float): Float {

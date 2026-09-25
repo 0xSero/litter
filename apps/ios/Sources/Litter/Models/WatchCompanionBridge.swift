@@ -56,6 +56,11 @@ final class WatchCompanionBridge: NSObject {
     private var lastPushedPayload: WatchSnapshotPayload?
     private var lastPushedComplication: Data?
     private var pushThrottle: Task<Void, Never>?
+    private var started = false
+    private var snapshotObservationStarted = false
+    #if DEBUG
+    var debugSnapshotProjectionDidRun: (() -> Void)?
+    #endif
     private var themeObserver: NSObjectProtocol?
     private var preferencesObserver: NSObjectProtocol?
     /// Request ids the bridge has already scheduled an approval push for.
@@ -77,11 +82,12 @@ final class WatchCompanionBridge: NSObject {
     }
 
     func start() {
-        guard WCSession.isSupported() else { return }
+        guard !started, WCSession.isSupported() else { return }
+        started = true
         let session = WCSession.default
         session.delegate = delegate
         session.activate()
-        observe()
+        startSnapshotObservation()
         observeThemeChanges()
         observeHomePreferencesChanges()
     }
@@ -139,6 +145,13 @@ final class WatchCompanionBridge: NSObject {
     /// Observe the canonical Rust-backed `AppModel.shared.snapshot` via
     /// `withObservationTracking`. Each `onChange` re-arms a fresh tracker on
     /// the main actor, which is the same pattern `HomeDashboardModel` uses.
+    /// Also used by focused tests without activating a real Watch session.
+    func startSnapshotObservation() {
+        guard !snapshotObservationStarted else { return }
+        snapshotObservationStarted = true
+        observe()
+    }
+
     private func observe() {
         withObservationTracking {
             // Touch every field that participates in the watch payload or
@@ -149,7 +162,7 @@ final class WatchCompanionBridge: NSObject {
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.pushIfChanged()
+                // Re-arming performs the single push for this change.
                 self.observe()
             }
         }
@@ -159,6 +172,9 @@ final class WatchCompanionBridge: NSObject {
     }
 
     private func pushIfChanged() {
+        #if DEBUG
+        debugSnapshotProjectionDidRun?()
+        #endif
         let payload = currentPayload()
         let complication = currentComplicationSnapshot()
 

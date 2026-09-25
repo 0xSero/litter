@@ -11,8 +11,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -586,7 +586,7 @@ private fun LineageBreadcrumb(lineage: ThreadLineage) {
         lineage.ancestors.forEachIndexed { idx, ancestor ->
             if (idx > 0) {
                 Text(
-                    text = " › ",
+                    text = if (idx == 1 && lineage.omittedAncestorCount > 0) " › … › " else " › ",
                     color = LitterTheme.textMuted.copy(alpha = 0.55f),
                     fontFamily = LitterTheme.monoFont,
                     fontSize = 9f.scaled,
@@ -616,15 +616,14 @@ private fun LineageBreadcrumb(lineage: ThreadLineage) {
  */
 @Composable
 private fun SiblingPillsRow(lineage: ThreadLineage, currentKey: ThreadKey) {
-    Row(
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        lineage.members.forEach { member ->
+        items(lineage.members, key = { "${it.key.serverId.length}:${it.key.serverId}${it.key.threadId}" }) { member ->
             val isCurrent = member.key == currentKey
             Row(
                 modifier = Modifier

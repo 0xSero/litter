@@ -11,7 +11,7 @@ struct ThreadLineageMember: Equatable, Hashable {
 
 /// Fork lineage info for a single thread. Computed once per
 /// `HomeDashboardSupport.recentConnectedSessions` pass over the snapshot's
-/// session summaries by walking `parentThreadId` within a server. Only attached
+/// session summaries by walking `forkedFromId` within a server. Only attached
 /// to a session when the lineage actually has more than one member — singletons
 /// don't need the structure at the render layer.
 struct ThreadLineage: Equatable, Hashable {
@@ -19,9 +19,10 @@ struct ThreadLineage: Equatable, Hashable {
     let rootKey: ThreadKey
     /// Immediate parent (nil if this thread is the root of its lineage).
     let parentKey: ThreadKey?
-    /// Ordered ancestors, root → ... → parent. Excludes self. Empty when
-    /// `parentKey == nil` or when ancestors aren't loaded.
+    /// At most four loaded ancestors, oldest → nearest parent. Deep paths
+    /// keep the oldest and nearest three; omitted entries follow the oldest.
     let ancestors: [ThreadLineageMember]
+    let omittedAncestorCount: Int
     /// All loaded threads sharing this root, sorted by `updatedAt` desc.
     /// Includes self.
     let members: [ThreadLineageMember]
@@ -363,38 +364,81 @@ enum HomeDashboardSupport {
 /// through `agentNickname`/`agentRole`, not via fork affordances.
 @MainActor
 enum ThreadLineageMap {
+    private struct PathProjection {
+        let rootKey: ThreadKey
+        let ancestors: [ThreadLineageMember]
+        let omittedAncestorCount: Int
+    }
+
     static func compute(sessions: [AppSessionSummary]) -> [ThreadKey: ThreadLineage] {
-        guard !sessions.isEmpty else { return [:] }
-
-        var byServerThreadId: [String: [String: AppSessionSummary]] = [:]
-        for session in sessions {
-            byServerThreadId[session.key.serverId, default: [:]][session.key.threadId] = session
+        var byKey: [ThreadKey: AppSessionSummary] = [:]
+        for session in sessions { byKey[session.key] = session }
+        let membersByKey = byKey.mapValues {
+            ThreadLineageMember(key: $0.key, title: HomeDashboardSupport.sessionTitle(for: $0))
         }
-
-        var rootByKey: [ThreadKey: ThreadKey] = [:]
-        for session in sessions {
-            rootByKey[session.key] = root(for: session, in: byServerThreadId)
+        var paths: [ThreadKey: PathProjection] = [:]
+        for session in sessions where paths[session.key] == nil {
+            var trail: [AppSessionSummary] = []
+            var positions: [ThreadKey: Int] = [:]
+            var current = session
+            while paths[current.key] == nil {
+                if let cycleStart = positions[current.key] {
+                    // Malformed cycles share a deterministic root; omit cyclic
+                    // breadcrumbs rather than claiming a valid ancestor order.
+                    let cycle = trail[cycleStart...]
+                    let root = cycle.map(\.key).min { $0.threadId < $1.threadId }!
+                    for member in cycle {
+                        paths[member.key] = PathProjection(rootKey: root, ancestors: [], omittedAncestorCount: 0)
+                    }
+                    trail.removeSubrange(cycleStart...)
+                    break
+                }
+                positions[current.key] = trail.count
+                trail.append(current)
+                guard let parentKey = sanitizedForkParentKey(for: current) else {
+                    paths[current.key] = PathProjection(rootKey: current.key, ancestors: [], omittedAncestorCount: 0)
+                    trail.removeLast()
+                    break
+                }
+                guard let parent = byKey[parentKey] else {
+                    // Unloaded parents still group their loaded children.
+                    paths[current.key] = PathProjection(rootKey: parentKey, ancestors: [], omittedAncestorCount: 0)
+                    trail.removeLast()
+                    break
+                }
+                current = parent
+            }
+            // Each loaded key is resolved once. Keep ordinary paths intact and
+            // only the oldest loaded + nearest three ancestors for deep paths.
+            for child in trail.reversed() {
+                let parentKey = sanitizedForkParentKey(for: child)!
+                let parentPath = paths[parentKey]!
+                var ancestors = parentPath.ancestors + [membersByKey[parentKey]!]
+                var omitted = parentPath.omittedAncestorCount
+                if ancestors.count > 4 {
+                    ancestors.remove(at: 1)
+                    omitted += 1
+                }
+                paths[child.key] = PathProjection(rootKey: parentPath.rootKey, ancestors: ancestors, omittedAncestorCount: omitted)
+            }
         }
 
         var groupsByRoot: [ThreadKey: [AppSessionSummary]] = [:]
         for session in sessions {
-            let r = rootByKey[session.key] ?? session.key
-            groupsByRoot[r, default: []].append(session)
+            groupsByRoot[paths[session.key]!.rootKey, default: []].append(session)
         }
-
         var result: [ThreadKey: ThreadLineage] = [:]
         for (rootKey, group) in groupsByRoot {
             let sorted = group.sorted { ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0) }
-            let members = sorted.map {
-                ThreadLineageMember(key: $0.key, title: HomeDashboardSupport.sessionTitle(for: $0))
-            }
+            // One shared member array per family; every branch stays available.
+            let members = sorted.map { membersByKey[$0.key]! }
             for (idx, session) in sorted.enumerated() {
-                let parentKey = sanitizedForkParentKey(for: session)
-                let ancestors = ancestorChain(for: session, in: byServerThreadId)
+                let path = paths[session.key]!
                 result[session.key] = ThreadLineage(
                     rootKey: rootKey,
-                    parentKey: parentKey,
-                    ancestors: ancestors,
+                    parentKey: sanitizedForkParentKey(for: session),
+                    ancestors: path.ancestors,
+                    omittedAncestorCount: path.omittedAncestorCount,
                     members: members,
                     branchIndex: idx + 1,
                     branchTotal: members.count
@@ -409,54 +453,5 @@ enum ThreadLineageMap {
               !parentId.isEmpty
         else { return nil }
         return ThreadKey(serverId: session.key.serverId, threadId: parentId)
-    }
-
-    private static func root(
-        for session: AppSessionSummary,
-        in byServerThreadId: [String: [String: AppSessionSummary]]
-    ) -> ThreadKey {
-        var current = session
-        var visited: Set<String> = [current.key.threadId]
-        while let parentId = current.forkedFromId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !parentId.isEmpty,
-              !visited.contains(parentId)
-        {
-            visited.insert(parentId)
-            guard let parent = byServerThreadId[current.key.serverId]?[parentId] else {
-                // Parent isn't in the loaded snapshot. Use its id as a
-                // synthetic root key so siblings of an unloaded parent
-                // still cluster together — otherwise A and B with
-                // forkedFromId=P would each be their own root and the
-                // search clusters would split.
-                return ThreadKey(serverId: current.key.serverId, threadId: parentId)
-            }
-            current = parent
-        }
-        return current.key
-    }
-
-    private static func ancestorChain(
-        for session: AppSessionSummary,
-        in byServerThreadId: [String: [String: AppSessionSummary]]
-    ) -> [ThreadLineageMember] {
-        var chain: [ThreadLineageMember] = []
-        var current = session
-        var visited: Set<String> = [current.key.threadId]
-        while let parentId = current.forkedFromId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !parentId.isEmpty,
-              !visited.contains(parentId),
-              let parent = byServerThreadId[current.key.serverId]?[parentId]
-        {
-            chain.insert(
-                ThreadLineageMember(
-                    key: parent.key,
-                    title: HomeDashboardSupport.sessionTitle(for: parent)
-                ),
-                at: 0
-            )
-            visited.insert(parentId)
-            current = parent
-        }
-        return chain
     }
 }

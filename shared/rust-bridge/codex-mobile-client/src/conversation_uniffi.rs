@@ -14,6 +14,11 @@ pub struct HydratedConversationItem {
     pub source_turn_index: Option<u32>,
     pub timestamp: Option<f64>,
     pub is_from_user_turn_boundary: bool,
+    /// Revision of the authoritative item content captured by the store.
+    /// Zero denotes an item constructed locally, outside a store projection.
+    #[uniffi(default = 0)]
+    #[serde(skip)]
+    pub captured_items_revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, uniffi::Enum)]

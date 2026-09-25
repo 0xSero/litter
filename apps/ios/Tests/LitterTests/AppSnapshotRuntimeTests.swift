@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import Litter
 
 final class AppSnapshotRuntimeTests: XCTestCase {
@@ -349,6 +350,364 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         XCTAssertEqual(key, ThreadKey(serverId: "srv", threadId: "thread-1"))
     }
 
+    @MainActor
+    func testStaleRefreshPreservesNewThreadAndTrailingRefreshEventuallyApplies() async {
+        let first = expectation(description: "First capture")
+        let trailing = expectation(description: "Coalesced trailing capture")
+        let store = ControlledSnapshotStore { index in
+            if index == 0 { first.fulfill() }
+            if index == 1 { trailing.fulfill() }
+        }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        let empty = makeSnapshot(threads: [])
+        let key = ThreadKey(serverId: "srv", threadId: "arrived-during-refresh")
+        let newer = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(empty)
+        let request = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [first], timeout: 2)
+        model.applySnapshot(newer)
+        await store.reply(to: 0, with: empty)
+        _ = await request.value
+        XCTAssertNotNil(model.threadSnapshot(for: key), "A stale capture must not evict a newer cache entry")
+        await fulfillment(of: [trailing], timeout: 2)
+        let publishedRevision = model.snapshotRevision
+        let published = expectation(description: "Trailing capture published")
+        withObservationTracking {
+            _ = model.snapshotRevision
+        } onChange: {
+            published.fulfill()
+        }
+        await store.reply(to: 1, with: newer)
+        await fulfillment(of: [published], timeout: 2)
+        XCTAssertGreaterThan(model.snapshotRevision, publishedRevision)
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testOverlappingRefreshPublishesNewestCaptureOnly() async {
+        let first = expectation(description: "Older capture")
+        let second = expectation(description: "Newer capture")
+        let store = ControlledSnapshotStore { index in
+            if index == 0 { first.fulfill() }
+            if index == 1 { second.fulfill() }
+        }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        let key = ThreadKey(serverId: "srv", threadId: "newer")
+        let empty = makeSnapshot(threads: [])
+        let newer = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(empty)
+        let oldRequest = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [first], timeout: 2)
+        let newRequest = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [second], timeout: 2)
+        await store.reply(to: 1, with: newer)
+        _ = await newRequest.value
+        await store.reply(to: 0, with: empty)
+        _ = await oldRequest.value
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testCancelledRefreshDoesNotPublishOrReportAnError() async {
+        let requested = expectation(description: "Capture started")
+        let store = ControlledSnapshotStore { _ in requested.fulfill() }
+        let model = AppModel(store: store)
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: []))
+        let revision = model.snapshotRevision
+        let request = Task { await model.refreshSnapshot() }
+        await fulfillment(of: [requested], timeout: 2)
+        request.cancel()
+        await store.reply(to: 0, with: makeSnapshot(threads: []))
+        _ = await request.value
+        XCTAssertEqual(model.snapshotRevision, revision)
+        XCTAssertNil(model.lastError)
+    }
+
+    @MainActor
+    func testFullResyncDropsCachedThreadsMissingFromAuthoritativeSnapshot() {
+        let key = ThreadKey(serverId: "srv", threadId: "removed-with-missed-event")
+        let model = AppModel()
+        model.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: key)]))
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+
+        // The remove event was missed; a full snapshot must still release its cache.
+        model.applySnapshot(makeSnapshot(threads: []))
+        XCTAssertNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testFullResyncPreservesCachedOfflineThreadReferencedBySummary() {
+        let key = ThreadKey(serverId: "srv", threadId: "offline-history")
+        let model = AppModel()
+        var snapshot = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+        model.applySnapshot(snapshot)
+        snapshot.threads = []
+        snapshot.servers[0].health = .disconnected
+        snapshot.servers[0].transportState = .disconnected
+
+        model.applySnapshot(snapshot)
+        XCTAssertEqual(model.snapshot?.threads.map(\.key), [key])
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testFullResyncPreservesCachedActiveThreadBeforeItsSummaryArrives() {
+        let key = ThreadKey(serverId: "srv", threadId: "active")
+        let model = AppModel()
+        model.applySnapshot(makeSnapshot(threads: [makeThreadSnapshot(key: key)]))
+        var snapshot = makeSnapshot(threads: [])
+        snapshot.activeThread = key
+
+        model.applySnapshot(snapshot)
+        XCTAssertEqual(model.snapshot?.threads.map(\.key), [key])
+        XCTAssertNotNil(model.threadSnapshot(for: key))
+    }
+
+    @MainActor
+    func testSnapshotCoveredDeltaIsSkippedWithinCoalescedBatch() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("A🐈", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText, chunks: [
+            ThreadStreamingDeltaChunk(revision: 20, text: "🐈"),
+            ThreadStreamingDeltaChunk(revision: 21, text: "🐈")
+        ]))
+        model.flushPendingStreamingDeltas()
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "A🐈🐈")
+        XCTAssertEqual(item.capturedItemsRevision, 21)
+    }
+
+    @MainActor
+    func testTargetedContentPublishedBeforePendingFlushDoesNotDuplicateText() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 10)]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText, chunks: [
+            ThreadStreamingDeltaChunk(revision: 11, text: "B")
+        ]))
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 11)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        model.flushPendingStreamingDeltas()
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "AB")
+    }
+
+    @MainActor
+    func testOlderItemEventAndCachedSnapshotCannotRevertCapturedContent() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadItemChanged(key: key,
+            item: capturedAssistant("A", revision: 19), sessionSummary: snapshot.sessionSummaries[0]))
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 19)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "AB")
+        XCTAssertEqual(item.capturedItemsRevision, 20)
+    }
+
+    @MainActor
+    func testAuthoritativeSnapshotSynchronizesMountedRendererBeforeUnreadDelta() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        let coordinator = StreamingRendererCoordinator.shared
+        coordinator.reset()
+        let renderer = coordinator.renderer(for: "assistant", currentText: "A")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        var snapshot = makeSnapshot(threads: [thread])
+        snapshot.activeThread = key
+        let model = AppModel()
+        defer { model.stop(); coordinator.reset() }
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText,
+            chunks: [ThreadStreamingDeltaChunk(revision: 20, text: "B")]))
+        model.flushPendingStreamingDeltas()
+        XCTAssertEqual(renderer.rawText, "AB")
+    }
+
+    @MainActor
+    func testCapturedMembershipRejectsOldMissingItemButAllowsEqualRevisionMetadata() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadItemChanged(key: key,
+            item: capturedAssistant("Old", revision: 19), sessionSummary: snapshot.sessionSummaries[0]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        thread.info.title = "New metadata"
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.info.title, "New metadata")
+    }
+
+    @MainActor
+    func testNewerThreadUpsertCanCorrectStreamingTextToShorterContent() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key, activeTurnId: "turn")
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        thread.capturedItemsRevision = 30
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 30)]
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "A")
+        XCTAssertEqual(item.capturedItemsRevision, 30)
+    }
+
+    @MainActor
+    func testOlderThreadUpsertCannotResurrectRemovedItem() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        thread.capturedItemsRevision = 10
+        var removed = capturedAssistant("Old removed item", revision: 10)
+        removed.id = "removed"
+        thread.hydratedConversationItems = [capturedAssistant("Old A", revision: 10), removed]
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id), ["assistant"])
+        XCTAssertEqual(model.threadSnapshot(for: key)?.capturedItemsRevision, 20)
+    }
+
+    @MainActor
+    func testAuthoritativeEmptySnapshotRetainsMembershipFenceAgainstOldReplay() {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 10
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 10)]
+        thread.initialTurnsLoaded = true
+        thread.olderTurnsCursor = "old-cursor"
+        let old = thread
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = []
+        thread.initialTurnsLoaded = false
+        thread.olderTurnsCursor = nil
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        model.applySnapshot(makeSnapshot(threads: [old]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.capturedItemsRevision, 20)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.initialTurnsLoaded, false)
+        XCTAssertNil(model.threadSnapshot(for: key)?.olderTurnsCursor)
+        thread.capturedItemsRevision = 30
+        thread.hydratedConversationItems = [capturedAssistant("New", revision: 30)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.count, 1)
+    }
+
+    @MainActor
+    func testDelayedSnapshotPreservesPositionOfNewerMiddleItem() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        let first = capturedAssistant("A", revision: 20)
+        var middle = capturedAssistant("B", revision: 20)
+        middle.id = "middle"
+        var last = capturedAssistant("C", revision: 20)
+        last.id = "last"
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [first, middle, last]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 25
+        thread.hydratedConversationItems = [first, last].map { item in
+            var item = item
+            item.capturedItemsRevision = 25
+            return item
+        }
+        // The full capture trails a newer native item update inserted in the middle.
+        middle.capturedItemsRevision = 30
+        await model.handleStoreUpdate(.threadItemChanged(key: key, item: middle,
+            sessionSummary: makeSnapshot(threads: [thread]).sessionSummaries[0]))
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id),
+                       ["assistant", "middle", "last"])
+    }
+
+    @MainActor
+    func testOlderWholeSnapshotCannotReorderCapturedItems() {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        let first = capturedAssistant("A", revision: 20)
+        var last = capturedAssistant("C", revision: 20)
+        last.id = "last"
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [last, first]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 10
+        thread.hydratedConversationItems = [first, last]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id), ["last", "assistant"])
+    }
+
+    @MainActor
+    func testDelayedMetadataCannotMarkEvictedHistoryLoaded() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        thread.initialTurnsLoaded = false
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        var info = thread.info
+        info.title = "New metadata"
+        let state = AppThreadStateRecord(key: key, info: info, agentRuntimeKind: .codex,
+            collaborationMode: .default, model: nil, reasoningEffort: nil,
+            effectiveApprovalPolicy: nil, effectiveSandboxPolicy: nil, queuedFollowUps: [],
+            activeTurnId: nil, activePlanProgress: nil, pendingPlanImplementationPrompt: nil,
+            contextTokensUsed: nil, modelContextWindow: nil, rateLimits: nil, realtimeSessionId: nil,
+            goal: nil, olderTurnsCursor: "stale", initialTurnsLoaded: true)
+        await model.handleStoreUpdate(.threadMetadataChanged(state: state,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.initialTurnsLoaded, false)
+        XCTAssertNil(model.threadSnapshot(for: key)?.olderTurnsCursor)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.info.title, "New metadata")
+    }
+
+    private func capturedAssistant(_ text: String, revision: UInt64) -> HydratedConversationItem {
+        HydratedConversationItem(id: "assistant",
+            content: .assistant(HydratedAssistantMessageData(text: text, agentNickname: nil, agentRole: nil, phase: nil)),
+            sourceTurnId: nil, sourceTurnIndex: nil, timestamp: nil, isFromUserTurnBoundary: false,
+            capturedItemsRevision: revision)
+    }
+
     private func makeSnapshot(threads: [AppThreadSnapshot]) -> AppSnapshotRecord {
         let server = AppServerSnapshot(
             serverId: "srv",
@@ -480,5 +839,49 @@ final class AppSnapshotRuntimeTests: XCTestCase {
             olderTurnsCursor: nil,
             initialTurnsLoaded: true
         )
+    }
+}
+
+private actor SnapshotResponses {
+    private var nextIndex = 0
+    private var pending: [Int: CheckedContinuation<AppSnapshotRecord, Error>] = [:]
+    private var earlyReplies: [Int: AppSnapshotRecord] = [:]
+    let onRequest: @Sendable (Int) -> Void
+
+    init(onRequest: @escaping @Sendable (Int) -> Void) { self.onRequest = onRequest }
+    func capture() async throws -> AppSnapshotRecord {
+        try await withCheckedThrowingContinuation { continuation in
+            let index = nextIndex
+            nextIndex += 1
+            if let reply = earlyReplies.removeValue(forKey: index) {
+                continuation.resume(returning: reply)
+            } else {
+                pending[index] = continuation
+            }
+            onRequest(index)
+        }
+    }
+    func reply(to index: Int, with snapshot: AppSnapshotRecord) {
+        if let continuation = pending.removeValue(forKey: index) {
+            continuation.resume(returning: snapshot)
+        } else {
+            earlyReplies[index] = snapshot
+        }
+    }
+}
+
+private final class ControlledSnapshotStore: AppStore, @unchecked Sendable {
+    private let responses: SnapshotResponses
+    init(onRequest: @escaping @Sendable (Int) -> Void) {
+        responses = SnapshotResponses(onRequest: onRequest)
+        super.init(noHandle: NoHandle())
+    }
+    required init(unsafeFromHandle handle: UInt64) {
+        responses = SnapshotResponses(onRequest: { _ in })
+        super.init(unsafeFromHandle: handle)
+    }
+    override func snapshot() async throws -> AppSnapshotRecord { try await responses.capture() }
+    func reply(to index: Int, with snapshot: AppSnapshotRecord) async {
+        await responses.reply(to: index, with: snapshot)
     }
 }

@@ -4,6 +4,7 @@ pub mod agent_metadata;
 pub mod boundary;
 pub mod reconcile;
 pub mod reducer;
+mod retention;
 pub mod snapshot;
 pub mod updates;
 mod voice;
@@ -22,4 +23,4 @@ pub use snapshot::{
     AppTerminalSessionPhase, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
     TerminalSessionSnapshot, ThreadItems, ThreadSnapshot,
 };
-pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
+pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaChunk, ThreadStreamingDeltaKind};

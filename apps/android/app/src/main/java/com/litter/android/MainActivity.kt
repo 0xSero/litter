@@ -9,16 +9,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -29,13 +27,11 @@ import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.AppModel
 import com.litter.android.state.OpenAIApiKeyStore
 import com.litter.android.state.PetOverlayController
-import com.litter.android.ui.AnimatedSplashScreen
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterApp
 import com.litter.android.ui.LitterAppTheme
 import com.litter.android.ui.WallpaperManager
 import com.litter.android.util.LLog
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ThreadKey
 
@@ -59,9 +55,8 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Must be called before super.onCreate to hand off the system splash
-        // (Theme.App.Starting) to the Compose AnimatedSplashScreen without a
-        // theme-background flash between them.
+        // Keep the native splash until the first app frame is ready. There is
+        // no second timed overlay after Compose can display content or an error.
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -70,17 +65,14 @@ class MainActivity : ComponentActivity() {
         PetOverlayController.initialize(applicationContext)
 
         try {
-            appModel = AppModel.init(this)
+            val model = AppModel.init(this)
             WallpaperManager.initialize(this)
-            appModel?.start()
+            model.start()
+            appModel = model
         } catch (e: Exception) {
             LLog.e("MainActivity", "AppModel.start() failed", e)
         }
         loadPushToken()
-
-        var showSplash by mutableStateOf(true)
-        var contentReady by mutableStateOf(false)
-        var minTimeElapsed by mutableStateOf(false)
 
         setContent {
             LitterAppTheme {
@@ -94,37 +86,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Text(
                             text = "Litter couldn't finish starting.",
-                            modifier = Modifier.padding(horizontal = 24.dp),
+                            modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
                         )
-                    }
-
-                    // Signal content ready when LitterApp composes
-                    LaunchedEffect(model) {
-                        if (model != null) {
-                            contentReady = true
-                        }
-                    }
-
-                    // Minimum display time
-                    LaunchedEffect(Unit) {
-                        delay(800)
-                        minTimeElapsed = true
-                    }
-
-                    // Dismiss when both ready and min time elapsed (or hard max 3s)
-                    LaunchedEffect(contentReady, minTimeElapsed) {
-                        if (contentReady && minTimeElapsed) showSplash = false
-                    }
-                    LaunchedEffect(Unit) {
-                        delay(3000)
-                        showSplash = false
-                    }
-
-                    AnimatedVisibility(
-                        visible = showSplash,
-                        exit = fadeOut(),
-                    ) {
-                        AnimatedSplashScreen()
                     }
                 }
             }
@@ -157,17 +120,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // Best-effort graceful shutdown of the iroh endpoint before the
-        // Activity is fully destroyed. `runBlocking` keeps the close
-        // handshake bounded so we don't ANR if the network stack is
-        // unresponsive; `withTimeoutOrNull` caps it.
-        appModel?.let { model ->
-            kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeoutOrNull(2_500) {
-                    model.client.shutdownAlleycatEndpoint()
-                }
-            }
-        }
+        // Release this Activity's subscription reference only. The Rust
+        // endpoint belongs to the process and is also used by recreated
+        // Activities, push refreshes, and the pet overlay service. Closing
+        // its OnceCell-backed instance here would permanently break them.
         appModel?.stop()
         super.onDestroy()
     }
