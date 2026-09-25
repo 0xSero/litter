@@ -1,6 +1,6 @@
-Litter 2.1.5 opens faster and brings back recent sessions right away.
+This update refreshes Home and improves how Litter handles large session collections.
 
-- Show the home screen without a black launch screen while connections start.
-- Show recent sessions immediately, before saved servers finish reconnecting.
-- Keep earlier messages visible when sending follow-up questions.
-- Keep long conversations smooth and connections responsive.
+- Keep your place when returning to the session list.
+- Reduce repeated work when rendering session families and long conversations.
+- Improve Home animation preparation and app lifecycle handling.
+- Bound runtime caches and remote startup diagnostics.
