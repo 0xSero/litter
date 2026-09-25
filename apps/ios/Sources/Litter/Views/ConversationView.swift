@@ -220,9 +220,10 @@ struct ConversationView: View {
                     activeThreadKey.threadId,
                     text.count
                 )
+                let preparedAttachments = await ConversationAttachmentSupport.prepareImages(attachmentImages)
                 let payload = try makeComposerPayload(
                     text: text,
-                    attachmentImages: attachmentImages,
+                    preparedAttachments: preparedAttachments,
                     fileAttachments: fileAttachments,
                     skillMentions: skillMentions,
                     pluginMentions: pluginMentions
@@ -258,7 +259,7 @@ struct ConversationView: View {
             do {
                 let payload = try makeComposerPayload(
                     text: text,
-                    attachmentImages: [],
+                    preparedAttachments: [],
                     fileAttachments: [],
                     skillMentions: [],
                     pluginMentions: []
@@ -354,12 +355,11 @@ struct ConversationView: View {
 
     private func makeComposerPayload(
         text: String,
-        attachmentImages: [UIImage],
+        preparedAttachments: [PreparedImageAttachment],
         fileAttachments: [ComposerFileAttachment],
         skillMentions: [SkillMentionSelection],
         pluginMentions: [PluginMentionSelection]
     ) throws -> AppComposerPayload {
-        let preparedAttachments = attachmentImages.compactMap(ConversationAttachmentSupport.prepareImage)
         var additionalInputs = skillMentions.map { mention in
             AppUserInput.skill(name: mention.name, path: AbsolutePath(value: mention.path))
         }

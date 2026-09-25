@@ -362,7 +362,7 @@ struct HomeComposerView: View {
                 createdThreadKey = threadKey
                 onThreadCreated(threadKey)
                 RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
-                let preparedAttachments = images.compactMap(ConversationAttachmentSupport.prepareImage)
+                let preparedAttachments = await ConversationAttachmentSupport.prepareImages(images)
                 var additionalInputs: [AppUserInput] = []
                 let mentionsToSend = collectPluginMentionsForSubmission(text)
                 pluginMentionSelections = []

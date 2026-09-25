@@ -291,10 +291,14 @@ enum WatchProjection {
         if delta < 3600 { return "\(Int(delta) / 60)m" }
         if delta < 86400 { return "\(Int(delta) / 3600)h" }
         if delta < 7 * 86400 { return "\(Int(delta) / 86400)d" }
+        return shortMonthDayFormatter.string(from: updatedDate)
+    }
+
+    private static let shortMonthDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
-        return formatter.string(from: updatedDate)
-    }
+        return formatter
+    }()
 
     // MARK: - Diff projection
 
