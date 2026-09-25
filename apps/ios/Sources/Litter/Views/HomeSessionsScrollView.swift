@@ -1275,6 +1275,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         private var onFinished: (() -> Void)?
         private weak var imageView: UIImageView?
         private var finishedFired = false
+        private var loadGeneration: UInt64 = 0
 
         // Frames are swapped via `CAKeyframeAnimation` on
         // `layer.contents` in `.discrete` mode. Core Animation runs
@@ -1296,6 +1297,8 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             configuredURL = fileURL
             configuredRepeatCount = repeatCount
             finishedFired = false
+            loadGeneration &+= 1
+            let generation = loadGeneration
 
             imageView.animationImages = nil
             imageView.stopAnimating()
@@ -1312,6 +1315,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             }
             AlphaAnimatedImageView.loadAnimation(from: fileURL) { [weak self, weak imageView] animation in
                 guard let self, let imageView,
+                      self.loadGeneration == generation,
                       self.configuredURL == fileURL,
                       self.configuredRepeatCount == repeatCount else { return }
                 self.apply(animation, to: imageView, repeatCount: repeatCount)
@@ -1357,7 +1361,12 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
 
         func stop() {
+            loadGeneration &+= 1
+            configuredURL = nil
+            configuredRepeatCount = nil
+            onFinished = nil
             imageView?.layer.removeAnimation(forKey: Coordinator.animationKey)
+            imageView = nil
         }
 
         func animationDidStop(_ anim: CAAnimation, finished: Bool) {
@@ -1368,7 +1377,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
     }
 
-    private struct Animation {
+    struct Animation {
         let frames: [CGImage]
         /// Cumulative end-time for each frame (frameEndTimes[i] is the
         /// timestamp at which frame i finishes / frame i+1 begins).
@@ -1432,8 +1441,12 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         }
     }
 
-    private static func animation(from url: URL) -> Animation {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+    static func animation(from url: URL) -> Animation {
+        // Keep compressed-provider caches out of the retained animation. Each
+        // frame is materialized into its own bitmap below, then its temporary
+        // ImageIO provider is released before the next frame is loaded.
+        let decodeOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, decodeOptions) else {
             return Animation(frames: [], frameEndTimes: [], duration: 0)
         }
         let count = CGImageSourceGetCount(source)
@@ -1442,12 +1455,13 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
         frames.reserveCapacity(count)
         ends.reserveCapacity(count)
         var cumulative: TimeInterval = 0
-        // Force the pixel decode here, on the background queue, instead of
-        // leaving lazy CGImages for Core Animation to decode at commit time.
-        let decodeOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         for index in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, decodeOptions) else { continue }
-            frames.append(cgImage)
+            let frame: CGImage? = autoreleasepool {
+                guard let image = CGImageSourceCreateImageAtIndex(source, index, decodeOptions) else { return nil }
+                return bitmapFrame(from: image)
+            }
+            guard let frame else { continue }
+            frames.append(frame)
             cumulative += playbackFrameDuration
             ends.append(cumulative)
         }
@@ -1456,6 +1470,26 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
             frameEndTimes: ends,
             duration: max(cumulative, 0.1)
         )
+    }
+
+    /// ImageIO's immediate-cache hint still left WebP providers that decoded
+    /// again on the main thread in CAKeyframeAnimation's transaction commit.
+    /// A bitmap context owns the rendered pixels, so CA never sees that provider.
+    static func bitmapFrame(from image: CGImage) -> CGImage? {
+        let colorSpace = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
+            ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let context = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: image.width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        ) else { return nil }
+        context.setBlendMode(.copy)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
     }
 
 }
