@@ -263,6 +263,7 @@ impl MobileClient {
         snapshot.initial_turns_loaded = true;
         snapshot.older_turns_cursor = None;
         let key = snapshot.key.clone();
+        let _history = self.app_store.history_lease(&key);
         let existing = self.app_store.thread_snapshot(&key);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
         self.apply_persisted_thread_collaboration_mode(&mut snapshot);
@@ -303,6 +304,7 @@ impl MobileClient {
         )
         .map_err(|e| e.to_string())?;
         let key = snapshot.key.clone();
+        let _history = self.app_store.history_lease(&key);
         let existing = self.app_store.thread_snapshot(&key);
         // Share the preserve-on-empty merge with resume/fork. A paginated
         // v0.125+ server returns `thread.turns: []` on thread/read — we
@@ -343,6 +345,7 @@ impl MobileClient {
         )
         .map_err(|e| e.to_string())?;
         let key = snapshot.key.clone();
+        let _history = self.app_store.history_lease(&key);
         let existing = self.app_store.thread_snapshot(&key);
         apply_pagination_merge(existing.as_ref(), &mut snapshot, &response.thread.turns);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
@@ -370,6 +373,7 @@ impl MobileClient {
         )
         .map_err(|e| e.to_string())?;
         let key = snapshot.key.clone();
+        let _history = self.app_store.history_lease(&key);
         let existing = self.app_store.thread_snapshot(&key);
         apply_pagination_merge(existing.as_ref(), &mut snapshot, &response.thread.turns);
         crate::reconcile_active_turn(existing.as_ref(), &mut snapshot, &response.thread.turns);
@@ -397,6 +401,7 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
+        let _history = self.app_store.history_lease(&key);
         let mut thread = match self.app_store.thread_snapshot(&key) {
             Some(thread) => thread,
             None => return Err(format!("thread {thread_id} not in store")),
@@ -429,6 +434,7 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
+        let _history = self.app_store.history_lease(&key);
         let current = self.app_store.thread_snapshot(&key);
         let mut snapshot = crate::thread_snapshot_from_upstream_thread_with_overrides(
             server_id,

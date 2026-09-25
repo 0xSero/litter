@@ -2837,6 +2837,7 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
+        let _history = self.app_store.history_lease(&key);
         let resume_lock = self.resume_lock(&key);
         let (waited, _resume_guard) = match resume_lock.try_lock() {
             Ok(guard) => (false, guard),
@@ -2860,7 +2861,7 @@ impl MobileClient {
                 // for the current session — server-side this means the
                 // connection is in the per-thread subscription set. We
                 // can skip a duplicate resume when *either* of:
-                //   - the thread has loaded turns (items / initial_turns_loaded);
+                //   - the initial history has loaded (partial live items are insufficient);
                 //   - the server is using pagination (`supports_turn_pagination`),
                 //     so a `thread/resume` under `exclude_turns: true`
                 //     intentionally returned empty — the data path is
@@ -2871,7 +2872,7 @@ impl MobileClient {
                 let thread_has_loaded_turns = self
                     .app_store
                     .thread_snapshot(&key)
-                    .is_some_and(|thread| !thread.items.is_empty() || thread.initial_turns_loaded);
+                    .is_some_and(|thread| thread.initial_turns_loaded);
                 let pagination_supported =
                     self.app_store.server_supports_turn_pagination(server_id);
                 if thread_has_loaded_turns || pagination_supported {
@@ -3018,6 +3019,7 @@ impl MobileClient {
         runtime_kind: AgentRuntimeKind,
         exclude_turns: bool,
     ) -> Result<(), String> {
+        let _history = self.app_store.history_lease(key);
         // Use thread/resume (not thread/read) so the server attaches a
         // conversation listener for this connection. Without the listener
         // the WebSocket client only receives ThreadStatusChanged — no
@@ -3228,11 +3230,12 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
+        let _history = self.app_store.history_lease(&key);
         if !self.app_store.server_supports_turn_pagination(server_id) {
             let needs_embedded_resume = self
                 .app_store
                 .thread_snapshot(&key)
-                .is_none_or(|thread| thread.items.is_empty() && !thread.initial_turns_loaded);
+                .is_none_or(|thread| !thread.initial_turns_loaded);
             if needs_embedded_resume {
                 let runtime_kind = self.runtime_for_thread(&key);
                 self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
@@ -3611,6 +3614,7 @@ impl MobileClient {
         key: &ThreadKey,
         selected_turn_index: u32,
     ) -> Result<String, RpcError> {
+        let _history = self.app_store.history_lease(key);
         self.get_session(&key.server_id)?;
         let current = self.snapshot_thread(key)?;
         ensure_thread_is_editable(&current)?;
@@ -3660,6 +3664,7 @@ impl MobileClient {
         developer_instructions: Option<String>,
         persist_extended_history: bool,
     ) -> Result<ThreadKey, RpcError> {
+        let _history = self.app_store.history_lease(key);
         self.get_session(&key.server_id)?;
         let source = self.snapshot_thread(key)?;
         ensure_thread_is_editable(&source)?;
@@ -4057,6 +4062,16 @@ impl MobileClient {
 
     pub fn set_active_thread(&self, key: Option<ThreadKey>) {
         self.app_store.set_active_thread(key);
+        if self.app_store.schedule_selection_sweep() {
+            let store = Arc::downgrade(&self.app_store);
+            // This entry point is synchronous FFI on the UI thread. Selection
+            // only records recency; counting/releasing history runs in Rust.
+            Self::spawn_detached(async move {
+                if let Some(store) = store.upgrade() {
+                    store.run_selection_sweep();
+                }
+            });
+        }
     }
 
     pub async fn set_thread_collaboration_mode(

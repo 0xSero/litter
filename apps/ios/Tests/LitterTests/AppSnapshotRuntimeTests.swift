@@ -606,17 +606,23 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         var thread = makeThreadSnapshot(key: key)
         thread.capturedItemsRevision = 10
         thread.hydratedConversationItems = [capturedAssistant("A", revision: 10)]
+        thread.initialTurnsLoaded = true
+        thread.olderTurnsCursor = "old-cursor"
         let old = thread
         let model = AppModel()
         defer { model.stop() }
         model.applySnapshot(makeSnapshot(threads: [thread]))
         thread.capturedItemsRevision = 20
         thread.hydratedConversationItems = []
+        thread.initialTurnsLoaded = false
+        thread.olderTurnsCursor = nil
         model.applySnapshot(makeSnapshot(threads: [thread]))
         XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
         model.applySnapshot(makeSnapshot(threads: [old]))
         XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
         XCTAssertEqual(model.threadSnapshot(for: key)?.capturedItemsRevision, 20)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.initialTurnsLoaded, false)
+        XCTAssertNil(model.threadSnapshot(for: key)?.olderTurnsCursor)
         thread.capturedItemsRevision = 30
         thread.hydratedConversationItems = [capturedAssistant("New", revision: 30)]
         model.applySnapshot(makeSnapshot(threads: [thread]))
@@ -668,6 +674,31 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         thread.hydratedConversationItems = [first, last]
         model.applySnapshot(makeSnapshot(threads: [thread]))
         XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id), ["last", "assistant"])
+    }
+
+    @MainActor
+    func testDelayedMetadataCannotMarkEvictedHistoryLoaded() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        thread.initialTurnsLoaded = false
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        var info = thread.info
+        info.title = "New metadata"
+        let state = AppThreadStateRecord(key: key, info: info, agentRuntimeKind: .codex,
+            collaborationMode: .default, model: nil, reasoningEffort: nil,
+            effectiveApprovalPolicy: nil, effectiveSandboxPolicy: nil, queuedFollowUps: [],
+            activeTurnId: nil, activePlanProgress: nil, pendingPlanImplementationPrompt: nil,
+            contextTokensUsed: nil, modelContextWindow: nil, rateLimits: nil, realtimeSessionId: nil,
+            goal: nil, olderTurnsCursor: "stale", initialTurnsLoaded: true)
+        await model.handleStoreUpdate(.threadStateUpdated(state: state,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.initialTurnsLoaded, false)
+        XCTAssertNil(model.threadSnapshot(for: key)?.olderTurnsCursor)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.info.title, "New metadata")
     }
 
     private func capturedAssistant(_ text: String, revision: UInt64) -> HydratedConversationItem {

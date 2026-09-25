@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use codex_app_server_protocol as upstream;
 use tokio::sync::broadcast;
@@ -170,6 +170,7 @@ fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInf
 }
 
 pub struct AppStoreReducer {
+    pub(super) retention: Mutex<super::retention::RetentionState>,
     snapshot: RwLock<AppSnapshot>,
     /// Local Studio notifications can arrive before the asynchronous store
     /// listener has inserted their thread. Preserve that transport-owned
@@ -205,7 +206,8 @@ pub struct AppStoreReducer {
     /// call completes or fails (via `ItemCompleted` on the matching
     /// item). The partial buffer is parsed tolerantly so platforms can
     /// render widgets as the model streams the HTML body.
-    dynamic_tool_arg_buffers: RwLock<HashMap<(ThreadKey, String), DynamicToolCallArgBuffer>>,
+    pub(super) dynamic_tool_arg_buffers:
+        RwLock<HashMap<(ThreadKey, String), DynamicToolCallArgBuffer>>,
     updates_tx: broadcast::Sender<AppStoreUpdateRecord>,
     voice_state: VoiceRealtimeState,
 }
@@ -231,7 +233,7 @@ enum ItemMutationUpdate {
 /// The memo is cleared *before* the underlying write lock is dropped (fields
 /// drop after the `Drop` body), so no reader can observe the new snapshot
 /// alongside a memo computed from the old one.
-struct SnapshotWriteGuard<'a> {
+pub(super) struct SnapshotWriteGuard<'a> {
     guard: std::sync::RwLockWriteGuard<'a, AppSnapshot>,
     agent_directory_memo: &'a RwLock<Option<u64>>,
 }
@@ -266,6 +268,7 @@ impl AppStoreReducer {
         let (updates_tx, _) = broadcast::channel(1024);
         Self {
             snapshot: RwLock::new(AppSnapshot::default()),
+            retention: Mutex::new(super::retention::RetentionState::default()),
             pending_local_studio_thread_routes: RwLock::new(HashSet::new()),
             last_thread_state_updates: RwLock::new(HashMap::new()),
             last_thread_item_upserts: RwLock::new(HashMap::new()),
@@ -297,7 +300,7 @@ impl AppStoreReducer {
     /// Acquire the snapshot write lock. Releasing the returned guard drops
     /// every memo derived from the snapshot, so derived-state caches cannot
     /// outlive the state they were computed from.
-    fn write_snapshot(&self) -> SnapshotWriteGuard<'_> {
+    pub(super) fn write_snapshot(&self) -> SnapshotWriteGuard<'_> {
         SnapshotWriteGuard {
             guard: self.snapshot.write().expect("app store lock poisoned"),
             agent_directory_memo: &self.agent_directory_memo,
@@ -885,6 +888,16 @@ impl AppStoreReducer {
             // preserved fields.
             let existing = snapshot.threads.get(&key);
             if let Some(existing) = existing {
+                if existing.items.is_empty()
+                    && !existing.initial_turns_loaded
+                    && thread.items.is_empty()
+                    && !thread.initial_turns_loaded
+                {
+                    // Metadata-only refreshes must not discard the bounded
+                    // home summary retained when this history was evicted.
+                    thread.items = existing.items.clone();
+                    thread.activity_cache = existing.activity_cache.clone();
+                }
                 // Metadata probes retain a detached item list verbatim. A live
                 // mutation since that clone must not be overwritten by it.
                 // Explicit list edits and fresh hydration remain authoritative.
@@ -930,6 +943,7 @@ impl AppStoreReducer {
             snapshot.threads.insert(key.clone(), thread);
         }
         self.emit_thread_upsert(&key);
+        self.trim_inactive_history(false);
         true
     }
 
@@ -1313,7 +1327,8 @@ impl AppStoreReducer {
             let mut snapshot = self.write_snapshot();
             snapshot.active_thread = key.clone();
         }
-        self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key });
+        self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: key.clone() });
+        self.note_history_viewed(key.as_ref());
     }
 
     pub fn set_voice_handoff_thread(&self, key: Option<ThreadKey>) {
@@ -2527,6 +2542,24 @@ impl AppStoreReducer {
                 self.emit_thread_metadata_changed(&key);
             }
             UiEvent::RawNotification { .. } => {}
+        }
+        let enforce_history_budget = match event {
+            UiEvent::TurnCompleted { .. } | UiEvent::RealtimeClosed { .. } => true,
+            // Some servers finalize the last tool after the turn. Its unfinished
+            // payload/argument buffer protected history at TurnCompleted; release
+            // that protection without waiting for another navigation or RPC.
+            UiEvent::ItemCompleted { key, .. } => {
+                let snapshot = self.snapshot.read().expect("app store lock poisoned");
+                snapshot.active_thread.as_ref() != Some(key)
+                    && snapshot.threads.get(key).is_some_and(|thread| {
+                        thread.active_turn_id.is_none()
+                            && thread.info.status != ThreadSummaryStatus::Active
+                    })
+            }
+            _ => false,
+        };
+        if enforce_history_budget {
+            self.trim_inactive_history(true);
         }
     }
 

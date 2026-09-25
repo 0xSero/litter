@@ -3,6 +3,7 @@ package com.litter.android.state
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
+import uniffi.codex_mobile_client.*
 import uniffi.codex_mobile_client.HydratedAssistantMessageData
 import uniffi.codex_mobile_client.HydratedConversationItem
 import uniffi.codex_mobile_client.HydratedConversationItemContent
@@ -97,6 +98,46 @@ class StreamingItemRevisionTest {
         assertEquals(listOf(last, first),
             mergeCapturedThreadItems(listOf(first, last), 10u, listOf(last, first), 20u))
     }
+
+    @Test
+    fun staleSnapshotCannotRestorePaginationFlagsAfterEviction() {
+        val old = thread(10u, listOf(assistant("Old", 10u))).copy(
+            initialTurnsLoaded = true, olderTurnsCursor = "old-cursor")
+        val evicted = thread(20u, emptyList())
+        val merged = mergeCapturedThreadSnapshot(old, evicted)
+        assertEquals(emptyList<HydratedConversationItem>(), merged.hydratedConversationItems)
+        assertEquals(false, merged.initialTurnsLoaded)
+        assertEquals(null, merged.olderTurnsCursor)
+        assertEquals(20uL, merged.capturedItemsRevision)
+    }
+
+    @Test
+    fun delayedMetadataCannotMarkEvictedHistoryLoaded() {
+        val evicted = thread(20u, emptyList())
+        val state = AppThreadStateRecord(key = evicted.key, info = evicted.info.copy(title = "New metadata"),
+            agentRuntimeKind = "codex", collaborationMode = AppModeKind.DEFAULT, model = null,
+            reasoningEffort = null, effectiveApprovalPolicy = null, effectiveSandboxPolicy = null,
+            queuedFollowUps = emptyList(), activeTurnId = null, activePlanProgress = null,
+            pendingPlanImplementationPrompt = null, contextTokensUsed = null, modelContextWindow = null,
+            rateLimits = null, realtimeSessionId = null, goal = null, olderTurnsCursor = "stale", initialTurnsLoaded = true)
+        val result = applyCapturedThreadMetadata(evicted, state)
+        assertEquals(false, result.initialTurnsLoaded)
+        assertEquals(null, result.olderTurnsCursor)
+        assertEquals("New metadata", result.info.title)
+    }
+
+    private fun thread(revision: ULong, items: List<HydratedConversationItem>) = AppThreadSnapshot(
+        key = ThreadKey("srv", "thread"), capturedItemsRevision = revision,
+        info = ThreadInfo(id = "thread", title = "Title", model = null, status = ThreadSummaryStatus.IDLE,
+            preview = null, cwd = null, path = null, modelProvider = null, agentNickname = null,
+            agentRole = null, parentThreadId = null, forkedFromId = null, agentStatus = null,
+            createdAt = null, updatedAt = null),
+        agentRuntimeKind = "codex", collaborationMode = AppModeKind.DEFAULT, model = null,
+        reasoningEffort = null, effectiveApprovalPolicy = null, effectiveSandboxPolicy = null,
+        hydratedConversationItems = items, queuedFollowUps = emptyList(), activeTurnId = null,
+        activePlanProgress = null, pendingPlanImplementationPrompt = null, contextTokensUsed = null,
+        modelContextWindow = null, rateLimits = null, realtimeSessionId = null, goal = null,
+        stats = null, tokenUsage = null, olderTurnsCursor = null, initialTurnsLoaded = false)
 
     private fun assistant(text: String, revision: ULong) = HydratedConversationItem(
         id = "assistant",

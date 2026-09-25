@@ -243,6 +243,16 @@ impl ThreadItems {
         }
     }
 
+    /// Retained allocation capacity, including spare vector/index storage.
+    pub(super) fn retained_bytes(&self) -> usize {
+        use super::retention::HeapBytes;
+        // HashMap capacity excludes empty buckets; twice the exposed capacity
+        // conservatively covers bucket slack/control bytes without unsafe APIs.
+        self.items.heap_bytes()
+            + self.index.capacity() * 2 * (std::mem::size_of::<(String, usize)>() + 1)
+            + self.index.keys().map(String::capacity).sum::<usize>()
+    }
+
     /// Monotonic, globally unique stamp that changes on every mutation.
     pub fn revision(&self) -> u64 {
         self.revision

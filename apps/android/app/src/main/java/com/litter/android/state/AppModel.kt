@@ -1480,25 +1480,7 @@ class AppModel private constructor(context: android.content.Context) {
             if (existingThreadIndex < 0) return
 
             val existingThread = current.threads[existingThreadIndex]
-            val updatedThread = existingThread.copy(
-                info = state.info,
-                collaborationMode = state.collaborationMode,
-                model = state.model,
-                reasoningEffort = state.reasoningEffort,
-                effectiveApprovalPolicy = state.effectiveApprovalPolicy,
-                effectiveSandboxPolicy = state.effectiveSandboxPolicy,
-                queuedFollowUps = state.queuedFollowUps,
-                activeTurnId = state.activeTurnId,
-                activePlanProgress = state.activePlanProgress,
-                pendingPlanImplementationPrompt = state.pendingPlanImplementationPrompt,
-                contextTokensUsed = state.contextTokensUsed,
-                modelContextWindow = state.modelContextWindow,
-                rateLimits = state.rateLimits,
-                realtimeSessionId = state.realtimeSessionId,
-                goal = state.goal,
-                olderTurnsCursor = state.olderTurnsCursor,
-                initialTurnsLoaded = state.initialTurnsLoaded,
-            )
+            val updatedThread = applyCapturedThreadMetadata(existingThread, state)
             val updatedThreads = current.threads.toMutableList().apply {
                 this[existingThreadIndex] = updatedThread
             }
@@ -1645,10 +1627,7 @@ class AppModel private constructor(context: android.content.Context) {
 
     private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {
         val cached = cachedThreadSnapshots[thread.key] ?: return thread
-        return thread.copy(hydratedConversationItems = mergeCapturedThreadItems(
-            thread.hydratedConversationItems, thread.capturedItemsRevision,
-            cached.hydratedConversationItems, cached.capturedItemsRevision,
-        ), capturedItemsRevision = maxOf(thread.capturedItemsRevision, cached.capturedItemsRevision))
+        return mergeCapturedThreadSnapshot(thread, cached)
     }
 
     private fun mergeCachedThreadSnapshots(snapshot: AppSnapshotRecord): AppSnapshotRecord {
@@ -1708,6 +1687,37 @@ internal class SnapshotRefreshFence {
         ticket.mutation != mutation -> Disposition.RETRY
         else -> Disposition.APPLY
     }
+}
+
+/** Metadata has no content revision; pagination stays with the captured list. */
+internal fun applyCapturedThreadMetadata(thread: AppThreadSnapshot, state: uniffi.codex_mobile_client.AppThreadStateRecord): AppThreadSnapshot {
+    return thread.copy(
+        info = state.info,
+        collaborationMode = state.collaborationMode,
+        model = state.model,
+        reasoningEffort = state.reasoningEffort,
+        effectiveApprovalPolicy = state.effectiveApprovalPolicy,
+        effectiveSandboxPolicy = state.effectiveSandboxPolicy,
+        queuedFollowUps = state.queuedFollowUps,
+        activeTurnId = state.activeTurnId,
+        activePlanProgress = state.activePlanProgress,
+        pendingPlanImplementationPrompt = state.pendingPlanImplementationPrompt,
+        contextTokensUsed = state.contextTokensUsed,
+        modelContextWindow = state.modelContextWindow,
+        rateLimits = state.rateLimits,
+        realtimeSessionId = state.realtimeSessionId,
+        goal = state.goal,
+    )
+}
+
+internal fun mergeCapturedThreadSnapshot(thread: AppThreadSnapshot, cached: AppThreadSnapshot): AppThreadSnapshot {
+    val oldCapture = thread.capturedItemsRevision != 0uL && thread.capturedItemsRevision < cached.capturedItemsRevision
+    return thread.copy(hydratedConversationItems = mergeCapturedThreadItems(
+        thread.hydratedConversationItems, thread.capturedItemsRevision,
+        cached.hydratedConversationItems, cached.capturedItemsRevision,
+    ), capturedItemsRevision = maxOf(thread.capturedItemsRevision, cached.capturedItemsRevision),
+        initialTurnsLoaded = if (oldCapture) cached.initialTurnsLoaded else thread.initialTurnsLoaded,
+        olderTurnsCursor = if (oldCapture) cached.olderTurnsCursor else thread.olderTurnsCursor)
 }
 
 /** Rust captures the entire canonical list; only revision zero may omit hydrated history. */

@@ -552,6 +552,10 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
     response: upstream::ThreadReadResponse,
     include_turns: bool,
 ) -> Result<(), RpcError> {
+    let _history = app_store.history_lease(&ThreadKey {
+        server_id: server_id.to_string(),
+        thread_id: response.thread.id.clone(),
+    });
     let snapshot = thread_snapshot_from_app_server_read_response(
         app_store,
         server_id,

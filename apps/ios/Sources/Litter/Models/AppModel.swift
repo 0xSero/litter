@@ -1655,8 +1655,8 @@ final class AppModel {
         thread.rateLimits = state.rateLimits
         thread.realtimeSessionId = state.realtimeSessionId
         thread.goal = state.goal
-        thread.olderTurnsCursor = state.olderTurnsCursor
-        thread.initialTurnsLoaded = state.initialTurnsLoaded
+        // Pagination belongs to revisioned full-content updates. A delayed
+        // metadata event must not mark an evicted transcript loaded again.
         let threadChanged = snapshot.threads[threadIndex] != thread
         snapshot.threads[threadIndex] = thread
 
@@ -2496,6 +2496,8 @@ final class AppModel {
         if thread.capturedItemsRevision != 0 && thread.capturedItemsRevision < cached.capturedItemsRevision {
             merged.hydratedConversationItems = cached.hydratedConversationItems
             merged.capturedItemsRevision = cached.capturedItemsRevision
+            merged.initialTurnsLoaded = cached.initialTurnsLoaded
+            merged.olderTurnsCursor = cached.olderTurnsCursor
             return merged
         }
         // Rust projects the entire canonical list for every captured snapshot.
