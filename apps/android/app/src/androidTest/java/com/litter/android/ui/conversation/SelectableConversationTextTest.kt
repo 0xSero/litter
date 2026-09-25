@@ -9,6 +9,7 @@ import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -28,6 +29,7 @@ class SelectableConversationTextTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             val textView = TextView(instrumentation.targetContext)
+            textView.layoutParams = ViewGroup.LayoutParams(1200, ViewGroup.LayoutParams.WRAP_CONTENT)
             var linkClicks = 0
             val content = SpannableString("plain link text")
             val linkStart = 6

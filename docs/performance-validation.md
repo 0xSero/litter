@@ -1,8 +1,8 @@
 # Performance validation
 
 This is a measurement record for the performance work based on `a2f39d17`, recorded
-on 2026-09-24. The candidate was an uncommitted development worktree at measurement
-time. The results establish specific improvements and regression coverage; they do
+on 2026-09-24. The measurements span successive commits on `perf/measured-mobile-host`;
+individual results below identify their scope and whether later changes supersede them. The results establish specific improvements and regression coverage; they do
 not establish production startup latency, a percentile ranking, or absence of all
 memory and storage leaks. Final native and device acceptance is still pending.
 
@@ -90,8 +90,9 @@ scroll movement, and bounded mounts.
 The first UI run exposed continuously paused pinch-blur animators on idle rows,
 causing XCTest animation-idle waits. Idle rows now create those animators only when
 needed and dispose of them after the gesture. A regression covers newly mounted,
-reattached, and accessibility-updated idle rows. A fresh UI run is required; the
-interrupted run is not a pass or a usable navigation timing measurement.
+reattached, and accessibility-updated idle rows. The subsequent native functional run passed the plain pinch/swipe/scroll test
+and deep-row open/Back tests at all four zoom levels. The interrupted first run
+is not a pass or a usable navigation timing measurement.
 
 `MobilePerformanceUITests.testMainHomeLaunchPerformance` adds a separate launch
 measurement with no fixture flags or preference overrides. It records XCTest's
@@ -113,13 +114,34 @@ callback through the recreated Home view's SwiftUI `onAppear` on compact layouts
 It excludes nested navigation, interactive edge-swipe pop, and split layouts. Its
 endpoint is appearance callback delivery, not a displayed frame or touch latency.
 
-Android `:app:testDebugUnitTest` passed all 71 tests in 16 suites with current
-sources and regenerated bindings. The earlier `:app:assembleDebug` run passed,
-but installation with the final rebuilt Rust library is still pending. The final shared Rust
+The native functional run `ios-final-functional` passed 296 unit tests and 14 UI
+tests, with one rich-session pinch failure (310/311 total). This includes native
+snapshot-fence, controlled asynchronous AppModel, lifecycle, and compact-lineage
+regressions. The rich fixture retains a 1,000-member fork family. Its original
+pinch scale 0.7 did not cross the page-fit snap threshold; scale 0.5 corrected the
+input, but one subsequent run still failed. Diagnostic repeats then passed,
+including two consecutive runs with only terminal gesture-state tracing and no
+fixed sleep or hierarchy-dump delay. Both traced recognizer endings committed
+zoom 2 from zoom 4, retained session 900, and completed open/Back. No production
+gesture semantics changed during this investigation; the intermittent failure
+remains unexplained. Whole XCTest durations are not interaction latency.
+
+Android `:app:testDebugUnitTest` passed all 80 tests in 18 suites. Both APK builds
+passed, and the rebuilt Rust library was installed on the API 37 arm64 emulator.
+The first native instrumentation run passed nine tests and exposed one real
+text-selection/link-handling ordering failure. The corrected implementation sets
+selectability before restoring link movement handling. A stronger regression
+checks link touch dispatch and arbitrary buffer selection across true/false/true
+reconfiguration; all ten native instrumentation tests passed after supplying layout parameters
+for the standalone test view. The link regression dispatches actual MotionEvents
+and selects a buffer range on the main thread; it does not verify attached
+long-press selection handles or action-mode presentation. The shared Rust
 library suite passed 844 tests with zero failures and three ignored tests, including
 idle subscription cancellation, removed-thread cache cleanup, removed-server
 launch-row cleanup, and launch-cache projection without cloning conversation history.
-This host run does not establish that the native apps contain the rebuilt library.
+This host run precedes the subsequent revisioned streaming change and does not
+establish acceptance of that change. Installed native builds have their own test
+records and must be rebuilt again when the shared library changes.
 
 An isolated Kotlin 2.0.21/OpenJDK 21 stress harness also ran exact extracted
 production Android snapshot/cache projection methods with value-only records and
@@ -130,6 +152,30 @@ with 200 concurrent full-resync merge/prune passes preserved all hydrated payloa
 Authoritative pruning and remove/restore invariants passed. These are correctness
 checks, not timing measurements or Android integration tests. Local source copies
 and output are under `artifacts/performance-steward/android-projection/`.
+
+## Compact fork ancestry: matched Android host experiment
+
+The production lineage projection was extracted into a Kotlin/OpenJDK host
+runner. Five before/after samples used 1,000 unrelated sessions and a 1,000-session
+linear fork chain. Both processes ran on the same Mac under concurrent build
+load; this is not an Android frame or launch benchmark. The runner checks output
+counts and measures per-thread allocation and post-GC retained-heap deltas.
+
+| Fixture | Baseline median | Candidate median | Baseline allocated bytes | Candidate allocated bytes |
+| --- | --- | --- | --- | --- |
+| 1,000 unrelated sessions | 1.290 ms | 1.828 ms | 842,336–860,344 B | 874,256–880,672 B |
+| 1,000-session fork chain | 55.292 ms | 2.062 ms | 72,176,840–72,198,224 B | 899,768–901,248 B |
+
+The unrelated fixture shows a small absolute regression in this noisy host run;
+the pathological chain improves by about 26.8 times with approximately 98.8%
+less allocation. Retained ancestry references fall from 499,500 to 3,990.
+Post-GC retained heap for the chain was about 14.2 MB before and usually 196 KB
+after, with one candidate sample at 679 KB; this is not a precise heap profiler.
+The UI explicitly indicates omitted ancestors: it retains the root/oldest loaded
+ancestor and nearest three ancestors, while the full sibling family remains
+available through lazy horizontal rendering. Both native platforms use this
+projection rule. Tests cover missing parents, server boundaries and malformed
+cycles. Evidence is under `artifacts/performance-steward/android-home-membership/`.
 
 ## Kittylitter daemon and transport
 
