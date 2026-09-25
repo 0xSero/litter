@@ -144,11 +144,21 @@ struct HomeSessionsUITestHarnessView: View {
     private static let richSeedSessions = makeSessions(richContent: true)
 
     private static func makeSessions(richContent: Bool) -> [HomeDashboardRecentSession] {
-        (0..<1_000).map { index in
-            HomeDashboardRecentSession(
-                key: ThreadKey(serverId: "fixture-\(index % 10)", threadId: "session-\(index)"),
-                serverId: "fixture-\(index % 10)",
-                serverDisplayName: "Fixture \(index % 10)",
+        // Rich mode also exercises a thousand-branch family. All projections
+        // share this one member buffer; ordinary timing fixtures stay unchanged.
+        let family = richContent ? (0..<1_000).map {
+            ThreadLineageMember(key: ThreadKey(serverId: "fixture-family", threadId: "session-\($0)"), title: "Branch \($0)")
+        } : []
+        return (0..<1_000).map { index in
+            let lineage: ThreadLineage? = richContent ? ThreadLineage(
+                rootKey: family[0].key, parentKey: index == 0 ? nil : family[0].key,
+                ancestors: index == 0 ? [] : [family[0]], omittedAncestorCount: 0,
+                members: family, branchIndex: index + 1, branchTotal: family.count
+            ) : nil
+            return HomeDashboardRecentSession(
+                key: richContent ? family[index].key : ThreadKey(serverId: "fixture-\(index % 10)", threadId: "session-\(index)"),
+                serverId: richContent ? "fixture-family" : "fixture-\(index % 10)",
+                serverDisplayName: richContent ? "Fork family" : "Fixture \(index % 10)",
                 agentRuntimeKind: .codex,
                 isLocal: false,
                 sessionTitle: String(format: "Session %04d", index),
@@ -160,9 +170,9 @@ struct HomeSessionsUITestHarnessView: View {
                 hasTurnActive: false,
                 isResumed: true,
                 isSubagent: false,
-                isFork: false,
-                forkedFromId: nil,
-                lineage: nil,
+                isFork: richContent && index > 0,
+                forkedFromId: richContent && index > 0 ? "session-0" : nil,
+                lineage: lineage,
                 lastResponsePreview: richContent ? richResponse(index: index) : "## Fixture \(index)\n\n" + String(repeating: "A rendered response with **bold text** and `inline code`.\n\n", count: index % 5 + 1),
                 lastResponseTurnId: "turn-\(index)",
                 lastUserMessage: "Inspect fixture \(index)",

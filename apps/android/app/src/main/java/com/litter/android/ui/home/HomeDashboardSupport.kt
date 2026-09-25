@@ -35,6 +35,8 @@ data class ThreadLineage(
     val members: List<ThreadLineageMember>,
     val branchIndex: Int,
     val branchTotal: Int,
+    // Deep paths retain the oldest loaded ancestor and nearest three parents.
+    val omittedAncestorCount: Int = 0,
 ) {
     val hasMultipleBranches: Boolean get() = branchTotal > 1
 }
@@ -115,67 +117,78 @@ object HomeDashboardSupport {
      * not via fork affordances. Mirrors iOS `ThreadLineageMap.compute`.
      */
     fun computeLineageMap(sessions: List<AppSessionSummary>): Map<ThreadKey, ThreadLineage> {
-        if (sessions.isEmpty()) return emptyMap()
-
-        val byServerThreadId = HashMap<String, HashMap<String, AppSessionSummary>>()
+        data class PathProjection(
+            val rootKey: ThreadKey,
+            val ancestors: List<ThreadLineageMember>,
+            val omittedAncestorCount: Int = 0,
+        )
+        val byKey = sessions.associateBy { it.key }
+        val membersByKey = byKey.mapValues { (_, session) -> ThreadLineageMember(session.key, sessionTitle(session)) }
+        fun parentKey(session: AppSessionSummary): ThreadKey? = session.forkedFromId?.trim()
+            ?.takeIf { it.isNotEmpty() }?.let { ThreadKey(session.key.serverId, it) }
+        val paths = HashMap<ThreadKey, PathProjection>()
         for (session in sessions) {
-            byServerThreadId.getOrPut(session.key.serverId) { HashMap() }[session.key.threadId] = session
-        }
-
-        fun root(session: AppSessionSummary): ThreadKey {
+            if (session.key in paths) continue
+            val trail = mutableListOf<AppSessionSummary>()
+            val positions = HashMap<ThreadKey, Int>()
             var current = session
-            val visited = HashSet<String>()
-            visited.add(current.key.threadId)
-            while (true) {
-                val parentId = current.forkedFromId?.trim()
-                if (parentId.isNullOrEmpty() || !visited.add(parentId)) return current.key
-                val parent = byServerThreadId[current.key.serverId]?.get(parentId)
-                    ?: return ThreadKey(serverId = current.key.serverId, threadId = parentId)
+            while (current.key !in paths) {
+                val cycleStart = positions[current.key]
+                if (cycleStart != null) {
+                    // Malformed cycles share a deterministic root and have no
+                    // cyclic breadcrumb, matching the iOS fallback.
+                    val cycle = trail.subList(cycleStart, trail.size)
+                    val root = cycle.minBy { it.key.threadId }.key
+                    cycle.forEach { paths[it.key] = PathProjection(root, emptyList()) }
+                    cycle.clear()
+                    break
+                }
+                positions[current.key] = trail.size
+                trail.add(current)
+                val parentKey = parentKey(current)
+                if (parentKey == null) {
+                    paths[current.key] = PathProjection(current.key, emptyList())
+                    trail.removeAt(trail.lastIndex)
+                    break
+                }
+                val parent = byKey[parentKey]
+                if (parent == null) {
+                    paths[current.key] = PathProjection(parentKey, emptyList())
+                    trail.removeAt(trail.lastIndex)
+                    break
+                }
                 current = parent
+            }
+            // Resolve every key once, retaining at most four breadcrumb entries.
+            for (child in trail.asReversed()) {
+                val parentKey = parentKey(child)!!
+                val parentPath = paths.getValue(parentKey)
+                val ancestors = (parentPath.ancestors + membersByKey.getValue(parentKey)).toMutableList()
+                var omitted = parentPath.omittedAncestorCount
+                if (ancestors.size > 4) {
+                    ancestors.removeAt(1)
+                    omitted += 1
+                }
+                paths[child.key] = PathProjection(parentPath.rootKey, ancestors, omitted)
             }
         }
 
-        fun ancestorChain(session: AppSessionSummary): List<ThreadLineageMember> {
-            val chain = ArrayDeque<ThreadLineageMember>()
-            var current = session
-            val visited = HashSet<String>()
-            visited.add(current.key.threadId)
-            while (true) {
-                val parentId = current.forkedFromId?.trim()
-                if (parentId.isNullOrEmpty() || !visited.add(parentId)) break
-                val parent = byServerThreadId[current.key.serverId]?.get(parentId) ?: break
-                chain.addFirst(ThreadLineageMember(parent.key, sessionTitle(parent)))
-                current = parent
-            }
-            return chain.toList()
-        }
-
-        val rootByKey = HashMap<ThreadKey, ThreadKey>()
-        for (session in sessions) {
-            rootByKey[session.key] = root(session)
-        }
-
-        val groupsByRoot = HashMap<ThreadKey, MutableList<AppSessionSummary>>()
-        for (session in sessions) {
-            val r = rootByKey[session.key] ?: session.key
-            groupsByRoot.getOrPut(r) { mutableListOf() }.add(session)
-        }
-
+        val groupsByRoot = sessions.groupBy { paths.getValue(it.key).rootKey }
         val result = HashMap<ThreadKey, ThreadLineage>()
         for ((rootKey, group) in groupsByRoot) {
             val sorted = group.sortedByDescending { it.updatedAt ?: 0L }
-            val members = sorted.map { ThreadLineageMember(it.key, sessionTitle(it)) }
+            // Share one complete family list across its branch projections.
+            val members = sorted.map { membersByKey.getValue(it.key) }
             for ((idx, session) in sorted.withIndex()) {
-                val parentKey = session.forkedFromId?.trim()?.takeIf { it.isNotEmpty() }
-                    ?.let { ThreadKey(serverId = session.key.serverId, threadId = it) }
-                val ancestors = ancestorChain(session)
+                val path = paths.getValue(session.key)
                 result[session.key] = ThreadLineage(
                     rootKey = rootKey,
-                    parentKey = parentKey,
-                    ancestors = ancestors,
+                    parentKey = parentKey(session),
+                    ancestors = path.ancestors,
                     members = members,
                     branchIndex = idx + 1,
                     branchTotal = members.size,
+                    omittedAncestorCount = path.omittedAncestorCount,
                 )
             }
         }
