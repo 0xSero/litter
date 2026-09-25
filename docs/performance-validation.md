@@ -131,6 +131,37 @@ Authoritative pruning and remove/restore invariants passed. These are correctnes
 checks, not timing measurements or Android integration tests. Local source copies
 and output are under `artifacts/performance-steward/android-projection/`.
 
+## Kittylitter daemon and transport
+
+The 0.3.11 wrapper pins Alleycat `c27278bf`. An isolated real daemon loaded 1,000
+header-only native Pi session files in a temporary home and Git project, with only
+Pi enabled and no model credentials. A client using the mobile app's locked Iroh
+1.0.3 connected to the host's Iroh 1.2.0 over explicit loopback. It sent no prompts,
+`thread/start`, or `turn/start` requests.
+
+Each of three cycles fetched forty pages of 25 sessions, checking all 1,000 native
+session/thread IDs exactly once, then repeated the first page 100 times. All 420
+authenticated listings passed. Persisted index hydration took 281 ms; first-page
+times were 234, 79, and 106 ms. Warm first-page medians were 77–80 ms and p95 values
+137–170 ms. These listing results include actual adapter work; they are distinct
+from an empty `list_agents` transport probe (local p50 0.994 ms, p95 1.418 ms).
+The normal discovered relay path for that transport probe measured p50 295 ms and
+p95 329 ms, so local timings do not establish remote interaction latency.
+
+Across the three listing cycles, daemon RSS moved from 59,568 KiB to 58,992,
+61,632, and 63,840 KiB, then 59,056 KiB after idle. File descriptors stayed at 25
+after startup; the process tree peaked at 190,560 KiB with two descendants.
+Disk growth was 48,010 bytes of logs and initialization metadata, and the 1,000
+fixture files stayed unchanged. Graceful shutdown exited zero with no surviving
+children. This bounded test does not prove that arbitrary transcripts, every
+adapter, or long-running production use is leak-free. Reproduction source, locks,
+reports, and logs are retained in `artifacts/performance-steward/kittylitter-0311/`.
+
+The host pull request contains adapter/settings changes inherited from the
+previously shipped `dcda34d` pin as well as these performance fixes. Its complete
+delta against upstream main is broader than a standalone performance patch;
+[PR #54](https://github.com/0xSero/alleycat/pull/54) documents that review scope.
+
 ## Remaining release gates
 
 - Run the final focused iOS suites and UI harness after rebuilding current Rust
