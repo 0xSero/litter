@@ -11,10 +11,12 @@ final class StreamingRendererCoordinator {
 
     private var renderers: [String: StreamingMarkdownRenderer] = [:]
     private var activeItemId: String?
+    private var rendererRevisions: [String: UInt64] = [:]
 
     // MARK: - Delta feeding
 
-    func appendDelta(_ delta: String, for itemId: String) {
+    func appendDelta(_ delta: String, for itemId: String, revision: UInt64 = 0) {
+        if revision > 0, revision <= (rendererRevisions[itemId] ?? 0) { return }
         if activeItemId != itemId {
             if let oldId = activeItemId {
                 renderers[oldId]?.finish()
@@ -30,7 +32,25 @@ final class StreamingRendererCoordinator {
         // when a renderer already exists), dropping the first delta.
         // Letting this be a no-op when no renderer exists means the bubble
         // view's init seeds the renderer from the snapshot's full text.
-        renderers[itemId]?.append(delta)
+        if let renderer = renderers[itemId] {
+            renderer.append(delta)
+            rendererRevisions[itemId] = max(rendererRevisions[itemId] ?? 0, revision)
+        }
+    }
+
+    /// A snapshot can already contain deltas still waiting in the subscription.
+    /// Keep mounted renderers aligned before those redundant deltas are skipped.
+    func synchronizeAuthoritativeText(_ text: String, for itemId: String, revision: UInt64) {
+        guard let renderer = renderers[itemId], !renderer.isFinished,
+              revision >= (rendererRevisions[itemId] ?? 0) else { return }
+        rendererRevisions[itemId] = revision
+        let current = renderer.rawText
+        guard current != text else { return }
+        if text.hasPrefix(current) {
+            renderer.append(String(text.dropFirst(current.count)))
+        } else {
+            renderer.setContent(text)
+        }
     }
 
     // MARK: - Renderer access
@@ -55,6 +75,7 @@ final class StreamingRendererCoordinator {
     }
 
     func finish(itemId: String) {
+        rendererRevisions.removeValue(forKey: itemId)
         if let r = renderers.removeValue(forKey: itemId) {
             r.finish()
         }
@@ -69,6 +90,7 @@ final class StreamingRendererCoordinator {
         // Mounted bubbles retain their own renderer until SwiftUI replaces
         // them. The coordinator only owns renderers for the live turn.
         renderers.removeAll()
+        rendererRevisions.removeAll()
         activeItemId = nil
     }
 

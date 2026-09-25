@@ -466,6 +466,217 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         XCTAssertNotNil(model.threadSnapshot(for: key))
     }
 
+    @MainActor
+    func testSnapshotCoveredDeltaIsSkippedWithinCoalescedBatch() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("A🐈", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText, chunks: [
+            ThreadStreamingDeltaChunk(revision: 20, text: "🐈"),
+            ThreadStreamingDeltaChunk(revision: 21, text: "🐈")
+        ]))
+        model.flushPendingStreamingDeltas()
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "A🐈🐈")
+        XCTAssertEqual(item.capturedItemsRevision, 21)
+    }
+
+    @MainActor
+    func testTargetedContentPublishedBeforePendingFlushDoesNotDuplicateText() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 10)]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText, chunks: [
+            ThreadStreamingDeltaChunk(revision: 11, text: "B")
+        ]))
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 11)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        model.flushPendingStreamingDeltas()
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "AB")
+    }
+
+    @MainActor
+    func testOlderItemEventAndCachedSnapshotCannotRevertCapturedContent() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadItemChanged(key: key,
+            item: capturedAssistant("A", revision: 19), sessionSummary: snapshot.sessionSummaries[0]))
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 19)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "AB")
+        XCTAssertEqual(item.capturedItemsRevision, 20)
+    }
+
+    @MainActor
+    func testAuthoritativeSnapshotSynchronizesMountedRendererBeforeUnreadDelta() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        let coordinator = StreamingRendererCoordinator.shared
+        coordinator.reset()
+        let renderer = coordinator.renderer(for: "assistant", currentText: "A")
+        var thread = makeThreadSnapshot(key: key)
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        var snapshot = makeSnapshot(threads: [thread])
+        snapshot.activeThread = key
+        let model = AppModel()
+        defer { model.stop(); coordinator.reset() }
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadStreamingDelta(key: key, itemId: "assistant", kind: .assistantText,
+            chunks: [ThreadStreamingDeltaChunk(revision: 20, text: "B")]))
+        model.flushPendingStreamingDeltas()
+        XCTAssertEqual(renderer.rawText, "AB")
+    }
+
+    @MainActor
+    func testCapturedMembershipRejectsOldMissingItemButAllowsEqualRevisionMetadata() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        await model.handleStoreUpdate(.threadItemChanged(key: key,
+            item: capturedAssistant("Old", revision: 19), sessionSummary: snapshot.sessionSummaries[0]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        thread.info.title = "New metadata"
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.info.title, "New metadata")
+    }
+
+    @MainActor
+    func testNewerThreadUpsertCanCorrectStreamingTextToShorterContent() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key, activeTurnId: "turn")
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [capturedAssistant("AB", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        thread.capturedItemsRevision = 30
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 30)]
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        let item = model.threadSnapshot(for: key)!.hydratedConversationItems[0]
+        guard case .assistant(let data) = item.content else { return XCTFail("Expected assistant") }
+        XCTAssertEqual(data.text, "A")
+        XCTAssertEqual(item.capturedItemsRevision, 30)
+    }
+
+    @MainActor
+    func testOlderThreadUpsertCannotResurrectRemovedItem() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 20)]
+        let model = AppModel()
+        defer { model.stop() }
+        let snapshot = makeSnapshot(threads: [thread])
+        model.applySnapshot(snapshot)
+        thread.capturedItemsRevision = 10
+        var removed = capturedAssistant("Old removed item", revision: 10)
+        removed.id = "removed"
+        thread.hydratedConversationItems = [capturedAssistant("Old A", revision: 10), removed]
+        await model.handleStoreUpdate(.threadUpserted(thread: thread,
+            sessionSummary: snapshot.sessionSummaries[0], agentDirectoryVersion: 0))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id), ["assistant"])
+        XCTAssertEqual(model.threadSnapshot(for: key)?.capturedItemsRevision, 20)
+    }
+
+    @MainActor
+    func testAuthoritativeEmptySnapshotRetainsMembershipFenceAgainstOldReplay() {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        thread.capturedItemsRevision = 10
+        thread.hydratedConversationItems = [capturedAssistant("A", revision: 10)]
+        let old = thread
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = []
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        model.applySnapshot(makeSnapshot(threads: [old]))
+        XCTAssertTrue(model.threadSnapshot(for: key)!.hydratedConversationItems.isEmpty)
+        XCTAssertEqual(model.threadSnapshot(for: key)?.capturedItemsRevision, 20)
+        thread.capturedItemsRevision = 30
+        thread.hydratedConversationItems = [capturedAssistant("New", revision: 30)]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.count, 1)
+    }
+
+    @MainActor
+    func testDelayedSnapshotPreservesPositionOfNewerMiddleItem() async {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        let first = capturedAssistant("A", revision: 20)
+        var middle = capturedAssistant("B", revision: 20)
+        middle.id = "middle"
+        var last = capturedAssistant("C", revision: 20)
+        last.id = "last"
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [first, middle, last]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 25
+        thread.hydratedConversationItems = [first, last].map { item in
+            var item = item
+            item.capturedItemsRevision = 25
+            return item
+        }
+        // The full capture trails a newer native item update inserted in the middle.
+        middle.capturedItemsRevision = 30
+        await model.handleStoreUpdate(.threadItemChanged(key: key, item: middle,
+            sessionSummary: makeSnapshot(threads: [thread]).sessionSummaries[0]))
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id),
+                       ["assistant", "middle", "last"])
+    }
+
+    @MainActor
+    func testOlderWholeSnapshotCannotReorderCapturedItems() {
+        let key = ThreadKey(serverId: "srv", threadId: "stream")
+        var thread = makeThreadSnapshot(key: key)
+        let first = capturedAssistant("A", revision: 20)
+        var last = capturedAssistant("C", revision: 20)
+        last.id = "last"
+        thread.capturedItemsRevision = 20
+        thread.hydratedConversationItems = [last, first]
+        let model = AppModel()
+        defer { model.stop() }
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        thread.capturedItemsRevision = 10
+        thread.hydratedConversationItems = [first, last]
+        model.applySnapshot(makeSnapshot(threads: [thread]))
+        XCTAssertEqual(model.threadSnapshot(for: key)?.hydratedConversationItems.map(\.id), ["last", "assistant"])
+    }
+
+    private func capturedAssistant(_ text: String, revision: UInt64) -> HydratedConversationItem {
+        HydratedConversationItem(id: "assistant",
+            content: .assistant(HydratedAssistantMessageData(text: text, agentNickname: nil, agentRole: nil, phase: nil)),
+            sourceTurnId: nil, sourceTurnIndex: nil, timestamp: nil, isFromUserTurnBoundary: false,
+            capturedItemsRevision: revision)
+    }
+
     private func makeSnapshot(threads: [AppThreadSnapshot]) -> AppSnapshotRecord {
         let server = AppServerSnapshot(
             serverId: "srv",

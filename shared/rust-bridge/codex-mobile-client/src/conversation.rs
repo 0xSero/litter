@@ -411,6 +411,7 @@ fn convert_thread_item(
                     source_turn_index: source_turn_index.map(|i| i as u32),
                     timestamp: None,
                     is_from_user_turn_boundary: false,
+                    captured_items_revision: 0,
                 });
             }
             let content_summary = content_items.as_ref().map(|items| {
@@ -630,6 +631,7 @@ fn convert_thread_item(
         source_turn_index: source_turn_index.map(|i| i as u32),
         timestamp: None,
         is_from_user_turn_boundary: is_boundary,
+        captured_items_revision: 0,
     })
 }
 
@@ -651,6 +653,7 @@ pub fn make_turn_diff_item(
         source_turn_index: None,
         timestamp: None,
         is_from_user_turn_boundary: false,
+        captured_items_revision: 0,
     }
 }
 
@@ -674,6 +677,7 @@ pub fn make_model_rerouted_item(
         source_turn_index: None,
         timestamp: None,
         is_from_user_turn_boundary: false,
+        captured_items_revision: 0,
     }
 }
 
@@ -689,6 +693,7 @@ pub fn make_error_item(id: String, message: String, code: Option<i64>) -> Hydrat
         source_turn_index: None,
         timestamp: None,
         is_from_user_turn_boundary: false,
+        captured_items_revision: 0,
     }
 }
 

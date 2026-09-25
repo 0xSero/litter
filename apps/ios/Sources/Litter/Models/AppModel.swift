@@ -39,7 +39,7 @@ final class AppModel {
     /// so we can flush all accumulated tokens in a single `snapshot`
     /// mutation (~8 fps) instead of reassigning `snapshot` per token.
     private struct PendingStreamingDelta: Sendable {
-        var text: String = ""
+        var chunks: [ThreadStreamingDeltaChunk] = []
     }
 
     /// Dictionary key for streaming-delta batches. Bundles the identifying
@@ -933,7 +933,7 @@ final class AppModel {
             self.snapshot = mergedSnapshot
             if let mergedSnapshot {
                 persistWakeMACs(from: mergedSnapshot.servers)
-                mergedSnapshot.threads.forEach(cacheThreadSnapshot)
+                mergedSnapshot.threads.forEach { cacheThreadSnapshot($0) }
                 lastError = nil
             }
         }
@@ -997,7 +997,7 @@ final class AppModel {
         }
     }
 
-    private func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
+    func handleStoreUpdate(_ update: AppStoreUpdateRecord) async {
         snapshotRefreshFence.invalidate()
         // Argument is an `@autoclosure`: nothing below is evaluated outside
         // DEBUG, and even in DEBUG it only reads the case discriminant.
@@ -1049,7 +1049,7 @@ final class AppModel {
             // fields (stats, last tool label, etc.) stay in sync with the
             // stream without waiting for a full snapshot rebuild.
             applySessionSummary(sessionSummary)
-        case .threadStreamingDelta(let key, let itemId, let kind, let text):
+        case .threadStreamingDelta(let key, let itemId, let kind, let chunks):
             // Feed the live transcript renderer immediately so the streaming
             // bubble stays smooth at the token rate. The snapshot mutation
             // is coalesced below so the rest of the UI (home, overlays,
@@ -1063,10 +1063,18 @@ final class AppModel {
                 // Background threads must not finish the viewed thread's
                 // renderer merely by changing the coordinator's active item.
                 if snapshot?.activeThread == key {
-                    StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
+                    let thread = threadSnapshot(for: key)
+                    let included = thread?.hydratedConversationItems
+                        .first(where: { $0.id == itemId })?.capturedItemsRevision ?? thread?.capturedItemsRevision ?? 0
+                    let pending = chunks.filter { $0.revision > included }
+                    if let revision = pending.last?.revision {
+                        StreamingRendererCoordinator.shared.appendDelta(
+                            pending.map(\.text).joined(), for: itemId, revision: revision
+                        )
+                    }
                 }
             }
-            enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
+            enqueueStreamingDelta(key: key, itemId: itemId, kind: kind, chunks: chunks)
         case .threadRemoved(let key, let agentDirectoryVersion):
             flushPendingStreamingDeltas(for: key)
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
@@ -1208,8 +1216,13 @@ final class AppModel {
         key: ThreadKey,
         itemId: String,
         kind: ThreadStreamingDeltaKind,
-        text: String
+        chunks: [ThreadStreamingDeltaChunk]
     ) {
+        let thread = threadSnapshot(for: key)
+        let included = thread?.hydratedConversationItems.first(where: { $0.id == itemId })?.capturedItemsRevision
+            ?? thread?.capturedItemsRevision ?? 0
+        let chunks = chunks.filter { $0.revision > included }
+        guard !chunks.isEmpty else { return }
         // If the target item is not yet in the snapshot, batching would just
         // accumulate text against a missing row; fall back to the debounced
         // full-thread refresh so the item appears and then streams.
@@ -1223,7 +1236,7 @@ final class AppModel {
 
         let batchKey = StreamingDeltaBatchKey(key: key, itemId: itemId, kind: kind)
         var pending = pendingStreamingDeltas[batchKey] ?? PendingStreamingDelta()
-        pending.text += text
+        pending.chunks.append(contentsOf: chunks)
         pendingStreamingDeltas[batchKey] = pending
 
         guard pendingStreamingDeltaTask == nil else { return }
@@ -1248,7 +1261,7 @@ final class AppModel {
     /// mutation, bumping `snapshotRevision` once per flush instead of per
     /// token. Passing a `ThreadKey` flushes only that thread's deltas
     /// (used on turn completion); passing `nil` flushes everything.
-    private func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
+    func flushPendingStreamingDeltas(for key: ThreadKey? = nil) {
         PerfTracker.time("flushStreamingDeltas") {
             flushPendingStreamingDeltasImpl(for: key)
         }
@@ -1290,15 +1303,20 @@ final class AppModel {
                 continue
             }
             var item = thread.hydratedConversationItems[itemIndex]
-            guard let updatedContent = applyingStreamingDelta(
-                kind: entry.batchKey.kind,
-                text: entry.pending.text,
-                to: item.content
-            ) else {
-                droppedThreadKeys.insert(entry.batchKey.key)
-                continue
+            let pending = entry.pending.chunks.filter { $0.revision > item.capturedItemsRevision }
+            guard let revision = pending.last?.revision else { continue }
+            // Filter by revision before joining, then copy transcript text once.
+            if entry.batchKey.kind == .mcpProgress, case .mcpToolCall(var data) = item.content {
+                data.progressMessages += pending.map(\.text).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                item.content = .mcpToolCall(data)
+            } else {
+                guard let content = applyingStreamingDelta(kind: entry.batchKey.kind, text: pending.map(\.text).joined(), to: item.content) else {
+                    droppedThreadKeys.insert(entry.batchKey.key)
+                    continue
+                }
+                item.content = content
             }
-            item.content = updatedContent
+            item.capturedItemsRevision = revision
             guard thread.hydratedConversationItems[itemIndex] != item else { continue }
             thread.hydratedConversationItems[itemIndex] = item
             snapshot.threads[threadIndex] = thread
@@ -1317,7 +1335,7 @@ final class AppModel {
         if mutated {
             self.snapshot = snapshot
             for threadIndex in touchedThreads {
-                cacheThreadSnapshot(snapshot.threads[threadIndex])
+                cacheThreadSnapshot(snapshot.threads[threadIndex], synchronizeRenderer: false)
             }
             lastError = nil
         }
@@ -1689,9 +1707,11 @@ final class AppModel {
             var thread = snapshot.threads[threadIndex]
 
             if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
-                guard thread.hydratedConversationItems[itemIndex] != item else { continue }
+                guard item.capturedItemsRevision >= thread.hydratedConversationItems[itemIndex].capturedItemsRevision,
+                      thread.hydratedConversationItems[itemIndex] != item else { continue }
                 thread.hydratedConversationItems[itemIndex] = item
             } else {
+                guard item.capturedItemsRevision == 0 || item.capturedItemsRevision > thread.capturedItemsRevision else { continue }
                 let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
                 thread.hydratedConversationItems.insert(item, at: insertionIndex)
             }
@@ -1877,9 +1897,11 @@ final class AppModel {
 
         var thread = snapshot.threads[threadIndex]
         if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
-            guard thread.hydratedConversationItems[itemIndex] != item else { return true }
+            guard item.capturedItemsRevision >= thread.hydratedConversationItems[itemIndex].capturedItemsRevision,
+                  thread.hydratedConversationItems[itemIndex] != item else { return true }
             thread.hydratedConversationItems[itemIndex] = item
         } else {
+            guard item.capturedItemsRevision == 0 || item.capturedItemsRevision > thread.capturedItemsRevision else { return true }
             let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
             thread.hydratedConversationItems.insert(item, at: insertionIndex)
         }
@@ -1951,7 +1973,12 @@ final class AppModel {
             guard let oldItem = oldItemsById[newItem.id] else {
                 continue
             }
-            if let preserved = preservedStreamingContent(old: oldItem.content, new: newItem.content) {
+            if oldItem.capturedItemsRevision > newItem.capturedItemsRevision {
+                newThread.hydratedConversationItems[newIndex] = oldItem
+                continue
+            }
+            if newItem.capturedItemsRevision == 0,
+               let preserved = preservedStreamingContent(old: oldItem.content, new: newItem.content) {
                 newThread.hydratedConversationItems[newIndex].content = preserved
             }
         }
@@ -2450,33 +2477,58 @@ final class AppModel {
         applyThreadSnapshot(cached)
     }
 
-    private func cacheThreadSnapshot(_ thread: AppThreadSnapshot) {
+    private func cacheThreadSnapshot(_ thread: AppThreadSnapshot, synchronizeRenderer: Bool = true) {
         cachedThreadSnapshots[thread.key] = thread
+        if synchronizeRenderer && snapshot?.activeThread == thread.key {
+            for item in thread.hydratedConversationItems {
+                if case .assistant(let data) = item.content {
+                    StreamingRendererCoordinator.shared.synchronizeAuthoritativeText(
+                        data.text, for: item.id, revision: item.capturedItemsRevision
+                    )
+                }
+            }
+        }
     }
 
     private func mergedThreadSnapshotPreservingHydratedItems(_ thread: AppThreadSnapshot) -> AppThreadSnapshot {
-        guard let cached = cachedThreadSnapshots[thread.key],
-              !cached.hydratedConversationItems.isEmpty else {
-            return thread
-        }
-
-        if thread.hydratedConversationItems.count < cached.hydratedConversationItems.count {
-            LLog.warn("streaming", "threadUpsert arrived with fewer items than cached", fields: [
-                "threadId": thread.key.threadId,
-                "incoming": thread.hydratedConversationItems.count,
-                "cached": cached.hydratedConversationItems.count,
-                "status": String(describing: thread.info.status)
-            ])
-        }
-
-        // Incoming has no items → use cached items entirely.
-        if thread.hydratedConversationItems.isEmpty {
-            var merged = thread
+        guard let cached = cachedThreadSnapshots[thread.key] else { return thread }
+        var merged = thread
+        if thread.capturedItemsRevision != 0 && thread.capturedItemsRevision < cached.capturedItemsRevision {
             merged.hydratedConversationItems = cached.hydratedConversationItems
+            merged.capturedItemsRevision = cached.capturedItemsRevision
             return merged
         }
-
-        return thread
+        // Rust projects the entire canonical list for every captured snapshot.
+        // Only legacy revision-zero projections can omit hydrated history.
+        if thread.hydratedConversationItems.isEmpty && thread.capturedItemsRevision == 0 {
+            merged.hydratedConversationItems = cached.hydratedConversationItems
+        } else {
+            let byID = Dictionary(cached.hydratedConversationItems.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            merged.hydratedConversationItems = thread.hydratedConversationItems.compactMap { incoming in
+                if let old = byID[incoming.id] {
+                    return old.capturedItemsRevision > incoming.capturedItemsRevision ? old : incoming
+                }
+                // An authoritative captured list also records which items were absent.
+                guard cached.capturedItemsRevision == 0 || incoming.capturedItemsRevision > cached.capturedItemsRevision else { return nil }
+                return incoming
+            }
+            let present = Set(merged.hydratedConversationItems.map(\.id))
+            var retainedBefore: [String: [HydratedConversationItem]] = [:]
+            var pending: [HydratedConversationItem] = []
+            for item in cached.hydratedConversationItems {
+                if present.contains(item.id) {
+                    if !pending.isEmpty { retainedBefore[item.id] = pending; pending = [] }
+                } else if item.capturedItemsRevision > thread.capturedItemsRevision {
+                    pending.append(item)
+                }
+            }
+            // Keep newer retained items before their next surviving cached peer.
+            merged.hydratedConversationItems = merged.hydratedConversationItems.flatMap {
+                (retainedBefore[$0.id] ?? []) + [$0]
+            } + pending
+        }
+        merged.capturedItemsRevision = max(thread.capturedItemsRevision, cached.capturedItemsRevision)
+        return merged
     }
 
     private func mergingCachedThreadSnapshots(_ snapshot: AppSnapshotRecord) -> AppSnapshotRecord {

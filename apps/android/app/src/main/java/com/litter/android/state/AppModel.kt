@@ -35,6 +35,7 @@ import uniffi.codex_mobile_client.AppStoreSubscription
 import uniffi.codex_mobile_client.AppThreadSnapshot
 import uniffi.codex_mobile_client.AppThreadSortKey
 import uniffi.codex_mobile_client.AppThreadSourceKind
+import uniffi.codex_mobile_client.ThreadStreamingDeltaChunk
 import uniffi.codex_mobile_client.ThreadStreamingDeltaKind
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
 import uniffi.codex_mobile_client.HydratedConversationItem
@@ -1156,7 +1157,7 @@ class AppModel private constructor(context: android.content.Context) {
                 if (update.kind == ThreadStreamingDeltaKind.ASSISTANT_TEXT) {
                     PerfTrace.endInterval("SendMessage", PerfTrace.intervalKey(update.key))
                 }
-                if (!applyThreadStreamingDelta(update.key, update.itemId, update.kind, update.text)) {
+                if (!applyThreadStreamingDelta(update.key, update.itemId, update.kind, update.chunks)) {
                     recoverThreadDeltaApplication(update.key)
                 }
             }
@@ -1244,7 +1245,7 @@ class AppModel private constructor(context: android.content.Context) {
                     ),
                 )
             }
-            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems), authoritative = false)
         }
     }
 
@@ -1378,9 +1379,9 @@ class AppModel private constructor(context: android.content.Context) {
         return preview.isNotEmpty() || title.isNotEmpty() || thread.hasActiveTurn
     }
 
-    private fun applyThreadSnapshot(thread: AppThreadSnapshot) {
+    private fun applyThreadSnapshot(thread: AppThreadSnapshot, authoritative: Boolean = true) {
         synchronized(snapshotMutationLock) {
-            val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+            val mergedThread = if (authoritative) mergedThreadSnapshotPreservingHydratedItems(thread) else thread
             val current = _snapshot.value
             if (current == null) {
                 snapshotRefreshFence.invalidate()
@@ -1412,9 +1413,8 @@ class AppModel private constructor(context: android.content.Context) {
             val current = _snapshot.value ?: return
             val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
 
-            // Race condition guard: during active streaming, if the old thread has
-            // longer assistant text that starts with the new text, preserve the old
-            // (more complete) text to avoid flickering backwards.
+            // Captured revisions decide content order; legacy projections retain
+            // the existing prefix fallback during active streaming.
             val finalThread = if (existingThreadIndex >= 0) {
                 val oldThread = current.threads[existingThreadIndex]
                 if (oldThread.hasActiveTurn) {
@@ -1462,33 +1462,11 @@ class AppModel private constructor(context: android.content.Context) {
     ): AppThreadSnapshot {
         if (newThread.hydratedConversationItems.isEmpty()) return newThread
         val oldItemsById = oldThread.hydratedConversationItems.associateBy { it.id }
-        var changed = false
         val mergedItems = newThread.hydratedConversationItems.map { newItem ->
-            val oldItem = oldItemsById[newItem.id]
-            if (oldItem != null) {
-                val oldText = assistantText(oldItem.content)
-                val newText = assistantText(newItem.content)
-                if (oldText != null && newText != null &&
-                    oldText.length > newText.length &&
-                    oldText.startsWith(newText)
-                ) {
-                    changed = true
-                    oldItem
-                } else {
-                    newItem
-                }
-            } else {
-                newItem
-            }
+            preserveStreamingItem(oldItemsById[newItem.id], newItem)
         }
-        return if (changed) newThread.copy(hydratedConversationItems = mergedItems) else newThread
+        return newThread.copy(hydratedConversationItems = mergedItems)
     }
-
-    private fun assistantText(content: HydratedConversationItemContent): String? =
-        when (content) {
-            is HydratedConversationItemContent.Assistant -> content.v1.text
-            else -> null
-        }
 
     private fun applyThreadStateUpdated(
         state: uniffi.codex_mobile_client.AppThreadStateRecord,
@@ -1560,12 +1538,14 @@ class AppModel private constructor(context: android.content.Context) {
             val updatedItems = thread.hydratedConversationItems.toMutableList()
             val existingItemIndex = updatedItems.indexOfFirst { it.id == item.id }
             if (existingItemIndex >= 0) {
+                if (item.capturedItemsRevision < updatedItems[existingItemIndex].capturedItemsRevision) return true
                 updatedItems[existingItemIndex] = item
             } else {
+                if (item.capturedItemsRevision != 0uL && item.capturedItemsRevision <= thread.capturedItemsRevision) return true
                 val insertionIndex = insertionIndexForItem(updatedItems, item)
                 updatedItems.add(insertionIndex, item)
             }
-            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems), authoritative = false)
             return true
         }
     }
@@ -1574,7 +1554,7 @@ class AppModel private constructor(context: android.content.Context) {
         key: ThreadKey,
         itemId: String,
         kind: ThreadStreamingDeltaKind,
-        text: String,
+        chunks: List<ThreadStreamingDeltaChunk>,
     ): Boolean {
         synchronized(snapshotMutationLock) {
             val current = _snapshot.value ?: return false
@@ -1583,67 +1563,19 @@ class AppModel private constructor(context: android.content.Context) {
 
             val thread = current.threads[threadIndex]
             val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
-            if (itemIndex < 0) return false
+            if (itemIndex < 0) return chunks.all { it.revision <= thread.capturedItemsRevision }
 
-            val updatedContent = applyStreamingDelta(kind, text, thread.hydratedConversationItems[itemIndex].content)
-                ?: return false
+            val original = thread.hydratedConversationItems[itemIndex]
+            val updated = applyStreamingItemChunks(original, kind, chunks) ?: return false
+            if (updated == original) return true
             val updatedItems = thread.hydratedConversationItems.toMutableList().apply {
-                this[itemIndex] = this[itemIndex].copy(content = updatedContent)
+                this[itemIndex] = updated
             }
-            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
+            applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems), authoritative = false)
             return true
         }
     }
 
-    private fun applyStreamingDelta(
-        kind: ThreadStreamingDeltaKind,
-        text: String,
-        content: HydratedConversationItemContent,
-    ): HydratedConversationItemContent? = when (kind) {
-        ThreadStreamingDeltaKind.ASSISTANT_TEXT -> when (content) {
-            is HydratedConversationItemContent.Assistant ->
-                HydratedConversationItemContent.Assistant(content.v1.copy(text = content.v1.text + text))
-            else -> null
-        }
-        ThreadStreamingDeltaKind.REASONING_TEXT -> when (content) {
-            is HydratedConversationItemContent.Reasoning -> {
-                val updatedContent = content.v1.content.toMutableList().apply {
-                    if (isEmpty()) {
-                        add(text)
-                    } else {
-                        this[lastIndex] = this[lastIndex] + text
-                    }
-                }
-                HydratedConversationItemContent.Reasoning(content.v1.copy(content = updatedContent))
-            }
-            else -> null
-        }
-        ThreadStreamingDeltaKind.PLAN_TEXT -> when (content) {
-            is HydratedConversationItemContent.ProposedPlan ->
-                HydratedConversationItemContent.ProposedPlan(content.v1.copy(content = content.v1.content + text))
-            else -> null
-        }
-        ThreadStreamingDeltaKind.COMMAND_OUTPUT -> when (content) {
-            is HydratedConversationItemContent.CommandExecution ->
-                HydratedConversationItemContent.CommandExecution(
-                    content.v1.copy(output = (content.v1.output ?: "") + text)
-                )
-            else -> null
-        }
-        ThreadStreamingDeltaKind.MCP_PROGRESS -> when (content) {
-            is HydratedConversationItemContent.McpToolCall -> {
-                val updatedProgress = content.v1.progressMessages.toMutableList().apply {
-                    if (text.isNotBlank()) {
-                        add(text)
-                    }
-                }
-                HydratedConversationItemContent.McpToolCall(
-                    content.v1.copy(progressMessages = updatedProgress)
-                )
-            }
-            else -> null
-        }
-    }
 
     private fun insertionIndexForItem(
         items: List<HydratedConversationItem>,
@@ -1712,10 +1644,11 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {
-        if (thread.hydratedConversationItems.isNotEmpty()) return thread
         val cached = cachedThreadSnapshots[thread.key] ?: return thread
-        if (cached.hydratedConversationItems.isEmpty()) return thread
-        return thread.copy(hydratedConversationItems = cached.hydratedConversationItems)
+        return thread.copy(hydratedConversationItems = mergeCapturedThreadItems(
+            thread.hydratedConversationItems, thread.capturedItemsRevision,
+            cached.hydratedConversationItems, cached.capturedItemsRevision,
+        ), capturedItemsRevision = maxOf(thread.capturedItemsRevision, cached.capturedItemsRevision))
     }
 
     private fun mergeCachedThreadSnapshots(snapshot: AppSnapshotRecord): AppSnapshotRecord {
@@ -1774,5 +1707,128 @@ internal class SnapshotRefreshFence {
         isStopped || ticket.request != request -> Disposition.SUPERSEDED
         ticket.mutation != mutation -> Disposition.RETRY
         else -> Disposition.APPLY
+    }
+}
+
+/** Rust captures the entire canonical list; only revision zero may omit hydrated history. */
+internal fun mergeCapturedThreadItems(
+    incoming: List<HydratedConversationItem>, incomingRevision: ULong,
+    cached: List<HydratedConversationItem>, cachedRevision: ULong,
+): List<HydratedConversationItem> {
+    if (incomingRevision != 0uL && incomingRevision < cachedRevision) return cached
+    if (incoming.isEmpty() && incomingRevision == 0uL) return cached
+    val byId = cached.associateBy { it.id }
+    val merged = incoming.mapNotNull { item ->
+        val old = byId[item.id]
+        when {
+            old != null -> if (old.capturedItemsRevision > item.capturedItemsRevision) old else item
+            cachedRevision != 0uL && item.capturedItemsRevision <= cachedRevision -> null
+            else -> item
+        }
+    }
+    val present = merged.mapTo(mutableSetOf()) { it.id }
+    val retainedBefore = mutableMapOf<String, List<HydratedConversationItem>>()
+    var pending = mutableListOf<HydratedConversationItem>()
+    for (item in cached) {
+        if (item.id in present) {
+            if (pending.isNotEmpty()) {
+                retainedBefore[item.id] = pending
+                pending = mutableListOf()
+            }
+        } else if (item.capturedItemsRevision > incomingRevision) {
+            pending.add(item)
+        }
+    }
+    // Keep newer retained items before their next surviving cached peer.
+    return merged.flatMap { retainedBefore[it.id].orEmpty() + it } + pending
+}
+
+internal fun preserveStreamingItem(
+    old: HydratedConversationItem?, incoming: HydratedConversationItem,
+): HydratedConversationItem {
+    if (old == null) return incoming
+    if (old.capturedItemsRevision > incoming.capturedItemsRevision) return old
+    // Only legacy unversioned projections need the prefix heuristic. A newer
+    // captured revision may deliberately correct text to a shorter value.
+    if (incoming.capturedItemsRevision != 0uL) return incoming
+    val oldContent = old.content
+    val newContent = incoming.content
+    if (oldContent is HydratedConversationItemContent.Assistant &&
+        newContent is HydratedConversationItemContent.Assistant &&
+        oldContent.v1.text.length > newContent.v1.text.length &&
+        oldContent.v1.text.startsWith(newContent.v1.text)) return old
+    return incoming
+}
+
+/** The revision travels with the content; snapshots may cover only a prefix of a batch. */
+internal fun applyStreamingItemChunks(
+    original: HydratedConversationItem,
+    kind: ThreadStreamingDeltaKind,
+    chunks: List<ThreadStreamingDeltaChunk>,
+): HydratedConversationItem? {
+    val pending = chunks.filter { it.revision > original.capturedItemsRevision }
+    if (pending.isEmpty()) return original
+    // Append once per batch; per-chunk String copies grow quadratically with
+    // the existing transcript. MCP messages retain their individual boundaries.
+    val originalContent = original.content
+    val content = if (kind == ThreadStreamingDeltaKind.MCP_PROGRESS &&
+        originalContent is HydratedConversationItemContent.McpToolCall) {
+        val data = originalContent.v1
+        HydratedConversationItemContent.McpToolCall(data.copy(
+            progressMessages = data.progressMessages + pending.map { it.text }.filter { it.isNotBlank() },
+        ))
+    } else {
+        applyStreamingDelta(kind, pending.joinToString("") { it.text }, originalContent) ?: return null
+    }
+    return original.copy(content = content, capturedItemsRevision = pending.last().revision)
+}
+
+private fun applyStreamingDelta(
+    kind: ThreadStreamingDeltaKind,
+    text: String,
+    content: HydratedConversationItemContent,
+): HydratedConversationItemContent? = when (kind) {
+    ThreadStreamingDeltaKind.ASSISTANT_TEXT -> when (content) {
+        is HydratedConversationItemContent.Assistant ->
+            HydratedConversationItemContent.Assistant(content.v1.copy(text = content.v1.text + text))
+        else -> null
+    }
+    ThreadStreamingDeltaKind.REASONING_TEXT -> when (content) {
+        is HydratedConversationItemContent.Reasoning -> {
+            val updatedContent = content.v1.content.toMutableList().apply {
+                if (isEmpty()) {
+                    add(text)
+                } else {
+                    this[lastIndex] = this[lastIndex] + text
+                }
+            }
+            HydratedConversationItemContent.Reasoning(content.v1.copy(content = updatedContent))
+        }
+        else -> null
+    }
+    ThreadStreamingDeltaKind.PLAN_TEXT -> when (content) {
+        is HydratedConversationItemContent.ProposedPlan ->
+            HydratedConversationItemContent.ProposedPlan(content.v1.copy(content = content.v1.content + text))
+        else -> null
+    }
+    ThreadStreamingDeltaKind.COMMAND_OUTPUT -> when (content) {
+        is HydratedConversationItemContent.CommandExecution ->
+            HydratedConversationItemContent.CommandExecution(
+                content.v1.copy(output = (content.v1.output ?: "") + text)
+            )
+        else -> null
+    }
+    ThreadStreamingDeltaKind.MCP_PROGRESS -> when (content) {
+        is HydratedConversationItemContent.McpToolCall -> {
+            val updatedProgress = content.v1.progressMessages.toMutableList().apply {
+                if (text.isNotBlank()) {
+                    add(text)
+                }
+            }
+            HydratedConversationItemContent.McpToolCall(
+                content.v1.copy(progressMessages = updatedProgress)
+            )
+        }
+        else -> null
     }
 }

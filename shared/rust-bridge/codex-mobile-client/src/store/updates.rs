@@ -13,6 +13,12 @@ pub enum ThreadStreamingDeltaKind {
     McpProgress,
 }
 
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ThreadStreamingDeltaChunk {
+    pub revision: u64,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum AppStoreUpdateRecord {
     FullResync,
@@ -46,7 +52,7 @@ pub enum AppStoreUpdateRecord {
         key: ThreadKey,
         item_id: String,
         kind: ThreadStreamingDeltaKind,
-        text: String,
+        chunks: Vec<ThreadStreamingDeltaChunk>,
     },
     ThreadRemoved {
         key: ThreadKey,

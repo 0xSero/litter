@@ -4,6 +4,25 @@ import HairballUI
 
 @MainActor
 final class StreamingRendererCoordinatorTests: XCTestCase {
+    func testAuthoritativeSnapshotFillsUnreadDeltaWithoutResettingRenderer() {
+        let coordinator = StreamingRendererCoordinator()
+        let renderer = coordinator.renderer(for: "assistant", currentText: "A")
+        coordinator.synchronizeAuthoritativeText("AB", for: "assistant", revision: 20)
+        coordinator.appendDelta("B", for: "assistant", revision: 20)
+        XCTAssertEqual(renderer.rawText, "AB")
+        XCTAssertTrue(coordinator.existingRenderer(for: "assistant") === renderer)
+        coordinator.appendDelta("C", for: "assistant", revision: 21)
+        coordinator.synchronizeAuthoritativeText("AB", for: "assistant", revision: 20)
+        XCTAssertEqual(renderer.rawText, "ABC", "Older snapshots cannot rewind already delivered chunks")
+        coordinator.synchronizeAuthoritativeText("Replacement", for: "assistant", revision: 22)
+        XCTAssertEqual(renderer.rawText, "Replacement")
+        coordinator.finishActive()
+        let next = coordinator.renderer(for: "assistant", currentText: "New")
+        coordinator.appendDelta(" turn", for: "assistant", revision: 1)
+        XCTAssertEqual(next.rawText, "New turn", "Teardown must discard renderer revision ownership")
+        coordinator.reset()
+    }
+
     func testFinishedTurnReleasesCoordinatorOwnershipButPreservesMountedBubble() {
         let coordinator = StreamingRendererCoordinator()
         var mountedRenderer: StreamingMarkdownRenderer? = coordinator.renderer(

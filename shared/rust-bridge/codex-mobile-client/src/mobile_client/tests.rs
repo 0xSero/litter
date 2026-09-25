@@ -264,6 +264,7 @@ mod mobile_client_tests {
             effective_approval_policy: None,
             effective_sandbox_policy: None,
             items: Default::default(),
+            items_source_revision: None,
             local_overlay_items: Default::default(),
             activity_cache: Default::default(),
             queued_follow_ups: vec![AppQueuedFollowUpPreview {
@@ -346,6 +347,7 @@ mod mobile_client_tests {
             effective_approval_policy: Some(crate::types::AppAskForApproval::Never),
             effective_sandbox_policy: Some(crate::types::AppSandboxPolicy::DangerFullAccess),
             items: Default::default(),
+            items_source_revision: None,
             local_overlay_items: Default::default(),
             activity_cache: Default::default(),
             queued_follow_ups: Vec::new(),

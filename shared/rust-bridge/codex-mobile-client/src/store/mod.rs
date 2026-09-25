@@ -22,4 +22,4 @@ pub use snapshot::{
     AppTerminalSessionPhase, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
     TerminalSessionSnapshot, ThreadItems, ThreadSnapshot,
 };
-pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
+pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaChunk, ThreadStreamingDeltaKind};

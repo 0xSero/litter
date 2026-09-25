@@ -1080,6 +1080,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 
@@ -1103,6 +1104,7 @@ mod tests {
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
+            captured_items_revision: 0,
         }
     }
 

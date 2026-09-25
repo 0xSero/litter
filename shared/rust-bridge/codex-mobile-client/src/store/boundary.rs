@@ -81,6 +81,9 @@ pub struct AppRateLimitsForRuntime {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AppThreadSnapshot {
     pub key: ThreadKey,
+    /// Content/membership capture boundary, not a metadata version.
+    #[uniffi(default = 0)]
+    pub captured_items_revision: u64,
     pub info: ThreadInfo,
     pub agent_runtime_kind: crate::types::AgentRuntimeKind,
     pub collaboration_mode: AppModeKind,
@@ -546,6 +549,21 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
     }
 }
 
+/// Keep the captured content and its revision from the same store read guard.
+pub(crate) fn project_captured_thread_item(
+    snapshot: &AppSnapshot,
+    thread: &ThreadSnapshot,
+    item: &HydratedConversationItem,
+) -> HydratedConversationItem {
+    let mut projected = project_hydrated_item(snapshot, &thread.key.server_id, item).into_owned();
+    projected.captured_items_revision = if thread.items.contains_id(&item.id) {
+        thread.items.revision()
+    } else {
+        thread.local_overlay_items.revision()
+    };
+    projected
+}
+
 pub(crate) fn app_thread_snapshot_from_state(
     snapshot: &AppSnapshot,
     thread: &ThreadSnapshot,
@@ -567,10 +585,14 @@ pub(crate) fn app_thread_snapshot_from_state(
     };
     let hydrated_conversation_items = merged
         .into_iter()
-        .map(|item| project_hydrated_item(snapshot, &thread.key.server_id, item).into_owned())
+        .map(|item| project_captured_thread_item(snapshot, thread, item))
         .collect::<Vec<_>>();
     Ok(AppThreadSnapshot {
         key: thread.key.clone(),
+        captured_items_revision: thread
+            .items
+            .revision()
+            .max(thread.local_overlay_items.revision()),
         info: thread.info.clone(),
         agent_runtime_kind: thread.agent_runtime_kind.clone(),
         collaboration_mode: thread.collaboration_mode,
@@ -1125,7 +1147,12 @@ impl ToolLogSeed<'_> {
                     ));
                 }
                 let detail = if parts.is_empty() {
-                    format!("{} {} step{}", prefix, count, if count == 1 { "" } else { "s" })
+                    format!(
+                        "{} {} step{}",
+                        prefix,
+                        count,
+                        if count == 1 { "" } else { "s" }
+                    )
                 } else {
                     format!("{} {}", prefix, parts.join(", "))
                 };
@@ -1709,8 +1736,8 @@ mod tests {
     };
     use crate::store::{AppSnapshot, ThreadSnapshot};
     use crate::types::{
-        AppModeKind, AppPlanImplementationPromptSnapshot,
-        PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
+        AppModeKind, AppPlanImplementationPromptSnapshot, PendingUserInputRequest, ThreadInfo,
+        ThreadKey, ThreadSummaryStatus,
     };
 
     #[test]
@@ -1772,7 +1799,8 @@ mod tests {
                 effective_approval_policy: None,
                 effective_sandbox_policy: None,
                 items: Default::default(),
-                local_overlay_items: Default::default(),
+                items_source_revision: None,
+            local_overlay_items: Default::default(),
                 activity_cache: Default::default(),
                 queued_follow_ups: Vec::new(),
                 queued_follow_up_drafts: Vec::new(),
@@ -1945,6 +1973,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         thread
             .local_overlay_items
@@ -1960,6 +1989,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2012,6 +2042,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         // Bound overlay for the same message.
         thread
@@ -2028,6 +2059,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2079,6 +2111,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         thread
             .items
@@ -2096,6 +2129,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         thread
             .items
@@ -2113,6 +2147,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
         thread
             .local_overlay_items
@@ -2128,6 +2163,7 @@ mod tests {
                 source_turn_index: None,
                 timestamp: None,
                 is_from_user_turn_boundary: true,
+                captured_items_revision: 0,
             });
         let key = thread.key.clone();
         snapshot.threads.insert(key.clone(), thread);
@@ -2228,6 +2264,7 @@ mod tests {
                 source_turn_index: Some(0),
                 timestamp: None,
                 is_from_user_turn_boundary: false,
+                captured_items_revision: 0,
             });
 
         let projected =
