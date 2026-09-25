@@ -573,8 +573,20 @@ pub(crate) async fn execute_reconnect_plan(
                     };
                 }
             };
-            let selected =
-                resolve_ssh_bridge_runtime_kinds(Arc::clone(&ssh_client), runtime_kinds).await;
+            // Seed detection (shell, agent availability, CLI paths, ...) from
+            // the per-server cache so a reconnect skips the remote probes.
+            let observed = observed_fingerprint.lock().await.clone();
+            let mut detect_cache = crate::ssh_detect_cache::DetectionCacheSession::begin(
+                client.mobile_preferences_directory(),
+                crate::ssh_detect_cache::CacheKey::new(
+                    server_id,
+                    host,
+                    *ssh_port,
+                    &credential.username,
+                    observed.as_deref(),
+                ),
+                &ssh_client,
+            );
             let state_root = match ssh_bridge_state_root(host) {
                 Ok(path) => path,
                 Err(error) => {
@@ -586,18 +598,39 @@ pub(crate) async fn execute_reconnect_plan(
                     };
                 }
             };
-            match client
-                .connect_remote_over_ssh_bridges(
-                    ssh_client,
-                    server_id.clone(),
-                    display_name.clone(),
-                    host.clone(),
-                    state_root,
-                    selected,
-                    crate::ssh_bridge::SshBridgeTransport::Ephemeral,
-                )
-                .await
+            let mut outcome = connect_ssh_bridge_once(
+                client,
+                &ssh_client,
+                server_id,
+                display_name,
+                host,
+                &state_root,
+                runtime_kinds,
+            )
+            .await;
+            // A connect that relied on cached detection failed: the cached
+            // paths may be stale. Invalidate and re-probe exactly once.
+            if outcome.is_err()
+                && let Some(cache) = detect_cache.as_mut()
+                && cache.on_failure(&ssh_client)
             {
+                outcome = connect_ssh_bridge_once(
+                    client,
+                    &ssh_client,
+                    server_id,
+                    display_name,
+                    host,
+                    &state_root,
+                    runtime_kinds,
+                )
+                .await;
+            }
+            if outcome.is_ok()
+                && let Some(cache) = detect_cache
+            {
+                cache.on_success(Arc::clone(&ssh_client));
+            }
+            match outcome {
                 Ok(_) => ReconnectResult {
                     server_id: server_id.clone(),
                     success: true,
@@ -855,6 +888,29 @@ fn parse_ssh_bridge_runtime_kinds(value: Option<&str>) -> Vec<AgentRuntimeKind> 
             }
             acc
         })
+}
+
+async fn connect_ssh_bridge_once(
+    client: &MobileClient,
+    ssh_client: &Arc<SshClient>,
+    server_id: &str,
+    display_name: &str,
+    host: &str,
+    state_root: &str,
+    runtime_kinds: &[AgentRuntimeKind],
+) -> Result<crate::AlleycatConnectOutcome, crate::transport::TransportError> {
+    let selected = resolve_ssh_bridge_runtime_kinds(Arc::clone(ssh_client), runtime_kinds).await;
+    client
+        .connect_remote_over_ssh_bridges(
+            Arc::clone(ssh_client),
+            server_id.to_string(),
+            display_name.to_string(),
+            host.to_string(),
+            state_root.to_string(),
+            selected,
+            crate::ssh_bridge::SshBridgeTransport::Ephemeral,
+        )
+        .await
 }
 
 async fn resolve_ssh_bridge_runtime_kinds(

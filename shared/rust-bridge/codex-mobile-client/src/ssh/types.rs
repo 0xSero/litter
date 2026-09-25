@@ -57,7 +57,7 @@ pub(crate) enum SshBootstrapTransport {
 }
 
 /// The remote host's shell type, detected after SSH connect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum RemoteShell {
     Posix,
     PowerShell,

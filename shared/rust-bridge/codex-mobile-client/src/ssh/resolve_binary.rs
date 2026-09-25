@@ -25,10 +25,26 @@ impl SshClient {
         &self,
         shell_hint: Option<RemoteShell>,
     ) -> Result<Option<RemoteCodexBinary>, SshError> {
+        if let Some(path) = self.with_detection(|d| d.codex_path.clone()) {
+            trace!("ssh resolve codex binary cached path={path}");
+            return Ok(Some(RemoteCodexBinary::Codex(path)));
+        }
         let shell = match shell_hint {
             Some(s) => s,
             None => self.detect_remote_shell().await,
         };
+        let resolved = self.resolve_codex_binary_uncached(shell).await?;
+        if let Some(binary) = resolved.as_ref() {
+            let path = binary.path().to_string();
+            self.with_detection(|d| d.codex_path = Some(path));
+        }
+        Ok(resolved)
+    }
+
+    pub(crate) async fn resolve_codex_binary_uncached(
+        &self,
+        shell: RemoteShell,
+    ) -> Result<Option<RemoteCodexBinary>, SshError> {
         trace!(
             "ssh resolve codex binary shell={}",
             remote_shell_name(shell)

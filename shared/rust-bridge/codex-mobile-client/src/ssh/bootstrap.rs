@@ -120,7 +120,13 @@ impl SshClient {
             });
         }
 
-        if !self.app_server_proxy_supported(codex_binary, shell).await? {
+        // Both capability checks are independent `--help` execs; run them
+        // together (and they are memoized/seeded from the reconnect cache).
+        let (proxy_supported, daemon_supported) = tokio::join!(
+            self.app_server_proxy_supported(codex_binary, shell),
+            self.app_server_daemon_supported(codex_binary, shell)
+        );
+        if !proxy_supported? {
             return Err(SshError::ExecFailed {
                 exit_code: 1,
                 stderr: "`codex app-server proxy` is not supported by the remote Codex CLI"
@@ -128,10 +134,7 @@ impl SshClient {
             });
         }
 
-        if self
-            .app_server_daemon_supported(codex_binary, shell)
-            .await?
-        {
+        if daemon_supported? {
             match self
                 .start_codex_app_server_daemon(codex_binary, shell)
                 .await
@@ -246,6 +249,25 @@ impl SshClient {
         codex_binary: &RemoteCodexBinary,
         shell: RemoteShell,
     ) -> Result<bool, SshError> {
+        if let Some(cached) = self.with_detection(|d| {
+            (d.codex_path.as_deref() == Some(codex_binary.path()))
+                .then_some(d.app_server_proxy_supported)
+                .flatten()
+        }) {
+            return Ok(cached);
+        }
+        let supported = self
+            .app_server_proxy_supported_uncached(codex_binary, shell)
+            .await?;
+        self.with_detection(|d| d.app_server_proxy_supported = Some(supported));
+        Ok(supported)
+    }
+
+    pub(crate) async fn app_server_proxy_supported_uncached(
+        &self,
+        codex_binary: &RemoteCodexBinary,
+        shell: RemoteShell,
+    ) -> Result<bool, SshError> {
         let command = match shell {
             RemoteShell::Posix => format!(
                 "{profile_init}\n{bin} app-server proxy --help >/dev/null 2>&1",
@@ -262,6 +284,25 @@ impl SshClient {
     }
 
     async fn app_server_daemon_supported(
+        &self,
+        codex_binary: &RemoteCodexBinary,
+        shell: RemoteShell,
+    ) -> Result<bool, SshError> {
+        if let Some(cached) = self.with_detection(|d| {
+            (d.codex_path.as_deref() == Some(codex_binary.path()))
+                .then_some(d.app_server_daemon_supported)
+                .flatten()
+        }) {
+            return Ok(cached);
+        }
+        let supported = self
+            .app_server_daemon_supported_uncached(codex_binary, shell)
+            .await?;
+        self.with_detection(|d| d.app_server_daemon_supported = Some(supported));
+        Ok(supported)
+    }
+
+    pub(crate) async fn app_server_daemon_supported_uncached(
         &self,
         codex_binary: &RemoteCodexBinary,
         shell: RemoteShell,
@@ -848,6 +889,30 @@ impl SshClient {
     }
 
     pub(super) async fn read_server_version_shell(
+        &self,
+        codex_path: &str,
+        shell: RemoteShell,
+    ) -> Option<String> {
+        if let Some(version) = self.with_detection(|d| {
+            (d.codex_path.as_deref() == Some(codex_path))
+                .then(|| d.codex_version.clone())
+                .flatten()
+        }) {
+            return Some(version);
+        }
+        let version = self.read_server_version_uncached(codex_path, shell).await;
+        if let Some(v) = version.clone() {
+            let path = codex_path.to_string();
+            self.with_detection(|d| {
+                if d.codex_path.as_deref() == Some(path.as_str()) {
+                    d.codex_version = Some(v);
+                }
+            });
+        }
+        version
+    }
+
+    pub(crate) async fn read_server_version_uncached(
         &self,
         codex_path: &str,
         shell: RemoteShell,
