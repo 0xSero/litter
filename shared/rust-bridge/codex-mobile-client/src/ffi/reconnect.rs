@@ -12,10 +12,14 @@ use crate::session::connection::{InProcessConfig, ServerConfig};
 use crate::store::ServerHealthSnapshot;
 use crate::store::snapshot::AppLifecyclePhaseSnapshot;
 use codex_app_server_protocol as upstream;
+use futures::StreamExt;
 use std::sync::{Arc, RwLock};
 use tokio::runtime::Runtime;
 use tokio::task::JoinSet;
 use tracing::{info, warn};
+
+/// Max concurrent account probes when the app becomes active.
+const ACCOUNT_PROBE_CONCURRENCY: usize = 4;
 
 fn normalized_local_display_name(value: &str) -> Option<String> {
     let trimmed = value.trim();
@@ -263,30 +267,37 @@ impl ReconnectController {
                     .map(|s| s.server_id.clone())
                     .collect();
 
-                for server_id in &remote_connected {
-                    let request = upstream::ClientRequest::GetAccount {
-                        request_id: upstream::RequestId::Integer(next_request_id()),
-                        params: upstream::GetAccountParams {
-                            refresh_token: false,
-                        },
-                    };
-                    match inner
-                        .request_typed_for_server::<upstream::GetAccountResponse>(
-                            server_id, request,
-                        )
-                        .await
-                    {
-                        Ok(response) => {
-                            inner.apply_account_response(server_id, &response);
+                futures::stream::iter(remote_connected)
+                    .map(|server_id| {
+                        let inner = Arc::clone(&inner);
+                        async move {
+                            let request = upstream::ClientRequest::GetAccount {
+                                request_id: upstream::RequestId::Integer(next_request_id()),
+                                params: upstream::GetAccountParams {
+                                    refresh_token: false,
+                                },
+                            };
+                            match inner
+                                .request_typed_for_server::<upstream::GetAccountResponse>(
+                                    &server_id, request,
+                                )
+                                .await
+                            {
+                                Ok(response) => {
+                                    inner.apply_account_response(&server_id, &response);
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "ReconnectController: probe failed server_id={} error={}",
+                                        server_id, e
+                                    );
+                                }
+                            }
                         }
-                        Err(e) => {
-                            warn!(
-                                "ReconnectController: probe failed server_id={} error={}",
-                                server_id, e
-                            );
-                        }
-                    }
-                }
+                    })
+                    .buffer_unordered(ACCOUNT_PROBE_CONCURRENCY)
+                    .collect::<Vec<()>>()
+                    .await;
             })
             .await
             .inspect_err(|error| {
@@ -413,35 +424,41 @@ async fn reconnect_saved_servers_inner(
         .servers
         .values()
         .any(|server| server.is_local && server_counts_as_connected_for_reconnect(server));
-    let mut local_result: Option<ReconnectResult> = None;
-    if !has_local {
-        info!("ReconnectController: ensuring local server connected");
-        let config = ServerConfig {
-            server_id: "local".to_string(),
-            display_name: local_display_name,
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            websocket_url: None,
-            is_local: true,
-            tls: false,
-        };
-        match inner
-            .connect_local(config, InProcessConfig::default())
-            .await
-        {
-            Ok(_) => {
-                local_result = Some(ReconnectResult {
+    // Connect the local server concurrently with remote reconnects so
+    // remotes never wait on local startup.
+    let local_connect = {
+        let inner = Arc::clone(&inner);
+        async move {
+            if has_local {
+                return None;
+            }
+            info!("ReconnectController: ensuring local server connected");
+            let config = ServerConfig {
+                server_id: "local".to_string(),
+                display_name: local_display_name,
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                websocket_url: None,
+                is_local: true,
+                tls: false,
+            };
+            match inner
+                .connect_local(config, InProcessConfig::default())
+                .await
+            {
+                Ok(_) => Some(ReconnectResult {
                     server_id: "local".to_string(),
                     success: true,
                     needs_local_auth_restore: true,
                     error_message: None,
-                });
-            }
-            Err(e) => {
-                warn!("ReconnectController: local server connect failed: {}", e);
+                }),
+                Err(e) => {
+                    warn!("ReconnectController: local server connect failed: {}", e);
+                    None
+                }
             }
         }
-    }
+    };
 
     let credential_provider = credential_provider.lock().await;
     let slingshot_credential_provider = slingshot_credential_provider.lock().await;
@@ -478,16 +495,19 @@ async fn reconnect_saved_servers_inner(
         join_set.spawn(async move { execute_reconnect_plan(&plan, &client).await });
     }
 
-    let mut results = Vec::new();
-    if let Some(lr) = local_result {
-        results.push(lr);
-    }
-    while let Some(result) = join_set.join_next().await {
-        match result {
-            Ok(r) => results.push(r),
-            Err(e) => warn!("ReconnectController: join error: {}", e),
+    let remote_results = async {
+        let mut results = Vec::new();
+        while let Some(result) = join_set.join_next().await {
+            match result {
+                Ok(r) => results.push(r),
+                Err(e) => warn!("ReconnectController: join error: {}", e),
+            }
         }
-    }
+        results
+    };
+    let (local_result, remote_results) = tokio::join!(local_connect, remote_results);
+    let mut results: Vec<ReconnectResult> = local_result.into_iter().collect();
+    results.extend(remote_results);
 
     drop(guard);
     results

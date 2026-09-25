@@ -1727,16 +1727,25 @@ async fn dispatch_remote_request(
     (pending, result)
 }
 
+/// Deadline for request/response RPCs on the launch/open path, so a dead
+/// connection cannot hang the UI forever. Long-running operations (turns,
+/// compaction, etc.) are intentionally left unbounded.
+fn remote_request_timeout(method: &str) -> Option<Duration> {
+    match method {
+        "thread/list" => Some(Duration::from_secs(10)),
+        "model/list" => Some(Duration::from_secs(20)),
+        "thread/resume" | "thread/read" | "thread/turns/list" | "thread/items/list" => {
+            Some(Duration::from_secs(30))
+        }
+        _ => None,
+    }
+}
+
 async fn send_remote_request(
     client: &AppServerRequestHandle,
     request: ClientRequest,
 ) -> Result<JsonValue, RpcError> {
-    let timeout = match request.method_name() {
-        "thread/list" => Some(Duration::from_secs(10)),
-        "model/list" => Some(Duration::from_secs(20)),
-        _ => None,
-    };
-    let response = match timeout {
+    let response = match remote_request_timeout(request.method_name()) {
         Some(duration) => tokio::time::timeout(duration, client.request(request))
             .await
             .map_err(|_| RpcError::Timeout)?,
@@ -1943,6 +1952,21 @@ fn next_request_id() -> i64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn remote_request_timeout_bounds_open_path_but_not_turns() {
+        assert_eq!(
+            remote_request_timeout("thread/resume"),
+            Some(Duration::from_secs(30))
+        );
+        assert!(remote_request_timeout("thread/read").is_some());
+        assert!(remote_request_timeout("thread/turns/list").is_some());
+        assert_eq!(
+            remote_request_timeout("thread/list"),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(remote_request_timeout("turn/start"), None);
+    }
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
