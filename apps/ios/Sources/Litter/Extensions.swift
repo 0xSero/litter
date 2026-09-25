@@ -130,10 +130,49 @@ enum LitterTheme {
         )
     }
 
+    // MARK: Litter Quiet roles
+    //
+    // Semantic aliases over the resolved theme so views can speak in the
+    // design's vocabulary (meta, raised, rule) while the user-selected theme
+    // keeps supplying the actual colors in light and dark.
+
+    /// Mono metadata text: timestamps, server · project, counts.
+    static var meta: Color { textMuted }
+    /// Raised surfaces only: code, widgets, sheets, menus, composer.
+    static var raised: Color { codeBackground }
+    /// 2pt rule beside user messages.
+    static var userRule: Color { textMuted.opacity(0.45) }
+    /// Faint 1pt line between whole turns.
+    static var turnDivider: Color { separator.opacity(0.6) }
+
     static var headerScrim: [Color] {
         let bgColor = adaptive(light: light.background, dark: dark.background)
         return [bgColor.opacity(0.7), bgColor.opacity(0.3), .clear]
     }
+}
+
+// MARK: - Litter Quiet layout tokens
+
+/// Spacing scale: 4 / 8 / 12 / 20 / 32. Margins are 20; turns sit 32 apart.
+enum LitterSpace {
+    static let xs: CGFloat = 4
+    static let s: CGFloat = 8
+    static let m: CGFloat = 12
+    static let l: CGFloat = 20
+    static let xl: CGFloat = 32
+    static let margin: CGFloat = 20
+    static let betweenTurns: CGFloat = 32
+    /// Smallest point size used for any text.
+    static let minText: CGFloat = 13
+    /// Minimum hit target for tappable controls.
+    static let hitTarget: CGFloat = 44
+}
+
+/// Corner radii for raised surfaces.
+enum LitterRadius {
+    static let raised: CGFloat = 14
+    static let sheet: CGFloat = 16
+    static let composer: CGFloat = 26
 }
 
 enum FontFamilyOption: String, CaseIterable, Identifiable {
@@ -329,11 +368,17 @@ enum LitterFont {
     }
 
     static var conversationBodyPointSize: CGFloat {
-        // The system body metric follows Dynamic Type. Keep chat deliberately
-        // one point tighter than a settings/form screen so long assistant
-        // replies stay comfortable rather than reading like accessibility
-        // display text on a phone.
-        max(UIFont.preferredFont(forTextStyle: .body).pointSize - 1, 15)
+        // The system body metric follows Dynamic Type (17pt at the default
+        // size). Conversation prose is the reading surface, so it uses the
+        // full body size; `conversationBodyLineSpacing` opens the leading to
+        // roughly 1.45.
+        max(UIFont.preferredFont(forTextStyle: .body).pointSize, 15)
+    }
+
+    /// Extra leading that takes body text from the font's natural ~1.2 line
+    /// height to roughly 1.45.
+    static var conversationBodyLineSpacing: CGFloat {
+        (conversationBodyPointSize * 0.22).rounded()
     }
 
     static var conversationDiffPointSize: CGFloat {
@@ -407,6 +452,19 @@ extension View {
     func litterMonoFont(size: CGFloat, weight: Font.Weight = .regular) -> some View {
         modifier(ScaledMonoFontModifier(size: size, weight: weight))
     }
+
+    /// Metadata style: mono 13 (footnote, so it follows Dynamic Type), gray.
+    func litterMeta(_ color: Color = LitterTheme.meta) -> some View {
+        modifier(ScaledMonoStyleFontModifier(style: .footnote, weight: .regular))
+            .foregroundStyle(color)
+    }
+
+    /// Lowercase mono section label ("now", "today", "general").
+    func litterSectionLabel() -> some View {
+        litterMeta()
+            .textCase(.lowercase)
+            .accessibilityAddTraits(.isHeader)
+    }
 }
 
 private struct ScaledSizeFontModifier: ViewModifier {
@@ -444,6 +502,19 @@ private struct ScaledMonoFontModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
+            .id(fontPreferenceObserver.revision)
+    }
+}
+
+private struct ScaledMonoStyleFontModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    @Environment(\.fontPreferenceObserver) private var fontPreferenceObserver
+    let style: Font.TextStyle
+    let weight: Font.Weight
+
+    func body(content: Content) -> some View {
+        content
+            .font(LitterFont.monospaced(style, weight: weight, scale: textScale))
             .id(fontPreferenceObserver.revision)
     }
 }
