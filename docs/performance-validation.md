@@ -4,8 +4,9 @@ This is a measurement record for the performance work based on `a2f39d17`, recor
 on 2026-09-24. The measurements span successive commits on `perf/measured-mobile-host`;
 individual results below identify their scope and whether later changes supersede them. The results establish specific improvements and regression coverage; they do
 not establish production startup latency, a percentile ranking, or absence of all
-memory and storage leaks. Native functional suites passed; physical-device and
-manual production-app acceptance remain pending.
+memory and storage leaks. Native functional suites passed. Partial iOS simulator
+manual acceptance is recorded below; physical-device and broader manual
+production-app acceptance remain pending.
 
 ## Session derivation: isolated host microbenchmark
 
@@ -408,6 +409,23 @@ fixture shows readable history after a follow-up and scroll. This is visual revi
 of automated fixture artifacts, not manual production-app interaction.
 
 ![Synthetic session 900 after Back, with four mounted rows out of 1,000](performance-home-session-900.png)
+
+## Partial manual iOS simulator acceptance
+
+Direct manual control verified the production empty Home cat animation,
+Settings → Appearance → Back → Done, and opening and dismissing the search
+keyboard. In the separate synthetic 1,000-session component harness, session 900
+was manually opened at zooms 2 and 4; native Back preserved the deep position.
+The harness reported 41 mounted rows at zoom 2 and four at zoom 4. These checks
+cover simulator behavior, not physical devices or authenticated conversation
+transport/navigation.
+
+Computer-use drag attempts produced no visible swipe callback or edge-Back
+transition, so manual swipe and edge-Back are **not accepted** from this pass.
+The separately recorded automated pinch/swipe tests remain distinct evidence.
+Android manual window interaction was still under investigation when this record
+was updated. These limited checks do not establish complete manual gesture,
+streaming, or release acceptance.
 
 ## Compact fork ancestry: matched Android host experiment
 
