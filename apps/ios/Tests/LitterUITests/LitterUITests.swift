@@ -52,7 +52,7 @@ final class LitterUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Conversation"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["conversation"].waitForExistence(timeout: 5))
         XCTAssertTrue(findStaticText("Internal Thinking", in: app))
         XCTAssertTrue(findStaticText("Commands", in: app))
         XCTAssertTrue(findStaticText("Tools", in: app))
@@ -155,7 +155,7 @@ final class LitterUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["conversation.modelPickerButton"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Attach"].exists)
-        XCTAssertTrue(app.buttons["Default"].exists)
+        XCTAssertTrue(app.buttons["Mode: Default"].exists)
         let composer = app.textViews["conversation.composerTextView"]
         XCTAssertTrue(composer.exists)
         composer.tap()
