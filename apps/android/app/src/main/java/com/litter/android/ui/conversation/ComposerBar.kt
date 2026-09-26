@@ -60,6 +60,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -208,7 +210,15 @@ fun ComposerBar(
         val saved = appModel.composerDraft(threadKey).text
         mutableStateOf(TextFieldValue(saved, selection = TextRange(saved.length)))
     }
-    val text = textFieldValue.text
+    // Deliberately no `val text = textFieldValue.text` here: a body-level read
+    // made this whole (inline-lambda) composable recompose on every keystroke.
+    // Body code reads only the derived flags below; callbacks read
+    // `textFieldValue.text` at call time.
+    val isTextEmpty by remember { derivedStateOf { textFieldValue.text.isEmpty() } }
+    val hasNonBlankText by remember { derivedStateOf { textFieldValue.text.isNotBlank() } }
+    val isMultilineOrLong by remember {
+        derivedStateOf { textFieldValue.text.let { it.length > 60 || it.contains('\n') } }
+    }
     var attachedImage by remember(threadKey) {
         mutableStateOf(appModel.composerDraft(threadKey).attachment)
     }
@@ -219,15 +229,29 @@ fun ComposerBar(
     // variants lose typed text when the composable leaves composition before
     // the trailing write fires (quick navigation, backgrounding) — so this
     // stays an immediate, unconditional write.
-    LaunchedEffect(threadKey, text, attachedImage, attachedFiles) {
-        appModel.setComposerDraft(
-            threadKey,
+    // Observed via snapshotFlow (no body read, no per-keystroke effect
+    // relaunch). The onDispose write guarantees the last state lands even
+    // if composition ends before the flow collects it.
+    LaunchedEffect(threadKey) {
+        snapshotFlow {
             AppModel.ComposerDraft(
-                text = text,
+                text = textFieldValue.text,
                 attachment = attachedImage,
                 fileAttachments = attachedFiles,
-            ),
-        )
+            )
+        }.collect { draft -> appModel.setComposerDraft(threadKey, draft) }
+    }
+    DisposableEffect(threadKey) {
+        onDispose {
+            appModel.setComposerDraft(
+                threadKey,
+                AppModel.ComposerDraft(
+                    text = textFieldValue.text,
+                    attachment = attachedImage,
+                    fileAttachments = attachedFiles,
+                ),
+            )
+        }
     }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showExpanded by remember { mutableStateOf(false) }
@@ -264,6 +288,7 @@ fun ComposerBar(
     // Slash command state
     val slashQuery by remember {
         derivedStateOf {
+            val text = textFieldValue.text
             if (text.startsWith("/")) text.removePrefix("/").lowercase() else null
         }
     }
@@ -282,9 +307,10 @@ fun ComposerBar(
     var fileSearchResults by remember { mutableStateOf<List<String>>(emptyList()) }
     var showFileMenu by remember { mutableStateOf(false) }
     var fileSearchJob by remember { mutableStateOf<Job?>(null) }
-    LaunchedEffect(text) {
+    LaunchedEffect(threadKey) {
+      snapshotFlow { textFieldValue.text }.collect { text ->
         val atIdx = text.lastIndexOf('@')
-        if (atIdx >= 0 && atIdx < text.length - 1 && !text.substring(atIdx).contains(' ')) {
+        if (atIdx >= 0 && atIdx < text.length - 1 && text.indexOf(' ', atIdx) < 0) {
             val query = text.substring(atIdx + 1)
             fileSearchJob?.cancel()
             fileSearchJob = scope.launch {
@@ -302,8 +328,10 @@ fun ComposerBar(
                 }
             }
         } else {
+            fileSearchJob?.cancel()
             showFileMenu = false
         }
+      }
     }
 
     // Pending user input answers
@@ -437,6 +465,7 @@ fun ComposerBar(
         if (pendingUserInput != null) {
             onDismissPendingUserInput?.invoke()
         }
+        val text = textFieldValue.text
         val handledAsSlash = parseSlashCommandInvocation(text)?.let { invocation ->
             if (dispatchSlashCommand(invocation.command.name, invocation.args)) {
                 textFieldValue = TextFieldValue("")
@@ -500,9 +529,15 @@ fun ComposerBar(
             }
         }
     }
-    val canSend = text.isNotBlank() || attachedImage != null || attachedFiles.isNotEmpty()
-    val composerThread = appSnapshot?.threads?.firstOrNull { it.key == threadKey }
-    val composerServer = appSnapshot?.servers?.firstOrNull { it.serverId == threadKey.serverId }
+    val canSend = hasNonBlankText || attachedImage != null || attachedFiles.isNotEmpty()
+    // derivedStateOf: recompose only when this thread/server entry changes,
+    // not on every streaming snapshot emission, and never rescan per keystroke.
+    val composerThread by remember(threadKey) {
+        derivedStateOf { appSnapshot?.threads?.firstOrNull { it.key == threadKey } }
+    }
+    val composerServer by remember(threadKey) {
+        derivedStateOf { appSnapshot?.servers?.firstOrNull { it.serverId == threadKey.serverId } }
+    }
     val launchSelection by appModel.launchState.snapshot.collectAsState()
     val composerModelSelection = launchSelection.selectedModel.trim().ifBlank {
         (composerThread?.model ?: composerThread?.info?.model ?: "").trim()
@@ -884,25 +919,16 @@ fun ComposerBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    if (text.isEmpty()) {
+                    if (isTextEmpty) {
                         ComposerPlaceholder()
                     }
-                    BasicTextField(
-                        value = textFieldValue,
+                    ComposerInlineTextField(
+                        valueProvider = { textFieldValue },
                         onValueChange = { textFieldValue = it },
-                        textStyle = LitterType.body,
-                        cursorBrush = SolidColor(LitterTheme.accent),
-                        // Always reserve trailing space for the expand icon so
-                        // wrapped lines don't slide under it when the icon
-                        // appears (and it doesn't cause a layout jump when it
-                        // toggles on/off at the 60-char threshold).
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(end = 24.dp)
-                            .focusRequester(inlineFocusRequester),
+                        focusRequester = inlineFocusRequester,
                     )
 
-                    val shouldShowExpand = (text.contains('\n') || text.length > 60) &&
+                    val shouldShowExpand = isMultilineOrLong &&
                         !isRecording && !isTranscribing
                     if (shouldShowExpand) {
                         IconButton(
@@ -956,6 +982,7 @@ fun ComposerBar(
                                 text = { Text(path, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.footnote.scaled, fontFamily = LitterTheme.monoFont) },
                                 onClick = {
                                     showFileMenu = false
+                                    val text = textFieldValue.text
                                     val atIdx = text.lastIndexOf('@')
                                     if (atIdx >= 0) {
                                         val updated = text.substring(0, atIdx) + "@$path "
@@ -1043,11 +1070,12 @@ fun ComposerBar(
                         }
                         val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
                         val voiceSession by voiceController.activeVoiceSession.collectAsState()
-                        val voiceSnapshot by appModel.snapshot.collectAsState()
-                        val voicePhase = voiceSnapshot?.voiceSession?.phase
+                        val voicePhase by remember {
+                            derivedStateOf { appSnapshot?.voiceSession?.phase }
+                        }
                         val voiceInputLevel = voiceSession?.inputLevel ?: 0f
 
-                        if (realtimeAvailable && text.isEmpty() && attachedImage == null && attachedFiles.isEmpty()) {
+                        if (realtimeAvailable && isTextEmpty && attachedImage == null && attachedFiles.isEmpty()) {
                             com.litter.android.ui.voice.InlineVoiceButton(
                                 phase = voicePhase,
                                 inputLevel = voiceInputLevel,
@@ -1101,7 +1129,7 @@ fun ComposerBar(
 
         if (showExpanded) {
             ComposerExpandedDialog(
-                text = text,
+                text = textFieldValue.text,
                 onTextChange = {
                     textFieldValue = TextFieldValue(
                         text = it,
@@ -1224,6 +1252,31 @@ private data class QueuedFollowUpUiStyle(
     val background: Color,
     val border: Color,
 )
+
+/**
+ * The only composable that reads the live [TextFieldValue] in composition, so
+ * each keystroke recomposes this field rather than the whole [ComposerBar].
+ */
+@Composable
+private fun ComposerInlineTextField(
+    valueProvider: () -> TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    focusRequester: FocusRequester,
+) {
+    BasicTextField(
+        value = valueProvider(),
+        onValueChange = onValueChange,
+        textStyle = LitterType.body,
+        cursorBrush = SolidColor(LitterTheme.accent),
+        // Always reserve trailing space for the expand icon so wrapped lines
+        // don't slide under it when the icon appears (and it doesn't cause a
+        // layout jump when it toggles on/off at the 60-char threshold).
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(end = 24.dp)
+            .focusRequester(focusRequester),
+    )
+}
 
 @Composable
 private fun QueuedFollowUpsPreviewPanel(
