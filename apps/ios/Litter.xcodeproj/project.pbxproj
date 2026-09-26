@@ -187,6 +187,7 @@
 		46B24CBC2FD5FD3799BE207D /* ConversationAttachmentSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 347FEEBE4E54174740D93E9D /* ConversationAttachmentSupportTests.swift */; };
 		46C5F0B53F9EF54FE8F311A4 /* ChatGPTOAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33402D8F29D5CAA2DD07ED9F /* ChatGPTOAuthTests.swift */; };
 		47248B9E35D3302200F65C05 /* UserMountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1E2519849D8BEDC1496591 /* UserMountStore.swift */; };
+		472F88B857E9EF04B40111E8 /* ComposerPermissionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835AE4DDAB1DE3E7AEB3EA7F /* ComposerPermissionChip.swift */; };
 		479BECE08ABF9348B42A3468 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB9C4946A911272FC0DC850 /* SilentAudioKeeper.swift */; };
 		4809B5C36CEDFE9BF77E06EB /* WatchApprovalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = B06FAE2DA1D08C45531747A2 /* WatchApprovalNotification.swift */; };
 		483C48A38E7D5B48F9735CB6 /* CarPlayVoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E75F2343E53BABCD1C8207E /* CarPlayVoiceManager.swift */; };
@@ -281,6 +282,7 @@
 		68EE71DC41AA028AFE7118ED /* MessageContentBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3299D7A71DE1AC05363FDE27 /* MessageContentBridgeTests.swift */; };
 		69CD7E945F5E2F84A69A556C /* ConversationWarmupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */; };
 		69F93A646ED483E203C91800 /* notion-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 99BFC7A01A194E7508C5693C /* notion-light.json */; };
+		6B1BF3CF381DDCA7F46E6398 /* ComposerPermissionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835AE4DDAB1DE3E7AEB3EA7F /* ComposerPermissionChip.swift */; };
 		6B6DEAECC59EF7CB0B9500B9 /* brand_logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = 74E5DF89D0937E6C17F2BB94 /* brand_logo.svg */; };
 		6B931A02489EA216156F0063 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 2FB04F90D08EE57F92DD7F58 /* AppIcon.icon */; };
 		6BBF52F233815A7CE387ADAF /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = B56375FA643BC7109985264C /* NukeUI */; };
@@ -948,6 +950,7 @@
 		817117A5E16EBD02388DBBE1 /* HeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderView.swift; sourceTree = "<group>"; };
 		81C9F195FE7B59E6FF611CC4 /* everforest-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "everforest-dark.json"; sourceTree = "<group>"; };
 		832D667C7B0B93EFED3577EE /* InlineHandoffView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineHandoffView.swift; sourceTree = "<group>"; };
+		835AE4DDAB1DE3E7AEB3EA7F /* ComposerPermissionChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerPermissionChip.swift; sourceTree = "<group>"; };
 		83D1805F2EFF51A7DD62CB88 /* github-dark-default.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "github-dark-default.json"; sourceTree = "<group>"; };
 		85743F1AC88293BE8BBD27DA /* ImageGenerationToolCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageGenerationToolCallView.swift; sourceTree = "<group>"; };
 		86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossServerToolResultView.swift; sourceTree = "<group>"; };
@@ -1642,6 +1645,7 @@
 				E003D083368D075E2F387D28 /* CatTransmissionView.swift */,
 				4754654D5240E850C98AB85D /* ChatWallpaperBackground.swift */,
 				EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */,
+				835AE4DDAB1DE3E7AEB3EA7F /* ComposerPermissionChip.swift */,
 				32A00D8BD24DF9E3C4F5EA2C /* ComputerUseToolCallView.swift */,
 				D1E96C6677B2AA22A101A29C /* ContextBadgeView.swift */,
 				56EFBFE7DF8014B177A1F7B9 /* ConversationComposerAttachSheet.swift */,
@@ -2340,6 +2344,7 @@
 				79979BB2F64E9429CB78709D /* CodexTurnAttributes.swift in Sources */,
 				3BEE4213B5E4E91944903E8C /* CodexTurnLiveActivity.swift in Sources */,
 				5784473E9D446D638DE2EEB2 /* CodexVoiceCallAttributes.swift in Sources */,
+				6B1BF3CF381DDCA7F46E6398 /* ComposerPermissionChip.swift in Sources */,
 				20949942F84F8EFDAADF2F75 /* ComputerUseToolCallView.swift in Sources */,
 				CDE88674C0C5A1B4C801267E /* ConnectionTarget.swift in Sources */,
 				D41343090B77E348E58FA656 /* ContextBadgeView.swift in Sources */,
@@ -2528,6 +2533,7 @@
 				FCC8E89D92F134E7BDB27068 /* ChatWallpaperBackground.swift in Sources */,
 				4526C97E5DF2AA7D0E5E2412 /* CloudKVSBridge.swift in Sources */,
 				C7AD6C6C225FF4C139C81B89 /* CodeBlockView.swift in Sources */,
+				472F88B857E9EF04B40111E8 /* ComposerPermissionChip.swift in Sources */,
 				04A9DBF10C6021392CB30528 /* ComputerUseToolCallView.swift in Sources */,
 				818679028BC9D93AEBD01BF5 /* ConnectionTarget.swift in Sources */,
 				507D4BB4D23CC5F53CA477ED /* ContextBadgeView.swift in Sources */,

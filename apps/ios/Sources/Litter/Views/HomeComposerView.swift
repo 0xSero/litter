@@ -308,6 +308,10 @@ struct HomeComposerView: View {
         .background {
             HomeComposerPresentationHost(attach: attach)
         }
+        .environment(
+            \.composerPermissionContext,
+            ComposerPermissionContext(threadKey: nil, runtime: appState.selectedAgentRuntimeKind)
+        )
         .task {
             // Focus as early as possible so the keyboard rises in parallel
             // with the glass-morph spring — the two animations then feel
@@ -332,8 +336,10 @@ struct HomeComposerView: View {
         let files = attach.attachedFiles
         guard !text.isEmpty || !images.isEmpty || !files.isEmpty else { return }
         guard !isSubmitting else { return }
-        guard let project else {
-            errorMessage = "Pick a project before sending."
+        let selectedProject = project
+        let fallbackServerId = transcriptionServerId
+        guard selectedProject != nil || fallbackServerId != nil else {
+            errorMessage = "Connect a computer before sending."
             return
         }
 
@@ -344,6 +350,21 @@ struct HomeComposerView: View {
             defer { isSubmitting = false }
             var createdThreadKey: ThreadKey?
             do {
+                // No project picked: start in the computer's home folder
+                // instead of blocking the send (ChatGPT never blocks).
+                let project: AppProject
+                if let selectedProject {
+                    project = selectedProject
+                } else {
+                    let serverId = fallbackServerId!
+                    let home = try await appModel.client.resolveRemoteHome(serverId: serverId)
+                    project = AppProject(
+                        id: "\(serverId)::\(home)",
+                        serverId: serverId,
+                        cwd: home,
+                        lastUsedAtMs: nil
+                    )
+                }
                 guard try await appModel.ensureLocalAuthForThreadStart(serverId: project.serverId) else {
                     return
                 }

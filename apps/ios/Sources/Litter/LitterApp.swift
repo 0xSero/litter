@@ -763,7 +763,10 @@ private struct HomeNavigationView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
+                // The phone home composer has its own mic; the floating
+                // voice orb only belongs to the split (sidebar) layout.
                 if isHomeRouteActive,
+                   isEmbeddedInSplit,
                    experimentalFeatures.isEnabled(.realtimeVoice),
                    homeInputMode == .collapsed {
                     homeVoiceLauncher
@@ -1467,7 +1470,13 @@ private struct HomeNavigationView: View {
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
             onOpenProjectPicker: { showProjectPicker = true },
-            onThreadCreated: { key in homeDashboardModel.pinThread(key) },
+            onThreadCreated: { key in
+                homeDashboardModel.pinThread(key)
+                // The phone home is a composer, not a list: sending opens
+                // the new chat (ChatGPT pattern) instead of leaving the user
+                // on an empty screen.
+                if !isEmbeddedInSplit { openConversation(key) }
+            },
             onShowSettings: { appState.showSettings = true },
             onShowApps: savedAppsStore.apps.isEmpty ? nil : { navigationPath.append(.appsList) },
             onShowTerminal: terminalLauncher,

@@ -1451,6 +1451,13 @@ private struct ConversationInputBar: View {
                 composerSelectionRange: composerSelection.binding
             )
             .environment(\.skillMentionHighlightNames, recognizedSkillNames)
+            .environment(
+                \.composerPermissionContext,
+                ComposerPermissionContext(
+                    threadKey: snapshot.threadKey,
+                    runtime: appModel.threadSnapshot(for: snapshot.threadKey)?.agentRuntimeKind
+                )
+            )
             .overlay(alignment: .top) {
                 ConversationComposerPopupOverlayView(
                     state: popupState,
