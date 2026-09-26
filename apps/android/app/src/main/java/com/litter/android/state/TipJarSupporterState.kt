@@ -20,6 +20,7 @@ import com.android.billingclient.api.QueryPurchasesParams
  */
 object TipJarSupporterState {
     private const val TAG = "TipJarSupporter"
+    private const val BILLING_REFRESH_INTERVAL_MS = 10 * 60 * 1000L
     private const val PREFS_NAME = "tip_jar_supporter"
     private const val SELECTED_HEADER_KEYS = "selected_header_keys"
 
@@ -63,8 +64,21 @@ object TipJarSupporterState {
 
     private var ownedProductIds: Set<String> = emptySet()
 
-    fun refresh(context: Context) {
+    private var lastBillingRefreshAtMs = 0L
+
+    /**
+     * Home calls this on every (re)entry, including back from a conversation.
+     * The Play Billing connection is an IPC bind plus a purchase query, so it
+     * runs at most once per [BILLING_REFRESH_INTERVAL_MS]; purchases made in
+     * the tip jar update state through their own flow.
+     */
+    fun refresh(context: Context, force: Boolean = false) {
         val app = context.applicationContext
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && lastBillingRefreshAtMs != 0L && now - lastBillingRefreshAtMs < BILLING_REFRESH_INTERVAL_MS) {
+            return
+        }
+        lastBillingRefreshAtMs = now
         selectedHeaderKeys.value = loadSelectedHeaderKeys(app)
         val client = BillingClient.newBuilder(app)
             .setListener(PurchasesUpdatedListener { _, _ -> })

@@ -186,7 +186,7 @@ fun ConversationScreen(
     var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
     val turnCollapseState = remember(threadKey, collapseTurns) { TranscriptPresentationState() }
-    val chainPrefs = remember(context) { TurnChainPreference(context) }
+    val chainPrefs = remember(context) { TurnChainPreference.get(context) }
     var chainOverrides by remember(threadKey, collapseTurns) { mutableStateOf(mapOf<String, Boolean>()) }
     val transcriptRows = remember(transcriptTurns, turnCollapseState, expandedTurnIds, chainOverrides) {
         buildTranscriptRows(
