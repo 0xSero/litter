@@ -296,20 +296,28 @@ struct HomeDashboardView: View {
 
     private var sidebarNavBarVisibility: Visibility { .visible }
 
+    private func headerGlyph(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(LitterTheme.textSecondary)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            HStack(spacing: 12) {
+            // Plain glyph buttons (44pt targets) directly on the background;
+            // opted out of the iOS 26 shared glass capsule below.
+            HStack(spacing: 0) {
                 Button(action: onShowSettings) {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(LitterTheme.textSecondary)
+                    headerGlyph("gearshape")
                 }
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("home.settingsButton")
                 if let onBrowseSessions {
                     Button(action: onBrowseSessions) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .foregroundColor(LitterTheme.textSecondary)
+                        headerGlyph("clock.arrow.circlepath")
                     }
                     .accessibilityLabel("All Sessions")
                     .accessibilityIdentifier("home.allSessionsButton")
@@ -318,23 +326,23 @@ struct HomeDashboardView: View {
                 // apps load, a server connects). Their slots are always
                 // reserved so the header never re-lays out when they do.
                 Button { onShowApps?() } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .foregroundColor(LitterTheme.textSecondary)
+                    headerGlyph("square.grid.2x2")
                 }
                 .accessibilityLabel("Apps")
                 .opacity(onShowApps == nil ? 0 : 1)
                 .disabled(onShowApps == nil)
                 .accessibilityHidden(onShowApps == nil)
                 Button { onShowTerminal?() } label: {
-                    Image(systemName: "terminal")
-                        .foregroundColor(LitterTheme.textSecondary)
+                    headerGlyph("terminal")
                 }
                 .accessibilityLabel("Terminal")
                 .opacity(onShowTerminal == nil ? 0 : 1)
                 .disabled(onShowTerminal == nil)
                 .accessibilityHidden(onShowTerminal == nil)
             }
+            .buttonStyle(.plain)
         }
+        .litterPlainToolbarItem()
         ToolbarItem(placement: .principal) {
             if chrome == .sidebar {
                 AnimatedLogo(size: 44)

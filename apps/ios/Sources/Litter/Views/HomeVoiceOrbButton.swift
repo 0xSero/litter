@@ -50,13 +50,6 @@ struct HomeVoiceOrbButton: View {
         }
     }
 
-    private var strokeColor: Color {
-        isActive ? iconColor.opacity(0.5) : LitterTheme.textMuted.opacity(0.3)
-    }
-
-    private var strokeWidth: CGFloat {
-        isActive ? 0.8 : 0.6
-    }
 
     var body: some View {
         Button(action: action) {
@@ -75,12 +68,7 @@ struct HomeVoiceOrbButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(strokeColor, lineWidth: strokeWidth)
-                .allowsHitTesting(false)
-        )
+        .modifier(RaisedCapsuleModifier())
         .disabled(isDisabled)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Starts a local realtime voice conversation.")

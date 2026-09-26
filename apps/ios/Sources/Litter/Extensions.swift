@@ -639,6 +639,29 @@ struct GlassCapsuleModifier: ViewModifier {
     }
 }
 
+/// Quiet raised fill for small circular/capsule controls (matches the
+/// composer card): no glass, no stroke, no shadow.
+struct RaisedCapsuleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(Capsule(style: .continuous).fill(LitterTheme.raised))
+            .contentShape(Capsule(style: .continuous))
+    }
+}
+
+extension ToolbarContent {
+    /// Opts a toolbar item out of iOS 26's shared glass capsule so its
+    /// glyph sits directly on the background.
+    @ToolbarContentBuilder
+    func litterPlainToolbarItem() -> some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            self.sharedBackgroundVisibility(.hidden)
+        } else {
+            self
+        }
+    }
+}
+
 struct GlassCircleModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
