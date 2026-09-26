@@ -76,6 +76,7 @@ struct ConversationComposerEntryRowView: View {
     }
 
     @State private var showExpanded: Bool = false
+    @Environment(\.composerPermissionContext) private var permissionContext
 
     /// Equivalent to `!inputText.trimmingCharacters(in: .whitespaces).isEmpty`
     /// without allocating a trimmed copy of the whole draft on every body
@@ -155,7 +156,7 @@ struct ConversationComposerEntryRowView: View {
             )
 
             if inputText.isEmpty {
-                Text("Type / for commands")
+                Text("Ask anything")
                     .font(LitterFont.styled(size: 17))
                     .foregroundColor(LitterTheme.textMuted)
                     .padding(.leading, LitterSpace.composerInset)
@@ -194,39 +195,45 @@ struct ConversationComposerEntryRowView: View {
                 }
             }
 
-            if let modelLabel {
-                Button(action: onOpenModelPicker) {
-                    HStack(spacing: 6) {
-                        Text(modelLabel)
-                            .foregroundColor(LitterTheme.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let reasoningLabel, reasoningLabel != "default" {
-                            Text(reasoningLabel)
-                                .foregroundColor(LitterTheme.meta)
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(LitterFont.styled(size: 13, weight: .medium))
-                    .padding(.horizontal, LitterSpace.m)
-                    .frame(height: Metrics.pillHeight)
-                    .background(Capsule().fill(LitterTheme.composerControl))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityIdentifier("conversation.modelPickerButton")
-                .accessibilityLabel("Choose model")
-                .frame(maxWidth: 190, alignment: .leading)
-                .frame(minHeight: LitterSpace.hitTarget)
-                .fixedSize(horizontal: false, vertical: true)
+            if let permissionContext, !isVoiceBusy {
+                ComposerPermissionChip(context: permissionContext)
             }
 
             if showModeChip {
                 ConversationComposerModeChip(mode: collaborationMode, onTap: onOpenModePicker)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: LitterSpace.s)
+
+            // Model + effort as plain text with a chevron, right-aligned
+            // next to the mic (ChatGPT/Codex app pattern).
+            if let modelLabel {
+                Button(action: onOpenModelPicker) {
+                    HStack(spacing: 4) {
+                        Text(modelLabel)
+                            .foregroundColor(LitterTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let reasoningLabel, reasoningLabel != "default" {
+                            Text(reasoningLabel.capitalized)
+                                .foregroundColor(LitterTheme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(LitterTheme.textMuted)
+                    }
+                    .font(.system(size: 14, weight: .regular))
+                    .frame(minHeight: LitterSpace.hitTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityIdentifier("conversation.modelPickerButton")
+                .accessibilityLabel("Choose model")
+                .frame(maxWidth: 170, alignment: .trailing)
+                .layoutPriority(-1)
+            }
 
             if voiceManager.isRecording {
                 AudioWaveformView(level: voiceManager.audioLevel)
@@ -273,8 +280,8 @@ struct ConversationComposerEntryRowView: View {
             composerCircleButton(
                 systemName: "arrow.up",
                 label: "Send",
-                tint: enabled ? Color.white : LitterTheme.textMuted,
-                fill: enabled ? LitterTheme.sendTint : LitterTheme.sendTint.opacity(0.28)
+                tint: enabled ? LitterTheme.surface : LitterTheme.textMuted,
+                fill: enabled ? LitterTheme.textPrimary : LitterTheme.composerControl
             ) {
                 if enabled { onSendText() }
             }

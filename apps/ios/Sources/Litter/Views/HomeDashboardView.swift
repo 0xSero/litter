@@ -307,31 +307,22 @@ struct HomeDashboardView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            // Plain glyph buttons (44pt targets) directly on the background;
-            // opted out of the iOS 26 shared glass capsule below.
+            // ChatGPT layout: sessions ("sidebar") on the left.
+            if let onBrowseSessions {
+                Button(action: onBrowseSessions) {
+                    headerGlyph("line.3.horizontal")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("All Sessions")
+                .accessibilityIdentifier("home.allSessionsButton")
+            }
+        }
+        .litterPlainToolbarItem()
+        ToolbarItem(placement: .topBarTrailing) {
+            // Apps and Terminal become available after launch (saved
+            // apps load, a server connects). Their slots are always
+            // reserved so the header never re-lays out when they do.
             HStack(spacing: 0) {
-                Button(action: onShowSettings) {
-                    headerGlyph("gearshape")
-                }
-                .accessibilityLabel("Settings")
-                .accessibilityIdentifier("home.settingsButton")
-                if let onBrowseSessions {
-                    Button(action: onBrowseSessions) {
-                        headerGlyph("clock.arrow.circlepath")
-                    }
-                    .accessibilityLabel("All Sessions")
-                    .accessibilityIdentifier("home.allSessionsButton")
-                }
-                // Apps and Terminal become available after launch (saved
-                // apps load, a server connects). Their slots are always
-                // reserved so the header never re-lays out when they do.
-                Button { onShowApps?() } label: {
-                    headerGlyph("square.grid.2x2")
-                }
-                .accessibilityLabel("Apps")
-                .opacity(onShowApps == nil ? 0 : 1)
-                .disabled(onShowApps == nil)
-                .accessibilityHidden(onShowApps == nil)
                 Button { onShowTerminal?() } label: {
                     headerGlyph("terminal")
                 }
@@ -339,6 +330,18 @@ struct HomeDashboardView: View {
                 .opacity(onShowTerminal == nil ? 0 : 1)
                 .disabled(onShowTerminal == nil)
                 .accessibilityHidden(onShowTerminal == nil)
+                Button { onShowApps?() } label: {
+                    headerGlyph("square.grid.2x2")
+                }
+                .accessibilityLabel("Apps")
+                .opacity(onShowApps == nil ? 0 : 1)
+                .disabled(onShowApps == nil)
+                .accessibilityHidden(onShowApps == nil)
+                Button(action: onShowSettings) {
+                    headerGlyph("gearshape")
+                }
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("home.settingsButton")
             }
             .buttonStyle(.plain)
         }
@@ -417,6 +420,8 @@ struct HomeDashboardView: View {
                     )
                 }
                 .transition(.opacity)
+            } else if chrome == .full {
+                chatHomeGreeting
             } else {
                 sessionsList
             }
@@ -454,7 +459,9 @@ struct HomeDashboardView: View {
     /// composer/search expansions, and disappears the moment a thread shows
     /// up in the current scope.
     private var showOnboardingCoachmarks: Bool {
-        guard chrome == .full,
+        // The phone home is a chat composer with its own greeting; the
+        // coachmark cat only belongs to the list layout.
+        guard chrome != .full,
               isSessionListSettled,
               inputMode == .collapsed,
               !isSearchExpanded else { return false }
@@ -526,9 +533,11 @@ struct HomeDashboardView: View {
 
     private var bottomChrome: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            DebugBuildLabel()
-                .padding(.trailing, 14)
-            if inputMode == .composer {
+            if chrome != .full {
+                DebugBuildLabel()
+                    .padding(.trailing, 14)
+            }
+            if inputMode == .composer || chrome == .full {
                 HStack(spacing: 8) {
                     Spacer()
                     // Invisible host: owns the model picker sheet and the
@@ -544,11 +553,13 @@ struct HomeDashboardView: View {
                         showsLabel: false,
                         presentation: $isShowingModelPicker
                     )
-                    ProjectChip(
-                        project: selectedProject,
-                        disabled: launchableServers.isEmpty,
-                        onTap: onOpenProjectPicker
-                    )
+                    if chrome != .full {
+                        ProjectChip(
+                            project: selectedProject,
+                            disabled: launchableServers.isEmpty,
+                            onTap: onOpenProjectPicker
+                        )
+                    }
                 }
                 .padding(.horizontal, 14)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -561,7 +572,8 @@ struct HomeDashboardView: View {
                 project: selectedProject,
                 transcriptionServerId: composerServerId,
                 onThreadCreated: onThreadCreated,
-                modelPill: composerModelPill
+                modelPill: composerModelPill,
+                persistentComposer: chrome == .full
             )
         }
         .padding(.bottom, 4)
@@ -575,6 +587,54 @@ struct HomeDashboardView: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .allowsHitTesting(false)
         )
+    }
+
+    /// ChatGPT-style empty chat: one centered question naming the project.
+    /// Past sessions live behind the history button.
+    private var chatHomeGreeting: some View {
+        VStack(spacing: 14) {
+            Spacer(minLength: 0)
+            CatMark(width: 48)
+                .accessibilityHidden(true)
+            if launchableServers.isEmpty {
+                Text("Connect a computer to start")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(LitterTheme.textPrimary)
+                    .multilineTextAlignment(.center)
+                Button("Add server", action: onAddServer)
+                    .font(.system(size: 16, weight: .medium))
+                    .buttonStyle(.bordered)
+                    .tint(LitterTheme.textPrimary)
+            } else {
+                Button(action: onOpenProjectPicker) {
+                    (Text("What should we work on in ")
+                        .foregroundColor(LitterTheme.textPrimary)
+                     + Text(selectedProject.map { projectDisplayName($0) } ?? "a project")
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .underline(true, pattern: .dot, color: LitterTheme.textMuted)
+                     + Text("?")
+                        .foregroundColor(LitterTheme.textPrimary))
+                        .font(.system(size: 24, weight: .regular))
+                        .multilineTextAlignment(.center)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.greetingProjectButton")
+            }
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+    }
+
+    private func projectDisplayName(_ project: AppProject) -> String {
+        let path = project.cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (path as NSString).lastPathComponent
+        return last.isEmpty ? path : last
     }
 
     private var sessionsList: some View {

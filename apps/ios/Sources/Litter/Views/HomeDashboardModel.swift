@@ -390,6 +390,16 @@ final class HomeDashboardModel {
            let persisted = persistence.selectedServerId(), isLaunchable(persisted) {
             selectedServerId = persisted
         }
+        // Home is a composer: it needs somewhere to send. Prefer a connected
+        // remote computer over the in-app local server.
+        if selectedServerId == nil, !userClearedSelection {
+            let launchable = connectedServers.filter(\.canLaunchSessions)
+            if let fallback = launchable.first(where: { !$0.isLocal }) ?? launchable.first {
+                persistSelectionChanges = false
+                selectedServerId = fallback.id
+                persistSelectionChanges = true
+            }
+        }
 
         reconcileSelectedProject()
     }

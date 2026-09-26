@@ -43,45 +43,59 @@ final class LiveE2EUITests: XCTestCase {
         timing("host_connected", since: t)
         shot(app, "02-home-connected")
 
-        // All sessions
+        dismissSystemPrompts()
+
+        // ChatGPT flow: type on the home composer, send, land in the new chat.
+        let homeComposer = app.textViews.firstMatch
+        XCTAssertTrue(homeComposer.waitForExistence(timeout: 10), "home composer missing")
+        shot(app, "03-home-composer")
+        homeComposer.tap()
+        homeComposer.typeText("Reply with exactly the word pong and nothing else.")
+        allowPasteIfPrompted()
+        t = Date()
+        app.buttons["Send"].tap()
+        let pong = app.staticTexts.matching(NSPredicate(format: "label ==[c] 'pong' OR label ==[c] 'pong.'")).firstMatch
+        XCTAssertTrue(pong.waitForExistence(timeout: 120), "no pong reply in new chat")
+        timing("home_send_to_reply", since: t)
+        dismissSystemPrompts()
+        shot(app, "04-new-chat-reply")
+
+        t = Date()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["home.allSessionsButton"].waitForExistence(timeout: 5))
+        timing("back_to_home", since: t)
+        shot(app, "05-home-after-back")
+
+        // Existing session: history must load.
         t = Date()
         app.buttons["home.allSessionsButton"].tap()
         let firstRow = app.descendants(matching: .any).matching(identifier: "sessions.sessionRow").firstMatch
         XCTAssertTrue(firstRow.waitForExistence(timeout: 20), "no sessions listed")
         timing("sessions_list", since: t)
-        shot(app, "03-sessions")
-
+        shot(app, "06-sessions")
         t = Date()
         firstRow.tap()
-        let composer = app.textViews.firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 20))
         timing("open_session", since: t)
-        sleep(2)
-        shot(app, "04-conversation")
+        let transcriptLoaded = NSPredicate(format: "count > 4")
+        expectation(for: transcriptLoaded, evaluatedWith: app.staticTexts)
+        waitForExpectations(timeout: 20)
+        timing("open_session_history", since: t)
+        shot(app, "07-existing-session")
 
-        composer.tap()
-        composer.typeText("Reply with exactly the word pong and nothing else.")
-        shot(app, "05-composer-typed")
-        t = Date()
-        app.buttons["Send"].tap()
-        let pong = app.staticTexts.matching(NSPredicate(format: "label ==[c] 'pong' OR label ==[c] 'pong.'")).firstMatch
-        XCTAssertTrue(pong.waitForExistence(timeout: 120), "no pong reply")
-        timing("send_to_reply", since: t)
-        shot(app, "06-reply")
-
-        t = Date()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(firstRow.waitForExistence(timeout: 5) || app.buttons["home.settingsButton"].waitForExistence(timeout: 5))
-        timing("back", since: t)
-        shot(app, "07-after-back")
-
-        // Re-open and use edge swipe to go back.
-        firstRow.tap()
-        XCTAssertTrue(composer.waitForExistence(timeout: 20))
+        // Edge swipe back.
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
         start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         XCTAssertTrue(firstRow.waitForExistence(timeout: 5), "edge swipe did not go back")
         shot(app, "08-after-swipe-back")
+    }
+
+    private func dismissSystemPrompts() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Don’t Allow", "Don't Allow"] {
+            let button = springboard.buttons[label]
+            if button.exists { button.tap() }
+        }
     }
 
     private func pair(_ app: XCUIApplication, json: String) {

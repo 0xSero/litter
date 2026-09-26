@@ -30,6 +30,9 @@ struct HomeBottomBar: View {
     /// button / search-row morph renders. Used by the iPad + Catalyst
     /// sidebar chrome where there's no room (and no use) for a composer.
     var compact: Bool = false
+    /// ChatGPT-style home: the composer is always on screen (never collapses
+    /// to a + button) and search lives elsewhere.
+    var persistentComposer: Bool = false
     @FocusState private var searchFocused: Bool
     @State private var composerOpenedAt: Date = .distantPast
     @State private var composerHasBeenActive = false
@@ -53,6 +56,8 @@ struct HomeBottomBar: View {
                     Spacer(minLength: 0)
                     GlassMorphContainer(spacing: 14) {
                         switch mode {
+                        case .collapsed where persistentComposer:
+                            composerRow
                         case .collapsed:
                             plusButton
                         case .composer:
@@ -61,13 +66,13 @@ struct HomeBottomBar: View {
                             EmptyView()
                         }
                     }
-                    .frame(maxWidth: mode == .composer ? .infinity : nil)
-                    if mode == .collapsed {
+                    .frame(maxWidth: (mode == .composer || persistentComposer) ? .infinity : nil)
+                    if mode == .collapsed && !persistentComposer {
                         // Reserve the search button's slot so the + stays put.
                         Spacer().frame(width: buttonSize + 10 + 14)
                     }
                 }
-                .padding(.horizontal, mode == .collapsed ? 14 : 0)
+                .padding(.horizontal, mode == .collapsed && !persistentComposer ? 14 : 0)
             }
 
             // Pool 2: search button ↔ search row. In full-chrome mode the
@@ -85,7 +90,7 @@ struct HomeBottomBar: View {
                     // like `.collapsed` so the search button stays put.
                     if mode == .search {
                         searchRow
-                    } else if compact || mode == .collapsed {
+                    } else if compact || (mode == .collapsed && !persistentComposer) {
                         searchIconButton
                     } else {
                         EmptyView()
@@ -96,7 +101,7 @@ struct HomeBottomBar: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.horizontal, mode == .collapsed ? 14 : 0)
+            .padding(.horizontal, mode == .collapsed && !persistentComposer ? 14 : 0)
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.82), value: mode)
     }
@@ -159,13 +164,14 @@ struct HomeBottomBar: View {
                     composerHasBeenActive = true
                     return
                 }
+                guard !persistentComposer else { return }
                 guard !collapseSuppressed else { return }
                 guard composerHasBeenActive, mode == .composer else { return }
                 let elapsed = Date().timeIntervalSince(composerOpenedAt)
                 guard elapsed > 0.6 else { return }
                 setMode(.collapsed)
             },
-            autoFocus: true,
+            autoFocus: !persistentComposer,
             modelPill: modelPill
         )
         .glassMorphID(plusID, in: ns)
