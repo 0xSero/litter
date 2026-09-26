@@ -219,6 +219,7 @@ struct AlleycatAddServerSheet: View {
     @ViewBuilder
     private func pasteJSONEntryControls(minHeight: CGFloat) -> some View {
         TextEditor(text: $pasteJSON)
+            .accessibilityIdentifier("alleycat.pair.jsonField")
             .litterFont(.footnote)
             .foregroundColor(LitterTheme.textPrimary)
             .scrollContentBackground(.hidden)

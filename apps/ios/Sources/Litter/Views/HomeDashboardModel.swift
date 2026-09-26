@@ -111,6 +111,10 @@ final class HomeDashboardModel {
     /// In-memory selection. May be a project derived from sessions, or a
     /// synthetic `(server, cwd)` pair the user just picked via the directory
     /// picker (which hasn't produced a thread yet, so it's not in `projects`).
+    /// True while the selected server was chosen by the fallback above
+    /// rather than by the user.
+    private var serverSelectionIsAutomatic = false
+
     var selectedProject: AppProject? {
         didSet {
             if oldValue?.id != selectedProject?.id, persistSelectionChanges {
@@ -392,13 +396,24 @@ final class HomeDashboardModel {
         }
         // Home is a composer: it needs somewhere to send. Prefer a connected
         // remote computer over the in-app local server.
-        if selectedServerId == nil, !userClearedSelection {
-            let launchable = connectedServers.filter(\.canLaunchSessions)
-            if let fallback = launchable.first(where: { !$0.isLocal }) ?? launchable.first {
-                persistSelectionChanges = false
-                selectedServerId = fallback.id
-                persistSelectionChanges = true
-            }
+        // An automatic pick of the in-app server upgrades to a remote
+        // computer as soon as one connects; an explicit pick never changes.
+        let launchable = connectedServers.filter(\.canLaunchSessions)
+        let remote = launchable.first(where: { !$0.isLocal })
+        if serverSelectionIsAutomatic,
+           let current = selectedServerId,
+           launchable.first(where: { $0.id == current })?.isLocal == true,
+           let remote {
+            persistSelectionChanges = false
+            selectedServerId = remote.id
+            persistSelectionChanges = true
+        }
+        if selectedServerId == nil, !userClearedSelection,
+           let fallback = remote ?? launchable.first {
+            persistSelectionChanges = false
+            selectedServerId = fallback.id
+            persistSelectionChanges = true
+            serverSelectionIsAutomatic = true
         }
 
         reconcileSelectedProject()
@@ -499,6 +514,7 @@ final class HomeDashboardModel {
     /// project locally and select it. It will appear in `projects` naturally
     /// once the first thread is created.
     func selectFreshProject(serverId: String, cwd: String) {
+        serverSelectionIsAutomatic = false
         selectedServerId = serverId
         let id = projectIdFor(serverId: serverId, cwd: cwd)
         if let existing = projects.first(where: { $0.id == id }) {

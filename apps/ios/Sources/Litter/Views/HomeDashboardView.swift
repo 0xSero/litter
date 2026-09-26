@@ -426,7 +426,11 @@ struct HomeDashboardView: View {
                 sessionsList
             }
         }
-        .overlay(alignment: .top) { topChrome }
+        .overlay(alignment: .top) {
+            // Phone home: computers are managed in Settings and picked under
+            // the greeting, so no pill row over the chat.
+            if chrome != .full { topChrome }
+        }
         .overlay(alignment: .bottom) {
             switch chrome {
             case .full:
@@ -601,10 +605,11 @@ struct HomeDashboardView: View {
                     .font(.system(size: 24, weight: .regular))
                     .foregroundStyle(LitterTheme.textPrimary)
                     .multilineTextAlignment(.center)
-                Button("Add server", action: onAddServer)
+                Button("Open Settings", action: onShowSettings)
                     .font(.system(size: 16, weight: .medium))
                     .buttonStyle(.bordered)
                     .tint(LitterTheme.textPrimary)
+                    .accessibilityIdentifier("home.openSettingsToAdd")
             } else {
                 Button(action: onOpenProjectPicker) {
                     (Text("What should we work on in ")
@@ -619,6 +624,7 @@ struct HomeDashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home.greetingProjectButton")
+                computerPicker
             }
             Spacer(minLength: 0)
             Spacer(minLength: 0)
@@ -629,6 +635,45 @@ struct HomeDashboardView: View {
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
+    }
+
+    /// "on <computer> ⌄" — switch between paired computers; adding and
+    /// removing them happens in Settings.
+    private var computerPicker: some View {
+        let current = selectedLaunchableServer ?? launchableServers.first
+        return Menu {
+            ForEach(launchableServers) { server in
+                Button {
+                    onSelectServer(server)
+                } label: {
+                    if server.id == current?.id {
+                        Label(server.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(server.displayName)
+                    }
+                }
+            }
+            Divider()
+            Button(action: onShowSettings) {
+                Label("Manage computers…", systemImage: "gearshape")
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if let current {
+                    StatusDot(state: current.statusDotState, size: 7)
+                    Text("on \(current.displayName)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .font(.system(size: 15))
+            .foregroundStyle(LitterTheme.textSecondary)
+            .frame(minHeight: LitterSpace.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("home.computerPicker")
     }
 
     private func projectDisplayName(_ project: AppProject) -> String {
