@@ -22,7 +22,7 @@ struct ProjectChip: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
+        .modifier(RaisedCapsuleModifier())
         .accessibilityLabel("Project: \(label)")
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)
