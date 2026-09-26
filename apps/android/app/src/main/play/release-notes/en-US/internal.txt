@@ -1,5 +1,5 @@
-Litter 2.1.5
-- Verify recent sessions appear before a saved server reconnects
-- Verify follow-ups retain earlier messages and expansion state
-- Verify long conversations scroll smoothly while streaming
-- Verify reconnect and disconnect during active requests
+Litter 2.1.6
+- Verify launch settles without layout jumps and shows connecting servers
+- Verify per-turn work sections expand while running and fold after
+- Verify back from a chat, folder picker and model picker feel instant
+- Verify 1000+ sessions scroll smoothly in the sessions list

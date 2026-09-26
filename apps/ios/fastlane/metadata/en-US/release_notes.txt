@@ -1,6 +1,7 @@
-Litter 2.1.5 opens faster and brings back recent sessions right away.
+Litter 2.1.6 is quieter, faster and easier to read.
 
-- Show the home screen without a black launch screen while connections start.
-- Show recent sessions immediately, before saved servers finish reconnecting.
-- Keep earlier messages visible when sending follow-up questions.
-- Keep long conversations smooth and connections responsive.
+- A cleaner design across home, conversations and settings.
+- A new composer with the model picker, voice and send in one place.
+- Reasoning and tool steps fold into one line per turn, and open while the agent works.
+- Launch settles in one layout, shows servers as they connect, and remembers your last project and model.
+- Faster reconnects, folder browsing and going back from a conversation.
