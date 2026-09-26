@@ -395,8 +395,13 @@ struct SettingsView: View {
                                     Text(conn.displayName)
                                         .litterFont(.body)
                                         .foregroundColor(LitterTheme.textPrimary)
-                                    Text(conn.health.displayLabel.lowercased())
-                                        .litterMeta(conn.health.accentColor)
+                                    // Quiet status: transport when healthy,
+                                    // one word while connecting or offline.
+                                    if let word = conn.connectionWord {
+                                        Text(word.text).litterMeta(word.color)
+                                    } else {
+                                        Text(conn.sourceLabel).litterMeta()
+                                    }
                                 }
                                 Spacer()
                             }
