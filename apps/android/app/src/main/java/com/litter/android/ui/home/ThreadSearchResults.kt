@@ -1,63 +1,60 @@
 package com.litter.android.ui.home
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.style.TextOverflow
-import uniffi.codex_mobile_client.ThreadKey
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.litter.android.state.displayTitle
-import com.litter.android.ui.LitterTextStyle
+import com.litter.android.ui.LitterQuiet
+import com.litter.android.ui.LitterSpacing
 import com.litter.android.ui.LitterTheme
-import com.litter.android.ui.common.AgentIconView
+import com.litter.android.ui.LitterType
+import com.litter.android.ui.common.AgentRuntimeKind
 import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.common.runtimeSortIndex
-import com.litter.android.ui.scaled
-import com.litter.android.ui.common.AgentRuntimeKind
+import com.litter.android.ui.metaLine
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.PinnedThreadKey
+import java.util.Calendar
 
 /**
- * List of every thread across connected servers, sorted by recency and
- * filtered by the current query. Tapping a row toggles its pinned state.
+ * Every past session across connected servers as one plain list: mono
+ * lowercase section labels (pinned / now / today / yesterday / this week /
+ * older), rows of title + one mono meta line "server · project · age".
+ * Tap opens; long-press offers pin/unpin and archive.
+ *
+ * Virtualization follows HomeListVirtualization: stable keys, a contentType
+ * per row kind, PAGE_SIZE rows rendered at a time. Rows show the summary only
+ * and never hydrate threads.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,54 +67,43 @@ fun ThreadSearchResults(
     isRefreshing: Boolean,
     onRuntimeSelected: (AgentRuntimeKind?) -> Unit,
     onRefresh: () -> Unit,
+    onOpen: (AppSessionSummary) -> Unit,
     onPin: (AppSessionSummary) -> Unit,
     onUnpin: (AppSessionSummary) -> Unit,
+    onArchive: (AppSessionSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val filtered = run {
+    val entries = remember(sessions, pinnedKeys, query, selectedRuntimeKind) {
         val needle = query.trim().lowercase()
-        sessions.filter { session ->
+        val filtered = sessions.filter { session ->
             (selectedRuntimeKind == null || session.agentRuntimeKind == selectedRuntimeKind) &&
                 (needle.isEmpty() ||
-                    session.displayTitle.lowercase().contains(needle)
-                || (session.cwd ?: "").lowercase().contains(needle)
-                || session.serverDisplayName.lowercase().contains(needle)
-                || session.preview.lowercase().contains(needle))
+                    session.displayTitle.lowercase().contains(needle) ||
+                    (session.cwd ?: "").lowercase().contains(needle) ||
+                    session.serverDisplayName.lowercase().contains(needle) ||
+                    session.preview.lowercase().contains(needle))
         }
+        sessionListEntries(filtered, pinnedKeys, System.currentTimeMillis())
     }
-
-    // Lineage for the *unfiltered* sessions, so a fork's parent (potentially
-    // dropped by the filter) is still discoverable. Mirrors iOS clusters.
-    val lineageMap = remember(sessions) { HomeDashboardSupport.computeLineageMap(sessions) }
-    val clusters = remember(filtered, lineageMap) {
-        val bucket = LinkedHashMap<ThreadKey, MutableList<AppSessionSummary>>()
-        for (session in filtered) {
-            val root = lineageMap[session.key]?.rootKey ?: session.key
-            bucket.getOrPut(root) { mutableListOf() }.add(session)
-        }
-        bucket.map { (rootKey, members) ->
-            ThreadSearchCluster(
-                rootKey = rootKey,
-                members = members.sortedByDescending { it.updatedAt ?: 0L },
-            )
-        }
-    }
-    var expandedClusters by remember { mutableStateOf<Set<ThreadKey>>(emptySet()) }
+    val listState = rememberLazyListState()
+    val rendered = rememberPagedLimit(
+        listState,
+        entries.size,
+        resetKey = "$query|$selectedRuntimeKind",
+    )
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,
-        modifier = modifier
-            .fillMaxSize()
-            .background(LitterTheme.surface.copy(alpha = 0.92f), RoundedCornerShape(14.dp))
-            .border(1.dp, LitterTheme.border.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
+        modifier = modifier.fillMaxSize(),
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp),
+            contentPadding = PaddingValues(bottom = LitterSpacing.lg),
         ) {
             if (runtimeKinds.size > 1) {
-                item(key = "runtime-filters") {
+                item(key = "runtime-filters", contentType = "filters") {
                     RuntimeFilterRow(
                         runtimeKinds = runtimeKinds.sortedBy { it.runtimeSortIndex },
                         selectedRuntimeKind = selectedRuntimeKind,
@@ -125,63 +111,210 @@ fun ThreadSearchResults(
                     )
                 }
             }
-            if (filtered.isEmpty()) {
-                item(key = "empty") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (sessions.isEmpty()) "No threads yet" else "No matches",
-                            color = LitterTheme.textMuted,
-                            fontSize = LitterTextStyle.caption.scaled,
-                        )
-                    }
+            if (entries.isEmpty()) {
+                item(key = "empty", contentType = "empty") {
+                    Text(
+                        text = when {
+                            sessions.isEmpty() && isRefreshing -> "loading…"
+                            sessions.isEmpty() -> "no sessions yet"
+                            else -> "no matches"
+                        },
+                        style = LitterType.meta,
+                        modifier = Modifier.padding(
+                            horizontal = LitterSpacing.margin,
+                            vertical = LitterSpacing.md,
+                        ),
+                    )
                 }
             } else {
                 items(
-                    clusters,
-                    key = { "${it.rootKey.serverId}/${it.rootKey.threadId}" },
-                ) { cluster ->
-                    if (cluster.members.size == 1) {
-                        val only = cluster.members.first()
-                        val key = PinnedThreadKey(
-                            serverId = only.key.serverId,
-                            threadId = only.key.threadId,
-                        )
-                        val isPinned = pinnedKeys.contains(key)
-                        ThreadSearchRow(
-                            session = only,
-                            isPinned = isPinned,
-                            onToggle = {
-                                if (isPinned) onUnpin(only) else onPin(only)
+                    if (rendered < entries.size) entries.subList(0, rendered) else entries,
+                    key = { it.key },
+                    contentType = { if (it is SessionListEntry.Header) "header" else "session" },
+                ) { entry ->
+                    when (entry) {
+                        is SessionListEntry.Header -> SectionLabel(entry.section.label)
+                        is SessionListEntry.Row -> SessionListRow(
+                            session = entry.session,
+                            isPinned = entry.isPinned,
+                            onOpen = { onOpen(entry.session) },
+                            onTogglePin = {
+                                if (entry.isPinned) onUnpin(entry.session) else onPin(entry.session)
                             },
-                        )
-                    } else {
-                        ThreadSearchClusterRow(
-                            cluster = cluster,
-                            pinnedKeys = pinnedKeys,
-                            isExpanded = expandedClusters.contains(cluster.rootKey),
-                            onToggleExpanded = {
-                                expandedClusters = if (expandedClusters.contains(cluster.rootKey)) {
-                                    expandedClusters - cluster.rootKey
-                                } else {
-                                    expandedClusters + cluster.rootKey
-                                }
-                            },
-                            onPin = onPin,
-                            onUnpin = onUnpin,
+                            onArchive = { onArchive(entry.session) },
                         )
                     }
-                    HorizontalDivider(color = LitterTheme.border.copy(alpha = 0.15f))
                 }
             }
         }
     }
 }
 
+enum class SessionSection(val label: String) {
+    PINNED("pinned"),
+    NOW("now"),
+    TODAY("today"),
+    YESTERDAY("yesterday"),
+    THIS_WEEK("this week"),
+    OLDER("older"),
+}
+
+sealed interface SessionListEntry {
+    val key: String
+
+    data class Header(val section: SessionSection) : SessionListEntry {
+        override val key: String get() = "section:${section.name}"
+    }
+
+    data class Row(
+        val session: AppSessionSummary,
+        val isPinned: Boolean,
+    ) : SessionListEntry {
+        override val key: String get() = "${session.key.serverId}/${session.key.threadId}"
+    }
+}
+
+/** Sessions updated within this many seconds count as "now". */
+private const val NOW_WINDOW_SECONDS = 3_600L
+
+/** Section for a session updated at [updatedAtSeconds], relative to [nowMillis]. */
+fun sessionSection(updatedAtSeconds: Long?, nowMillis: Long): SessionSection {
+    val updated = updatedAtSeconds?.takeIf { it > 0L } ?: return SessionSection.OLDER
+    val nowSeconds = nowMillis / 1000
+    if (nowSeconds - updated < NOW_WINDOW_SECONDS) return SessionSection.NOW
+    val startOfToday = Calendar.getInstance().apply {
+        timeInMillis = nowMillis
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis / 1000
+    return when {
+        updated >= startOfToday -> SessionSection.TODAY
+        updated >= startOfToday - 86_400L -> SessionSection.YESTERDAY
+        updated >= startOfToday - 6 * 86_400L -> SessionSection.THIS_WEEK
+        else -> SessionSection.OLDER
+    }
+}
+
+/** Pinned first, then recency sections; each section sorted newest first. */
+fun sessionListEntries(
+    sessions: List<AppSessionSummary>,
+    pinnedKeys: Set<PinnedThreadKey>,
+    nowMillis: Long,
+): List<SessionListEntry> {
+    val sorted = sessions
+        .distinctBy { "${it.key.serverId}/${it.key.threadId}" }
+        .sortedByDescending { it.updatedAt ?: 0L }
+    val grouped = LinkedHashMap<SessionSection, MutableList<SessionListEntry.Row>>()
+    SessionSection.entries.forEach { grouped[it] = mutableListOf() }
+    for (session in sorted) {
+        val pinned = PinnedThreadKey(
+            serverId = session.key.serverId,
+            threadId = session.key.threadId,
+        ) in pinnedKeys
+        val section = if (pinned) SessionSection.PINNED else sessionSection(session.updatedAt, nowMillis)
+        grouped.getValue(section).add(SessionListEntry.Row(session, pinned))
+    }
+    return buildList {
+        grouped.forEach { (section, rows) ->
+            if (rows.isEmpty()) return@forEach
+            add(SessionListEntry.Header(section))
+            addAll(rows)
+        }
+    }
+}
+
+/** Compact age for the meta line: "now", "4m", "2h", "3d", "5w". */
+fun compactAge(epochSeconds: Long?): String {
+    if (epochSeconds == null || epochSeconds <= 0L) return ""
+    val delta = System.currentTimeMillis() / 1000 - epochSeconds
+    return when {
+        delta < 60 -> "now"
+        delta < 3_600 -> "${delta / 60}m"
+        delta < 86_400 -> "${delta / 3_600}h"
+        delta < 604_800 -> "${delta / 86_400}d"
+        else -> "${delta / 604_800}w"
+    }
+}
+
+@Composable
+private fun SectionLabel(label: String) {
+    Text(
+        text = label,
+        style = LitterType.meta,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = LitterSpacing.margin,
+                end = LitterSpacing.margin,
+                top = LitterSpacing.md,
+                bottom = LitterSpacing.xxs,
+            )
+            .semantics { heading() },
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SessionListRow(
+    session: AppSessionSummary,
+    isPinned: Boolean,
+    onOpen: () -> Unit,
+    onTogglePin: () -> Unit,
+    onArchive: () -> Unit,
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    Box {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = HomeListVirtualization.ROW_HEIGHT)
+                .combinedClickable(
+                    onClick = onOpen,
+                    onLongClick = { showMenu = true },
+                )
+                .padding(horizontal = LitterSpacing.margin, vertical = LitterSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = session.displayTitle,
+                style = LitterType.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = metaLine(
+                    session.serverDisplayName,
+                    HomeDashboardSupport.workspaceLabel(session.cwd),
+                    compactAge(session.updatedAt),
+                ),
+                style = LitterType.meta,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(
+                text = { Text(if (isPinned) "Unpin" else "Pin") },
+                onClick = {
+                    showMenu = false
+                    onTogglePin()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Archive", color = LitterQuiet.error) },
+                onClick = {
+                    showMenu = false
+                    onArchive()
+                },
+            )
+        }
+    }
+}
+
+/** Runtime filter as plain mono words; the selected one is full-strength text. */
 @Composable
 private fun RuntimeFilterRow(
     runtimeKinds: List<AgentRuntimeKind>,
@@ -192,292 +325,31 @@ private fun RuntimeFilterRow(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = LitterSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        RuntimeFilterPill(
-            label = "All",
-            kind = null,
-            isActive = selectedRuntimeKind == null,
-            onClick = { onRuntimeSelected(null) },
-        )
+        FilterWord("all", selectedRuntimeKind == null) { onRuntimeSelected(null) }
         runtimeKinds.forEach { kind ->
-            RuntimeFilterPill(
-                label = kind.runtimeLabel,
-                kind = kind,
-                isActive = selectedRuntimeKind == kind,
-                onClick = { onRuntimeSelected(kind) },
-            )
+            FilterWord(kind.runtimeLabel.lowercase(), selectedRuntimeKind == kind) {
+                onRuntimeSelected(kind)
+            }
         }
     }
 }
 
 @Composable
-private fun RuntimeFilterPill(
-    label: String,
-    kind: AgentRuntimeKind?,
-    isActive: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
+private fun FilterWord(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .background(if (isActive) LitterTheme.accent else LitterTheme.surface.copy(alpha = 0.65f))
-            .border(
-                1.dp,
-                if (isActive) LitterTheme.accent else LitterTheme.border.copy(alpha = 0.7f),
-                RoundedCornerShape(percent = 50),
-            )
+            .heightIn(min = LitterSpacing.touch)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = LitterSpacing.xs),
+        contentAlignment = Alignment.Center,
     ) {
-        if (kind != null) {
-            AgentIconView(kind = kind, sizeDp = 12)
-        }
         Text(
             text = label,
-            color = if (isActive) LitterTheme.onAccentStrong else LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.caption.scaled,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
+            style = LitterType.meta,
+            color = if (active) LitterTheme.textPrimary else LitterQuiet.meta,
         )
-    }
-}
-
-@Composable
-private fun ThreadSearchRow(
-    session: AppSessionSummary,
-    isPinned: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ThreadSearchRuntimeIcon(kind = session.agentRuntimeKind)
-        Spacer(Modifier.size(8.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = session.displayTitle,
-                color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = session.serverDisplayName,
-                    color = LitterTheme.accent.copy(alpha = 0.7f),
-                    fontSize = 10f.scaled,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Text(
-                    text = "\u00b7",
-                    color = LitterTheme.textMuted.copy(alpha = 0.5f),
-                    fontSize = 10f.scaled,
-                )
-                Text(
-                    text = HomeDashboardSupport.workspaceLabel(session.cwd),
-                    color = LitterTheme.textSecondary.copy(alpha = 0.8f),
-                    fontSize = 10f.scaled,
-                    fontFamily = FontFamily.Monospace,
-                )
-                val relative = HomeDashboardSupport.relativeTime(session.updatedAt)
-                if (relative.isNotEmpty()) {
-                    Text(
-                        text = "\u00b7",
-                        color = LitterTheme.textMuted.copy(alpha = 0.5f),
-                        fontSize = 10f.scaled,
-                    )
-                    Text(
-                        text = relative,
-                        color = LitterTheme.textMuted.copy(alpha = 0.8f),
-                        fontSize = 10f.scaled,
-                        fontFamily = FontFamily.Monospace,
-                        // See SessionCanvasRow: an uncapped timestamp is the
-                        // only child free to wrap, so a narrow row breaks it
-                        // one character per line (#162).
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.size(8.dp))
-        Icon(
-            imageVector = if (isPinned) Icons.Default.CheckCircle else Icons.Default.Add,
-            contentDescription = null,
-            tint = if (isPinned) LitterTheme.accent else LitterTheme.textPrimary,
-            modifier = Modifier.size(20.dp),
-        )
-    }
-}
-
-@Composable
-private fun ThreadSearchRuntimeIcon(kind: AgentRuntimeKind) {
-    AgentIconView(kind = kind, sizeDp = 16)
-}
-
-/**
- * One lineage's worth of search rows. Mirrors iOS `ThreadSearchCluster`.
- * `members` is sorted by `updatedAt` desc, so `members.first()` is the head
- * (most recently active branch).
- */
-data class ThreadSearchCluster(
-    val rootKey: ThreadKey,
-    val members: List<AppSessionSummary>,
-)
-
-/**
- * Cluster row that collapses N sibling threads into a single visual unit.
- * Tapping the branches pill expands the children inline — each child has
- * its own pin button. Mirrors iOS `ThreadSearchClusterRow`.
- */
-@Composable
-private fun ThreadSearchClusterRow(
-    cluster: ThreadSearchCluster,
-    pinnedKeys: Set<PinnedThreadKey>,
-    isExpanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    onPin: (AppSessionSummary) -> Unit,
-    onUnpin: (AppSessionSummary) -> Unit,
-) {
-    // Prefer the root thread for the head row identity (forks come and go;
-    // the root is canonical). Fall back to the most-recent member when the
-    // root isn't loaded into the snapshot.
-    val head = cluster.members.firstOrNull { it.key == cluster.rootKey }
-        ?: cluster.members.first()
-    val headLatestUpdatedAt = cluster.members.maxOf { it.updatedAt ?: 0L }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (isExpanded) LitterTheme.surface.copy(alpha = 0.3f)
-                else androidx.compose.ui.graphics.Color.Transparent,
-            ),
-    ) {
-        val headPinKey = PinnedThreadKey(serverId = head.key.serverId, threadId = head.key.threadId)
-        val headPinned = pinnedKeys.contains(headPinKey)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThreadSearchRuntimeIcon(kind = head.agentRuntimeKind)
-            Spacer(Modifier.size(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = head.displayTitle,
-                    color = LitterTheme.textPrimary,
-                    fontSize = 13f.scaled,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = head.serverDisplayName,
-                        color = LitterTheme.accent.copy(alpha = 0.7f),
-                        fontSize = 10f.scaled,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                    Text(
-                        text = "·",
-                        color = LitterTheme.textMuted.copy(alpha = 0.5f),
-                        fontSize = 10f.scaled,
-                    )
-                    Text(
-                        text = HomeDashboardSupport.workspaceLabel(head.cwd),
-                        color = LitterTheme.textSecondary.copy(alpha = 0.8f),
-                        fontSize = 10f.scaled,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                    val relative = HomeDashboardSupport.relativeTime(headLatestUpdatedAt)
-                    if (relative.isNotEmpty()) {
-                        Text(
-                            text = "·",
-                            color = LitterTheme.textMuted.copy(alpha = 0.5f),
-                            fontSize = 10f.scaled,
-                        )
-                        Text(
-                            text = relative,
-                            color = LitterTheme.textMuted.copy(alpha = 0.8f),
-                            fontSize = 10f.scaled,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.size(6.dp))
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(
-                        LitterTheme.accent.copy(alpha = if (isExpanded) 0.18f else 0.12f),
-                    )
-                    .clickable(onClick = onToggleExpanded)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = "${cluster.members.size}",
-                    color = LitterTheme.textPrimary,
-                    fontSize = 11f.scaled,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp
-                        else Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = LitterTheme.accent,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            Spacer(Modifier.size(6.dp))
-            Icon(
-                imageVector = if (headPinned) Icons.Default.CheckCircle else Icons.Default.Add,
-                contentDescription = null,
-                tint = if (headPinned) LitterTheme.accent else LitterTheme.textPrimary,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clickable {
-                        if (headPinned) onUnpin(head) else onPin(head)
-                    },
-            )
-        }
-        AnimatedVisibility(visible = isExpanded) {
-            Column {
-                cluster.members.forEach { member ->
-                    val pin = PinnedThreadKey(
-                        serverId = member.key.serverId,
-                        threadId = member.key.threadId,
-                    )
-                    val isPinned = pinnedKeys.contains(pin)
-                    ThreadSearchRow(
-                        session = member,
-                        isPinned = isPinned,
-                        onToggle = {
-                            if (isPinned) onUnpin(member) else onPin(member)
-                        },
-                    )
-                }
-            }
-        }
     }
 }

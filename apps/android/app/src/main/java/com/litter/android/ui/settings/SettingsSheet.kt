@@ -543,7 +543,21 @@ private fun ServerSettingsRow(
                 Text(server.displayName, style = LitterType.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row {
                     Text(metaLine(server.connectionModeLabel), style = LitterType.meta)
-                    if (!healthy) {
+                    // Same one-word states as the Home switcher; healthy shows
+                    // nothing, other unhealthy states keep their status label.
+                    val link = com.litter.android.ui.home.serverLinkLabel(
+                        server,
+                        com.litter.android.ui.home.rememberLaunchWindowOpen(),
+                    )
+                    if (link != null) {
+                        Text(" · ", style = LitterType.meta)
+                        Text(
+                            link.text,
+                            style = LitterType.meta,
+                            color = link.color,
+                            maxLines = 1,
+                        )
+                    } else if (!healthy) {
                         Text(" · ", style = LitterType.meta)
                         Text(
                             server.statusLabel.lowercase(),
