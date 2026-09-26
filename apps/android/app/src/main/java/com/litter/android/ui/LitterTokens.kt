@@ -128,3 +128,41 @@ fun metaLine(vararg items: String?): String =
         .take(3)
         .joinToString(" · ")
         .lowercase()
+
+/**
+ * Composer chrome: one raised card with a faint lighter outline, raised
+ * circular controls, and a muted terracotta send that brightens when ready.
+ */
+object LitterComposer {
+    val control = 48.dp
+    val iconSize = 22.dp
+
+    private val terracotta = Color(0xFFC4674A)
+
+    /** Card fill. */
+    val card: Color
+        get() = LitterQuiet.raised
+
+    /** 1dp outline, slightly lighter than the card. */
+    val outline: Color
+        get() = lerp(LitterQuiet.raised, LitterTheme.textPrimary, if (LitterTheme.isDark) 0.10f else 0.14f)
+
+    /** Circles and the model pill sit one step above the card. */
+    val controlFill: Color
+        get() = lerp(LitterQuiet.raised, LitterTheme.textPrimary, if (LitterTheme.isDark) 0.07f else 0.06f)
+
+    val placeholder: Color
+        get() = LitterTheme.textMuted
+
+    val sendIdle: Color
+        get() = lerp(LitterQuiet.raised, terracotta, if (LitterTheme.isDark) 0.28f else 0.35f)
+
+    val sendIdleIcon: Color
+        get() = lerp(sendIdle, LitterTheme.textPrimary, 0.28f)
+
+    val sendActive: Color
+        get() = terracotta
+
+    val sendActiveIcon: Color
+        get() = Color.White
+}
