@@ -196,10 +196,15 @@ struct ConversationComposerEntryRowView: View {
             }
 
             if let permissionContext, !isVoiceBusy {
-                ComposerPermissionChip(context: permissionContext)
+                ComposerPermissionChip(
+                    context: permissionContext,
+                    onOpenModePicker: showModeChip ? onOpenModePicker : nil
+                )
             }
 
-            if showModeChip {
+            // Only surface the mode when it isn't the default (plan mode);
+            // switching lives in the permission menu.
+            if showModeChip && (collaborationMode == .plan || permissionContext == nil) {
                 ConversationComposerModeChip(mode: collaborationMode, onTap: onOpenModePicker)
             }
 
@@ -232,7 +237,7 @@ struct ConversationComposerEntryRowView: View {
                 .accessibilityIdentifier("conversation.modelPickerButton")
                 .accessibilityLabel("Choose model")
                 .frame(maxWidth: 170, alignment: .trailing)
-                .layoutPriority(-1)
+                .layoutPriority(1)
             }
 
             if voiceManager.isRecording {
