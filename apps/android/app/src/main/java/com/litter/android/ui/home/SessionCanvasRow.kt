@@ -138,12 +138,10 @@ fun SessionCanvasRow(
                 // Lineage breadcrumb (zoom 4 only): root → … → parent. Self
                 // is the title beneath, so we don't repeat it. Mirrors iOS
                 // `lineageBreadcrumb`.
-                AnimatedVisibility(
-                    visible = zoomLevel >= 4 && (lineage?.ancestors?.isNotEmpty() == true),
-                    enter = fadeIn(tween(200)) + expandVertically(animationSpec = layerSpring),
-                    exit = fadeOut(tween(120)) + shrinkVertically(animationSpec = layerSpring),
-                ) {
-                    lineage?.let { LineageBreadcrumb(lineage = it) }
+                // Data-driven layers (lineage, goal) render in place with no
+                // expand animation, so hydration never slides rows at launch.
+                if (zoomLevel >= 4 && (lineage?.ancestors?.isNotEmpty() == true)) {
+                    LineageBreadcrumb(lineage = lineage)
                 }
 
                 val titleStyle = markdownMatchedTitleStyle()
@@ -184,12 +182,9 @@ fun SessionCanvasRow(
 
                 // Goal line at zoom 2+. Mirrors iOS HomeDashboardView.swift
                 // `goalLine`: status dot + objective + token/elapsed chips.
-                AnimatedVisibility(
-                    visible = zoomLevel >= 2 && session.goal != null,
-                    enter = fadeIn(tween(200)) + expandVertically(animationSpec = layerSpring),
-                    exit = fadeOut(tween(120)) + shrinkVertically(animationSpec = layerSpring),
-                ) {
-                    session.goal?.let { GoalLine(goal = it) }
+                val goal = session.goal
+                if (zoomLevel >= 2 && goal != null) {
+                    GoalLine(goal = goal)
                 }
 
                 AnimatedVisibility(
@@ -229,12 +224,8 @@ fun SessionCanvasRow(
                 // Sibling pills (zoom 4 only). Each pill is a branch in the
                 // lineage; the one matching this row is highlighted. Mirrors
                 // iOS `siblingPillsRow`.
-                AnimatedVisibility(
-                    visible = zoomLevel >= 4 && (lineage?.hasMultipleBranches == true),
-                    enter = fadeIn(tween(200)) + expandVertically(animationSpec = layerSpring),
-                    exit = fadeOut(tween(120)) + shrinkVertically(animationSpec = layerSpring),
-                ) {
-                    lineage?.let { SiblingPillsRow(lineage = it, currentKey = session.key) }
+                if (zoomLevel >= 4 && lineage?.hasMultipleBranches == true) {
+                    SiblingPillsRow(lineage = lineage, currentKey = session.key)
                 }
 
                 // Working directory line at zoom 4 only, matches iOS
