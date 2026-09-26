@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Litter Quiet — mobile design</title>
+<style>
+  body { font: 16px/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #202122; background: #fff; max-width: 1100px; margin: 0 auto; padding: 24px 32px 64px; }
+  h1 { font: 28px/1.3 Georgia, "Linux Libertine", serif; border-bottom: 1px solid #a2a9b1; padding-bottom: 4px; margin-bottom: 4px; }
+  h2 { font: 22px/1.3 Georgia, "Linux Libertine", serif; border-bottom: 1px solid #a2a9b1; padding-bottom: 2px; margin-top: 40px; }
+  h3 { font-size: 17px; margin: 28px 0 6px; }
+  .sub { color: #54595d; font-size: 14px; margin-top: 0; }
+  #toc { display: inline-block; border: 1px solid #a2a9b1; background: #f8f9fa; padding: 8px 16px; font-size: 14px; margin: 16px 0; }
+  #toc ol { margin: 4px 0 0; padding-left: 20px; }
+  a { color: #0645ad; text-decoration: none; }
+  figure { margin: 8px 0 4px; border: 1px solid #c8ccd1; background: #f8f9fa; padding: 6px; }
+  figure img { width: 100%; display: block; }
+  figcaption { font-size: 14px; color: #54595d; padding: 6px 2px 0; }
+  .fix { font-size: 14px; color: #72540a; background: #fef6e7; border: 1px solid #fc3; padding: 4px 8px; margin: 4px 0 0; }
+  table { border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+  th, td { border: 1px solid #a2a9b1; padding: 5px 10px; text-align: left; vertical-align: top; }
+  th { background: #eaecf0; }
+  ul { padding-left: 22px; }
+  code { background: #f8f9fa; border: 1px solid #eaecf0; padding: 0 3px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Litter Quiet — mobile design</h1>
+<p class="sub">Design for iOS and Android, 2026-09-24 (round 6: between the quietest round and the one before). Mockups are generated references, not built UI; small text errors in them are listed under each screen. Earlier rounds: <a href="history.html">history.html</a>.</p>
+
+<div id="toc"><b>Contents</b>
+<ol>
+  <li><a href="#rules">Rules</a></li>
+  <li><a href="#tokens">Tokens</a></li>
+  <li><a href="#screens">Screens</a></li>
+  <li><a href="#behavior">Behavior changes behind the design</a></li>
+  <li><a href="#open">Open questions</a></li>
+</ol></div>
+
+<h2 id="rules">1. Rules</h2>
+<ul>
+  <li>Content is text. Lists have no icons, avatars, chips, badges or status dots.</li>
+  <li>Icons only for actions: back, close, settings, compose, +, mic/send/stop, "…".</li>
+  <li>Healthy states show nothing. Problems show one colored mono word: <i>needs approval</i>, <i>reconnecting</i>, <i>offline</i>.</li>
+  <li>No accent color. The one primary button is white on dark, black on light.</li>
+  <li>No borders, hairlines or shadows. Spacing separates things. Raised surfaces only for code, widgets, sheets, menus and the composer.</li>
+  <li>Two text styles carry almost everything: SF Pro 17 for content, mono 13 lowercase gray for metadata (up to three items, joined by " · ").</li>
+  <li>Mono lowercase section labels group lists: <i>now / today / yesterday</i> on home, <i>general / this iphone / advanced</i> in settings, <i>connected / needs attention</i> in servers.</li>
+  <li>User messages: text with a 2pt left rule and a small mono "you · 9:34" label. A faint 1pt line separates whole turns.</li>
+  <li>Monospace appears only in metadata, code, commands, paths and the terminal. Never in reading text.</li>
+  <li>The composer has one right-hand button that changes role: mic when empty, send when typing, stop while the agent runs.</li>
+  <li>Generative widgets are the one rich element in a conversation. They keep their own rendering.</li>
+</ul>
+
+<h2 id="tokens">2. Tokens</h2>
+<table>
+  <tr><th>Token</th><th>Dark</th><th>Light</th><th>Replaces today</th></tr>
+  <tr><td>background</td><td><code>#121314</code></td><td><code>#FFFFFF</code></td><td>theme <code>chatgpt-dark</code> / <code>codex-light</code> defaults</td></tr>
+  <tr><td>raised</td><td><code>#1A1B1D</code></td><td><code>#F3F3F4</code></td><td>surface, surfaceLight, codeBackground</td></tr>
+  <tr><td>text</td><td><code>#E6E6E6</code></td><td><code>#141414</code></td><td>textPrimary, textBody</td></tr>
+  <tr><td>meta</td><td><code>#7D8085</code></td><td><code>#7A7A7F</code></td><td>textSecondary, textMuted</td></tr>
+  <tr><td>user rule</td><td><code>#34363A</code>, 2pt</td><td><code>#D4D4D8</code></td><td>accent user bubble</td></tr>
+  <tr><td>warn / error word</td><td><code>#C9A04A</code> / <code>#D0605A</code></td><td><code>#A67C1E</code> / <code>#C0443C</code></td><td>warning, danger</td></tr>
+  <tr><td>body</td><td colspan="2">SF Pro 17 regular, line height ~1.45 (Dynamic Type <code>.body</code>, no −1)</td><td>16pt, default line height</td></tr>
+  <tr><td>meta text</td><td colspan="2">Berkeley Mono 13, lowercase</td><td>9–13pt mixed, 154 fixed 9–11pt call sites</td></tr>
+  <tr><td>titles</td><td colspan="2">nav 17 semibold; page 28 semibold; hero 24 semibold</td><td>mixed</td></tr>
+  <tr><td>turn divider</td><td><code>#1E1F21</code>, 1pt</td><td><code>#EDEDEF</code></td><td>none</td></tr>
+  <tr><td>spacing</td><td colspan="2">4 / 8 / 12 / 20 / 32; margins 20; rows ~62; between turns 32</td><td>inline numbers, rows 3–12pt padding, turns 10</td></tr>
+  <tr><td>radius</td><td colspan="2">raised 14; sheet top 16; composer 26</td><td>mixed</td></tr>
+</table>
+
+<h2 id="screens">3. Screens</h2>
+
+<h3>3.1 Home — server switcher, 10 servers</h3>
+<figure><img src="img/home.webp" alt="Home"><figcaption>Sessions grouped now / today / yesterday: title plus "server · project · state". The title shows "9 connected · 1 offline"; its menu filters by server and lists all 10 with counts or a problem word.</figcaption></figure>
+
+<h3>3.2 Launch — no black screen</h3>
+<figure><img src="img/launch.webp" alt="Launch"><figcaption>Logo, then the cached list with "reconnecting…", then live state.</figcaption></figure>
+<p class="fix">Fix in mockup: the live frame drops the project from some metadata lines ("spark-1 · 14m"); it should match the home screen ("spark-1 · sm120-flash · 14m").</p>
+
+<h3>3.3 Conversation — multi-turn</h3>
+<figure><img src="img/conversation.webp" alt="Conversation"><figcaption>User turns: text with a left rule and a mono "you · 9:34" label; a faint line between turns. Older turns collapse to one mono line. Tools and subagents are mono lines that expand ("ran 1 command · read 2 files ›"). The generative widget renders as it does today. Streaming shows "thinking · 4s" and the stop button.</figcaption>
+<p class="fix">Fix in mockup: the code reads <code>frem_config</code>; it should be <code>from_config</code> (correct in the light-mode image).</p></figure>
+
+<h3>3.4 Plan and approval</h3>
+<figure><img src="img/plan-approval.webp" alt="Plan and approval"><figcaption>Plans are a numbered list with mono "done" / "working…". Approval is one panel above the composer: Deny, Always, Allow.</figcaption></figure>
+
+<h3>3.5 Composer — dictation and attachments</h3>
+<figure><img src="img/composer.webp" alt="Composer states"><figcaption>Dictating shows a timer, waveform, cancel and done. When dictation can't work on this server, the app says why and offers on-device dictation or adding a key. Attachments show a count (up to 10); videos go as frames. The attach menu says what each option sends.</figcaption></figure>
+
+<h3>3.6 New session</h3>
+<figure><img src="img/new-session.webp" alt="New session"><figcaption>One question, no suggestions. The server/folder line at the top and the model line above the composer open the "Start in" sheet.</figcaption></figure>
+
+<h3>3.7 Conversation info and model</h3>
+<figure><img src="img/info-model.webp" alt="Info and model"><figcaption>Label/value rows grouped model / usage / actions, in place of rings and bars. Turn metrics and context usage live here, not in the conversation.</figcaption></figure>
+
+<h3>3.8 Servers and server detail</h3>
+<figure><img src="img/servers.webp" alt="Servers"><figcaption>Text-only list grouped this device / connected / needs attention; problems as words. Detail grouped connection / agents &amp; account / usage, including whether dictation and voice will work on this server.</figcaption></figure>
+
+<h3>3.9 Add a server and pairing</h3>
+<figure><img src="img/add-server.webp" alt="Add server"><figcaption>Four text rows. Pairing is one command and one scan.</figcaption></figure>
+
+<h3>3.10 Settings and appearance</h3>
+<figure><img src="img/settings.webp" alt="Settings"><figcaption>Groups separated by space, values in mono. Appearance: mode, text size, font, theme, density.</figcaption></figure>
+<p class="fix">Fix in mockup: in the Appearance preview the assistant line sits inside the user rule; it should be outside it, with no rule. The "account" label above the Account row is redundant.</p>
+
+<h3>3.11 Voice and terminal</h3>
+<figure><img src="img/voice-terminal.webp" alt="Voice and terminal"><figcaption>Voice: flat circle, transcript, handoff line, three controls. Terminal: full-bleed mono with a plain key row.</figcaption></figure>
+
+<h3>3.12 Apps</h3>
+<figure><img src="img/apps.webp" alt="Apps"><figcaption>A list with small widget thumbnails; the saved app opens the widget full screen.</figcaption></figure>
+
+<h3>3.13 Light mode</h3>
+<figure><img src="img/light.webp" alt="Light mode"><figcaption>Same layout; white background, black primary button.</figcaption></figure>
+
+<h2 id="behavior">4. Behavior changes behind the design</h2>
+<table>
+  <tr><th>Problem</th><th>Cause found in code</th><th>Change</th></tr>
+  <tr><td>~30 s black screen at launch</td><td><code>AlphaAnimatedImageView.animation(from:)</code> decodes all 165 frames of <code>home_cat_entrance.webp</code> on the main thread; the cat mounts on every cold start because no snapshot yet is treated as no sessions. Not yet confirmed on device.</td><td>Signpost first; decode off the main thread; show the cat only when sessions are known empty; persist recent sessions in the Rust store and render from cache.</td></tr>
+  <tr><td>Dictation "does nothing"</td><td>Errors (no login token, HTTP failure, too short) are stored in <code>VoiceTranscriptionManager.error</code> and never shown, on both platforms.</td><td>Transcription as one Rust <code>AppClient</code> call with typed errors; check the token before recording; show the reason inline; optional on-device fallback.</td></tr>
+  <tr><td>Images and video unclear</td><td>iOS: 10 images, extras dropped silently. Android: 1 image. No video on either; "files" send a path as text.</td><td>10 on both with a counter; same resize rules; video as 6–10 frames; label files as references.</td></tr>
+  <tr><td>Tight, monospace feel</td><td>16pt body, default line height, 10pt turn spacing, many 9–11pt labels, Berkeley Mono selectable for all text.</td><td>Tokens above; Berkeley Mono for metadata only.</td></tr>
+</table>
+
+<h2 id="open">5. Open questions</h2>
+<ul>
+  <li>Turn metrics and context usage move to Conversation info. Keep a way to see them inline (tap a turn)?</li>
+  <li>The home voice orb is gone; realtime voice needs an entry point (conversation "…" menu or long-press on mic).</li>
+  <li>Keep the 85 themes, or reduce to Litter Quiet light/dark plus a few?</li>
+  <li>Keep the zoomable home densities, or replace them with this list?</li>
+</ul>
+</body>
+</html>
