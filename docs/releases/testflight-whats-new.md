@@ -1,23 +1,23 @@
 Summary
 
-- iOS renders the first home frame without waiting for launch connection work, avoiding the black launch screen.
-- iOS and Android show recent sessions from the shared Rust cache before saved servers finish reconnecting.
-- Follow-up questions retain earlier messages, expansion choices, and the current turn on iOS and Android.
-- Long conversations use individually keyed lazy rows to keep scrolling responsive.
-- Shared connection workers handle unrelated actions while slow requests are pending and stop cleanly on disconnect.
-- Response IDs are validated instead of treating invalid numeric values as zero.
+- iOS and Android follow the Litter Quiet design: text-only lists, one mono metadata line, no accent color, and no idle animations.
+- The composer is one raised card with attachments, the model pill, voice, and send or stop.
+- Reasoning and tool steps fold into one summary line per turn; they stay open while the turn runs and collapse after.
+- Launch renders its final layout once, shows saved servers as connecting, and remembers the last project and model.
+- The sessions list is one plain grouped list with shared virtualization rules (62 pt rows, 10-row prefetch, 4 concurrent loads, 50-row pages).
+- Reconnects skip repeated SSH detection, the folder and model pickers reuse cached results, and going back from a conversation no longer rebuilds Home.
+- Store snapshots share item payloads and thread-list pages sync in one update.
 
 What to test
 
-- Cold launch iOS and check that the home screen appears without a black wait while servers reconnect.
-- Cold launch either platform with saved servers and recent sessions; check that recent sessions appear before reconnection completes and remain correct afterward.
-- Send several follow-ups with collapse enabled and disabled; check that prior messages and expansion state remain intact.
-- Scroll into older messages in a long turn, then send another follow-up. Check that the scroll position and history remain usable.
-- Stream a long reply while loading models or settings; the reply and unrelated actions should continue without a pause.
-- Disconnect and reconnect while a request is pending, then send a new turn.
-- Check history after an interrupted turn and after reopening the conversation.
+- Cold launch with saved servers and recent sessions; the layout should not jump, and servers should show "connecting…" until they are live.
+- Start a new session; the last project and model should be preselected.
+- Run a turn with reasoning and tool calls; the work section should be open while running, fold when done, and reopen on tap.
+- Go back from a long conversation, open the folder picker twice, and open the model picker twice; each should respond immediately.
+- Scroll the sessions list with many sessions and load older pages.
+- Reconnect a saved SSH server after restarting the app.
+- Check light and dark mode, large Dynamic Type, and the first-run hints on a small iPhone.
 
 Connection notes
 
-- Host adapter latency improvements remain a separate release candidate; they are not included in this mobile build.
-- Confirm launch speed and cached sessions on a device with a real saved server before making a measured performance claim.
+- Confirm launch, reconnect and back-navigation speed on a device with real saved servers before making a measured performance claim.

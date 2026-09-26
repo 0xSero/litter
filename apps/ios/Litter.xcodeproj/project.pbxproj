@@ -2904,7 +2904,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -3054,7 +3054,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3143,7 +3143,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 2.1.5;
+				MARKETING_VERSION = 2.1.6;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
