@@ -1940,6 +1940,11 @@ private struct ConversationDestinationScreen: View {
     @Environment(AppState.self) private var appState
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
     @State private var screenModel = ConversationScreenModel()
+    /// Set when Back is tapped. The pop transition runs ~350ms while
+    /// `snapshotRevision` keeps ticking (~8 fps during a live turn); each tick
+    /// re-bound the screen model and re-projected the whole transcript for a
+    /// screen that is already leaving. Freeze it instead.
+    @State private var isLeaving = false
     let threadKey: ThreadKey
     let bottomInset: CGFloat
     let onBack: () -> Void
@@ -1996,6 +2001,7 @@ private struct ConversationDestinationScreen: View {
                     }
                 )
                 .onAppear {
+                    isLeaving = false
                     bindScreenModel(for: conversationThread)
                 }
                 // Single coalesced bind signal. `snapshotRevision` bumps at
@@ -2005,9 +2011,11 @@ private struct ConversationDestinationScreen: View {
                 // Collapsing five onChanges into one eliminates the
                 // redundant triple-per-token re-binds.
                 .onChange(of: appModel.snapshotRevision) { _, _ in
+                    guard !isLeaving else { return }
                     bindScreenModel(for: conversationThread)
                 }
                 .onChange(of: appModel.composerPrefillRequest) { _, _ in
+                    guard !isLeaving else { return }
                     bindScreenModel(for: conversationThread)
                 }
             } else {
@@ -2029,7 +2037,16 @@ private struct ConversationDestinationScreen: View {
         .overlay(alignment: .top) {
             GlassMorphContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    Button(action: onBack) {
+                    Button {
+                        isLeaving = true
+                        // Drop focus first so the keyboard's hide animation
+                        // doesn't resize the transcript mid-pop.
+                        UIApplication.shared.sendAction(
+                            #selector(UIResponder.resignFirstResponder),
+                            to: nil, from: nil, for: nil
+                        )
+                        onBack()
+                    } label: {
                         Image(systemName: "chevron.left")
                             .font(LitterFont.styled(size: 17, weight: .semibold))
                             .foregroundColor(LitterTheme.textPrimary)
