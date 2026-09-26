@@ -25,27 +25,50 @@ struct SettingsView: View {
         NavigationStack {
             ZStack {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
-                Form {
-                    supportSection
-                    localAISection
-                    appearanceSection
-                    fontSection
-                    conversationSection
-                    petSection
-                    experimentalSection
-                    accountSection
-                    Section {
-                        NavigationLink("Harnesses") { HarnessSettingsView() }
-                            .litterFont(.body)
-                            .foregroundStyle(LitterTheme.textPrimary)
-                            .listRowBackground(LitterTheme.surface.opacity(0.6))
+                // ChatGPT settings pattern: a searchable list of categories
+                // with icons; each opens its own page of grouped cards.
+                List {
+                    Section("Connections") {
+                        category("Computers", "desktopcomputer", id: "settings.category.computers") {
+                            settingsPage("Computers") { serversSection }
+                        }
+                        category("Harnesses", "cpu", id: "settings.category.harnesses") {
+                            HarnessSettingsView()
+                        }
+                        category("Local AI", "sparkles", id: "settings.category.localai") {
+                            settingsPage("Local AI") { localAISection }
+                        }
                     }
-                    serversSection
+                    Section("Personal") {
+                        category("Appearance", "sun.max", id: "settings.category.appearance") {
+                            settingsPage("Appearance") {
+                                appearanceSection
+                                fontSection
+                            }
+                        }
+                        category("Conversation", "text.bubble", id: "settings.category.conversation") {
+                            settingsPage("Conversation") { conversationSection }
+                        }
+                        category("Pets", "pawprint", id: "settings.category.pets") {
+                            settingsPage("Pets") { petSection }
+                        }
+                        category("Account", "person.crop.circle", id: "settings.category.account") {
+                            settingsPage("Account") { accountSection }
+                        }
+                    }
+                    Section("More") {
+                        category("Experimental", "flask", id: "settings.category.experimental") {
+                            settingsPage("Experimental") { experimentalSection }
+                        }
+                        category("Support", "heart", id: "settings.category.support") {
+                            settingsPage("Support") { supportSection }
+                        }
+                    }
                 }
                 .scrollContentBackground(.hidden)
             }
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .task {
                 // Mirror the server projections out of the snapshot from a
                 // non-body context. `AppSnapshotObserver` re-runs this on every
@@ -66,6 +89,7 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                         .fontWeight(.semibold)
                         .foregroundColor(LitterTheme.textPrimary)
+                        .accessibilityIdentifier("settings.done")
                 }
             }
             .sheet(item: $activeServerSheet) { sheet in
@@ -377,61 +401,115 @@ struct SettingsView: View {
 
     // MARK: - Servers Section
 
+    private func category<Destination: View>(
+        _ title: String,
+        _ symbol: String,
+        id: String,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            Label {
+                Text(title)
+                    .font(.system(size: 17))
+                    .foregroundStyle(LitterTheme.textPrimary)
+            } icon: {
+                Image(systemName: symbol)
+                    .font(.system(size: 16))
+                    .foregroundStyle(LitterTheme.textPrimary)
+            }
+        }
+        .accessibilityIdentifier(id)
+        .listRowBackground(LitterTheme.surface.opacity(0.6))
+    }
+
+    private func settingsPage<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack {
+            LitterTheme.backgroundGradient.ignoresSafeArea()
+            Form { content() }
+                .scrollContentBackground(.hidden)
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.large)
+    }
+
+    /// Computers: the one place to add, edit and remove hosts (iOS Settings
+    /// list pattern — tap to edit, swipe or long-press to remove).
     private var serversSection: some View {
         Section {
-            if connectedServers.isEmpty {
-                Text("No servers connected")
-                    .litterFont(.body)
-                    .foregroundColor(LitterTheme.textMuted)
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
-            } else {
-                ForEach(connectedServers, id: \.id) { conn in
-                    HStack {
-                        Button {
-                            activeServerSheet = .edit(conn)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(conn.displayName)
-                                        .litterFont(.body)
-                                        .foregroundColor(LitterTheme.textPrimary)
-                                    // Quiet status: transport when healthy,
-                                    // one word while connecting or offline.
-                                    if let word = conn.connectionWord {
-                                        Text(word.text).litterMeta(word.color)
-                                    } else {
-                                        Text(conn.sourceLabel).litterMeta()
-                                    }
-                                }
-                                Spacer()
+            ForEach(connectedServers, id: \.id) { conn in
+                Button {
+                    activeServerSheet = .edit(conn)
+                } label: {
+                    HStack(spacing: 12) {
+                        StatusDot(state: conn.statusDotState, size: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(conn.displayName)
+                                .font(.system(size: 17))
+                                .foregroundColor(LitterTheme.textPrimary)
+                                .lineLimit(1)
+                            if let word = conn.connectionWord {
+                                Text(word.text)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(word.color)
+                            } else {
+                                Text(conn.sourceLabel)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(LitterTheme.textSecondary)
                             }
                         }
-                        .buttonStyle(.plain)
-                        Button("Remove") {
-                            removeServer(conn)
-                        }
-                        .litterFont(.body)
-                        .foregroundColor(LitterTheme.danger)
-                        .buttonStyle(.borderless)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(LitterTheme.textMuted)
                     }
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.computerRow")
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if !conn.isLocal {
+                        Button(role: .destructive) {
+                            removeServer(conn)
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        activeServerSheet = .edit(conn)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    if !conn.isLocal {
+                        Button(role: .destructive) {
+                            removeServer(conn)
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+                }
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
             Button {
                 activeServerSheet = .add
             } label: {
-                HStack {
-                    Text("Add Server")
-                        .litterFont(.body)
-                        .foregroundColor(LitterTheme.textPrimary)
-                    Spacer()
-                }
+                Label("Add computer", systemImage: "plus")
+                    .font(.system(size: 17))
+                    .foregroundColor(LitterTheme.accent)
             }
+            .accessibilityIdentifier("settings.addComputer")
             .listRowBackground(LitterTheme.surface.opacity(0.6))
-        } header: {
-            Text("Servers")
-                .litterSectionLabel()
+        } footer: {
+            Text("Pair a computer running kittylitter, Local Studio, or reachable over SSH. Swipe a computer to remove it.")
+                .font(.system(size: 13))
+                .foregroundColor(LitterTheme.textMuted)
         }
     }
 

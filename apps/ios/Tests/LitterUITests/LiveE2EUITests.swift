@@ -32,14 +32,15 @@ final class LiveE2EUITests: XCTestCase {
         timing("launch_to_home", since: t)
         shot(app, "01-home-launch")
 
-        let hostChip = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "seros-macbook")).firstMatch
-        if !hostChip.waitForExistence(timeout: 3) {
+        // Launchable computers show in the greeting's picker ("on <host>").
+        let hostChip = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'home.computerPicker' AND label CONTAINS[c] %@", "seros-macbook"))
+            .firstMatch
+        if !hostChip.waitForExistence(timeout: 5) {
             pair(app, json: json)
         }
         t = Date()
-        let connected = NSPredicate(format: "exists == true AND NOT (label CONTAINS[c] 'connecting') AND NOT (label CONTAINS[c] 'offline')")
-        expectation(for: connected, evaluatedWith: hostChip)
-        waitForExpectations(timeout: 45)
+        XCTAssertTrue(hostChip.waitForExistence(timeout: 45), "computer never connected")
         timing("host_connected", since: t)
         shot(app, "02-home-connected")
 
@@ -99,7 +100,16 @@ final class LiveE2EUITests: XCTestCase {
     }
 
     private func pair(_ app: XCUIApplication, json: String) {
-        app.buttons["Add server"].tap()
+        // Computers are added from Settings.
+        app.buttons["home.settingsButton"].tap()
+        let computers = app.buttons["settings.category.computers"]
+        XCTAssertTrue(computers.waitForExistence(timeout: 5))
+        shot(app, "00-settings-root")
+        computers.tap()
+        let add = app.buttons["settings.addComputer"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        shot(app, "00-settings-computers")
+        add.tap()
         app.buttons["discovery.chooser.kittylitter"].tap()
         sleep(2)
         app.tap() // trigger interruption monitor for the camera prompt
@@ -109,7 +119,7 @@ final class LiveE2EUITests: XCTestCase {
         let paste = app.buttons["Paste Pairing JSON"]
         XCTAssertTrue(paste.waitForExistence(timeout: 10))
         paste.tap()
-        let field = app.textViews.firstMatch
+        let field = app.textViews["alleycat.pair.jsonField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText(json.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -122,6 +132,16 @@ final class LiveE2EUITests: XCTestCase {
         expectation(for: enabled, evaluatedWith: connect)
         waitForExpectations(timeout: 30)
         connect.tap()
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'settings.computerRow' AND label CONTAINS[c] %@", "seros-macbook"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "computer not listed in Settings")
+        shot(app, "00-settings-after-pair")
+        app.navigationBars["Computers"].buttons.element(boundBy: 0).tap()
+        let done = app.buttons["settings.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        done.tap()
+        XCTAssertTrue(app.buttons["home.settingsButton"].waitForExistence(timeout: 5))
     }
 
     /// XCUITest types long strings through the pasteboard, which triggers

@@ -521,7 +521,7 @@ struct ContentView: View {
             .environment(appState)
             .environment(\.textScale, textScale)
         }
-        .sheet(isPresented: $bindableAppState.showSettings) {
+        .fullScreenCover(isPresented: $bindableAppState.showSettings) {
             SettingsView()
                 .environment(appModel)
                 .environment(appState)
