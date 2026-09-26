@@ -110,6 +110,7 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterRadius
 import com.litter.android.ui.LitterType
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.LitterComposer
 import com.litter.android.ui.common.hasFixedFullAccess
 import com.litter.android.ui.common.matchesModelSelection
 import com.litter.android.ui.common.modelPickerDisplayName
@@ -866,38 +867,30 @@ fun ComposerBar(
             )
         }
 
-        // ChatGPT-style composer: writing surface first, then one compact row
-        // for attachments, model/mode selection, voice, and send/stop.
+        // Litter composer: one raised rounded card. Writing surface first,
+        // then a row of raised controls: attach, model pill, mic, send/stop.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .background(LitterTheme.codeBackground, RoundedCornerShape(26.dp))
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .composerCardSurface()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp, max = 120.dp)
-                    .padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
+                    .heightIn(min = 44.dp, max = 160.dp)
+                    .padding(start = 8.dp, end = 2.dp, top = 6.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(modifier = Modifier.weight(1f)) {
                     if (text.isEmpty()) {
-                        Text(
-                            text = "Message\u2026",
-                            color = LitterTheme.textMuted,
-                            fontSize = LitterTextStyle.body.scaled,
-                        )
+                        ComposerPlaceholder()
                     }
                     BasicTextField(
                         value = textFieldValue,
                         onValueChange = { textFieldValue = it },
-                        textStyle = TextStyle(
-                            color = LitterTheme.textPrimary,
-                            fontSize = LitterTextStyle.body.scaled,
-                            fontFamily = LitterTheme.bodyFont,
-                        ),
+                        textStyle = LitterType.body,
                         cursorBrush = SolidColor(LitterTheme.accent),
                         // Always reserve trailing space for the expand icon so
                         // wrapped lines don't slide under it when the icon
@@ -978,48 +971,27 @@ fun ComposerBar(
                 }
 
             }
-
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!isRecording && !isTranscribing && !isThinking) {
-                    IconButton(
+                    ComposerCircleButton(
+                        icon = Icons.Default.Add,
+                        contentDescription = "Attach",
                         onClick = { showAttachMenu = true },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(LitterTheme.surface.copy(alpha = 0.78f), CircleShape),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Attach", tint = LitterTheme.textPrimary)
-                    }
-                    Spacer(Modifier.width(6.dp))
+                    )
+                    Spacer(Modifier.width(10.dp))
                 }
 
-                Text(
-                    text = buildString {
-                        append(composerModelLabel)
-                        if (composerReasoningLabel.isNotBlank() && composerReasoningLabel != "default") {
-                            append("  ")
-                            append(composerReasoningLabel)
-                        }
-                        append("  ⌄")
-                    },
-                    color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.footnote.scaled,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .widthIn(max = 176.dp)
-                        .clickable { onToggleModelSelector?.invoke() }
-                        .background(LitterTheme.surface.copy(alpha = 0.78f), RoundedCornerShape(999.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                ComposerModelPill(
+                    label = composerModelLabel,
+                    onClick = onToggleModelSelector,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
 
                 if (showCollaborationModeChip) {
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     CollaborationModeChip(
                         mode = collaborationMode,
                         onClick = { onOpenCollaborationModePicker?.invoke() },
@@ -1027,8 +999,12 @@ fun ComposerBar(
                 }
 
                 Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
                 when {
-                    isRecording -> IconButton(
+                    isRecording -> ComposerCircleButton(
+                        icon = Icons.Default.Stop,
+                        contentDescription = "Stop recording",
+                        tint = LitterTheme.accentStrong,
                         onClick = {
                             scope.launch {
                                 val auth = runCatching {
@@ -1046,54 +1022,16 @@ fun ComposerBar(
                                 }
                             }
                         },
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Icon(Icons.Default.Stop, contentDescription = "Stop recording", tint = LitterTheme.accentStrong)
-                    }
-
-                    isTranscribing -> LinearProgressIndicator(
-                        modifier = Modifier.width(32.dp),
-                        color = LitterTheme.accent,
-                        trackColor = Color.Transparent,
                     )
 
-                    canSend -> IconButton(
-                        onClick = sendCurrent,
-                        enabled = !isTranscribing,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(LitterTheme.accent),
+                    isTranscribing -> Box(
+                        modifier = Modifier.size(LitterComposer.control),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = Color.Black,
-                            modifier = Modifier.size(17.dp),
-                        )
-                    }
-
-                    isThinking -> IconButton(
-                        onClick = {
-                            val turnId = activeTurnId ?: return@IconButton
-                            scope.launch {
-                                runCatching {
-                                    appModel.client.interruptTurn(
-                                        threadKey.serverId,
-                                        AppInterruptTurnRequest(threadId = threadKey.threadId, turnId = turnId),
-                                    )
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(LitterTheme.textPrimary, CircleShape),
-                    ) {
-                        Icon(
-                            Icons.Default.Stop,
-                            contentDescription = "Cancel response",
-                            tint = LitterTheme.surface,
-                            modifier = Modifier.size(15.dp),
+                        LinearProgressIndicator(
+                            modifier = Modifier.width(28.dp),
+                            color = LitterTheme.accent,
+                            trackColor = Color.Transparent,
                         )
                     }
 
@@ -1120,10 +1058,12 @@ fun ComposerBar(
                                 onStop = {
                                     scope.launch { voiceController.stopActiveVoiceSession(appModel) }
                                 },
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(LitterComposer.control),
                             )
                         } else {
-                            IconButton(
+                            ComposerCircleButton(
+                                icon = Icons.Default.Mic,
+                                contentDescription = "Voice",
                                 onClick = {
                                     if (transcriptionManager.hasMicPermission(context)) {
                                         transcriptionManager.startRecording(context)
@@ -1131,12 +1071,30 @@ fun ComposerBar(
                                         micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                                     }
                                 },
-                                modifier = Modifier.size(40.dp),
-                            ) {
-                                Icon(Icons.Default.Mic, contentDescription = "Voice", tint = LitterTheme.textSecondary)
-                            }
+                            )
                         }
                     }
+                }
+                Spacer(Modifier.width(10.dp))
+                if (!canSend && isThinking) {
+                    ComposerStopButton(
+                        onClick = {
+                            val turnId = activeTurnId ?: return@ComposerStopButton
+                            scope.launch {
+                                runCatching {
+                                    appModel.client.interruptTurn(
+                                        threadKey.serverId,
+                                        AppInterruptTurnRequest(threadId = threadKey.threadId, turnId = turnId),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    ComposerSendButton(
+                        enabled = canSend && !isRecording && !isTranscribing,
+                        onClick = sendCurrent,
+                    )
                 }
             }
         }
