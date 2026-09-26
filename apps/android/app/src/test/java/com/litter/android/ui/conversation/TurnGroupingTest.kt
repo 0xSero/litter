@@ -133,6 +133,41 @@ class TurnGroupingTest {
         assertNotSame(before.first { it.key == "item-a2" }, after.first { it.key == "item-a2" })
     }
 
+    @Test
+    fun finishedTurnCollapsesWorkChainButKeepsAnswerVisible() {
+        val items = listOf(
+            user("u1", "t1"), exploration("c1", "t1"), exploration("c2", "t1"), command("c3", "t1"), assistant("a1", "t1"),
+        )
+        val state = TranscriptPresentationState()
+        val collapsed = rows(items, state)
+        val chain = collapsed.filterIsInstance<TranscriptRow.Chain>().single()
+        assertFalse(chain.expanded)
+        assertTrue(collapsed.any { it.key == "item-a1" })
+        assertTrue(collapsed.any { it.key == "item-u1" })
+        assertFalse(collapsed.any { it.key == "item-c3" || it.key == "exploration-c1" })
+        assertEquals("ran 1 command · searched 2 times", chain.chain.summary)
+
+        val expanded = buildTranscriptRows(turns(items), state, emptySet(), mapOf(chain.expansionId to true))
+        assertTrue(expanded.any { it.key == "item-c3" })
+        // Visible rows keep their keys across toggles.
+        assertEquals(collapsed.map { it.key }.toSet(), expanded.map { it.key }.toSet() - setOf("item-c3", "exploration-c1"))
+    }
+
+    @Test
+    fun activeTurnShowsWorkChainExpanded() {
+        val items = listOf(user("u1", "t1"), command("c1", "t1"))
+        val chain = rows(items, TranscriptPresentationState(), streaming = true).filterIsInstance<TranscriptRow.Chain>().single()
+        assertTrue(chain.expanded)
+    }
+
+    private fun command(id: String, turn: String) = item(
+        id, turn, HydratedConversationItemContent.CommandExecution(
+            HydratedCommandExecutionData(
+                "make", "/tmp", AppOperationStatus.COMPLETED, null, 0, 1L, null, emptyList(),
+            ),
+        ),
+    )
+
     private fun rows(
         items: List<HydratedConversationItem>,
         state: TranscriptPresentationState,

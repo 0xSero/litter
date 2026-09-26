@@ -204,7 +204,23 @@ internal class TranscriptPresentationState {
         val items: List<HydratedConversationItem>,
         val isActive: Boolean,
         val rows: List<TranscriptRow.Entry>,
+        val chain: TurnChain?,
     )
+
+    /** Chain expansion default per finished turn, captured once so a changed preference never re-flips old turns. */
+    private val chainDefaults = mutableMapOf<String, Boolean>()
+
+    fun chainExpanded(turn: TranscriptTurn, overrides: Map<String, Boolean>, preference: Boolean): Boolean {
+        val id = presentationId(turn)
+        overrides[id]?.let { return it }
+        if (turn.isActiveTurn) return true
+        return chainDefaults.getOrPut(id) { preference }
+    }
+
+    fun chain(turn: TranscriptTurn): TurnChain? {
+        entries(turn)
+        return entryCache[turn.id]?.chain
+    }
 
     private val entryCache = mutableMapOf<String, CachedEntries>()
 
@@ -214,7 +230,7 @@ internal class TranscriptPresentationState {
             return cached.rows
         }
         return projectEntries(turn).also {
-            entryCache[turn.id] = CachedEntries(turn.items, turn.isActiveTurn, it)
+            entryCache[turn.id] = CachedEntries(turn.items, turn.isActiveTurn, it, buildTurnChain(turn, it))
         }
     }
 
@@ -256,6 +272,10 @@ internal sealed class TranscriptRow(val key: String, val contentType: String) {
         },
     )
 
+    /** Per-turn summary line ("ran 3 commands · read 2 files ›") that discloses the work chain. */
+    class Chain(val turn: TranscriptTurn, val chain: TurnChain, val expanded: Boolean, val expansionId: String) :
+        TranscriptRow("chain-${turn.id}", "chain")
+
     class Collapsed(val turn: TranscriptTurn, val expansionId: String) : TranscriptRow("collapsed-${turn.id}", "collapsed")
     class Footer(val turn: TranscriptTurn, val canCollapse: Boolean, val expansionId: String) :
         TranscriptRow("footer-${turn.id}", "footer")
@@ -272,6 +292,8 @@ internal fun buildTranscriptRows(
     turns: List<TranscriptTurn>,
     collapseState: TranscriptPresentationState,
     expandedTurnIds: Set<String>,
+    chainOverrides: Map<String, Boolean> = emptyMap(),
+    chainExpandedByDefault: Boolean = false,
 ): List<TranscriptRow> = buildList {
     collapseState.update(turns)
     turns.forEach { turn ->
@@ -280,10 +302,176 @@ internal fun buildTranscriptRows(
         if (canCollapse && expansionId !in expandedTurnIds && !turn.isActiveTurn) {
             add(TranscriptRow.Collapsed(turn, expansionId))
         } else {
-            addAll(collapseState.entries(turn))
+            val entries = collapseState.entries(turn)
+            val chain = collapseState.chain(turn)
+            if (chain == null) {
+                addAll(entries)
+            } else {
+                // Collapsed chains emit no rows for their members, so their
+                // children are never composed; visible rows keep their keys.
+                val expanded = collapseState.chainExpanded(turn, chainOverrides, chainExpandedByDefault)
+                entries.forEachIndexed { index, entry ->
+                    if (index == chain.firstIndex) add(TranscriptRow.Chain(turn, chain, expanded, expansionId))
+                    if (expanded || entry.key !in chain.memberKeys) add(entry)
+                }
+            }
             add(TranscriptRow.Footer(turn, canCollapse, expansionId))
         }
     }
+}
+
+/** View-only projection of a turn's reasoning, tool, and subagent work. */
+internal class TurnChain(
+    val memberKeys: Set<String>,
+    val firstIndex: Int,
+    val summary: String,
+    val isRunning: Boolean,
+)
+
+/** Items that belong in the collapsible work chain rather than the answer. */
+private fun HydratedConversationItemContent.isChainWork(): Boolean = when (this) {
+    is HydratedConversationItemContent.Reasoning,
+    is HydratedConversationItemContent.CommandExecution,
+    is HydratedConversationItemContent.FileChange,
+    is HydratedConversationItemContent.McpToolCall,
+    is HydratedConversationItemContent.DynamicToolCall,
+    is HydratedConversationItemContent.MultiAgentAction,
+    is HydratedConversationItemContent.WebSearch,
+    is HydratedConversationItemContent.ImageView,
+    -> true
+    else -> false
+}
+
+private fun AppOperationStatus.isRunning(): Boolean =
+    this == AppOperationStatus.PENDING || this == AppOperationStatus.IN_PROGRESS
+
+internal fun buildTurnChain(turn: TranscriptTurn, entries: List<TranscriptRow.Entry>): TurnChain? {
+    // Commentary between tool calls is part of the work; the last assistant
+    // message (the answer) always stays visible.
+    val lastAssistantId = turn.items.lastOrNull { it.content is HydratedConversationItemContent.Assistant }?.id
+    val members = mutableSetOf<String>()
+    var firstIndex = -1
+    var thought = false
+    var commands = 0
+    var reads = 0
+    var searches = 0
+    var edits = 0
+    var tools = 0
+    var agents = 0
+    var durationMs = 0L
+    var running = false
+    entries.forEachIndexed { index, row ->
+        val isMember = when (val entry = row.entry) {
+            is TimelineEntry.Exploration -> {
+                entry.group.items.forEach { item ->
+                    val data = (item.content as? HydratedConversationItemContent.CommandExecution)?.v1 ?: return@forEach
+                    durationMs += data.durationMs ?: 0L
+                    if (data.status.isRunning()) running = true
+                    data.actions.forEach { action ->
+                        when (action.kind) {
+                            HydratedCommandActionKind.READ -> reads += 1
+                            HydratedCommandActionKind.SEARCH, HydratedCommandActionKind.LIST_FILES -> searches += 1
+                            HydratedCommandActionKind.UNKNOWN -> commands += 1
+                        }
+                    }
+                }
+                true
+            }
+            is TimelineEntry.Single -> {
+                val item = entry.item
+                when (val c = item.content) {
+                    is HydratedConversationItemContent.Reasoning -> { thought = true; true }
+                    is HydratedConversationItemContent.CommandExecution -> {
+                        commands += 1
+                        durationMs += c.v1.durationMs ?: 0L
+                        if (c.v1.status.isRunning()) running = true
+                        true
+                    }
+                    is HydratedConversationItemContent.FileChange -> {
+                        edits += c.v1.changes.size.coerceAtLeast(1)
+                        if (c.v1.status.isRunning()) running = true
+                        true
+                    }
+                    is HydratedConversationItemContent.MultiAgentAction -> {
+                        agents += c.v1.receiverThreadIds.size.coerceAtLeast(1)
+                        if (c.v1.status.isRunning()) running = true
+                        true
+                    }
+                    is HydratedConversationItemContent.Assistant ->
+                        c.v1.phase == AppMessagePhase.COMMENTARY && item.id != lastAssistantId
+                    else -> if (c.isChainWork()) { tools += 1; true } else false
+                }
+            }
+        }
+        if (isMember) {
+            members += row.key
+            if (firstIndex < 0) firstIndex = index
+        }
+    }
+    if (members.isEmpty()) return null
+    return TurnChain(
+        memberKeys = members,
+        firstIndex = firstIndex,
+        summary = turnChainSummary(thought, durationMs, commands, reads, searches, edits, tools, agents, turn.isActiveTurn),
+        isRunning = running || turn.isActiveTurn,
+    )
+}
+
+internal fun turnChainSummary(
+    thought: Boolean,
+    durationMs: Long,
+    commands: Int,
+    reads: Int,
+    searches: Int,
+    edits: Int,
+    tools: Int,
+    agents: Int,
+    isActive: Boolean,
+): String {
+    fun plural(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"
+    val duration = durationMs.takeIf { it >= 1000 }?.let { formatChainDuration(it) }
+    val lead = when {
+        isActive -> "working"
+        thought && duration != null -> "thought $duration"
+        thought -> "thought"
+        duration != null -> "worked $duration"
+        else -> null
+    }
+    val parts = listOfNotNull(
+        lead,
+        commands.takeIf { it > 0 }?.let { "ran ${plural(it, "command", "commands")}" },
+        reads.takeIf { it > 0 }?.let { "read ${plural(it, "file", "files")}" },
+        searches.takeIf { it > 0 }?.let { "searched ${plural(it, "time", "times")}" },
+        edits.takeIf { it > 0 }?.let { "edited ${plural(it, "file", "files")}" },
+        tools.takeIf { it > 0 }?.let { "called ${plural(it, "tool", "tools")}" },
+        agents.takeIf { it > 0 }?.let { plural(it, "agent", "agents") },
+    )
+    return parts.joinToString(" · ").ifEmpty { "worked" }
+}
+
+private fun formatChainDuration(ms: Long): String {
+    val seconds = ms / 1000
+    return if (seconds < 60) "${seconds}s" else "${seconds / 60}m ${seconds % 60}s"
+}
+
+/** Summary line for a turn's work chain; tapping toggles the chain. */
+@Composable
+internal fun TurnChainSummaryRow(
+    chain: TurnChain,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Text(
+        text = chain.summary + if (expanded) " ‹" else " ›",
+        style = LitterType.meta,
+        color = if (chain.isRunning) LitterTheme.textSecondary else LitterQuiet.meta,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = LitterSpacing.xs),
+    )
 }
 
 /**
