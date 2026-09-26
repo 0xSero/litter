@@ -975,6 +975,10 @@ fun HomeDashboardScreen(
                     // there isn't a duplicate search bar at the bottom.
                     isSearchExpanded -> {}
                     isComposerActive -> {
+                        val serverForModels = selectedProject?.serverId
+                            ?: selectedServerId
+                            ?: servers.firstOrNull { !it.isLocal }?.serverId
+                            ?: servers.firstOrNull()?.serverId
                         // Model + project chips sit above the composer input,
                         // mirroring iOS `HomeDashboardView.swift:273-288`. The
                         // model chip opens a bottom sheet with model/effort
@@ -990,22 +994,6 @@ fun HomeDashboardScreen(
                             ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val serverForModels = selectedProject?.serverId
-                                ?: selectedServerId
-                                ?: servers.firstOrNull { !it.isLocal }?.serverId
-                                ?: servers.firstOrNull()?.serverId
-                            // TODO(merge ux/android-conv 8c088660): pass
-                            // HomeComposerBar(modelPill = { ComposerModelPill(
-                            //   label = <model display name>, onClick = <open
-                            //   this chip's model sheet>) }) and drop this chip.
-                            // Kept compile-safe here until both branches meet.
-                            HomeModelChip(
-                                serverId = serverForModels,
-                                disabled = serverForModels.isNullOrBlank(),
-                                onSheetStateChange = { open ->
-                                    suppressComposerCollapse = open
-                                },
-                            )
                             ProjectChip(
                                 project = selectedProject,
                                 disabled = servers.isEmpty(),
@@ -1029,6 +1017,16 @@ fun HomeDashboardScreen(
                             }
                         }
                         HomeComposerBar(
+                            modelPill = {
+                                HomeModelChip(
+                                    serverId = serverForModels,
+                                    disabled = serverForModels.isNullOrBlank(),
+                                    onSheetStateChange = { open ->
+                                        suppressComposerCollapse = open
+                                    },
+                                    asPill = true,
+                                )
+                            },
                             project = selectedProject,
                             onThreadCreated = { key ->
                                 pinThreadOnHome(key)
