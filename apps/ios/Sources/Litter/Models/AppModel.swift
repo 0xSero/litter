@@ -2173,6 +2173,7 @@ final class AppModel {
         let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
         let ms = Double(elapsed) / 1_000_000
         LLog.info("perf", "startTurn completed in \(String(format: "%.2f", ms))ms")
+        AppRuntimeController.shared.requestNotificationPermissionIfNeeded()
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {

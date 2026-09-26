@@ -108,17 +108,12 @@ struct HomeBottomBar: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(LitterTheme.accent)
+                .foregroundStyle(LitterTheme.textPrimary)
                 .frame(width: buttonSize, height: buttonSize)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(LitterTheme.accent.opacity(0.5), lineWidth: 0.8)
-                .allowsHitTesting(false)
-        )
+        .modifier(RaisedCapsuleModifier())
         .glassMorphID(plusID, in: ns)
         .accessibilityLabel("New message")
         .coachmarkAnchor(.newThread)
@@ -136,12 +131,7 @@ struct HomeBottomBar: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(LitterTheme.textMuted.opacity(0.3), lineWidth: 0.6)
-                .allowsHitTesting(false)
-        )
+        .modifier(RaisedCapsuleModifier())
         .glassMorphID(searchID, in: ns)
         .accessibilityLabel("Search threads")
         .coachmarkAnchor(.search)
@@ -191,7 +181,7 @@ struct HomeBottomBar: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(LitterTheme.accent)
+                .foregroundStyle(LitterTheme.textSecondary)
 
             TextField("search threads", text: $searchQuery)
                 .textFieldStyle(.plain)
@@ -218,12 +208,7 @@ struct HomeBottomBar: View {
         }
         .padding(.horizontal, 14)
         .frame(height: buttonSize)
-        .modifier(GlassCapsuleModifier(interactive: false))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(LitterTheme.accent.opacity(0.5), lineWidth: 1.0)
-                .allowsHitTesting(false)
-        )
+        .modifier(RaisedCapsuleModifier())
         .glassMorphID(searchID, in: ns)
         .padding(.horizontal, 14)
         .task {

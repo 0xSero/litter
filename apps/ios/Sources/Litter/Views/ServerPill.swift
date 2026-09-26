@@ -37,7 +37,7 @@ struct ServerPill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
+        .modifier(RaisedCapsuleModifier())
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .contextMenu {
@@ -101,7 +101,7 @@ struct AddServerPill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(GlassCapsuleModifier(interactive: true))
+        .modifier(RaisedCapsuleModifier())
         .accessibilityLabel("Add server")
         .coachmarkAnchor(.addServer)
     }

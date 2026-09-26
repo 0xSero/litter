@@ -17,10 +17,18 @@ final class AppRuntimeController {
     func bind(appModel: AppModel, voiceRuntime: VoiceRuntimeController) {
         self.appModel = appModel
         self.voiceRuntime = voiceRuntime
-        lifecycle.requestNotificationPermissionIfNeeded()
+        // Notification permission is requested contextually, after the
+        // user's first turn starts (see `requestNotificationPermissionIfNeeded`).
         reachability.bind(appModel: appModel)
         reachability.start()
         loadAndPushAlleycatSecretKey(client: appModel.client)
+    }
+
+    /// Ask for notification permission at a contextual moment (the first
+    /// turn the user sends) rather than at launch, so the system prompt
+    /// never covers first-run onboarding. No-op after the first call.
+    func requestNotificationPermissionIfNeeded() {
+        lifecycle.requestNotificationPermissionIfNeeded()
     }
 
     /// Load the persisted iroh device secret key from the keychain (if
