@@ -84,6 +84,7 @@ struct ComposerPermissionLevel: Identifiable, Equatable {
 /// the current level as text, orange when it bypasses approvals.
 struct ComposerPermissionChip: View {
     let context: ComposerPermissionContext
+    var onOpenModePicker: (() -> Void)? = nil
     @Environment(AppState.self) private var appState
 
     private var levels: [ComposerPermissionLevel] {
@@ -129,6 +130,12 @@ struct ComposerPermissionChip: View {
                     }
                 }
             }
+            if let onOpenModePicker {
+                Divider()
+                Button(action: onOpenModePicker) {
+                    Label("Collaboration mode…", systemImage: "list.bullet.clipboard")
+                }
+            }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: current.isDanger ? "exclamationmark.shield" : "lock.shield")
@@ -143,6 +150,8 @@ struct ComposerPermissionChip: View {
             .contentShape(Rectangle())
         }
         .menuOrder(.fixed)
+        .fixedSize()
+        .layoutPriority(2)
         .accessibilityLabel("Permissions: \(current.title)")
         .accessibilityIdentifier("composer.permissionChip")
     }

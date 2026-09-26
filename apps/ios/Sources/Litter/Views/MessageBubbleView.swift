@@ -107,56 +107,56 @@ struct UserBubble: View, Equatable {
         lhs.maxVisibleCharacters == rhs.maxVisibleCharacters
     }
 
-    // Litter Quiet: a user turn is plain text beside a 2pt rule with a small
-    // mono "you" label above. No bubble, tint, glass or trailing alignment.
+    // ChatGPT pattern: the user's turn is a right-aligned, softly filled
+    // bubble (max ~80% width); images sit above it, also right-aligned.
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? LitterSpace.xs : LitterSpace.s) {
-            Text("you")
-                .litterMeta()
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: compact ? LitterSpace.xs : LitterSpace.s) {
-                ForEach(Array(images.chunked(into: 3).enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 6) {
-                        ForEach(row) { img in
-                            bubbleImage(img)
-                        }
-                    }
-                }
-                if !text.isEmpty {
-                    VStack(alignment: .leading, spacing: LitterSpace.xs) {
-                        FormattedText(text: visibleText)
-                            .litterFont(size: contentFontSize)
-                            .lineSpacing(LitterFont.conversationBodyLineSpacing)
-                            .foregroundColor(LitterTheme.textPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        if shouldLimitText {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    expandedLongText.toggle()
-                                }
-                            } label: {
-                                Text(expandedLongText ? "show less" : "show more")
-                                    .litterMeta(LitterTheme.textSecondary)
-                                    .frame(minHeight: LitterSpace.hitTarget, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
-                        }
+        VStack(alignment: .trailing, spacing: compact ? LitterSpace.xs : LitterSpace.s) {
+            ForEach(Array(images.chunked(into: 3).enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 6) {
+                    ForEach(row) { img in
+                        bubbleImage(img)
                     }
                 }
             }
-            .padding(.leading, LitterSpace.m)
-            .overlay(alignment: .leading) {
-                LitterTheme.userRule
-                    .frame(width: 2)
-                    .accessibilityHidden(true)
+            if !text.isEmpty {
+                HStack(spacing: 0) {
+                Spacer(minLength: 56)
+                VStack(alignment: .leading, spacing: LitterSpace.xs) {
+                    FormattedText(text: visibleText)
+                        .litterFont(size: contentFontSize)
+                        .lineSpacing(LitterFont.conversationBodyLineSpacing)
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .textSelection(.enabled)
+
+                    if shouldLimitText {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                expandedLongText.toggle()
+                            }
+                        } label: {
+                            Text(expandedLongText ? "Show less" : "Show more")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(LitterTheme.textSecondary)
+                                .frame(minHeight: LitterSpace.hitTarget, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(LitterTheme.composerControl)
+                )
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.bottom, compact ? LitterSpace.s : LitterSpace.l)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("You: \(text)")
         .onChange(of: text) { _, _ in
             expandedLongText = false
         }
