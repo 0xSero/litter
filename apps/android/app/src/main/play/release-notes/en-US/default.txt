@@ -1,6 +1,7 @@
-Litter 2.1.6
-- Cleaner, quieter design across home, conversations and settings
-- New composer with model picker, voice and send in one place
-- Reasoning and tool steps fold into one line per turn
-- Faster launch with no layout jumps; last project and model remembered
-- Faster reconnects, folder browsing and back navigation
+A cleaner, faster Litter.
+
+- Home is now a chat: type and send, and the new conversation opens.
+- Composer rebuilt with standard-size buttons, a permission picker (including full access / YOLO per agent), and the model picker beside the mic.
+- Normal iOS navigation: back button and swipe-back work again.
+- Computers are managed in the new Settings page.
+- Fixed: sending after cancelling a turn, typing lag, prompts that never started, and the keyboard popping up at launch.

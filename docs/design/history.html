@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Litter — design history</title>
+<style>
+  body { font: 16px/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #202122; background: #fff; max-width: 1100px; margin: 0 auto; padding: 24px 32px 64px; }
+  h1 { font: 28px/1.3 Georgia, "Linux Libertine", serif; border-bottom: 1px solid #a2a9b1; padding-bottom: 4px; margin-bottom: 4px; }
+  h2 { font: 22px/1.3 Georgia, "Linux Libertine", serif; border-bottom: 1px solid #a2a9b1; padding-bottom: 2px; margin-top: 40px; }
+  .sub { color: #54595d; font-size: 14px; margin-top: 0; }
+  #toc { display: inline-block; border: 1px solid #a2a9b1; background: #f8f9fa; padding: 8px 16px; font-size: 14px; margin: 16px 0; }
+  #toc ol { margin: 4px 0 0; padding-left: 20px; }
+  a { color: #0645ad; text-decoration: none; }
+  figure { margin: 12px 0; border: 1px solid #c8ccd1; background: #f8f9fa; padding: 6px; }
+  figure img { width: 100%; display: block; }
+  figcaption { font-size: 14px; color: #54595d; padding: 6px 2px 0; }
+  table { border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+  th, td { border: 1px solid #a2a9b1; padding: 5px 10px; text-align: left; vertical-align: top; }
+  th { background: #eaecf0; }
+  ul { padding-left: 22px; }
+  code { background: #f8f9fa; border: 1px solid #eaecf0; padding: 0 3px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Litter mobile — design history</h1><p class="sub">Earlier rounds. The current design is in <a href="index.html">index.html</a>.</p>
+<p class="sub">Launch speed, typography toward ChatGPT iOS, voice and attachments. Mockups are generated references, not built UI. 2026-09-24.</p>
+
+<div id="toc"><b>Contents</b>
+<ol>
+  <li><a href="#home">Home screen</a></li>
+  <li><a href="#conversation">Conversation</a></li>
+  <li><a href="#composer">Voice and attachments</a></li>
+  <li><a href="#tokens">Type and spacing tokens</a></li>
+  <li><a href="#veto">Decisions to confirm</a></li>
+  <li><a href="#r4">Round 4 — quiet</a></li>
+  <li><a href="#r3">Round 3 — chosen direction (B)</a></li>
+  <li><a href="#identity">Litter identity — three directions</a></li>
+  <li><a href="#all">All screens (round 2)</a>
+    <ol>
+      <li><a href="#ten">Home with 10 servers — three options</a></li>
+      <li><a href="#servers">Servers and server detail</a></li>
+      <li><a href="#add">Add a server</a></li>
+      <li><a href="#work">Conversation: working, plan, approval</a></li>
+      <li><a href="#new">New session</a></li>
+      <li><a href="#settings">Settings and appearance</a></li>
+      <li><a href="#voice">Realtime voice and terminal</a></li>
+      <li><a href="#todo">Not done yet</a></li>
+    </ol></li>
+</ol></div>
+
+<h2 id="home">1. Home screen</h2>
+<p>The launch black screen is most likely <code>AlphaAnimatedImageView</code> decoding all 165 frames of <code>home_cat_entrance.webp</code> on the main thread before the first frame. The cat also mounts at every cold start, because "no snapshot yet" is treated as "no sessions". Measure with signposts first, then fix.</p>
+<ul>
+  <li>Decode the cat off the main thread; show a still image first.</li>
+  <li>Show the cat only when sessions are known to be empty.</li>
+  <li>Persist the last session list in the Rust store and render it at launch with an "Updating…" pill.</li>
+  <li>Give the launch screen the theme background and logo.</li>
+</ul>
+<figure><img src="img/history-home.webp" alt="Home mockup"><figcaption>A: cached sessions render instantly while servers reconnect. B: true first launch with a static cat.</figcaption></figure>
+
+<h2 id="conversation">2. Conversation</h2>
+<figure><img src="img/history-conversation.webp" alt="Conversation mockup"><figcaption>Current vs proposed: system font at 17pt, airy line height, neutral user bubble, unboxed assistant text, tools collapsed to one row, title-first header.</figcaption></figure>
+
+<h2 id="composer">3. Voice and attachments</h2>
+<p>Today, dictation errors (no login token, HTTP failure, too-short recording) are stored but never shown. Android allows one image per message; iOS allows 10 and silently drops extras. Neither supports video, and "files" only send a path as text.</p>
+<figure><img src="img/history-composer.webp" alt="Composer states mockup"><figcaption>Recording state, an inline error with fixes, attachment counter with a video sent as frames, and an attach menu that states what each option sends.</figcaption></figure>
+
+<table>
+  <tr><th>Capability</th><th>iOS now</th><th>Android now</th><th>Proposed</th></tr>
+  <tr><td>Images per message</td><td>10 (extras dropped silently)</td><td>1 (replaces)</td><td>10 on both, visible counter</td></tr>
+  <tr><td>Image resize</td><td>2048px, ~1.2 MB target</td><td>none</td><td>same rule on both</td></tr>
+  <tr><td>Video</td><td>no</td><td>no</td><td>6–10 extracted frames as images</td></tr>
+  <tr><td>Files</td><td>path as text</td><td><code>content://</code> URI as text</td><td>labelled "file reference"</td></tr>
+  <tr><td>Dictation errors</td><td>silent</td><td>silent</td><td>check before recording, inline notice</td></tr>
+  <tr><td>Dictation backend</td><td colspan="2">OpenAI/ChatGPT using the server's login token</td><td>one Rust implementation; optional on-device fallback</td></tr>
+</table>
+
+<h2 id="tokens">4. Type and spacing tokens</h2>
+<table>
+  <tr><th>Token</th><th>Now</th><th>Proposed</th></tr>
+  <tr><td>Message body</td><td>16pt, default line height</td><td>17pt, ~1.4× line height</td></tr>
+  <tr><td>Paragraph spacing</td><td>8</td><td>12–14</td></tr>
+  <tr><td>Space between turns</td><td>10</td><td>24–28</td></tr>
+  <tr><td>User bubble</td><td>accent color, 60pt gutter</td><td>neutral gray, max ~78% width, radius 20</td></tr>
+  <tr><td>Smallest text</td><td>9–11pt (154 call sites)</td><td>13pt minimum</td></tr>
+  <tr><td>Side margins</td><td>14–16</td><td>20</td></tr>
+  <tr><td>Spacing scale</td><td>inline numbers</td><td>4 / 8 / 12 / 16 / 20 / 24 / 32</td></tr>
+</table>
+<p class="sub">Proposed values target the ChatGPT iOS look; they are not measured from it.</p>
+
+<h2 id="veto">5. Decisions to confirm</h2>
+<ul>
+  <li>Replace the zoomable home layout with a plain list.</li>
+  <li>The home realtime voice orb is dropped from the mockup; the mic becomes dictation only.</li>
+  <li>Video via extracted frames rather than uploading the file to the server.</li>
+  <li>Transcription and the cached session list move to Rust, shared by iOS and Android.</li>
+  <li>Dark mode only so far; no light-mode mockups yet.</li>
+</ul>
+
+<h2 id="all">6. All screens (round 2)</h2>
+<p class="sub">Same design system on every screen: SF Pro, 17pt body, 20pt margins, ~60pt rows, grouped inset lists, plain-glyph nav buttons. The approved round-1 home and conversation mockups were the style reference for each image.</p>
+
+<h3 id="ten">6.1 Home with 10 servers — three options</h3>
+<figure><img src="img/history-home-10-servers.webp" alt="Home with 10 servers"><figcaption>A: horizontal server chips filter one session list. B: title menu switches servers. C: sessions grouped by server with collapsible sections.</figcaption></figure>
+<p><b>Recommendation: A.</b> Sessions stay the main content no matter how many servers are connected, and one tap filters to a server. The "Servers" list at the bottom of A should collapse to one row ("Servers — 9 connected, 1 offline ›") that opens the Servers screen. C is better for people who think in servers first, but it grows with every server added.</p>
+
+<h3 id="servers">6.2 Servers and server detail</h3>
+<figure><img src="img/history-servers.webp" alt="Servers list and detail"><figcaption>Servers grouped as This iPhone / Connected / Needs attention. Detail shows connection, agents, account (including whether dictation and realtime voice will work), usage, and actions.</figcaption></figure>
+
+<h3 id="add">6.3 Add a server</h3>
+<figure><img src="img/history-add-server.webp" alt="Add server"><figcaption>Four connection paths in one sheet, kittylitter marked recommended; pairing is two numbered steps.</figcaption></figure>
+
+<h3 id="work">6.4 Conversation: working, plan, approval</h3>
+<figure><img src="img/history-conversation-working.webp" alt="Conversation working and approval"><figcaption>Tool activity collapses to quiet rows; commands and diffs are the only monospace. Approvals sit above the composer with Deny / Always allow / Allow once.</figcaption></figure>
+
+<h3 id="new">6.5 New session</h3>
+<figure><img src="img/history-new-session.webp" alt="New session"><figcaption>ChatGPT-style empty prompt with suggestions; server, project and agent are picked in one sheet (the list stays short with "Show 6 more servers").</figcaption></figure>
+
+<h3 id="settings">6.6 Settings and appearance</h3>
+<figure><img src="img/history-settings.webp" alt="Settings and appearance"><figcaption>Grouped settings with account at the top. Appearance gets a live preview, text size following Dynamic Type, "Monospace code only", and a Comfortable/Compact density switch. Fix before building: the preview shows an OpenAI logo, which should be the Litter mark.</figcaption></figure>
+
+<h3 id="voice">6.7 Realtime voice and terminal</h3>
+<figure><img src="img/history-voice-terminal.webp" alt="Realtime voice and terminal"><figcaption>Voice: one flat orb, live transcript, a handoff status card, three controls. Terminal: full-bleed SF Mono with an accessory key bar.</figcaption></figure>
+
+<h3 id="todo">6.8 Not done yet</h3>
+<ul>
+  <li>Conversation info and the model/mode picker (generation timed out)</li>
+  <li>Sessions on one server, and the long-press actions menu</li>
+  <li>Light mode for home and conversation</li>
+  <li>Launch storyboard: launch screen → cached home → live</li>
+  <li>Apps list and saved app</li>
+</ul>
+<h2 id="identity">7. Litter identity — three directions</h2>
+<p>Round 2 read too much like ChatGPT. These keep the calm base (17pt SF Pro, 20pt margins, generous spacing) and the conversation features worth preserving (widgets, subagent cards, turn metrics, context ring, Latest), and add a Litter identity from assets the app already has: kittylitter mint <code>#00FF9C</code>, the Kitty Litter theme amber <code>#F59E0B</code>, the cat colors, and Berkeley Mono.</p>
+<figure><img src="img/history-identity.webp" alt="Identity directions"><figcaption>A: warm slate + amber, the existing Kitty Litter theme. B: SF Pro body with mono metadata and mint status marks. C: a left activity rail that turns agent steps into a timeline.</figcaption></figure>
+<p><b>Cleanliness rules for all three:</b> one accent color per theme; separate things by tone rather than borders; one left edge for text, cards and rows; no text under 13pt; metadata in one style only; icons from one SF Symbols weight.</p>
+<p><b>Fix before building:</b> in B the user message came out in monospace; it should stay SF Pro, with only the "you · 9:41" label in mono.</p>
+
+<h2 id="r3">8. Round 3 — chosen direction: B, mono metadata</h2>
+<p><b>Decisions so far:</b> identity B (SF Pro body, Berkeley-Mono-style metadata, mint <code>#00FF9C</code> only for status and send); home layout 6.1 option B (server switcher in the title); pairing flow kept; add-server sheet rebuilt with more room.</p>
+
+<h3 id="r3conv">8.1 Conversation — multi-turn, widget preserved</h3>
+<figure><img src="img/history-r3-conversation.webp" alt="Multi-turn conversation"><figcaption>Left: an older turn collapsed to one card, a full turn with a tool line, code block and turn metrics, then the next question. Right: the generative widget (step slider, Play / Forward noise / Reverse denoise, signal chart, stat tiles) kept as-is inside the new surfaces, then a streaming reply with the stop button.</figcaption></figure>
+
+<h3 id="r3home">8.2 Home — server switcher, 10 servers</h3>
+<figure><img src="img/history-r3-home.webp" alt="Home with switcher"><figcaption>No chips row; the title switches servers. Sessions grouped running / today / yesterday, with mono metadata and status dots on the right. Cleanup to do: drop the chat-bubble icon on every row; it repeats on every line and says nothing.</figcaption></figure>
+
+<h3 id="r3add">8.3 Add a server — roomy</h3>
+<figure><img src="img/history-r3-add-server.webp" alt="Add server roomy"><figcaption>Icon tiles removed, thin line icons instead, ~96pt rows split by hairlines, one mono detail line per option. Pairing restyled to match.</figcaption></figure>
+
+<h2 id="r4">9. Round 4 — quiet</h2>
+<p><b>Rules:</b> no icons in lists (icons only for actions: back, settings, compose, +, mic, send); no status lights for healthy states; problems appear as one colored mono word ("needs approval", "offline", "reconnecting"); no accent color, white send button; no cat avatar or context ring in conversations; tool and subagent activity as plain mono lines; turn metrics hidden by default (tap a turn to see them). Mono metadata remains the identity.</p>
+<h3>9.1 Conversation</h3>
+<figure><img src="img/history-r4-conversation.webp" alt="Quiet conversation"><figcaption>Collapsed turn as one mono line; the generative widget is still there; streaming shown as "thinking…" text.</figcaption></figure>
+<h3>9.2 Home</h3>
+<figure><img src="img/history-r4-home.webp" alt="Quiet home"><figcaption>Text-only rows; only problems get color. The switcher lists all 10 servers with counts.</figcaption></figure>
+<h3>9.3 Add a server</h3>
+<figure><img src="img/history-r4-add-server.webp" alt="Quiet add server"><figcaption>Four text rows, no icons; pairing with plain text steps.</figcaption></figure>
+
+<h2 id="r5">10. Round 5 — quietest</h2>
+<p>No section labels, no "you" labels, no turn dividers, two-item metadata. Round 6 (current) sits between this and round 4.</p>
+<figure><img src="img/history-r5-home.webp" alt="home"><figcaption>home</figcaption></figure>
+<figure><img src="img/history-r5-conversation.webp" alt="conversation"><figcaption>conversation</figcaption></figure>
+<figure><img src="img/history-r5-plan-approval.webp" alt="plan-approval"><figcaption>plan-approval</figcaption></figure>
+<figure><img src="img/history-r5-launch.webp" alt="launch"><figcaption>launch</figcaption></figure>
+<figure><img src="img/history-r5-servers.webp" alt="servers"><figcaption>servers</figcaption></figure>
+<figure><img src="img/history-r5-settings.webp" alt="settings"><figcaption>settings</figcaption></figure>
+<figure><img src="img/history-r5-info-model.webp" alt="info-model"><figcaption>info-model</figcaption></figure>
+<figure><img src="img/history-r5-apps.webp" alt="apps"><figcaption>apps</figcaption></figure>
+<figure><img src="img/history-r5-light.webp" alt="light"><figcaption>light</figcaption></figure>
+</body>
+</html>
