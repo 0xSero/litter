@@ -10,27 +10,27 @@ import SwiftUI
 //  * Rendering: a `List` (UICollectionView, cell reuse). Only on-screen rows
 //    plus the collection view's own prefetch window are built and measured;
 //    nothing is laid out per session up front.
-//  * Row height: fixed 64 pt at text scale 1.0 (title 17 + one mono meta
+//  * Row height: fixed 62 pt at text scale 1.0 (title 17 + one mono meta
 //    line), multiplied by the user's text scale. Section label rows are a
 //    fixed 32 pt. Fixed heights mean a row never changes size when its
 //    content updates, so live updates never move other rows.
-//  * Prefetch distance: 8 rows. When row i becomes visible, rows i..i+8 are
+//  * Prefetch distance: 10 rows. When row i becomes visible, rows i..i+10 are
 //    eligible for hydration.
 //  * Hydration: only rows that are visible or within the prefetch distance,
-//    at most 3 concurrent hydrations, FIFO; a queued row that scrolls away
+//    at most 4 concurrent hydrations, FIFO; a queued row that scrolls away
 //    before it starts is dropped.
-//  * Pagination: page size 100. The next page is requested automatically
-//    when a row within 20 rows of the end appears (and a "load more" row
+//  * Pagination: page size 50. The next page is requested automatically
+//    when a row within 10 rows of the end appears (and a "load more" row
 //    remains as a fallback). Pages grow the per-server list limit.
 //  * Updates: data changes apply in place without animation; no insertion
 //    or height animations on first load, cache → live, or refresh.
 enum SessionListRules {
-    static let rowHeight: CGFloat = 64
+    static let rowHeight: CGFloat = 62
     static let sectionLabelHeight: CGFloat = 32
-    static let prefetchRows = 8
-    static let maxConcurrentHydrations = 3
-    static let pageSize: UInt32 = 100
-    static let loadMoreThresholdRows = 20
+    static let prefetchRows = 10
+    static let maxConcurrentHydrations = 4
+    static let pageSize: UInt32 = 50
+    static let loadMoreThresholdRows = 10
 
     static func rowHeight(textScale: CGFloat) -> CGFloat {
         (rowHeight * max(1, textScale)).rounded()
