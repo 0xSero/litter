@@ -53,6 +53,7 @@ fun HomeModelChip(
     serverId: String?,
     disabled: Boolean,
     onSheetStateChange: (Boolean) -> Unit = {},
+    asPill: Boolean = false,
 ) {
     val appModel = LocalAppModel.current
     val snapshot by appModel.snapshot.collectAsState()
@@ -177,7 +178,12 @@ fun HomeModelChip(
         onSheetStateChange(showSheet)
     }
 
-    Row(
+    if (asPill) {
+        com.litter.android.ui.conversation.ComposerModelPill(
+            label = selectedLabel,
+            onClick = if (disabled) null else ({ showSheet = true }),
+        )
+    } else Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(LitterTheme.surface.copy(alpha = 0.9f))
