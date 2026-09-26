@@ -4032,6 +4032,26 @@ impl MobileClient {
         self.app_store.snapshot()
     }
 
+    /// Optimistically end `turn_id` after the host acknowledged
+    /// `turn/interrupt`. Applied to the store synchronously so an immediate
+    /// send starts a fresh turn instead of being queued behind a turn that no
+    /// longer exists, then broadcast so the store listener flushes any
+    /// follow-ups queued while the turn was running.
+    pub fn mark_turn_interrupted_locally(&self, server_id: &str, thread_id: &str, turn_id: &str) {
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let event = UiEvent::TurnCompleted {
+            key: key.clone(),
+            turn_id: turn_id.to_string(),
+            error: None,
+        };
+        self.app_store.apply_ui_event(&event);
+        self.event_processor
+            .emit_local_turn_interrupted(key, turn_id.to_string());
+    }
+
     pub fn subscribe_updates(&self) -> broadcast::Receiver<AppStoreUpdateRecord> {
         self.app_store.subscribe()
     }

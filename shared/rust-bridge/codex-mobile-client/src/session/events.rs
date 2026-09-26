@@ -254,6 +254,20 @@ impl EventProcessor {
             .map(|pos| approvals.remove(pos))
     }
 
+    /// Emit a synthetic `TurnCompleted` after a successful `turn/interrupt`.
+    /// Some runtimes/bridges never send `turn/completed` for an aborted turn;
+    /// without this the thread keeps a stale `active_turn_id` and every later
+    /// send is silently parked as a queued follow-up. The reducer ignores it
+    /// if a newer turn has already started, and a late real completion is
+    /// harmless.
+    pub fn emit_local_turn_interrupted(&self, key: ThreadKey, turn_id: String) {
+        self.emit(UiEvent::TurnCompleted {
+            key,
+            turn_id,
+            error: None,
+        });
+    }
+
     pub fn emit_connection_state(&self, server_id: &str, health: &str) {
         self.emit(UiEvent::ConnectionStateChanged {
             server_id: server_id.to_string(),

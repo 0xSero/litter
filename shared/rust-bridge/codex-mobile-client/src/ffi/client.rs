@@ -829,12 +829,15 @@ impl AppClient {
         params: types::AppInterruptTurnRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
+            let thread_id = params.thread_id.clone();
+            let turn_id = params.turn_id.clone();
             let _: upstream::TurnInterruptResponse = rpc(
                 c.as_ref(),
                 &server_id,
                 req!(server_id, TurnInterrupt, params.into()),
             )
             .await?;
+            c.mark_turn_interrupted_locally(&server_id, &thread_id, &turn_id);
             Ok(())
         })
     }
