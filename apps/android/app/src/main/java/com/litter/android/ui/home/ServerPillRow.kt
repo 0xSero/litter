@@ -57,25 +57,29 @@ private const val RuntimeBadgesWhenOverflowing = 3
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ServerPillRow(
-    servers: List<AppServerSnapshot>,
+    servers: List<HomeServerEntry>,
     selectedServerId: String?,
-    onTap: (AppServerSnapshot) -> Unit,
-    onReconnect: (AppServerSnapshot) -> Unit,
-    onRestartAppServer: (AppServerSnapshot) -> Unit,
-    onRename: (AppServerSnapshot) -> Unit,
-    onRemove: (AppServerSnapshot) -> Unit,
+    onTap: (HomeServerEntry) -> Unit,
+    onReconnect: (HomeServerEntry) -> Unit,
+    onRestartAppServer: (HomeServerEntry) -> Unit,
+    onRename: (HomeServerEntry) -> Unit,
+    onRemove: (HomeServerEntry) -> Unit,
     onAdd: () -> Unit,
     onAddBoundsChanged: (Rect) -> Unit = {},
 ) {
     val scroll = rememberScrollState()
+    // Fixed height: the row is reserved from the first frame whether or not
+    // any server has reported yet, so the list below never moves.
     Row(
         modifier = Modifier
+            .height(LitterSpacing.touch)
             .horizontalScroll(scroll)
             .padding(horizontal = LitterSpacing.sm),
         horizontalArrangement = Arrangement.spacedBy(LitterSpacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         servers.forEach { server ->
+            androidx.compose.runtime.key(server.serverId) {
             ServerPill(
                 server = server,
                 isSelected = server.serverId == selectedServerId,
@@ -85,6 +89,7 @@ fun ServerPillRow(
                 onRename = { onRename(server) },
                 onRemove = { onRemove(server) },
             )
+            }
         }
         AddServerPill(
             onTap = onAdd,
@@ -95,13 +100,13 @@ fun ServerPillRow(
 
 /**
  * Text-only server switcher entry. Healthy servers show just their name; a
- * server with a problem adds one colored mono word. The selected server is
- * the one in full-strength text.
+ * server that is connecting, reconnecting, or offline adds one quiet mono
+ * word. The selected server is the one in full-strength text.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerPill(
-    server: AppServerSnapshot,
+    server: HomeServerEntry,
     isSelected: Boolean,
     onTap: () -> Unit,
     onReconnect: () -> Unit,
@@ -110,11 +115,7 @@ private fun ServerPill(
     onRemove: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val problem: Pair<String, Color>? = when (server.statusDotState) {
-        StatusDotState.ERROR -> "offline" to LitterTheme.danger
-        StatusDotState.PENDING -> "connecting" to LitterTheme.warning
-        else -> null
-    }
+    val problem: Pair<String, Color>? = server.label?.let { it.text to it.color }
 
     Box {
         Row(
@@ -152,10 +153,12 @@ private fun ServerPill(
                 text = { Text("Reconnect") },
                 onClick = { showMenu = false; onReconnect() },
             )
-            DropdownMenuItem(
-                text = { Text("Restart app server") },
-                onClick = { showMenu = false; onRestartAppServer() },
-            )
+            if (server.snapshot != null) {
+                DropdownMenuItem(
+                    text = { Text("Restart app server") },
+                    onClick = { showMenu = false; onRestartAppServer() },
+                )
+            }
             if (!server.isLocal) {
                 DropdownMenuItem(
                     text = { Text("Rename") },
