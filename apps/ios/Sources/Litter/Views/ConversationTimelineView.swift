@@ -1266,57 +1266,60 @@ private struct ConversationReasoningRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 8 : 0) {
+        VStack(alignment: .leading, spacing: expanded ? LitterSpace.xs : 0) {
             Button(action: toggleExpanded) {
-                HStack(spacing: 8) {
-                    Image(systemName: "brain.head.profile")
-                        .litterFont(size: 12, weight: .semibold)
-                        .foregroundColor(LitterTheme.textSecondary)
-                    Text("Thinking")
-                        .litterFont(.caption, weight: .semibold)
-                        .foregroundColor(LitterTheme.textSecondary)
-                    if !expanded {
-                        Text(collapsedSummary)
+                HStack(spacing: 6) {
+                    Text("Thought")
+                        .litterMeta()
+                    if !expanded, let preview = collapsedPreview {
+                        Text(verbatim: preview)
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                    Spacer(minLength: 8)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .litterFont(size: 11, weight: .medium)
-                        .foregroundColor(LitterTheme.textMuted)
+                    Image(systemName: "chevron.right")
+                        .litterFont(size: 10, weight: .semibold)
+                        .foregroundColor(LitterTheme.meta)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Spacer(minLength: 0)
                 }
+                .frame(minHeight: 32, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if expanded {
+                // Subdued body text: reasoning is context, not the answer.
                 Text(reasoningText)
                     .litterFont(.footnote)
-                    .italic()
-                    .foregroundColor(LitterTheme.textSecondary)
+                    .foregroundColor(LitterTheme.textMuted)
+                    .lineSpacing(3)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
         .onChange(of: displayMode) { _, newValue in
             expanded = newValue.defaultExpanded()
         }
+    }
+
+    /// First line of the first note, so a collapsed thought still says what
+    /// it was about.
+    private var collapsedPreview: String? {
+        guard let first = (data.summary + data.content).first(where: {
+            !ConversationItem.isBlank($0)
+        }) else { return nil }
+        let line = first.split(whereSeparator: \.isNewline).first.map(String.init) ?? first
+        let cleaned = line.replacingOccurrences(of: "**", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     private var reasoningText: String {
         (data.summary + data.content)
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
-    }
-
-    private var collapsedSummary: String {
-        let itemCount = (data.summary + data.content).filter {
-            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }.count
-        return itemCount == 1 ? "Internal reasoning" : "\(itemCount) reasoning notes"
     }
 
     private func toggleExpanded() {
@@ -2536,10 +2539,16 @@ private extension ToolCallStatus {
 
 /// Flat scroll targets let the outer lazy stack virtualize individual messages,
 /// including very long agent turns. Only changed turns rebuild their row models.
+///
+/// Inside a turn, each run of "work" rows (reasoning, commands, tool calls,
+/// subagents, intermediate assistant updates) collapses behind one
+/// `.work` summary entry. A collapsed run emits no row entries at all, so its
+/// children are never built. The final assistant answer always stays visible.
 struct ConversationTranscriptProjection {
     struct Entry: Identifiable {
         enum Content {
             case row(ConversationTimelineRowDescriptor, isLast: Bool, streamingItemID: String?)
+            case work(ConversationWorkGroupSummary, isExpanded: Bool)
             case collapsed
             case footer
         }
@@ -2548,19 +2557,28 @@ struct ConversationTranscriptProjection {
         /// First entry of a turn that follows another turn. Drives the turn
         /// divider; presentation only.
         var startsTurn = false
+        /// Row sits inside an expanded work group (drawn with a leading rule).
+        var isWorkMember = false
 
         var id: String {
             switch content {
             case .row(let row, _, _): "row/\(row.id)"
+            case .work(let summary, _): summary.id
             case .collapsed: "\(turn.id)/summary"
             case .footer: "\(turn.id)/footer"
             }
         }
     }
 
+    private enum Segment {
+        case row(Int)
+        case work(ConversationWorkGroupSummary, Range<Int>)
+    }
+
     private struct CachedRows {
         let digest: Int
         let rows: [ConversationTimelineRowDescriptor]
+        let segments: [Segment]
     }
 
     private(set) var entries: [Entry] = []
@@ -2572,6 +2590,7 @@ struct ConversationTranscriptProjection {
     mutating func update(
         turns: [TranscriptTurn],
         expandedTurnIDs: Set<String>,
+        workExpansion: [String: Bool] = [:],
         reasoning: ConversationDetailDisplayMode,
         commands: ConversationDetailDisplayMode,
         tools: ConversationDetailDisplayMode
@@ -2595,23 +2614,46 @@ struct ConversationTranscriptProjection {
                 result.append(Entry(turn: turn, content: .collapsed))
                 continue
             }
-            let rows: [ConversationTimelineRowDescriptor]
-            if let cached = cachedRows[turn.id], cached.digest == turn.renderDigest {
-                rows = cached.rows
+            let cached: CachedRows
+            if let hit = cachedRows[turn.id], hit.digest == turn.renderDigest {
+                cached = hit
             } else {
-                rows = ConversationTimelineRowCache.shared.rows(
+                let rows = ConversationTimelineRowCache.shared.rows(
                     for: turn.items,
                     reasoningDisplayMode: reasoning,
                     commandDisplayMode: commands,
                     toolDisplayMode: tools
                 )
-                cachedRows[turn.id] = CachedRows(digest: turn.renderDigest, rows: rows)
+                cached = CachedRows(
+                    digest: turn.renderDigest,
+                    rows: rows,
+                    segments: Self.segments(for: rows)
+                )
+                cachedRows[turn.id] = cached
             }
+            let rows = cached.rows
             let streamingItemID = turn.isLive ? turn.items.last(where: \.isAssistantItem)?.id : nil
-            for (index, row) in rows.enumerated() {
-                result.append(Entry(turn: turn, content: .row(
-                    row, isLast: index == rows.count - 1, streamingItemID: streamingItemID
-                )))
+            // Work stays open while the turn streams and folds away once it
+            // finishes, unless the user toggled that group explicitly.
+            let expandedByDefault = turn.isLive || reasoning == .expanded
+            for segment in cached.segments {
+                switch segment {
+                case .row(let index):
+                    result.append(Entry(turn: turn, content: .row(
+                        rows[index], isLast: index == rows.count - 1, streamingItemID: streamingItemID
+                    )))
+                case .work(let summary, let range):
+                    let isExpanded = workExpansion[summary.id] ?? expandedByDefault
+                    result.append(Entry(turn: turn, content: .work(summary, isExpanded: isExpanded)))
+                    guard isExpanded else { continue }
+                    for index in range {
+                        var entry = Entry(turn: turn, content: .row(
+                            rows[index], isLast: index == rows.count - 1, streamingItemID: streamingItemID
+                        ))
+                        entry.isWorkMember = true
+                        result.append(entry)
+                    }
+                }
             }
             if turn.isLive || turn.isCollapsedByDefault {
                 result.append(Entry(turn: turn, content: .footer))
@@ -2619,5 +2661,222 @@ struct ConversationTranscriptProjection {
         }
         entries = result
         turnIDByEntryID = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0.turn.id) })
+    }
+
+    /// Splits a turn's rows into plain rows and runs of work rows. A run only
+    /// becomes a group when it holds real work, not just assistant text.
+    private static func segments(for rows: [ConversationTimelineRowDescriptor]) -> [Segment] {
+        let finalAssistantIndex = rows.lastIndex(where: \.isAssistantRow)
+        func isWork(_ index: Int) -> Bool {
+            if rows[index].isAssistantRow { return index != finalAssistantIndex }
+            return rows[index].isWorkRow
+        }
+        var segments: [Segment] = []
+        var index = 0
+        while index < rows.count {
+            guard isWork(index) else {
+                segments.append(.row(index))
+                index += 1
+                continue
+            }
+            var end = index
+            while end < rows.count, isWork(end) { end += 1 }
+            let range = index..<end
+            let run = rows[range]
+            if run.contains(where: { !$0.isAssistantRow }) {
+                segments.append(.work(ConversationWorkGroupSummary(rows: run), range))
+            } else {
+                segments.append(contentsOf: range.map(Segment.row))
+            }
+            index = end
+        }
+        return segments
+    }
+}
+
+extension ConversationTimelineRowDescriptor {
+    /// Rows that belong in a turn's collapsible work section.
+    var isWorkRow: Bool {
+        switch self {
+        case .exploration, .subagentGroup:
+            return true
+        case .item(let item):
+            switch item.content {
+            case .reasoning, .commandExecution, .fileChange, .mcpToolCall,
+                 .dynamicToolCall, .multiAgentAction, .webSearch, .imageView:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
+/// One-line description of a run of work rows, e.g.
+/// "Thought · ran 3 commands · read 2 files".
+struct ConversationWorkGroupSummary: Equatable {
+    let id: String
+    let text: String
+    let isActive: Bool
+    /// Latest action, shown under a collapsed group while it is running.
+    let latestActivity: String?
+
+    init<C: Collection>(rows: C) where C.Element == ConversationTimelineRowDescriptor {
+        var thoughts = 0, commands = 0, reads = 0, searches = 0, listings = 0
+        var edits = 0, tools = 0, webSearches = 0, agents = 0
+        var active = false
+        var latest: String?
+
+        for row in rows {
+            switch row {
+            case .exploration(_, let items):
+                for item in items {
+                    guard case .commandExecution(let data) = item.content else { continue }
+                    active = active || data.isInProgress
+                    if data.actions.isEmpty { commands += 1 }
+                    for action in data.actions {
+                        switch action.kind {
+                        case .read: reads += 1
+                        case .search: searches += 1
+                        case .listFiles: listings += 1
+                        case .unknown: commands += 1
+                        }
+                    }
+                    latest = Self.firstLine(data.command)
+                }
+            case .subagentGroup(_, let merged, _):
+                agents += max(1, merged.targets.count)
+                active = active || merged.isInProgress
+                latest = "Agents"
+            case .item(let item):
+                switch item.content {
+                case .reasoning(let data):
+                    thoughts += 1
+                    latest = (data.summary.last).flatMap(Self.firstLine) ?? "Thinking"
+                case .commandExecution(let data):
+                    commands += 1
+                    active = active || data.isInProgress
+                    latest = Self.firstLine(data.command)
+                case .fileChange(let data):
+                    edits += max(1, data.changes.count)
+                    active = active || data.status == .pending || data.status == .inProgress
+                    latest = data.changes.last.map { "Edit \(($0.path as NSString).lastPathComponent)" }
+                case .mcpToolCall(let data):
+                    tools += 1
+                    active = active || data.isInProgress
+                    latest = data.tool
+                case .dynamicToolCall:
+                    tools += 1
+                    latest = "Tool call"
+                case .multiAgentAction(let data):
+                    agents += max(1, data.targets.count)
+                    active = active || data.isInProgress
+                    latest = "Agents"
+                case .webSearch(let data):
+                    webSearches += 1
+                    active = active || data.isInProgress
+                    latest = Self.firstLine(data.query)
+                case .imageView:
+                    reads += 1
+                default:
+                    break
+                }
+            }
+        }
+
+        func plural(_ count: Int, _ one: String, _ many: String) -> String {
+            count == 1 ? "\(count) \(one)" : "\(count) \(many)"
+        }
+        var parts: [String] = []
+        if thoughts > 0 { parts.append("thought") }
+        if commands > 0 { parts.append("ran \(plural(commands, "command", "commands"))") }
+        if reads > 0 { parts.append("read \(plural(reads, "file", "files"))") }
+        if searches > 0 { parts.append("searched \(plural(searches, "time", "times"))") }
+        if listings > 0 { parts.append("listed \(plural(listings, "folder", "folders"))") }
+        if edits > 0 { parts.append("edited \(plural(edits, "file", "files"))") }
+        if tools > 0 { parts.append(plural(tools, "tool call", "tool calls")) }
+        if webSearches > 0 { parts.append(plural(webSearches, "web search", "web searches")) }
+        if agents > 0 { parts.append(plural(agents, "agent", "agents")) }
+        if parts.isEmpty { parts.append("worked") }
+        let joined = parts.joined(separator: " · ")
+
+        self.id = "work/\(rows.first?.id ?? "empty")"
+        self.text = joined.prefix(1).uppercased() + joined.dropFirst()
+        self.isActive = active
+        self.latestActivity = latest
+    }
+
+    private static func firstLine(_ text: String) -> String? {
+        let line = text.split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces)
+        guard let line, !line.isEmpty else { return nil }
+        return line.count > 120 ? String(line.prefix(120)) + "…" : line
+    }
+}
+
+/// Disclosure row for a turn's work section. Collapsed it is one line; the
+/// grouped rows are separate lazy entries, built only while expanded.
+struct ConversationWorkGroupHeader: View, Equatable {
+    let summary: ConversationWorkGroupSummary
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.summary == rhs.summary && lhs.isExpanded == rhs.isExpanded
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if summary.isActive {
+                        Circle()
+                            .fill(LitterTheme.warning)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(verbatim: summary.text)
+                        .litterMeta()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "chevron.right")
+                        .litterFont(size: 10, weight: .semibold)
+                        .foregroundColor(LitterTheme.meta)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    Spacer(minLength: 0)
+                }
+                if !isExpanded, summary.isActive, let latest = summary.latestActivity {
+                    Text(verbatim: latest)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: LitterSpace.hitTarget, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(summary.text)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint(isExpanded ? "Hides this turn's work" : "Shows this turn's reasoning and tool calls")
+    }
+}
+
+/// Leading 1pt rule marking rows that belong to an expanded work group.
+struct ConversationWorkMemberModifier: ViewModifier {
+    let isMember: Bool
+
+    func body(content: Content) -> some View {
+        if isMember {
+            content
+                .padding(.leading, LitterSpace.m)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(LitterTheme.turnDivider)
+                        .frame(width: 1)
+                }
+        } else {
+            content
+        }
     }
 }

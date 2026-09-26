@@ -602,6 +602,9 @@ struct ConversationMessageList: View {
     @State private var renderedTurns: [TranscriptTurn] = []
     @State private var timelineProjection = ConversationTranscriptProjection()
     @State private var expandedTurnIDs: Set<String> = []
+    /// Explicit per-group toggles of turn work sections; unset groups follow
+    /// the default (open while the turn streams, folded once it finishes).
+    @State private var workGroupExpansion: [String: Bool] = [:]
     @State private var visibleTurnIDs: [String] = []
     @State private var requestedOlderTurnsCursor: String?
     @State private var requestedOlderTurnsThreadKey: ThreadKey?
@@ -657,6 +660,7 @@ struct ConversationMessageList: View {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(timelineProjection.entries) { entry in
                                 transcriptRow(entry)
+                                    .modifier(ConversationWorkMemberModifier(isMember: entry.isWorkMember))
                                     .modifier(TurnBoundaryModifier(isTurnStart: entry.startsTurn))
                             }
 
@@ -805,6 +809,11 @@ struct ConversationMessageList: View {
     @ViewBuilder
     private func transcriptRow(_ entry: ConversationTranscriptProjection.Entry) -> some View {
         switch entry.content {
+        case .work(let summary, let isExpanded):
+            ConversationWorkGroupHeader(summary: summary, isExpanded: isExpanded) {
+                toggleWorkGroup(summary.id, isExpanded: isExpanded)
+            }
+            .equatable()
         case .collapsed:
             ConversationTurnSummary(turn: entry.turn) { toggleTurnExpansion(entry.turn) }
                 .equatable()
@@ -851,10 +860,18 @@ struct ConversationMessageList: View {
         timelineProjection.update(
             turns: renderedTurns,
             expandedTurnIDs: expandedTurnIDs,
+            workExpansion: workGroupExpansion,
             reasoning: .resolve(reasoningMode),
             commands: .resolve(commandMode),
             tools: .resolve(toolMode)
         )
+    }
+
+    private func toggleWorkGroup(_ id: String, isExpanded: Bool) {
+        // No animation: expanding inserts lazy rows, and animating that
+        // insertion makes the whole stack re-measure on every frame.
+        workGroupExpansion[id] = !isExpanded
+        rebuildTimelineProjection()
     }
 
     private func toggleTurnExpansion(_ turn: TranscriptTurn) {
@@ -948,6 +965,7 @@ struct ConversationMessageList: View {
         if transcriptBuildKey == nextBuildKey, !transcriptTurns.isEmpty {
             if resetExpansion {
                 expandedTurnIDs.removeAll()
+                workGroupExpansion.removeAll()
                 rebuildTimelineProjection()
             }
             return
@@ -1034,6 +1052,7 @@ struct ConversationMessageList: View {
         renderedTurns = nextRenderedTurns
         if resetExpansion {
             expandedTurnIDs.removeAll()
+            workGroupExpansion.removeAll()
         } else {
             expandedTurnIDs.formIntersection(nextTurnIDs)
         }
