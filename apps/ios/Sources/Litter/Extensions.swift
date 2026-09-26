@@ -644,7 +644,7 @@ struct GlassCapsuleModifier: ViewModifier {
 struct RaisedCapsuleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Capsule(style: .continuous).fill(LitterTheme.raised))
+            .background(Capsule(style: .continuous).fill(LitterTheme.composerControl))
             .contentShape(Capsule(style: .continuous))
     }
 }

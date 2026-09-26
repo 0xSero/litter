@@ -63,7 +63,7 @@ struct SessionsScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 20) {
                         if let onInfo {
                             Button(action: onInfo) {
                                 Image(systemName: "info.circle")
@@ -76,6 +76,7 @@ struct SessionsScreen: View {
                         newSessionButton
                     }
                 }
+                .litterPlainToolbarItem()
             }
 
         let lifecycle = attachLifecycleHandlers(to: base, derived: derived)
