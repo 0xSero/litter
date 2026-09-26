@@ -37,6 +37,10 @@ struct ConversationComposerSnapshot: Equatable {
     var threadPreview: String
     var threadModel: String
     var threadReasoningEffort: String?
+    /// Captured here so the composer's model pill never reads
+    /// `appModel.threadSnapshot(for:)` in its body (a per-snapshot edge that
+    /// re-rendered the whole composer during streaming while typing).
+    var threadAgentRuntimeKind: AgentRuntimeKind?
     var modelContextWindow: Int64?
     var contextTokensUsed: Int64?
     var rateLimits: RateLimitSnapshot?
@@ -60,6 +64,7 @@ struct ConversationComposerSnapshot: Equatable {
         threadPreview: "",
         threadModel: "",
         threadReasoningEffort: nil,
+        threadAgentRuntimeKind: nil,
         modelContextWindow: nil,
         contextTokensUsed: nil,
         rateLimits: nil,
@@ -269,6 +274,7 @@ final class ConversationScreenModel {
             threadPreview: thread.resolvedPreview,
             threadModel: thread.resolvedModel,
             threadReasoningEffort: thread.reasoningEffort,
+            threadAgentRuntimeKind: thread.agentRuntimeKind,
             modelContextWindow: thread.modelContextWindow.map(Int64.init),
             contextTokensUsed: thread.contextTokensUsed.map(Int64.init),
             rateLimits: appModel.rateLimits(
