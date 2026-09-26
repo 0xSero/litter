@@ -38,7 +38,7 @@ struct HomeBottomBar: View {
 
     private let plusID = "bottomPlus"
     private let searchID = "bottomSearch"
-    private let buttonSize: CGFloat = 44
+    private let buttonSize: CGFloat = 38
 
     var body: some View {
         // Two isolated glass pools so the + and search buttons don't blob
@@ -107,7 +107,7 @@ struct HomeBottomBar: View {
             setMode(.composer)
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(LitterTheme.textPrimary)
                 .frame(width: buttonSize, height: buttonSize)
                 .contentShape(Capsule())
@@ -125,7 +125,7 @@ struct HomeBottomBar: View {
             setMode(.search)
         } label: {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(LitterTheme.textSecondary)
                 .frame(width: buttonSize, height: buttonSize)
                 .contentShape(Capsule())

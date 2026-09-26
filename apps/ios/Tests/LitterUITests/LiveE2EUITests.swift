@@ -1,0 +1,135 @@
+import XCTest
+
+/// End-to-end QA against a real kittylitter host. Skipped unless
+/// `LITTER_E2E_PAIR_JSON_FILE` points at a pairing JSON file (passed with
+/// the `TEST_RUNNER_` prefix). Screenshots go to `LITTER_E2E_SHOT_DIR`,
+/// timings are printed as `E2E_TIMING <step> <seconds>`.
+final class LiveE2EUITests: XCTestCase {
+    private var shotDir: String?
+
+    override func setUpWithError() throws {
+        continueAfterFailure = true
+        shotDir = ProcessInfo.processInfo.environment["LITTER_E2E_SHOT_DIR"]
+    }
+
+    @MainActor
+    func testLivePairOpenSendBack() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["LITTER_E2E_PAIR_JSON_FILE"],
+              let json = try? String(contentsOfFile: path, encoding: .utf8) else {
+            throw XCTSkip("LITTER_E2E_PAIR_JSON_FILE not set")
+        }
+        let app = XCUIApplication()
+        addUIInterruptionMonitor(withDescription: "system alerts") { alert in
+            for label in ["Don’t Allow", "Don't Allow", "Allow Paste", "Paste JSON Instead"] {
+                if alert.buttons[label].exists { alert.buttons[label].tap(); return true }
+            }
+            return false
+        }
+        var t = Date()
+        app.launch()
+        XCTAssertTrue(app.buttons["home.settingsButton"].waitForExistence(timeout: 20))
+        timing("launch_to_home", since: t)
+        shot(app, "01-home-launch")
+
+        let hostChip = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "seros-macbook")).firstMatch
+        if !hostChip.waitForExistence(timeout: 3) {
+            pair(app, json: json)
+        }
+        t = Date()
+        let connected = NSPredicate(format: "exists == true AND NOT (label CONTAINS[c] 'connecting') AND NOT (label CONTAINS[c] 'offline')")
+        expectation(for: connected, evaluatedWith: hostChip)
+        waitForExpectations(timeout: 45)
+        timing("host_connected", since: t)
+        shot(app, "02-home-connected")
+
+        // All sessions
+        t = Date()
+        app.buttons["home.allSessionsButton"].tap()
+        let firstRow = app.descendants(matching: .any).matching(identifier: "sessions.sessionRow").firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 20), "no sessions listed")
+        timing("sessions_list", since: t)
+        shot(app, "03-sessions")
+
+        t = Date()
+        firstRow.tap()
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 20))
+        timing("open_session", since: t)
+        sleep(2)
+        shot(app, "04-conversation")
+
+        composer.tap()
+        composer.typeText("Reply with exactly the word pong and nothing else.")
+        shot(app, "05-composer-typed")
+        t = Date()
+        app.buttons["Send"].tap()
+        let pong = app.staticTexts.matching(NSPredicate(format: "label ==[c] 'pong' OR label ==[c] 'pong.'")).firstMatch
+        XCTAssertTrue(pong.waitForExistence(timeout: 120), "no pong reply")
+        timing("send_to_reply", since: t)
+        shot(app, "06-reply")
+
+        t = Date()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 5) || app.buttons["home.settingsButton"].waitForExistence(timeout: 5))
+        timing("back", since: t)
+        shot(app, "07-after-back")
+
+        // Re-open and use edge swipe to go back.
+        firstRow.tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 20))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 5), "edge swipe did not go back")
+        shot(app, "08-after-swipe-back")
+    }
+
+    private func pair(_ app: XCUIApplication, json: String) {
+        app.buttons["Add server"].tap()
+        app.buttons["discovery.chooser.kittylitter"].tap()
+        sleep(2)
+        app.tap() // trigger interruption monitor for the camera prompt
+        if app.alerts.buttons["Paste JSON Instead"].waitForExistence(timeout: 3) {
+            app.alerts.buttons["Paste JSON Instead"].tap()
+        }
+        let paste = app.buttons["Paste Pairing JSON"]
+        XCTAssertTrue(paste.waitForExistence(timeout: 10))
+        paste.tap()
+        let field = app.textViews.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(json.trimmingCharacters(in: .whitespacesAndNewlines))
+        allowPasteIfPrompted()
+        app.buttons["Parse JSON"].tap()
+        allowPasteIfPrompted()
+        shot(app, "00-pair-parsed")
+        let connect = app.buttons["alleycat.pair.toolbarConnect"]
+        let enabled = NSPredicate(format: "isEnabled == true")
+        expectation(for: enabled, evaluatedWith: connect)
+        waitForExpectations(timeout: 30)
+        connect.tap()
+    }
+
+    /// XCUITest types long strings through the pasteboard, which triggers
+    /// the system "Allow Paste" prompt owned by SpringBoard.
+    private func allowPasteIfPrompted() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.buttons["Allow Paste"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+    }
+
+    private func timing(_ step: String, since: Date) {
+        print(String(format: "E2E_TIMING %@ %.2f", step, Date().timeIntervalSince(since)))
+    }
+
+    private func shot(_ app: XCUIApplication, _ name: String) {
+        let screenshot = app.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let shotDir {
+            try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: shotDir).appendingPathComponent("\(name).png"))
+        }
+    }
+}

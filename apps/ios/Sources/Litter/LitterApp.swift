@@ -97,7 +97,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()
         }
-        scheduleKeyboardWarmup()
+        // No keyboard warmup: flashing a hidden first responder at launch
+        // showed the keyboard over Home and shifted the layout.
         // Start pushing state to the paired Apple Watch, gated behind the
         // experimental feature flag. Flip the `appleWatch` feature in
         // Settings → Experimental Features to enable. No-op when disabled.
@@ -797,7 +798,8 @@ private struct HomeNavigationView: View {
                         onBack: { popCurrentRoute() },
                         onResumeSessions: { showSessions(for: $0) },
                         onOpenConversation: { replaceTopConversation(with: $0) },
-                        onInfo: { navigationPath.append(.conversationInfo(threadKey)) }
+                        onInfo: { navigationPath.append(.conversationInfo(threadKey)) },
+                        isOnTop: navigationPath.last == .conversation(threadKey)
                     )
                 case .newThread:
                     NewThreadHeroView(
@@ -1947,6 +1949,8 @@ private struct ConversationDestinationScreen: View {
     let onResumeSessions: (String) -> Void
     let onOpenConversation: (ThreadKey) -> Void
     var onInfo: (() -> Void)?
+    /// False as soon as this screen stops being the top of the stack.
+    var isOnTop: Bool = true
 
     private var conversationThread: AppThreadSnapshot? {
         appModel.threadSnapshot(for: threadKey)
@@ -1984,7 +1988,7 @@ private struct ConversationDestinationScreen: View {
                     resolveLiveStatus: screenModel.resolveLiveStatus,
                     composerInputText: $bindableScreenModel.composerInputText,
                     composerAttachedImages: $bindableScreenModel.composerAttachedImages,
-                    topInset: 12,
+                    topInset: 4,
                     bottomInset: bottomInset,
                     onOpenConversation: onOpenConversation,
                     onResumeSessions: onResumeSessions,
@@ -2028,54 +2032,44 @@ private struct ConversationDestinationScreen: View {
                 .background(LitterTheme.backgroundGradient.ignoresSafeArea())
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
-        .overlay(alignment: .top) {
-            GlassMorphContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    Button {
-                        isLeaving = true
-                        // Drop focus first so the keyboard's hide animation
-                        // doesn't resize the transcript mid-pop.
-                        UIApplication.shared.sendAction(
-                            #selector(UIResponder.resignFirstResponder),
-                            to: nil, from: nil, for: nil
-                        )
-                        onBack()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(LitterFont.styled(size: 17, weight: .semibold))
-                            .foregroundColor(LitterTheme.textPrimary)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .modifier(GlassCircleModifier())
-                    .accessibilityLabel("Back")
-
-                    Spacer(minLength: 0)
-
-                    if let conversationThread {
-                        // `server:` is passed explicitly so the toolbar controls
-                        // never read `appModel.snapshot` in their own bodies.
+        // Native navigation bar: system back button (keeps the edge-swipe
+        // pop gesture and its fast transition), an inline title, and the
+        // reload/info actions as standard toolbar items. The old floating
+        // glass overlay hid the bar, which disabled swipe-back and let the
+        // transcript scroll underneath the buttons.
+        .navigationTitle(navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let conversationThread {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    ConversationToolbarControls(
+                        thread: conversationThread,
+                        control: .reload,
+                        server: screenModel.serverSnapshot,
+                        inToolbar: true
+                    )
+                    if onInfo != nil {
                         ConversationToolbarControls(
                             thread: conversationThread,
-                            control: .reload,
-                            server: screenModel.serverSnapshot
+                            control: .info,
+                            onInfo: onInfo,
+                            server: screenModel.serverSnapshot,
+                            inToolbar: true
                         )
-                        if onInfo != nil {
-                            ConversationToolbarControls(
-                                thread: conversationThread,
-                                control: .info,
-                                onInfo: onInfo,
-                                server: screenModel.serverSnapshot
-                            )
-                        }
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
+        }
+        .onChange(of: isOnTop) { _, onTop in
+            // The stack popped (back button or edge swipe). Freeze re-binds
+            // for the ~350ms transition and drop the keyboard so it doesn't
+            // resize the transcript mid-pop.
+            guard !onTop else { isLeaving = false; return }
+            isLeaving = true
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil, from: nil, for: nil
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .bottom)

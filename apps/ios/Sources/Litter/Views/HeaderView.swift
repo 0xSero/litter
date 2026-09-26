@@ -356,23 +356,34 @@ struct ConversationToolbarControls: View {
     let control: Control
     var onInfo: (() -> Void)?
     var server: AppServerSnapshot?
+    /// Inside a navigation bar the system supplies sizing and chrome.
+    var inToolbar: Bool = false
     @State private var isReloading = false
     @State private var remoteAuthSession: RemoteAuthSession?
 
+    @ViewBuilder
+    private var control_: some View {
+        switch control {
+        case .reload:
+            reloadButton
+        case .info:
+            infoButton
+        }
+    }
+
     var body: some View {
         Group {
-            switch control {
-            case .reload:
-                reloadButton
-            case .info:
-                infoButton
+            if inToolbar {
+                control_
+            } else {
+                control_
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
+                    .buttonStyle(.plain)
+                    .modifier(GlassCircleModifier())
+                    .hoverEffect(.highlight)
             }
         }
-        .frame(width: 40, height: 40)
-        .contentShape(Circle())
-        .buttonStyle(.plain)
-        .modifier(GlassCircleModifier())
-        .hoverEffect(.highlight)
         .sheet(item: $remoteAuthSession) { session in
             InAppSafariView(url: session.url)
                 .ignoresSafeArea()
@@ -420,8 +431,8 @@ struct ConversationToolbarControls: View {
                 .tint(LitterTheme.accent)
         } else {
             Image(systemName: "arrow.clockwise")
-                .font(LitterFont.styled(size: 16, weight: .semibold))
-                .foregroundColor(server?.isConnected == true ? LitterTheme.accent : LitterTheme.textMuted)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(server?.isConnected == true ? LitterTheme.textPrimary : LitterTheme.textMuted)
         }
     }
 
@@ -430,8 +441,8 @@ struct ConversationToolbarControls: View {
             onInfo?()
         } label: {
             Image(systemName: "info.circle")
-                .font(LitterFont.styled(size: 16, weight: .semibold))
-                .foregroundColor(LitterTheme.accent)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(LitterTheme.textPrimary)
         }
         .accessibilityIdentifier("header.infoButton")
     }

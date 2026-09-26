@@ -106,7 +106,20 @@ struct AlleycatAddServerSheet: View {
                     Button("Cancel") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
+                // Confirm action lives in the bar (Settings/Mail pattern) so
+                // the keyboard can never cover it after a paste.
+                ToolbarItem(placement: .confirmationAction) {
+                    if isConnecting {
+                        ProgressView()
+                    } else {
+                        Button("Connect") { connect() }
+                            .fontWeight(.semibold)
+                            .disabled(!canConnect)
+                            .accessibilityIdentifier("alleycat.pair.toolbarConnect")
+                    }
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .onAppear {
             requestInitialScanIfNeeded()
@@ -130,10 +143,10 @@ struct AlleycatAddServerSheet: View {
             isPresented: $cameraDenied,
             actions: {
                 Button("Open Settings") { openAppSettings() }
-                Button("Cancel", role: .cancel) {}
+                Button("Paste JSON Instead", role: .cancel) {}
             },
             message: {
-                Text("Allow camera access in Settings to scan the pairing QR code.")
+                Text("Allow camera access in Settings to scan the pairing QR code, or paste the pairing JSON.")
             }
         )
     }
@@ -225,6 +238,7 @@ struct AlleycatAddServerSheet: View {
             Button("Paste from Clipboard") {
                 if let clipboard = UIPasteboard.general.string {
                     pasteJSON = clipboard
+                    handleScannedPayload(clipboard)
                 }
             }
             .litterFont(.footnote)
