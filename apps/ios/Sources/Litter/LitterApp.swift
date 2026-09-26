@@ -304,14 +304,18 @@ struct LitterApp: App {
             if let appModel {
                 appContent(appModel)
             } else {
-                ProgressView("Starting KittyLitter")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(uiColor: .systemBackground))
+                // Launch surface matches Home's background and holds until
+                // the first store snapshot (with Rust's cached session
+                // summaries) is in, so Home's first frame is its final
+                // layout instead of empty → cached → live.
+                LaunchMarkView()
                     .task {
                         await Task.detached(priority: .userInitiated) {
                             AppModel.prewarmRustBridges()
                         }.value
-                        appModel = AppModel.shared
+                        let model = AppModel.shared
+                        await model.refreshSnapshot()
+                        appModel = model
                     }
             }
             #endif
@@ -774,7 +778,9 @@ private struct HomeNavigationView: View {
                         },
                         onInfo: serverId.map { id in
                             { navigationPath.append(.serverInfo(serverId: id)) }
-                        }
+                        },
+                        onPin: pinThread,
+                        onUnpin: unpinThread
                     )
                         .navigationTitle(title)
                         .navigationBarTitleDisplayMode(.inline)
@@ -916,10 +922,14 @@ private struct HomeNavigationView: View {
 
     var body: some View {
         rootNavigationContent
-        .task {
+        // Bind and activate in onAppear, not .task: .task runs after the
+        // first frame, so Home used to render once with no servers and no
+        // sessions (flashing the empty-state cat) before the model filled.
+        .onAppear {
             homeDashboardModel.bind(appModel: appModel)
             updateHomeDashboardActivity(deferActivation: false)
-            hydratePinnedThreadsIfNeeded()
+        }
+        .task {
             seedInitialConversationIfNeeded(activeKey: appModel.snapshot?.activeThread)
         }
         .onChange(of: homeDashboardModel.activeThread) { _, newKey in
@@ -927,9 +937,6 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
-        }
-        .onChange(of: pinnedThreadHydrationSignature) { _, _ in
-            hydratePinnedThreadsIfNeeded()
         }
         .onChange(of: appState.pendingThreadNavigation) { _, newKey in
             if let newKey {
@@ -1467,9 +1474,11 @@ private struct HomeNavigationView: View {
             onUnpinThread: unpinThread,
             onHideThread: hideThread,
             onNewThread: { openNewThread() },
-            onHydrateThread: { key, loadInitialTurns in
-                await hydrateThread(key, loadInitialTurns: loadInitialTurns)
+            onHydrateThread: { key, _ in
+                await hydratePinnedHomeThread(key)
             },
+            hydrationRetrySignature: pinnedThreadHydrationSignature,
+            isSessionListSettled: homeDashboardModel.isSessionListSettled,
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
             onRestartAppServer: restartAppServer,
@@ -1513,9 +1522,11 @@ private struct HomeNavigationView: View {
             onPinThread: pinThread,
             onUnpinThread: unpinThread,
             onHideThread: hideThread,
-            onHydrateThread: { key, loadInitialTurns in
-                await hydrateThread(key, loadInitialTurns: loadInitialTurns)
+            onHydrateThread: { key, _ in
+                await hydratePinnedHomeThread(key)
             },
+            hydrationRetrySignature: pinnedThreadHydrationSignature,
+            isSessionListSettled: homeDashboardModel.isSessionListSettled,
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
             onRestartAppServer: restartAppServer,
@@ -1590,42 +1601,27 @@ private struct HomeNavigationView: View {
         "\(key.serverId)/\(key.threadId)"
     }
 
-    private func hydratePinnedThreadsIfNeeded() {
-        let connectedServerIds = Set(
-            (appModel.snapshot?.servers ?? [])
-                .filter(\.isConnected)
-                .map(\.serverId)
+    /// Hydrates one pinned Home row. Called by the Home list's viewport
+    /// hydrator only for rows that are on screen (or within the prefetch
+    /// distance), at most `SessionListRules.maxConcurrentHydrations` at a
+    /// time. Previously every pin was resumed at once on launch.
+    private func hydratePinnedHomeThread(_ key: ThreadKey) async {
+        let isConnected = appModel.snapshot?.servers
+            .contains { $0.serverId == key.serverId && $0.isConnected } ?? false
+        guard isConnected else { return }
+        if appModel.snapshot?.sessionSummary(for: key)?.isResumed == true { return }
+        let id = homeHydrationId(key)
+        guard !hydratingPinnedHomeThreadIds.contains(id) else { return }
+        hydratingPinnedHomeThreadIds.insert(id)
+        defer { hydratingPinnedHomeThreadIds.remove(id) }
+        LLog.info(
+            "home",
+            "hydrating pinned thread",
+            fields: ["serverId": key.serverId, "threadId": key.threadId]
         )
-        guard !connectedServerIds.isEmpty else { return }
-
-        for pin in homeDashboardModel.pinnedKeys {
-            let key = pin.threadKey
-            guard connectedServerIds.contains(key.serverId) else { continue }
-            let id = homeHydrationId(key)
-            if appModel.snapshot?.sessionSummary(for: key)?.isResumed == true { continue }
-            guard !hydratingPinnedHomeThreadIds.contains(id) else { continue }
-            hydratingPinnedHomeThreadIds.insert(id)
-
-            Task {
-                LLog.info(
-                    "home",
-                    "hydrating pinned thread",
-                    fields: ["serverId": key.serverId, "threadId": key.threadId]
-                )
-                if !(await hydrateThread(key, loadInitialTurns: true)) {
-                    let refreshed = await refreshPinnedThreadListing(serverId: key.serverId)
-                    guard refreshed else {
-                        await MainActor.run {
-                            _ = hydratingPinnedHomeThreadIds.remove(id)
-                        }
-                        return
-                    }
-                    _ = await hydrateThread(key, loadInitialTurns: true)
-                }
-                await MainActor.run {
-                    _ = hydratingPinnedHomeThreadIds.remove(id)
-                }
-            }
+        if !(await hydrateThread(key, loadInitialTurns: true)) {
+            guard await refreshPinnedThreadListing(serverId: key.serverId) else { return }
+            _ = await hydrateThread(key, loadInitialTurns: true)
         }
     }
 

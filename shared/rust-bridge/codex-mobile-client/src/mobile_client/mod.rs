@@ -1914,9 +1914,56 @@ impl MobileClient {
         let selected_agent_names = selected_agent_names
             .into_iter()
             .collect::<std::collections::HashSet<_>>();
-        let agent_inventory = self
+        // Publish "connecting" before the inventory probe. Listing agents
+        // binds the iroh endpoint and makes a network round trip (plus, for a
+        // Local Studio controller, waits for the controller to register);
+        // before this the server stayed invisible or "offline" for that whole
+        // window. A healthy existing session is left alone so the
+        // short-circuit below never flickers it to connecting.
+        let early_visible_server_id = format!("alleycat:{}", params.node_id);
+        let early_server_id = if server_id.starts_with(&early_visible_server_id) {
+            early_visible_server_id
+        } else {
+            server_id.clone()
+        };
+        let has_healthy_session = self
+            .sessions_read()
+            .get(early_server_id.as_str())
+            .is_some_and(|session| {
+                matches!(
+                    *session.health().borrow(),
+                    crate::session::connection::ConnectionHealth::Connected
+                )
+            });
+        if !has_healthy_session {
+            self.app_store.upsert_server(
+                &ServerConfig {
+                    server_id: early_server_id.clone(),
+                    display_name: display_name.clone(),
+                    host: params.node_id.clone(),
+                    port: 0,
+                    websocket_url: Some(format!("ws://alleycat/{}", params.node_id)),
+                    is_local: false,
+                    tls: false,
+                },
+                ServerHealthSnapshot::Connecting,
+            );
+        }
+        let agent_inventory = match self
             .list_alleycat_agents(params.clone(), local_studio_controller)
-            .await?;
+            .await
+        {
+            Ok(agents) => agents,
+            Err(error) => {
+                if !has_healthy_session {
+                    self.app_store.update_server_health(
+                        early_server_id.as_str(),
+                        ServerHealthSnapshot::Disconnected,
+                    );
+                }
+                return Err(error);
+            }
+        };
         let mut seen_runtime_kinds = std::collections::HashSet::new();
         let requested_agents = agent_inventory
             .into_iter()

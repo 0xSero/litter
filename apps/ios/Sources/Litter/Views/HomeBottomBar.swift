@@ -24,6 +24,8 @@ struct HomeBottomBar: View {
     let project: AppProject?
     let transcriptionServerId: String?
     let onThreadCreated: (ThreadKey) -> Void
+    /// Model pill shown inside the composer's bottom row.
+    var modelPill: HomeComposerModelPill? = nil
     /// When `true`, the plus/composer pool is omitted and only the search
     /// button / search-row morph renders. Used by the iPad + Catalyst
     /// sidebar chrome where there's no room (and no use) for a composer.
@@ -173,7 +175,8 @@ struct HomeBottomBar: View {
                 guard elapsed > 0.6 else { return }
                 setMode(.collapsed)
             },
-            autoFocus: true
+            autoFocus: true,
+            modelPill: modelPill
         )
         .glassMorphID(plusID, in: ns)
         .onAppear {
