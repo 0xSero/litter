@@ -739,3 +739,21 @@ enum MessageLinks {
         return "Copy \(trimmed)"
     }
 }
+
+// MARK: - Litter Quiet composer roles
+
+extension LitterTheme {
+    /// Fill of the raised composer card.
+    static var composerFill: Color { raised }
+    /// 1pt outline around the composer card, a touch lighter than its fill.
+    static var composerOutline: Color { textPrimary.opacity(0.10) }
+    /// Fill of the round/capsule controls sitting on the composer card.
+    static var composerControl: Color { textPrimary.opacity(0.07) }
+    /// Muted terracotta used by the composer send button.
+    static var sendTint: Color { Color(red: 0.80, green: 0.43, blue: 0.30) }
+}
+
+extension LitterSpace {
+    /// Inner padding of the composer card.
+    static let composerInset: CGFloat = 14
+}

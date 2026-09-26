@@ -358,7 +358,7 @@ struct ConversationComposerModeChip: View {
 
     private var foreground: Color { LitterTheme.textPrimary }
 
-    private var background: Color { LitterTheme.raised }
+    private var background: Color { LitterTheme.composerControl }
 
     var body: some View {
         Button(action: onTap) {
@@ -371,7 +371,7 @@ struct ConversationComposerModeChip: View {
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, LitterSpace.m)
-            .frame(minHeight: 32)
+            .frame(minHeight: LitterSpace.hitTarget)
             .background(Capsule().fill(background))
             .contentShape(Capsule())
         }
