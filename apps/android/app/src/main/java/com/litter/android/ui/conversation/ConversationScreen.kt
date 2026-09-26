@@ -186,8 +186,16 @@ fun ConversationScreen(
     var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
     val turnCollapseState = remember(threadKey, collapseTurns) { TranscriptPresentationState() }
-    val transcriptRows = remember(transcriptTurns, turnCollapseState, expandedTurnIds) {
-        buildTranscriptRows(transcriptTurns, turnCollapseState, expandedTurnIds)
+    val chainPrefs = remember(context) { TurnChainPreference(context) }
+    var chainOverrides by remember(threadKey, collapseTurns) { mutableStateOf(mapOf<String, Boolean>()) }
+    val transcriptRows = remember(transcriptTurns, turnCollapseState, expandedTurnIds, chainOverrides) {
+        buildTranscriptRows(
+            transcriptTurns,
+            turnCollapseState,
+            expandedTurnIds,
+            chainOverrides,
+            chainPrefs.expandedByDefault,
+        )
     }
     var streamingRenderTick by remember(threadKey) { mutableStateOf(0) }
     var followScrollToken by remember(threadKey) { mutableStateOf(0) }
@@ -610,6 +618,16 @@ fun ConversationScreen(
                                         showsCollapsedPreview = row.isLastEntry,
                                     )
                                 }
+                                is TranscriptRow.Chain -> TurnChainSummaryRow(
+                                    chain = row.chain,
+                                    expanded = row.expanded,
+                                    onToggle = {
+                                        val next = !row.expanded
+                                        chainOverrides = chainOverrides + (row.expansionId to next)
+                                        // Remember the choice for turns that finish later.
+                                        if (!row.turn.isActiveTurn) chainPrefs.expandedByDefault = next
+                                    },
+                                )
                                 is TranscriptRow.Collapsed -> CollapsedTurnCard(turn = row.turn) {
                                     expandedTurnIds = expandedTurnIds + row.expansionId
                                 }

@@ -653,12 +653,14 @@ private fun ReasoningRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
     ) {
+        // Subdued prose: smaller body text in the muted tone, so the chain
+        // reads as secondary to the answer without mono/italic noise.
         Text(
             text = reasoningText,
-            color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.body.scaled,
-            fontFamily = LitterTheme.monoFont,
-            fontStyle = FontStyle.Italic,
+            color = LitterTheme.textMuted,
+            fontSize = LitterTextStyle.subheadline.scaled,
+            fontFamily = LitterTheme.bodyFont,
+            lineHeight = LitterTextStyle.subheadline.scaled * 1.4f,
         )
     }
 }
