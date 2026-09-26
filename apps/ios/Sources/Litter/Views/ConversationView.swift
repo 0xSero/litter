@@ -1194,6 +1194,21 @@ private struct ScrollToBottomIndicator: View {
     }
 }
 
+/// Leaf view that is the only body reading the composer draft on each
+/// keystroke, so text changes don't invalidate `ConversationInputBar`.
+private struct ComposerTextChangeObserver: View {
+    @Binding var text: String
+    let onChange: (String) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: text) { _, next in onChange(next) }
+    }
+}
+
 private struct ConversationInputBar: View {
     @Environment(AppState.self) private var appState
     @Environment(AppModel.self) private var appModel
@@ -1349,9 +1364,14 @@ private struct ConversationInputBar: View {
         ) {
             composerSurface
         }
-        .onChange(of: inputText) { _, next in
-            scheduleComposerPopupRefresh(for: next)
-        }
+        // Observe the draft from a leaf view: reading `inputText` here (as
+        // `.onChange(of: inputText)` does) made every keystroke re-evaluate
+        // this whole body, the modal coordinator, and every composer row.
+        .background(
+            ComposerTextChangeObserver(text: $inputText) { next in
+                scheduleComposerPopupRefresh(for: next)
+            }
+        )
         .onChange(of: snapshot.composerPrefillRequest?.id) { _, _ in
             guard let prefill = snapshot.composerPrefillRequest else { return }
             inputText = prefill.text
@@ -1475,7 +1495,7 @@ private struct ConversationInputBar: View {
         let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let selection = pending.isEmpty ? snapshot.threadModel : pending
         let runtime = pending.isEmpty
-            ? appModel.threadSnapshot(for: snapshot.threadKey)?.agentRuntimeKind
+            ? snapshot.threadAgentRuntimeKind
             : appState.selectedAgentRuntimeKind
         if let model = snapshot.availableModels.first(where: {
             modelMatchesSelection($0, selection, runtime: runtime)
