@@ -53,9 +53,15 @@ final class HomeDashboardModel {
         let sessionSummaries: [AppSessionSummary]
         let activeThread: ThreadKey?
         let rawServers: [AppServerSnapshot]
+        let isSessionListSettled: Bool
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
+    /// False while Home cannot yet tell "no sessions" from "not loaded":
+    /// no store snapshot yet, or remembered servers still reconnecting.
+    /// Home shows the empty state (cat + coachmarks) only once settled, so
+    /// it never flashes on launch.
+    private(set) var isSessionListSettled = false
     /// Home list source: pinned threads first (in pin order). Local Studio
     /// also keeps recent sessions visible after a pin so newly synced Pi
     /// sessions remain discoverable. Hidden threads are always excluded.
@@ -274,11 +280,15 @@ final class HomeDashboardModel {
         let generation = observationGeneration
         let snapshot = withObservationTracking {
             let appSnapshot = appModel.snapshot
+            let rememberedServers = persistence.rememberedServers()
             let nextConnectedServers = HomeDashboardSupport.sortedConnectedServers(
                 from: appSnapshot?.servers ?? [],
-                savedServers: persistence.rememberedServers(),
+                savedServers: rememberedServers,
                 activeServerId: appSnapshot?.activeThread?.serverId
             )
+            let reconnectPending = SavedServerReconnectState.shared.isReconnectPending
+            let isSettled = appSnapshot != nil
+                && (!reconnectPending || !rememberedServers.contains(where: \.rememberedByUser))
             // Live threads show only for servers that can launch sessions.
             // Summary-only rows (Rust's launch cache, not yet backed by a live
             // thread) show for any remembered server, so recent sessions
@@ -298,7 +308,8 @@ final class HomeDashboardModel {
                 recentSessions: nextAllSessions,
                 sessionSummaries: appSnapshot?.sessionSummaries ?? [],
                 activeThread: appSnapshot?.activeThread,
-                rawServers: appSnapshot?.servers ?? []
+                rawServers: appSnapshot?.servers ?? [],
+                isSessionListSettled: isSettled
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -309,6 +320,7 @@ final class HomeDashboardModel {
 
         rebuildCount += 1
         connectedServers = snapshot.connectedServers
+        isSessionListSettled = snapshot.isSessionListSettled
         allSessions = snapshot.recentSessions
         recentSessions = Self.mergedHomeSessions(
             pinned: pinnedKeys,

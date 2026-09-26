@@ -3,12 +3,12 @@ import UIKit
 
 /// Which chrome layer the dashboard renders with.
 ///
-///  - `.full`: the app's landing page — animated logo in the principal
-///    toolbar item, zoom toggle, and the full `HomeBottomBar` composer
-///    docked along the bottom. This is what iPhone compact and Catalyst
+///  - `.full`: the app's landing page — cat mark in the principal
+///    toolbar item and the full `HomeBottomBar` composer docked along the
+///    bottom. This is what iPhone compact and Catalyst
 ///    non-split use today.
 ///  - `.sidebar`: the trimmed projection used in the iPad / Catalyst
-///    `NavigationSplitView` sidebar. Branding, zoom, and the bottom
+///    `NavigationSplitView` sidebar. Branding and the bottom
 ///    composer are stripped; toolbar trailing gains a "+" that fires
 ///    `onNewThread` so the detail pane can host the hero composer.
 enum HomeDashboardChrome {
@@ -53,6 +53,11 @@ struct HomeDashboardView: View {
     /// orchestrates the parallel calls and tracks per-row state so the left
     /// indicator can reflect it.
     var onHydrateThread: ((ThreadKey, Bool) async -> Void)? = nil
+    /// Changes when servers connect or pins change; visible rows that could
+    /// not hydrate earlier are retried.
+    var hydrationRetrySignature: String = ""
+    /// See `HomeDashboardModel.isSessionListSettled`.
+    var isSessionListSettled: Bool = true
     var onDeleteThread: ((ThreadKey) async -> Void)? = nil
     var onReconnectServer: ((HomeDashboardServer) -> Void)? = nil
     var onRestartAppServer: ((HomeDashboardServer) -> Void)? = nil
@@ -76,26 +81,19 @@ struct HomeDashboardView: View {
     /// Tracks threads the user just cancelled so their status dot can show
     /// red until the snapshot confirms the turn is no longer active.
     @State private var cancellingKeys: Set<String> = []
-    @AppStorage("homeZoomLevel") private var zoomLevel = 2
-
-    /// Bounded ease for zoom level transitions. `.easeInOut` completes
-    /// deterministically in `duration` (unlike `.smooth` which is a
-    /// spring that can overshoot its nominal time). Short enough to
-    /// feel responsive, long enough to see the height change.
-    static let zoomAnimation: Animation = .easeInOut(duration: 0.22)
-
-    /// Direction of the toolbar zoom toggle: +1 walks up, -1 walks down.
-    /// Flips at the 1/4 boundaries so the button bounces 1→2→3→4→3→2→1.
-    @State private var zoomDirection: Int = 1
+    /// Visibility-driven, bounded hydration (see `SessionListRules`).
+    @State private var hydrator = SessionViewportHydrator()
     @State private var renameServerTarget: HomeDashboardServer?
     @State private var renameServerText = ""
     @State private var isShowingMountedFolders = false
     @State private var inputMode: HomeInputMode = .collapsed
     @State private var searchQuery = ""
     @State private var selectedSearchRuntimeKind: AgentRuntimeKind?
-    @State private var hydratingKeys: Set<String> = []
     @State private var isLoadingThreadListing = false
     @State private var suppressComposerCollapse = false
+    @State private var isShowingModelPicker = false
+    @Environment(AppState.self) private var appState
+    @AppStorage("fastMode") private var fastMode = false
 
     private var launchableServers: [HomeDashboardServer] {
         connectedServers.filter(\.canLaunchSessions)
@@ -159,42 +157,39 @@ struct HomeDashboardView: View {
         "\(key.serverId)/\(key.threadId)"
     }
 
-    private func autoHydrateIfNeeded() {
-        guard let onHydrateThread else { return }
-        // Gate on the explicit resumed bit rather than hydrated stats. With
-        // paginated threads, loaded items and attached live listeners are now
-        // separate states.
+    /// Row `index` of `visibleSessions` is on screen: request hydration
+    /// for it and the next `SessionListRules.prefetchRows` rows. Only
+    /// pinned rows without a live listener are hydrated, as before.
+    private func requestHydration(fromRow index: Int) {
         let visible = visibleSessions
-        let byPinnedKey = Dictionary(uniqueKeysWithValues: visible.map {
-            (SavedThreadsStore.PinnedKey(threadKey: $0.key), $0)
-        })
-        let pinnedFirst = pinnedThreadKeys.compactMap { byPinnedKey[$0] }
-        for session in pinnedFirst where !session.isResumed {
-            let id = hydrationId(session.key)
-            guard !hydratingKeys.contains(id) else { continue }
-            hydratingKeys.insert(id)
-            Task {
-                await onHydrateThread(session.key, true)
-                await MainActor.run {
-                    _ = hydratingKeys.remove(id)
-                }
-            }
-        }
+        guard !visible.isEmpty, index < visible.count else { return }
+        let pinned = Set(pinnedThreadKeys)
+        let upper = min(visible.count, index + SessionListRules.prefetchRows + 1)
+        let keys = visible[index..<upper]
+            .filter { !$0.isResumed && pinned.contains(SavedThreadsStore.PinnedKey(threadKey: $0.key)) }
+            .map(\.key)
+        hydrator.request(keys)
+    }
+
+    /// Re-evaluate hydration for rows currently on screen (servers came
+    /// online, pins changed, list content changed).
+    private func rehydrateVisibleRows(resetAttempts: Bool) {
+        if resetAttempts { hydrator.resetAttempts() }
+        let visible = visibleSessions
+        let visibleIndices = visible.indices.filter { hydrator.visibleKeys.contains(visible[$0].key) }
+        guard let first = visibleIndices.first, let last = visibleIndices.last else { return }
+        let pinned = Set(pinnedThreadKeys)
+        let upper = min(visible.count, last + SessionListRules.prefetchRows + 1)
+        let keys = visible[first..<upper]
+            .filter { !$0.isResumed && pinned.contains(SavedThreadsStore.PinnedKey(threadKey: $0.key)) }
+            .map(\.key)
+        hydrator.request(keys)
     }
 
     private var visibleSessions: [HomeDashboardRecentSession] {
         let serverId = selectedMachineServerId
         guard let serverId, !serverId.isEmpty else { return recentSessions }
         return recentSessions.filter { $0.serverId == serverId }
-    }
-
-    private var zoomIcon: String {
-        switch zoomLevel {
-        case 1: return "list.bullet"
-        case 2: return "list.dash"
-        case 3: return "list.bullet.rectangle"
-        default: return "list.bullet.rectangle.fill"
-        }
     }
 
     var body: some View {
@@ -210,12 +205,14 @@ struct HomeDashboardView: View {
                 }
             }
             .task { await TipJarStore.shared.loadProducts() }
-            .onAppear { autoHydrateIfNeeded() }
-            .onChange(of: visibleHydrationSignature) { _, _ in
-                autoHydrateIfNeeded()
+            .onAppear {
+                hydrator.hydrate = { key in await onHydrateThread?(key, true) }
             }
-            .onChange(of: pinnedThreadKeys) { _, _ in
-                autoHydrateIfNeeded()
+            .onChange(of: visibleHydrationSignature) { _, _ in
+                rehydrateVisibleRows(resetAttempts: false)
+            }
+            .onChange(of: hydrationRetrySignature) { _, _ in
+                rehydrateVisibleRows(resetAttempts: true)
             }
             // Clear a cancelled key once the snapshot says the turn is
             // actually gone. Gives the dot a brief red period while the
@@ -309,20 +306,6 @@ struct HomeDashboardView: View {
                 }
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("home.settingsButton")
-                if let onShowApps {
-                    Button(action: onShowApps) {
-                        Image(systemName: "square.grid.2x2")
-                            .foregroundColor(LitterTheme.textSecondary)
-                    }
-                    .accessibilityLabel("Apps")
-                }
-                if let onShowTerminal {
-                    Button(action: onShowTerminal) {
-                        Image(systemName: "terminal")
-                            .foregroundColor(LitterTheme.textSecondary)
-                    }
-                    .accessibilityLabel("Terminal")
-                }
                 if let onBrowseSessions {
                     Button(action: onBrowseSessions) {
                         Image(systemName: "clock.arrow.circlepath")
@@ -331,24 +314,44 @@ struct HomeDashboardView: View {
                     .accessibilityLabel("All Sessions")
                     .accessibilityIdentifier("home.allSessionsButton")
                 }
+                // Apps and Terminal become available after launch (saved
+                // apps load, a server connects). Their slots are always
+                // reserved so the header never re-lays out when they do.
+                Button { onShowApps?() } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+                .accessibilityLabel("Apps")
+                .opacity(onShowApps == nil ? 0 : 1)
+                .disabled(onShowApps == nil)
+                .accessibilityHidden(onShowApps == nil)
+                Button { onShowTerminal?() } label: {
+                    Image(systemName: "terminal")
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+                .accessibilityLabel("Terminal")
+                .opacity(onShowTerminal == nil ? 0 : 1)
+                .disabled(onShowTerminal == nil)
+                .accessibilityHidden(onShowTerminal == nil)
             }
         }
         ToolbarItem(placement: .principal) {
             if chrome == .sidebar {
                 AnimatedLogo(size: 44)
             } else {
+                // Supporter badges load from StoreKit after launch; the
+                // fixed frame keeps the mark from sliding when they do.
                 HStack(spacing: 4) {
                     SupporterKittyBadges(tierIndices: 0..<2)
-                    AnimatedLogo(size: 64)
+                        .frame(width: 58, alignment: .trailing)
+                    AnimatedLogo(size: 44)
                     SupporterKittyBadges(tierIndices: 2..<4)
+                        .frame(width: 58, alignment: .leading)
                 }
+                .frame(height: 44)
             }
         }
-        if chrome == .full {
-            ToolbarItem(placement: .topBarTrailing) {
-                zoomButton
-            }
-        } else {
+        if chrome == .sidebar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     onNewThread?()
@@ -359,30 +362,6 @@ struct HomeDashboardView: View {
                 .accessibilityLabel("New thread")
             }
         }
-    }
-
-    private var zoomButton: some View {
-        Button {
-            // Four levels: 1 SCAN → 2 GLANCE → 3 READ → 4 DEEP.
-            // Bounce through them: 1→2→3→4→3→2→1.
-            let ladder = [1, 2, 3, 4]
-            let currentIdx = ladder.firstIndex(of: zoomLevel) ?? 0
-            var nextIdx = currentIdx + zoomDirection
-            if nextIdx >= ladder.count {
-                zoomDirection = -1
-                nextIdx = currentIdx + zoomDirection
-            } else if nextIdx < 0 {
-                zoomDirection = 1
-                nextIdx = currentIdx + zoomDirection
-            }
-            withAnimation(Self.zoomAnimation) {
-                zoomLevel = ladder[max(0, min(ladder.count - 1, nextIdx))]
-            }
-        } label: {
-            Image(systemName: zoomIcon)
-                .foregroundColor(LitterTheme.textSecondary)
-        }
-        .accessibilityLabel("Zoom")
     }
 
     /// The sidebar chrome on a Mac (Catalyst or iOS-on-Mac) sits inside
@@ -445,17 +424,14 @@ struct HomeDashboardView: View {
         }
         .overlay {
             if showOnboardingCoachmarks {
-                emptyHomeFatCat
-                    .transition(.opacity)
+                emptyHomeCat
             }
         }
         .overlayPreferenceValue(CoachmarkAnchorKey.self) { anchors in
             if showOnboardingCoachmarks {
                 OnboardingCoachmarksView(anchors: anchors)
-                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: showOnboardingCoachmarks)
     }
 
     private func refreshSearchThreads() async {
@@ -471,6 +447,7 @@ struct HomeDashboardView: View {
     /// up in the current scope.
     private var showOnboardingCoachmarks: Bool {
         guard chrome == .full,
+              isSessionListSettled,
               inputMode == .collapsed,
               !isSearchExpanded else { return false }
         return visibleSessions.isEmpty
@@ -494,7 +471,10 @@ struct HomeDashboardView: View {
             onShowMountedFolders: { _ in isShowingMountedFolders = true },
             onAdd: onAddServer
         )
+        // Fixed height from the first frame: pills and their status words
+        // update in place instead of pushing content when servers arrive.
         .frame(maxWidth: .infinity)
+        .frame(height: 44)
     }
 
     /// Sidebar chrome gets a compact search-only bar at the bottom —
@@ -524,6 +504,18 @@ struct HomeDashboardView: View {
         )
     }
 
+    /// Model pill for the home composer's bottom row; hidden until a
+    /// launchable server is selected (the picker needs its catalog).
+    private var composerModelPill: HomeComposerModelPill? {
+        guard selectedLaunchableServer != nil else { return nil }
+        let models = composerServerId.flatMap { serverSnapshotsById[$0] }?.availableModels ?? []
+        return HomeComposerModelPill(
+            label: HomeModelChip.modelLabel(appState: appState, models: models),
+            detail: HomeModelChip.modelDetail(appState: appState, fastMode: fastMode),
+            open: { isShowingModelPicker = true }
+        )
+    }
+
     private var bottomChrome: some View {
         VStack(alignment: .trailing, spacing: 6) {
             DebugBuildLabel()
@@ -531,13 +523,18 @@ struct HomeDashboardView: View {
             if inputMode == .composer {
                 HStack(spacing: 8) {
                     Spacer()
+                    // Invisible host: owns the model picker sheet and the
+                    // per-server model sync. The model itself shows as a
+                    // pill inside the composer (`composerModelPill`).
                     HomeModelChip(
                         serverId: composerServerId,
                         disabled: selectedLaunchableServer == nil,
                         server: composerServerId.flatMap { serverSnapshotsById[$0] },
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
-                        }
+                        },
+                        showsLabel: false,
+                        presentation: $isShowingModelPicker
                     )
                     ProjectChip(
                         project: selectedProject,
@@ -555,7 +552,8 @@ struct HomeDashboardView: View {
                 collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
                 transcriptionServerId: composerServerId,
-                onThreadCreated: onThreadCreated
+                onThreadCreated: onThreadCreated,
+                modelPill: composerModelPill
             )
         }
         .padding(.bottom, 4)
@@ -572,30 +570,20 @@ struct HomeDashboardView: View {
     }
 
     private var sessionsList: some View {
-        // UIKit-backed scroll view owns pinch, pan, and row swipes
-        // directly. Previously SwiftUI's `ScrollView` + `MagnifyGesture`
-        // both consumed the same pan deltas, producing vertical jitter
-        // during a pinch even with `.scrollDisabled(isPinching)`. The
-        // UIKit host uses the Clear.app pattern: pinch anchored on the
-        // finger midpoint in content coordinates + frame-only height
-        // animation per row (SwiftUI does zero per-tick work during a
-        // pinch).
         ZStack {
             if visibleSessions.isEmpty {
-                ScrollView { emptyState.padding(.top, 48).padding(.bottom, 140) }
-                    .scrollContentBackground(.hidden)
+                Color.clear
             } else {
-                HomeSessionsScrollView(
+                HomeSessionsList(
                     sessions: visibleSessions,
                     pinnedThreadKeys: Set(pinnedThreadKeys),
-                    hydratingKeys: hydratingKeys,
+                    offlineServerIds: Set(connectedServers.filter { !$0.canLaunchSessions }.map(\.id)),
+                    hydratingKeys: hydrator.inFlight,
                     cancellingKeys: cancellingKeys,
                     openingKey: openingRecentSessionKey,
-                    zoomLevel: $zoomLevel,
-                    showCatFooter: chrome == .full,
                     topInset: 48,
                     bottomInset: chrome == .full ? 140 : 24,
-                    callbacks: HomeSessionsScrollView.Callbacks(
+                    callbacks: HomeSessionsList.Callbacks(
                         onOpen: { session in
                             guard openingRecentSessionKey == nil else { return }
                             Task { await onOpenRecentSession(session) }
@@ -615,59 +603,32 @@ struct HomeDashboardView: View {
                         onShowPiP: { session in
                             StreamingPiPController.shared.start(for: session.key)
                         }
-                    )
+                    ),
+                    onRowAppear: { index in
+                        if index < visibleSessions.count {
+                            hydrator.rowAppeared(visibleSessions[index].key)
+                        }
+                        requestHydration(fromRow: index)
+                    },
+                    onRowDisappear: { key in hydrator.rowDisappeared(key) }
                 )
-                // Extend the scroll view edge-to-edge so content can
-                // scroll under the semi-transparent top/bottom chrome.
-                // The `topInset`/`bottomInset` we pass already carve
-                // out safe resting space for the rows.
+                // Extend edge-to-edge so rows scroll under the translucent
+                // top/bottom chrome; content margins carve out rest space.
                 .ignoresSafeArea()
             }
         }
     }
 
-    /// The "no sessions yet" copy has been replaced by the coachmark
-    /// overlay (mounted on `canvas` via `.overlayPreferenceValue`), which
-    /// draws arrows from each label to the actual button positions. This
-    /// branch just reserves vertical space for the scroll view.
-    private var emptyState: some View {
-        Color.clear.frame(height: 1)
-    }
-
-    /// Fat cat illustration shown on the empty home screen. Positioned in
-    /// the middle vertical band — between the addServer label (y≈0.20) and
-    /// the search/newThread labels (y≈0.62/0.70) — so it never collides
-    /// with the coachmark arrows or labels. Plays the entrance APNG once
-    /// then crossfades to the looping APNG, matching the cat footer.
-    private var emptyHomeFatCat: some View {
+    /// Abstract cat mark on the empty Home, in the band between the
+    /// add-server coachmark (y≈0.20) and the search/new-thread labels
+    /// (y≈0.62/0.70). One short fade, no animated image decode. Long-press
+    /// still plays the cat transmission easter egg.
+    private var emptyHomeCat: some View {
         GeometryReader { proxy in
-            let h = proxy.size.height
-            let w = proxy.size.width
-            let catWidth = min(max(180, w * 0.55), 260)
-            let catHeight = catWidth * 202.0 / 360.0
-            EmptyHomeFatCatView()
-                .frame(width: catWidth, height: catHeight)
-                .position(x: w / 2, y: h * 0.42)
-        }
-    }
-}
-
-private struct EmptyHomeFatCatView: View {
-    @State private var showingLoop = false
-
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "webp")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "webp")
-
-    var body: some View {
-        CatTransmissionPressView {
-            if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
-                AlphaAnimatedImageView(
-                    fileURL: imageURL,
-                    repeatCount: showingLoop ? 0 : 1,
-                    onFinished: showingLoop ? nil : { showingLoop = true }
-                )
-                .accessibilityHidden(true)
+            CatTransmissionPressView {
+                CatMark(width: 112, fadeIn: true)
             }
+            .position(x: proxy.size.width / 2, y: proxy.size.height * 0.42)
         }
     }
 }

@@ -11,14 +11,9 @@ struct ServerPill: View {
     let onShowMountedFolders: () -> Void
 
     /// Healthy servers show only their name. A server that needs attention
-    /// adds one colored word.
+    /// (or is still connecting) adds one mono word.
     private var problemWord: (String, Color)? {
-        switch server.statusDotState {
-        case .ok, .active: return nil
-        case .pending: return ("connecting", LitterTheme.warning)
-        case .error: return ("offline", LitterTheme.danger)
-        case .idle: return ("offline", LitterTheme.meta)
-        }
+        server.connectionWord.map { ($0.text, $0.color) }
     }
 
     var body: some View {

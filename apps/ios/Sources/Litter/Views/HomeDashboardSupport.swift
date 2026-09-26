@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// Lightweight projection of a thread for use in lineage breadcrumbs and
@@ -99,6 +100,27 @@ struct HomeDashboardServer: Identifiable, Equatable {
     let statusColor: Color
     let statusDotState: StatusDotState
     let agentRuntimes: [AgentRuntimeInfo]
+    /// Saved by the user, so a connect in flight is a *re*connect.
+    var isRemembered: Bool = false
+
+    /// Litter Quiet connection word shown beside the server name (Home
+    /// server row, server list). Healthy servers show nothing.
+    var connectionWord: (text: String, color: Color)? {
+        switch statusDotState {
+        case .ok, .active:
+            return nil
+        case .pending:
+            if statusLabel == "Sign in required" {
+                return ("sign in", LitterTheme.warning)
+            }
+            let reconnecting = isRemembered || health == .unresponsive
+            return (reconnecting ? "reconnecting…" : "connecting…", LitterTheme.warning)
+        case .error:
+            return ("offline", LitterTheme.danger)
+        case .idle:
+            return ("offline", LitterTheme.meta)
+        }
+    }
 
     var deduplicationKey: String {
         if isLocal {
@@ -127,12 +149,51 @@ struct HomeDashboardServer: Identifiable, Equatable {
             lhs.health == rhs.health &&
             lhs.sourceLabel == rhs.sourceLabel &&
             lhs.statusLabel == rhs.statusLabel &&
+            lhs.statusDotState == rhs.statusDotState &&
+            lhs.isRemembered == rhs.isRemembered &&
             lhs.agentRuntimes.map(agentRuntimeEqualityKey) == rhs.agentRuntimes.map(agentRuntimeEqualityKey)
     }
 }
 
 private func agentRuntimeEqualityKey(_ runtime: AgentRuntimeInfo) -> String {
     "\(runtime.kind)-\(runtime.name)-\(runtime.displayName)-\(runtime.available)"
+}
+
+/// View-state only: true from launch (and from each foreground return)
+/// until the saved-server reconnect pass returns. Lets Home and the server
+/// list show remembered servers as "reconnecting…" immediately instead of
+/// "offline" while Rust has not registered them yet.
+@MainActor
+@Observable
+final class SavedServerReconnectState {
+    static let shared = SavedServerReconnectState()
+    private(set) var isReconnectPending = true
+    /// Safety net so a skipped recovery pass can never leave servers
+    /// showing "reconnecting…" forever.
+    private static let maxPendingSeconds: UInt64 = 30
+    @ObservationIgnored private var expiryTask: Task<Void, Never>?
+
+    private init() { armExpiry() }
+
+    func begin() {
+        if !isReconnectPending { isReconnectPending = true }
+        armExpiry()
+    }
+
+    func finish() {
+        expiryTask?.cancel()
+        expiryTask = nil
+        if isReconnectPending { isReconnectPending = false }
+    }
+
+    private func armExpiry() {
+        expiryTask?.cancel()
+        expiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.maxPendingSeconds * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.finish()
+        }
+    }
 }
 
 @MainActor
@@ -193,6 +254,7 @@ enum HomeDashboardSupport {
         savedServers: [SavedServer] = [],
         activeServerId: String?
     ) -> [HomeDashboardServer] {
+        let rememberedIds = Set(savedServers.filter(\.rememberedByUser).map(\.id))
         let liveServers = servers
             .filter { $0.health != .disconnected || $0.connectionProgress != nil }
             .map { server in
@@ -207,7 +269,8 @@ enum HomeDashboardSupport {
                     statusLabel: server.statusLabel,
                     statusColor: server.statusColor,
                     statusDotState: server.statusDotState,
-                    agentRuntimes: server.agentRuntimes
+                    agentRuntimes: server.agentRuntimes,
+                    isRemembered: rememberedIds.contains(server.serverId)
                 )
             }
 
@@ -215,8 +278,12 @@ enum HomeDashboardSupport {
         var seenServerKeys = Set(liveServers.map(\.deduplicationKey))
         var merged = liveServers
 
+        // Until the launch/foreground reconnect pass has run, a remembered
+        // server that Rust has not registered yet is about to be dialed —
+        // show it as reconnecting from the first frame, not "offline".
+        let reconnectPending = SavedServerReconnectState.shared.isReconnectPending
         for saved in savedServers where saved.rememberedByUser {
-            let offline = offlineServer(from: saved)
+            let offline = offlineServer(from: saved, reconnectPending: reconnectPending)
             guard seenServerIds.insert(offline.id).inserted,
                   seenServerKeys.insert(offline.deduplicationKey).inserted else {
                 continue
@@ -241,7 +308,7 @@ enum HomeDashboardSupport {
             }
     }
 
-    private static func offlineServer(from saved: SavedServer) -> HomeDashboardServer {
+    private static func offlineServer(from saved: SavedServer, reconnectPending: Bool) -> HomeDashboardServer {
         HomeDashboardServer(
             id: saved.id,
             displayName: saved.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -254,8 +321,9 @@ enum HomeDashboardSupport {
             sourceLabel: sourceLabel(for: saved),
             statusLabel: AppServerHealth.disconnected.displayLabel,
             statusColor: AppServerHealth.disconnected.accentColor,
-            statusDotState: .idle,
-            agentRuntimes: savedAgentRuntimes(for: saved)
+            statusDotState: reconnectPending && saved.source != .local ? .pending : .idle,
+            agentRuntimes: savedAgentRuntimes(for: saved),
+            isRemembered: true
         )
     }
 
