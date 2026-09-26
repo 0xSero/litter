@@ -371,11 +371,13 @@ struct ConversationComposerModeChip: View {
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, LitterSpace.m)
-            .frame(minHeight: LitterSpace.hitTarget)
+            .frame(height: 30)
             .background(Capsule().fill(background))
-            .contentShape(Capsule())
+            .frame(minHeight: LitterSpace.hitTarget)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.leading, LitterSpace.xs)
         .accessibilityLabel("Mode: \(label)")
     }
 }

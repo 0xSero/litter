@@ -99,6 +99,7 @@
 		2274290523E68AB63821D469 /* everforest-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 81C9F195FE7B59E6FF611CC4 /* everforest-dark.json */; };
 		22C2646D1A45E0D268DB275F /* brand_logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = 74E5DF89D0937E6C17F2BB94 /* brand_logo.svg */; };
 		2360CA3C75BCF1203F27DAC1 /* BerkeleyMono-Bold-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3CB07F43FD670F05B9A43C55 /* BerkeleyMono-Bold-Oblique.otf */; };
+		23E8FBDBD957414ADADDAB18 /* LiveE2EUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D77BFF764026CE68A0C394F /* LiveE2EUITests.swift */; };
 		244DC619DBB8EFDA930DCC81 /* MessageContentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E814DFE71DB7B6A64B7B3A /* MessageContentBridge.swift */; };
 		24972C06889B09BEC21162CB /* HomeDashboardModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8AFE95BAB92C6CD6AAD8D69 /* HomeDashboardModel.swift */; };
 		24B302B9C08601CF5EBAC0E4 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E744000053715A5866060B15 /* PreviewSupport.swift */; };
@@ -804,6 +805,7 @@
 		2A7F3CC664EDAC7714BA817B /* QuickReplySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReplySheet.swift; sourceTree = "<group>"; };
 		2BC9B404D9E32D4734566A7D /* LitterWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitterWatch.entitlements; sourceTree = "<group>"; };
 		2C66EB395895F19874D3B933 /* AgentRuntimePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimePresentation.swift; sourceTree = "<group>"; };
+		2D77BFF764026CE68A0C394F /* LiveE2EUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveE2EUITests.swift; sourceTree = "<group>"; };
 		2DF6931F753DFD2AB67F62DC /* LitterLiveActivity.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = LitterLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		2EB9C4946A911272FC0DC850 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 		2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRendererCoordinator.swift; sourceTree = "<group>"; };
@@ -1182,6 +1184,7 @@
 			isa = PBXGroup;
 			children = (
 				46D841AF0FFB0241834F88D0 /* LitterUITests.swift */,
+				2D77BFF764026CE68A0C394F /* LiveE2EUITests.swift */,
 				E724333261AD4653114210E9 /* MessageLinkUITests.swift */,
 			);
 			name = LitterUITests;
@@ -2666,6 +2669,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7F7580E318B61556359A4EC1 /* LitterUITests.swift in Sources */,
+				23E8FBDBD957414ADADDAB18 /* LiveE2EUITests.swift in Sources */,
 				E21627B0742DBE674DC230C4 /* MessageLinkUITests.swift in Sources */,
 				05A1BF5FB8220D9D48C611D0 /* SnapshotHelper.swift in Sources */,
 			);

@@ -23,9 +23,12 @@ struct ConversationComposerEntryRowView: View {
     let onInterrupt: () -> Void
 
     private enum Metrics {
-        static let controlSize: CGFloat = LitterSpace.hitTarget
-        static let inputCornerRadius: CGFloat = LitterRadius.composer
-        static let trailingControlSize: CGFloat = LitterSpace.hitTarget
+        /// Visible size of the round controls (ChatGPT/Claude/Messages use
+        /// ~30-32pt). The tappable area stays 44pt via `hitTarget` padding.
+        static let controlSize: CGFloat = 32
+        static let pillHeight: CGFloat = 30
+        static let inputCornerRadius: CGFloat = 22
+        static let trailingControlSize: CGFloat = 32
         static let horizontalPadding: CGFloat = LitterSpace.m
         static let verticalPadding: CGFloat = 6
     }
@@ -160,7 +163,7 @@ struct ConversationComposerEntryRowView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
         .overlay(alignment: .topTrailing) {
             if shouldShowExpand {
                 Button {
@@ -184,7 +187,7 @@ struct ConversationComposerEntryRowView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: LitterSpace.s) {
+        HStack(spacing: 0) {
             if !isVoiceBusy {
                 composerCircleButton(systemName: "plus", label: "Attach") {
                     showAttachMenu = true
@@ -204,9 +207,9 @@ struct ConversationComposerEntryRowView: View {
                                 .lineLimit(1)
                         }
                     }
-                    .font(LitterFont.styled(size: 16))
-                    .padding(.horizontal, LitterSpace.l)
-                    .frame(height: Metrics.controlSize)
+                    .font(LitterFont.styled(size: 13, weight: .medium))
+                    .padding(.horizontal, LitterSpace.m)
+                    .frame(height: Metrics.pillHeight)
                     .background(Capsule().fill(LitterTheme.composerControl))
                     .contentShape(Capsule())
                 }
@@ -215,6 +218,7 @@ struct ConversationComposerEntryRowView: View {
                 .accessibilityIdentifier("conversation.modelPickerButton")
                 .accessibilityLabel("Choose model")
                 .frame(maxWidth: 190, alignment: .leading)
+                .frame(minHeight: LitterSpace.hitTarget)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -234,9 +238,8 @@ struct ConversationComposerEntryRowView: View {
                 .fixedSize()
                 .layoutPriority(3)
         }
-        .padding(.horizontal, LitterSpace.m)
-        .padding(.top, LitterSpace.xs)
-        .padding(.bottom, LitterSpace.m)
+        .padding(.horizontal, LitterSpace.s)
+        .padding(.bottom, LitterSpace.xs)
         .frame(maxWidth: .infinity)
     }
 
@@ -288,11 +291,12 @@ struct ConversationComposerEntryRowView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(LitterFont.styled(size: systemName == "plus" ? 22 : 18, weight: systemName == "plus" ? .regular : .semibold))
+                .font(.system(size: systemName == "plus" ? 17 : 14, weight: systemName == "plus" ? .regular : .semibold))
                 .foregroundColor(tint)
                 .frame(width: Metrics.controlSize, height: Metrics.controlSize)
                 .background(Circle().fill(fill))
-                .contentShape(Circle())
+                .frame(width: LitterSpace.hitTarget, height: LitterSpace.hitTarget)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
