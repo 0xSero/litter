@@ -151,10 +151,27 @@ pub(crate) fn install_tracing_subscriber() {
         // QUIC load (e.g., an iroh stream carrying a multi-MB
         // thread/list response) emits multiple log lines per packet, which
         // on iOS jetsamed the app inside seconds. RUST_LOG overrides if set.
+        // Release builds log at info: trace/debug formatting for every store
+        // and transport event cost CPU on every update in production.
+        #[cfg(debug_assertions)]
         const DEFAULT_FILTER: &str = "info,\
             codex_mobile_client=trace,\
             mobile=trace,\
             store=debug,\
+            quinn=warn,\
+            quinn_proto=warn,\
+            quinn_udp=warn,\
+            rustls=warn,\
+            ring=warn,\
+            h2=warn,\
+            hyper=warn,\
+            tokio_tungstenite=warn,\
+            tungstenite=warn";
+        #[cfg(not(debug_assertions))]
+        const DEFAULT_FILTER: &str = "info,\
+            codex_mobile_client=info,\
+            mobile=info,\
+            store=info,\
             quinn=warn,\
             quinn_proto=warn,\
             quinn_udp=warn,\

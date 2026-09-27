@@ -4,6 +4,10 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppState {
+    /// Conversation being popped off the stack (set the moment Back or the
+    /// edge swipe begins). The leaving screen stops re-binding immediately
+    /// instead of rebuilding its transcript during the pop animation.
+    var leavingConversationKey: ThreadKey?
     private struct ThreadPermissionOverride {
         var approvalPolicy: String
         var sandboxMode: String

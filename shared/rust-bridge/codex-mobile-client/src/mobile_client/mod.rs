@@ -1017,6 +1017,7 @@ impl MobileClient {
         // Seed the home launch cache once, before servers reconnect, so the
         // first snapshot already lists recent sessions.
         if first_directory {
+            crate::alleycat::set_direct_addr_cache_directory(&directory);
             self.app_store
                 .seed_cached_session_summaries(crate::home_cache::load(&directory));
         }

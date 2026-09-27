@@ -816,7 +816,15 @@ async fn dial(endpoint: &Endpoint, params: &ParsedPairPayload) -> Result<Connect
         })?;
         addr = addr.with_relay_url(relay);
     }
-    info!("alleycat: connecting node_id={}", params.node_id);
+    let cached = direct_addr_cache::addresses(&params.node_id);
+    for sock in &cached {
+        addr = addr.with_ip_addr(*sock);
+    }
+    info!(
+        "alleycat: connecting node_id={} cached_direct_addrs={}",
+        params.node_id,
+        cached.len()
+    );
     endpoint
         .connect(addr, ALLEYCAT_ALPN)
         .await
@@ -837,6 +845,7 @@ async fn lease_connection(
         return Ok(lease);
     }
     let connection = dial(endpoint, params).await?;
+    spawn_path_logger(connection.clone(), params.node_id.clone());
     let pooled = Arc::new(PooledConnection {
         connection,
         users: std::sync::atomic::AtomicUsize::new(1),
@@ -850,6 +859,112 @@ async fn lease_connection(
         pooled,
         released: std::sync::atomic::AtomicBool::new(false),
     })
+}
+
+/// Last known direct (IP) addresses per host, persisted so the first dial
+/// after a relaunch can go direct instead of spending its first round trips
+/// on the relay while hole punching completes. Stale addresses are harmless:
+/// iroh races them against the relay.
+mod direct_addr_cache {
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+
+    const FILE: &str = "alleycat-direct-addrs.json";
+    const MAX_PER_HOST: usize = 4;
+
+    struct Cache {
+        path: Option<PathBuf>,
+        hosts: HashMap<String, Vec<SocketAddr>>,
+    }
+
+    fn cache() -> &'static Mutex<Cache> {
+        static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+        CACHE.get_or_init(|| {
+            Mutex::new(Cache {
+                path: None,
+                hosts: HashMap::new(),
+            })
+        })
+    }
+
+    /// Point the cache at the app's preferences directory and load it.
+    pub(crate) fn set_directory(directory: &str) {
+        let path = PathBuf::from(directory).join(FILE);
+        let hosts = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<HashMap<String, Vec<SocketAddr>>>(&bytes).ok())
+            .unwrap_or_default();
+        let mut cache = cache().lock().unwrap();
+        cache.path = Some(path);
+        cache.hosts = hosts;
+    }
+
+    pub(crate) fn addresses(node_id: &str) -> Vec<SocketAddr> {
+        cache().lock().unwrap().hosts.get(node_id).cloned().unwrap_or_default()
+    }
+
+    /// Remember a working direct address (most recent first) and persist.
+    pub(crate) fn record(node_id: &str, addr: SocketAddr) {
+        let (path, bytes) = {
+            let mut cache = cache().lock().unwrap();
+            let entry = cache.hosts.entry(node_id.to_string()).or_default();
+            if entry.first() == Some(&addr) {
+                return;
+            }
+            entry.retain(|existing| *existing != addr);
+            entry.insert(0, addr);
+            entry.truncate(MAX_PER_HOST);
+            let Some(path) = cache.path.clone() else { return };
+            let Ok(bytes) = serde_json::to_vec(&cache.hosts) else { return };
+            (path, bytes)
+        };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, bytes).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
+pub(crate) use direct_addr_cache::set_directory as set_direct_addr_cache_directory;
+
+/// Log the host connection's selected path (direct vs relay, RTT) whenever
+/// it changes, so slow sessions can be attributed to a relayed path.
+fn spawn_path_logger(connection: Connection, node_id: String) {
+    tokio::spawn(async move {
+        use futures::StreamExt;
+        let mut stream = connection.paths_stream();
+        let mut last: Option<String> = None;
+        while let Some(list) = stream.next().await {
+            let Some(path) = list.iter().find(|path| path.is_selected()) else {
+                continue;
+            };
+            let addr = path.remote_addr();
+            let kind = if addr.is_ip() { "direct" } else if addr.is_relay() { "relay" } else { "custom" };
+            let remote = match addr {
+                iroh::TransportAddr::Ip(sock) => sock.to_string(),
+                iroh::TransportAddr::Relay(url) => url.to_string(),
+                other => format!("{other:?}"),
+            };
+            if let iroh::TransportAddr::Ip(sock) = addr {
+                direct_addr_cache::record(&node_id, *sock);
+            }
+            let key = format!("{kind} {remote}");
+            if last.as_deref() == Some(key.as_str()) {
+                continue;
+            }
+            info!(
+                "alleycat path node_id={} path={} remote={} rtt_ms={} open_paths={}",
+                node_id,
+                kind,
+                remote,
+                path.rtt().as_millis(),
+                list.iter().count()
+            );
+            last = Some(key);
+        }
+    });
 }
 
 /// Open a bidirectional stream to the alleycat peer described by `params`
