@@ -233,7 +233,7 @@ impl RemoteTransport for AlleycatReconnectTransport {
                 "alleycat close_current_connection: abandoning Connection node_id={}",
                 self.params.node_id
             );
-            session.close();
+            session.force_close();
         } else {
             debug!("alleycat close_current_connection: no current session");
         }
@@ -247,7 +247,7 @@ impl RemoteTransport for AlleycatReconnectTransport {
 /// `close().await` first for a graceful shutdown that sends a
 /// CONNECTION_CLOSE frame to the host.
 pub struct AlleycatSession {
-    connection: Connection,
+    lease: ConnectionLease,
     pub params: ParsedPairPayload,
     pub agent: String,
     pub wire: AgentWire,
@@ -258,11 +258,17 @@ impl AlleycatSession {
     /// (`close_reason`, `rtt`) or for spawning per-connection liveness
     /// probes that race a `Connection::closed()` future.
     pub fn connection(&self) -> Connection {
-        self.connection.clone()
+        self.lease.connection().clone()
     }
 
     pub(crate) fn close(&self) {
         <Self as SessionKeepalive>::close(self);
+    }
+
+    /// Abandon the host connection for every agent sharing it (the network
+    /// path is known dead, e.g. after a long background suspension).
+    pub(crate) fn force_close(&self) {
+        self.lease.force_close();
     }
 }
 
@@ -271,12 +277,13 @@ impl SessionKeepalive for AlleycatSession {
         // iroh's `Connection::close` is sync (queues the CLOSE frame); the
         // actual flush happens on the endpoint's IO loop. Calling it on an
         // already-closed connection is a no-op.
+        // Releases this agent's hold on the shared host connection; the
+        // CONNECTION_CLOSE is sent only when no other agent is using it.
         debug!(
-            "alleycat session close: sending CONNECTION_CLOSE node_id={}",
-            self.params.node_id
+            "alleycat session close: releasing connection node_id={} agent={}",
+            self.params.node_id, self.agent
         );
-        self.connection
-            .close(VarInt::from_u32(0), b"client disconnect");
+        self.lease.release(b"client disconnect");
     }
 }
 
@@ -500,7 +507,7 @@ pub async fn list_agents(
     endpoint: &Endpoint,
     params: ParsedPairPayload,
 ) -> Result<Vec<AgentInfo>, AlleycatError> {
-    let (conn, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
+    let (lease, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::ListAgents {
@@ -511,9 +518,10 @@ pub async fn list_agents(
     .await?;
     let response: Response = read_json_frame(&mut recv).await?;
     validate_response(&response)?;
-    // The probe connection is one-shot — close it gracefully so the host
-    // doesn't have to wait on its idle timeout to drop the entry.
-    conn.close(VarInt::from_u32(0), b"list_agents complete");
+    // One-shot probe stream: finish it and release the shared connection
+    // (closed only if no agent session is using it).
+    let _ = send.finish();
+    lease.release(b"list_agents complete");
     Ok(response
         .agents
         .into_iter()
@@ -533,7 +541,7 @@ pub async fn restart_agent(
     params: ParsedPairPayload,
     agent: String,
 ) -> Result<(), AlleycatError> {
-    let (conn, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
+    let (lease, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::RestartAgent {
@@ -545,7 +553,8 @@ pub async fn restart_agent(
     .await?;
     let response: Response = read_json_frame(&mut recv).await?;
     validate_response(&response)?;
-    conn.close(VarInt::from_u32(0), b"restart_agent complete");
+    let _ = send.finish();
+    lease.release(b"restart_agent complete");
     Ok(())
 }
 
@@ -557,7 +566,7 @@ pub async fn connect_app_server_client(
     seq_tracker: Option<Arc<AtomicU64>>,
     resume_from: Option<u64>,
 ) -> Result<(AppServerClient, Arc<AlleycatSession>), AlleycatError> {
-    let (connection, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
+    let (lease, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::Connect {
@@ -598,7 +607,7 @@ pub async fn connect_app_server_client(
         }
     };
     let session = Arc::new(AlleycatSession {
-        connection,
+        lease,
         params,
         agent,
         wire,
@@ -611,7 +620,7 @@ pub(crate) async fn connect_jsonl_agent_stream(
     params: ParsedPairPayload,
     agent: String,
 ) -> Result<(AlleycatStream, Arc<AlleycatSession>), AlleycatError> {
-    let (connection, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
+    let (lease, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::Connect {
@@ -626,7 +635,7 @@ pub(crate) async fn connect_jsonl_agent_stream(
     validate_response(&response)?;
     log_session_info(&params, &agent, response.session.as_ref(), None);
     let session = Arc::new(AlleycatSession {
-        connection,
+        lease,
         params,
         agent,
         wire: AgentWire::Jsonl,
@@ -694,12 +703,109 @@ pub async fn bind_alleycat_endpoint(
         .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))
 }
 
-/// Open a fresh QUIC connection + bidirectional stream to the alleycat
-/// peer described by `params`, on the supplied (shared) endpoint.
-async fn open_stream_on(
-    endpoint: &Endpoint,
-    params: &ParsedPairPayload,
-) -> Result<(Connection, SendStream, RecvStream), AlleycatError> {
+/// One QUIC connection per paired host, shared by every agent on it.
+///
+/// Each agent used to dial its own connection, so a host with a dozen agents
+/// cost a dozen handshakes, keepalive timers and relay paths, and a network
+/// change made all of them reconnect independently. The host already accepts
+/// any number of bidirectional streams per connection, so agents now open a
+/// stream on the shared connection. A lease counts users; the connection is
+/// closed when the last lease is released (or force-closed when the path is
+/// known dead).
+pub(crate) struct PooledConnection {
+    connection: Connection,
+    users: std::sync::atomic::AtomicUsize,
+}
+
+impl PooledConnection {
+    fn is_usable(&self) -> bool {
+        self.connection.close_reason().is_none()
+    }
+}
+
+/// A user's hold on a pooled connection. Releasing it (explicitly or on
+/// drop) closes the connection once no other agent is using it.
+pub(crate) struct ConnectionLease {
+    node_id: String,
+    pooled: Arc<PooledConnection>,
+    released: std::sync::atomic::AtomicBool,
+}
+
+impl ConnectionLease {
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.pooled.connection
+    }
+
+    pub(crate) fn release(&self, reason: &'static [u8]) {
+        if self.released.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if self.pooled.users.fetch_sub(1, Ordering::AcqRel) == 1 {
+            forget_pooled(&self.node_id, &self.pooled);
+            self.pooled.connection.close(VarInt::from_u32(0), reason);
+        }
+    }
+
+    /// Close the shared connection for every agent (the path is dead).
+    pub(crate) fn force_close(&self) {
+        forget_pooled(&self.node_id, &self.pooled);
+        self.pooled
+            .connection
+            .close(VarInt::from_u32(0), b"client abandoned dead path");
+        self.release(b"client abandoned dead path");
+    }
+}
+
+impl Drop for ConnectionLease {
+    fn drop(&mut self) {
+        self.release(b"client disconnect");
+    }
+}
+
+type ConnectionPool = std::collections::HashMap<String, Arc<PooledConnection>>;
+
+fn connection_pool() -> &'static std::sync::Mutex<ConnectionPool> {
+    static POOL: std::sync::OnceLock<std::sync::Mutex<ConnectionPool>> =
+        std::sync::OnceLock::new();
+    POOL.get_or_init(Default::default)
+}
+
+/// One in-flight dial per host, so a dozen agents starting together share a
+/// single handshake instead of racing twelve.
+fn dial_lock(node_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap();
+    Arc::clone(locks.entry(node_id.to_string()).or_default())
+}
+
+fn forget_pooled(node_id: &str, pooled: &Arc<PooledConnection>) {
+    let mut pool = connection_pool().lock().unwrap();
+    if pool
+        .get(node_id)
+        .is_some_and(|current| Arc::ptr_eq(current, pooled))
+    {
+        pool.remove(node_id);
+    }
+}
+
+fn lease_pooled(node_id: &str) -> Option<ConnectionLease> {
+    let mut pool = connection_pool().lock().unwrap();
+    let pooled = pool.get(node_id)?;
+    if !pooled.is_usable() {
+        pool.remove(node_id);
+        return None;
+    }
+    pooled.users.fetch_add(1, Ordering::AcqRel);
+    Some(ConnectionLease {
+        node_id: node_id.to_string(),
+        pooled: Arc::clone(pooled),
+        released: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+
+async fn dial(endpoint: &Endpoint, params: &ParsedPairPayload) -> Result<Connection, AlleycatError> {
     let id = EndpointId::from_str(&params.node_id)
         .map_err(|error| AlleycatError::InvalidPayload(format!("invalid node_id: {error}")))?;
     let mut addr = EndpointAddr::new(id);
@@ -711,15 +817,67 @@ async fn open_stream_on(
         addr = addr.with_relay_url(relay);
     }
     info!("alleycat: connecting node_id={}", params.node_id);
-    let conn = endpoint
+    endpoint
         .connect(addr, ALLEYCAT_ALPN)
         .await
-        .map_err(|error| AlleycatError::Transport(format!("connecting iroh endpoint: {error}")))?;
-    let (send, recv) = conn
-        .open_bi()
-        .await
-        .map_err(|error| AlleycatError::Transport(format!("opening iroh stream: {error}")))?;
-    Ok((conn, send, recv))
+        .map_err(|error| AlleycatError::Transport(format!("connecting iroh endpoint: {error}")))
+}
+
+async fn lease_connection(
+    endpoint: &Endpoint,
+    params: &ParsedPairPayload,
+) -> Result<ConnectionLease, AlleycatError> {
+    if let Some(lease) = lease_pooled(&params.node_id) {
+        return Ok(lease);
+    }
+    let lock = dial_lock(&params.node_id);
+    let _guard = lock.lock().await;
+    // Another agent may have finished dialing while we waited.
+    if let Some(lease) = lease_pooled(&params.node_id) {
+        return Ok(lease);
+    }
+    let connection = dial(endpoint, params).await?;
+    let pooled = Arc::new(PooledConnection {
+        connection,
+        users: std::sync::atomic::AtomicUsize::new(1),
+    });
+    connection_pool()
+        .lock()
+        .unwrap()
+        .insert(params.node_id.clone(), Arc::clone(&pooled));
+    Ok(ConnectionLease {
+        node_id: params.node_id.clone(),
+        pooled,
+        released: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+
+/// Open a bidirectional stream to the alleycat peer described by `params`
+/// on its shared connection, dialing it first if needed. A stale pooled
+/// connection that fails to open a stream is dropped and redialed once.
+async fn open_stream_on(
+    endpoint: &Endpoint,
+    params: &ParsedPairPayload,
+) -> Result<(ConnectionLease, SendStream, RecvStream), AlleycatError> {
+    for attempt in 0..2 {
+        let lease = lease_connection(endpoint, params).await?;
+        match lease.connection().open_bi().await {
+            Ok((send, recv)) => return Ok((lease, send, recv)),
+            Err(error) if attempt == 0 => {
+                debug!(
+                    "alleycat: pooled connection unusable node_id={} error={error}; redialing",
+                    params.node_id
+                );
+                lease.force_close();
+            }
+            Err(error) => {
+                return Err(AlleycatError::Transport(format!(
+                    "opening iroh stream: {error}"
+                )));
+            }
+        }
+    }
+    unreachable!("open_stream_on returns within two attempts")
 }
 
 async fn read_json_frame<T, R>(reader: &mut R) -> Result<T, AlleycatError>
