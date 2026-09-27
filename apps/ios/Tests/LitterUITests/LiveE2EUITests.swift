@@ -89,6 +89,42 @@ final class LiveE2EUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         XCTAssertTrue(firstRow.waitForExistence(timeout: 5), "edge swipe did not go back")
         shot(app, "08-after-swipe-back")
+
+        // Tour of the new pages: home menus, then Settings.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["home.settingsButton"].waitForExistence(timeout: 5))
+        let chip = app.descendants(matching: .any)["composer.permissionChip"].firstMatch
+        if chip.waitForExistence(timeout: 5) {
+            chip.tap()
+            sleep(1)
+            shot(app, "09-permission-menu")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        }
+        let picker = app.descendants(matching: .any)["home.computerPicker"].firstMatch
+        if picker.waitForExistence(timeout: 5) {
+            picker.tap()
+            sleep(1)
+            shot(app, "10-computer-menu")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        }
+        app.buttons["home.settingsButton"].tap()
+        let computers = app.descendants(matching: .any)["settings.category.computers"]
+        XCTAssertTrue(computers.waitForExistence(timeout: 5))
+        shot(app, "11-settings")
+        computers.tap()
+        sleep(1)
+        shot(app, "12-settings-computers")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let appearance = app.descendants(matching: .any)["settings.category.appearance"]
+        if appearance.waitForExistence(timeout: 5) {
+            appearance.tap()
+            sleep(1)
+            shot(app, "13-settings-appearance")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        app.buttons["settings.done"].tap()
+        XCTAssertTrue(app.buttons["home.settingsButton"].waitForExistence(timeout: 5))
+        shot(app, "14-home-end")
     }
 
     private func dismissSystemPrompts() {

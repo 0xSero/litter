@@ -789,8 +789,7 @@ private struct HomeNavigationView: View {
                         onBack: { popCurrentRoute() },
                         onResumeSessions: { showSessions(for: $0) },
                         onOpenConversation: { replaceTopConversation(with: $0) },
-                        onInfo: { navigationPath.append(.conversationInfo(threadKey)) },
-                        isOnTop: navigationPath.last == .conversation(threadKey)
+                        onInfo: { navigationPath.append(.conversationInfo(threadKey)) }
                     )
                 case .newThread:
                     NewThreadHeroView(
@@ -927,6 +926,17 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: homeDashboardModel.activeThread) { _, newKey in
             seedInitialConversationIfNeeded(activeKey: newKey)
+        }
+        .onChange(of: navigationPath) { old, new in
+            // Back/edge-swipe pop: freeze the leaving conversation and drop
+            // the keyboard at once, before the transition runs.
+            guard new.count < old.count, case let .conversation(key)? = old.last else { return }
+            PerfTracker.event("ConversationPop.start", ["uptimeMs": ProcessInfo.processInfo.systemUptime * 1000])
+            appState.leavingConversationKey = key
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil, from: nil, for: nil
+            )
         }
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
@@ -1944,8 +1954,6 @@ private struct ConversationDestinationScreen: View {
     let onResumeSessions: (String) -> Void
     let onOpenConversation: (ThreadKey) -> Void
     var onInfo: (() -> Void)?
-    /// False as soon as this screen stops being the top of the stack.
-    var isOnTop: Bool = true
 
     private var conversationThread: AppThreadSnapshot? {
         appModel.threadSnapshot(for: threadKey)
@@ -1997,6 +2005,9 @@ private struct ConversationDestinationScreen: View {
                 )
                 .onAppear {
                     isLeaving = false
+                    if appState.leavingConversationKey == threadKey {
+                        appState.leavingConversationKey = nil
+                    }
                     bindScreenModel(for: conversationThread)
                 }
                 // Single coalesced bind signal. `snapshotRevision` bumps at
@@ -2006,11 +2017,11 @@ private struct ConversationDestinationScreen: View {
                 // Collapsing five onChanges into one eliminates the
                 // redundant triple-per-token re-binds.
                 .onChange(of: appModel.snapshotRevision) { _, _ in
-                    guard !isLeaving else { return }
+                    guard !isLeaving, appState.leavingConversationKey != threadKey else { return }
                     bindScreenModel(for: conversationThread)
                 }
                 .onChange(of: appModel.composerPrefillRequest) { _, _ in
-                    guard !isLeaving else { return }
+                    guard !isLeaving, appState.leavingConversationKey != threadKey else { return }
                     bindScreenModel(for: conversationThread)
                 }
             } else {
@@ -2054,17 +2065,6 @@ private struct ConversationDestinationScreen: View {
                     }
                 }
             }
-        }
-        .onChange(of: isOnTop) { _, onTop in
-            // The stack popped (back button or edge swipe). Freeze re-binds
-            // for the ~350ms transition and drop the keyboard so it doesn't
-            // resize the transcript mid-pop.
-            guard !onTop else { isLeaving = false; return }
-            isLeaving = true
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil, from: nil, for: nil
-            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .bottom)
