@@ -1,7 +1,6 @@
-A cleaner, faster Litter.
+Faster everywhere.
 
-- Home is now a chat: type and send, and the new conversation opens.
-- Composer rebuilt with standard-size buttons, a permission picker (including full access / YOLO per agent), and the model picker beside the mic.
-- Normal iOS navigation: back button and swipe-back work again.
-- Computers are managed in the new Settings page.
-- Fixed: sending after cancelling a turn, typing lag, prompts that never started, and the keyboard popping up at launch.
+- Back is instant.
+- Connections go straight to your computer instead of through a relay after the first launch.
+- All agents on a computer share one connection, so switching networks reconnects once.
+- Launch and new chats no longer wait on a hidden keyboard warmup.
