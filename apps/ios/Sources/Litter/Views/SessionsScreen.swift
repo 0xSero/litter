@@ -9,7 +9,6 @@ private let sessionsScreenSignpostLog = OSLog(
 struct SessionsScreen: View {
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
-    @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var sessionsModel = SessionsModel()
     @State private var isLoading: Bool
@@ -774,7 +773,6 @@ struct SessionsScreen: View {
             guard try await appModel.ensureLocalAuthForThreadStart(serverId: serverId) else {
                 return
             }
-            await conversationWarmup.prewarmIfNeeded()
             workDir = cwd
             appState.currentCwd = cwd
             let startedKey = try await appModel.client.startThread(
