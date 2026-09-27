@@ -155,8 +155,6 @@ struct UserBubble: View, Equatable {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.bottom, compact ? LitterSpace.s : LitterSpace.l)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(text)")
         .onChange(of: text) { _, _ in
             expandedLongText = false
         }

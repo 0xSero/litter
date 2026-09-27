@@ -52,7 +52,11 @@ final class LitterUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["conversation"].waitForExistence(timeout: 5))
+        // Settings is a category list; conversation options live one level in.
+        let conversation = app.descendants(matching: .any)["settings.category.conversation"]
+        XCTAssertTrue(conversation.waitForExistence(timeout: 10))
+        conversation.tap()
+        XCTAssertTrue(app.navigationBars["Conversation"].waitForExistence(timeout: 5))
         XCTAssertTrue(findStaticText("Internal Thinking", in: app))
         XCTAssertTrue(findStaticText("Commands", in: app))
         XCTAssertTrue(findStaticText("Tools", in: app))
