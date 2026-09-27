@@ -280,7 +280,6 @@
 		68518458DD2BF18BE0CB0F0E /* UniFFICodexClient.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3987DD421CCBF1312C3CB8B /* UniFFICodexClient.generated.swift */; };
 		68EDC8C615D0D6DDEB6665CC /* everforest-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 81C9F195FE7B59E6FF611CC4 /* everforest-dark.json */; };
 		68EE71DC41AA028AFE7118ED /* MessageContentBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3299D7A71DE1AC05363FDE27 /* MessageContentBridgeTests.swift */; };
-		69CD7E945F5E2F84A69A556C /* ConversationWarmupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */; };
 		69F93A646ED483E203C91800 /* notion-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 99BFC7A01A194E7508C5693C /* notion-light.json */; };
 		6B1BF3CF381DDCA7F46E6398 /* ComposerPermissionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835AE4DDAB1DE3E7AEB3EA7F /* ComposerPermissionChip.swift */; };
 		6B6DEAECC59EF7CB0B9500B9 /* brand_logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = 74E5DF89D0937E6C17F2BB94 /* brand_logo.svg */; };
@@ -317,7 +316,6 @@
 		774A98FA8D339F01AEFF3501 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBE8C3705FCC98F7E1642771 /* SettingsView.swift */; };
 		7881749EF05190C237EFF36B /* InteractionTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F26ED2D3C223D3FD12ACB9 /* InteractionTimingTests.swift */; };
 		788B6E1D44340CBF56A351D7 /* CatTransmissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E003D083368D075E2F387D28 /* CatTransmissionView.swift */; };
-		78E0E5FAADB2ED8404E29221 /* ConversationWarmupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */; };
 		78E6867AD363C6B010CBEC2D /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB7D40730BFA8569737636E /* ThemeManager.swift */; };
 		791AAC75180CBFADFBFDAD50 /* pierre-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 370F75B42793F9B35D8F4990 /* pierre-dark.json */; };
 		793224ACE1FBF575584935E5 /* ServerPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D220AD4FC96E2D24A533485 /* ServerPill.swift */; };
@@ -484,7 +482,6 @@
 		B7952C904D305D8E0CA73E9A /* MountedFoldersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52698C6E7E0EC0CCEC716DFD /* MountedFoldersView.swift */; };
 		B7F922F9446425B1FE35924E /* material-theme-darker-D.json in Resources */ = {isa = PBXBuildFile; fileRef = 20596BA6184B72B07775A5E1 /* material-theme-darker-D.json */; };
 		B8ADBB0D7496B3BE1285B20F /* SavedAppDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6058552E839CA44F15DA3186 /* SavedAppDetailView.swift */; };
-		B967DE769F48D41535763506 /* ConversationWarmupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */; };
 		B992C7386E58AA5320080579 /* laserwave.json in Resources */ = {isa = PBXBuildFile; fileRef = 9AB673AF3C45AA3144F784F4 /* laserwave.json */; };
 		B99941D99DD00E277C82D472 /* LitterPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05E1F150502D4C5682EBBFD /* LitterPalette.swift */; };
 		B9D0C28D0ED9D03FC97C7D93 /* github-light-high-contrast.json in Resources */ = {isa = PBXBuildFile; fileRef = 70AB8E0BCCF3384EE9B4A0BF /* github-light-high-contrast.json */; };
@@ -648,7 +645,6 @@
 		F53C0087911EE63FCD715505 /* catppuccin-frappe.json in Resources */ = {isa = PBXBuildFile; fileRef = A062692D27F0F6966BBD1AE5 /* catppuccin-frappe.json */; };
 		F5DDEFB15BF2566CA7AF2225 /* material-theme-palenight.json in Resources */ = {isa = PBXBuildFile; fileRef = B776A14B7CB1BD40651E0EE1 /* material-theme-palenight.json */; };
 		F64A5FCEDC9F1CE727FBEB52 /* HomeComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12222458304DD9CA8D4593 /* HomeComposerView.swift */; };
-		F64EB92413EE8FA1EAA77BC8 /* ConversationWarmupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */; };
 		F678254F578ACFEC312BA8B7 /* PreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E744000053715A5866060B15 /* PreviewSupport.swift */; };
 		F67E4CAE85B369BF625A70B9 /* SessionsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17099E066405571104CB9A37 /* SessionsScreen.swift */; };
 		F6831A8E6FFFEFC130C8920D /* dracula.json in Resources */ = {isa = PBXBuildFile; fileRef = D93C0CB12BB32FF612C11AA9 /* dracula.json */; };
@@ -1065,7 +1061,6 @@
 		CAB6838E910F251006AB8C7E /* usgc-polyimide.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "usgc-polyimide.json"; sourceTree = "<group>"; };
 		CB972757270C09470E490121 /* EndVoiceSessionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndVoiceSessionIntent.swift; sourceTree = "<group>"; };
 		CC23186BC2EA0520D9532ED3 /* AppThreadSnapshot+Runtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppThreadSnapshot+Runtime.swift"; sourceTree = "<group>"; };
-		CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupCoordinator.swift; sourceTree = "<group>"; };
 		CFF9DBA865CCBB3308B5667D /* light-plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "light-plus.json"; sourceTree = "<group>"; };
 		D0453F9A958E06582AE93013 /* DiffRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffRendering.swift; sourceTree = "<group>"; };
 		D0B91C694EA050F1FE6738A7 /* ThemeDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeDefinitionTests.swift; sourceTree = "<group>"; };
@@ -1101,7 +1096,6 @@
 		E108E5ACB93F4A71B484C125 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		E16ACA3C8902C3687BC8518C /* SavedAppsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppsStoreTests.swift; sourceTree = "<group>"; };
 		E1FAA725B26C5805C94EF40E /* github-dark-high-contrast.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "github-dark-high-contrast.json"; sourceTree = "<group>"; };
-		E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupView.swift; sourceTree = "<group>"; };
 		E2DE018994EE98618A1FB5C7 /* LitterCircularComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterCircularComplication.swift; sourceTree = "<group>"; };
 		E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginMentionEncodingTests.swift; sourceTree = "<group>"; };
 		E438924DD6F6627C3E81375C /* RealtimeVoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceScreen.swift; sourceTree = "<group>"; };
@@ -1575,7 +1569,6 @@
 				4925417F70C546B80DBD9EFF /* ConnectionTarget.swift */,
 				33000D9825376F952524F20C /* ConversationAttachmentSupport.swift */,
 				FF5635331A74B2D510911B8E /* ConversationItem.swift */,
-				CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */,
 				9F39212507F7334160D127E8 /* CrossServerTools.swift */,
 				6A485EF4E929239E297A46F5 /* DebugSettings.swift */,
 				7779BD02F3B304F9C3AD32A1 /* DiscoveredServer.swift */,
@@ -1662,7 +1655,6 @@
 				C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */,
 				55700E32058BA95A9372AA41 /* ConversationTimelineView.swift */,
 				BF245554F39E59E68B72EB22 /* ConversationView.swift */,
-				E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */,
 				86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */,
 				A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */,
 				D0453F9A958E06582AE93013 /* DiffRendering.swift */,
@@ -2364,8 +2356,6 @@
 				F320C894D7E17636EE4B5535 /* ConversationScreenModel.swift in Sources */,
 				09CF276ECAC507A366D8AC10 /* ConversationTimelineView.swift in Sources */,
 				DEB027917A158E5C5CF0CC8B /* ConversationView.swift in Sources */,
-				78E0E5FAADB2ED8404E29221 /* ConversationWarmupCoordinator.swift in Sources */,
-				F64EB92413EE8FA1EAA77BC8 /* ConversationWarmupView.swift in Sources */,
 				5A66F52BBAB0439DB07A21C4 /* CrossServerToolResultView.swift in Sources */,
 				19B4F5707625A7336C99DC88 /* CrossServerTools.swift in Sources */,
 				8181782DFED3DEC99DC63030 /* DebugBuildLabel.swift in Sources */,
@@ -2553,8 +2543,6 @@
 				55C3EEE366FD3ABE9BCFA271 /* ConversationScreenModel.swift in Sources */,
 				89B5E3CD66BC6F5C5919CA7A /* ConversationTimelineView.swift in Sources */,
 				89F2492AD067C89AFA21E199 /* ConversationView.swift in Sources */,
-				B967DE769F48D41535763506 /* ConversationWarmupCoordinator.swift in Sources */,
-				69CD7E945F5E2F84A69A556C /* ConversationWarmupView.swift in Sources */,
 				C93588F488F685B4777132FE /* CrossServerToolResultView.swift in Sources */,
 				33F382D1EE69512F4466A59F /* CrossServerTools.swift in Sources */,
 				43DAA3EC91CD24E1B32E907B /* DebugBuildLabel.swift in Sources */,

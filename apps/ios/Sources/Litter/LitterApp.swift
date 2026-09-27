@@ -402,7 +402,6 @@ struct ContentView: View {
     @Environment(ThemeManager.self) private var themeManager
     @State private var appState = AppState()
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
-    @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var petOverlay = PetOverlayController.shared
     @State private var overlayProjection = OverlayProjectionModel()
     @State private var composerBottomInset: CGFloat = 0
@@ -464,7 +463,6 @@ struct ContentView: View {
             }
         }
         .environment(appState)
-        .environment(conversationWarmup)
         .environment(\.textScale, textScale)
         .preferredColorScheme(themeManager.appearanceMode.preferredColorScheme)
         .background {
@@ -546,9 +544,6 @@ struct ContentView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: [.top, .bottom])
-        .onAppear {
-            Task { await conversationWarmup.prewarmIfNeeded() }
-        }
     }
 
     @ViewBuilder
@@ -576,12 +571,6 @@ struct ContentView: View {
             }
         }
 
-        if let warmupID = conversationWarmup.activeWarmupID {
-            ConversationWarmupView(warmupID: warmupID) {
-                conversationWarmup.finishWarmup()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
     }
 }
 
@@ -640,7 +629,6 @@ private struct HomeNavigationView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(VoiceRuntimeController.self) private var voiceRuntime
     @Environment(AppState.self) private var appState
-    @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
     @State private var experimentalFeatures = ExperimentalFeatures.shared
@@ -1271,7 +1259,6 @@ private struct HomeNavigationView: View {
             guard try await appModel.ensureLocalAuthForThreadStart(serverId: serverId) else {
                 return
             }
-            await conversationWarmup.prewarmIfNeeded()
             workDir = cwd
             appState.currentCwd = cwd
             let key = try await appModel.client.startThread(
@@ -1302,7 +1289,6 @@ private struct HomeNavigationView: View {
               let activeKey else { return }
 
         Task { @MainActor in
-            await conversationWarmup.prewarmIfNeeded()
             guard !hasSeededInitialConversationRoute,
                   !isStartingVoice,
                   navigationPath.isEmpty,
