@@ -90,7 +90,6 @@ struct HomeDashboardView: View {
     @State private var searchQuery = ""
     @State private var selectedSearchRuntimeKind: AgentRuntimeKind?
     @State private var isLoadingThreadListing = false
-    @State private var suppressComposerCollapse = false
     @State private var isShowingModelPicker = false
     @Environment(AppState.self) private var appState
     @AppStorage("fastMode") private var fastMode = false
@@ -537,47 +536,24 @@ struct HomeDashboardView: View {
 
     private var bottomChrome: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            if chrome != .full {
-                DebugBuildLabel()
-                    .padding(.trailing, 14)
-            }
-            if inputMode == .composer || chrome == .full {
-                HStack(spacing: 8) {
-                    Spacer()
-                    // Invisible host: owns the model picker sheet and the
-                    // per-server model sync. The model itself shows as a
-                    // pill inside the composer (`composerModelPill`).
-                    HomeModelChip(
-                        serverId: composerServerId,
-                        disabled: selectedLaunchableServer == nil,
-                        server: composerServerId.flatMap { serverSnapshotsById[$0] },
-                        onSheetStateChange: { isPresented in
-                            suppressComposerCollapse = isPresented
-                        },
-                        showsLabel: false,
-                        presentation: $isShowingModelPicker
-                    )
-                    if chrome != .full {
-                        ProjectChip(
-                            project: selectedProject,
-                            disabled: launchableServers.isEmpty,
-                            onTap: onOpenProjectPicker
-                        )
-                    }
-                }
-                .padding(.horizontal, 14)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+            // Invisible host: owns the model picker sheet and the per-server
+            // model sync. The model itself shows as a pill inside the
+            // composer (`composerModelPill`).
+            HomeModelChip(
+                serverId: composerServerId,
+                disabled: selectedLaunchableServer == nil,
+                server: composerServerId.flatMap { serverSnapshotsById[$0] },
+                showsLabel: false,
+                presentation: $isShowingModelPicker
+            )
 
             HomeBottomBar(
                 mode: $inputMode,
                 searchQuery: $searchQuery,
-                collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
                 transcriptionServerId: composerServerId,
                 onThreadCreated: onThreadCreated,
-                modelPill: composerModelPill,
-                persistentComposer: chrome == .full
+                modelPill: composerModelPill
             )
         }
         .padding(.bottom, 4)
