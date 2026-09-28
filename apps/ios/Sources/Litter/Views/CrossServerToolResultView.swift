@@ -70,9 +70,6 @@ struct CrossServerToolResultView: View {
             return t.isEmpty ? "Untitled session" : t
         }
         var model: String { modelProvider ?? "" }
-        var parsedDate: Date? {
-            updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
-        }
 
         private enum CodingKeys: String, CodingKey {
             case id, preview, modelProvider, updatedAt, cwd, serverName

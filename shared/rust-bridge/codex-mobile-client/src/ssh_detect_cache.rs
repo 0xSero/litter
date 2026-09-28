@@ -117,13 +117,6 @@ fn write(path: &Path, mut value: Persisted) {
     }
 }
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
-
 /// Cached detection for `key`, if one exists for the same host identity.
 pub(crate) fn load(directory: &str, key: &CacheKey) -> Option<SshDetection> {
     let _guard = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -145,7 +138,7 @@ pub(crate) fn store(directory: &str, key: &CacheKey, detection: &SshDetection) {
         key.server_id.clone(),
         Entry {
             identity: key.identity.clone(),
-            saved_at_ms: now_ms(),
+            saved_at_ms: crate::cloud_sync::now_ms(),
             detection: detection.clone(),
         },
     );

@@ -33,7 +33,6 @@ enum LitterPlatform {
     }()
 
     static let supportsLocalRuntime = !isCatalyst
-    static let supportsVoiceRuntime = !isCatalyst
 
     private enum LocalRuntimeBootstrapState {
         case idle

@@ -35,7 +35,6 @@ const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_millis(150);
 const READINESS_MAX_ATTEMPTS: u32 = 20;
 const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-const OPENAI_BASE_URL_ENV_KEY: &str = "OPENAI_BASE_URL";
 
 /// POSIX candidate lines shared with Alleycat's Codex resolver.
 pub(crate) const fn shell_candidate_lines() -> &'static [&'static str] {
@@ -230,7 +229,7 @@ async fn spawn_local_server(
     let mut cmd = Command::new(codex_path);
     cmd.arg("--enable").arg("goals");
 
-    if let Some(base_url) = openai_base_url_from_env() {
+    if let Some(base_url) = crate::session::connection::openai_base_url_from_env() {
         cmd.arg("--config").arg(format!(
             "openai_base_url={}",
             toml_string_literal(&base_url)
@@ -303,13 +302,6 @@ async fn wait_for_local_server_ready(port: u16) -> Result<(), LocalServerError> 
         timeout_ms: (READINESS_POLL_INTERVAL * READINESS_MAX_ATTEMPTS).as_millis() as u64,
         reason: last_error,
     })
-}
-
-fn openai_base_url_from_env() -> Option<String> {
-    std::env::var(OPENAI_BASE_URL_ENV_KEY)
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_string())
-        .filter(|value| !value.is_empty())
 }
 
 fn toml_string_literal(value: &str) -> String {

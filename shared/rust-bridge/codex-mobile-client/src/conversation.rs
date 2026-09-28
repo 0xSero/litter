@@ -1273,7 +1273,7 @@ fn diff_stats(diff: &str) -> (u32, u32) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn render_user_input(inputs: &[UserInput]) -> (String, Vec<String>) {
+pub(crate) fn render_user_input(inputs: &[UserInput]) -> (String, Vec<String>) {
     let mut text_parts = Vec::new();
     let mut images = Vec::new();
     for input in inputs {

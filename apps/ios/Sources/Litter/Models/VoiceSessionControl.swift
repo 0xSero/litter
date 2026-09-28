@@ -2,7 +2,6 @@ import CoreFoundation
 import Foundation
 
 enum VoiceSessionControl {
-    static let realtimeFeatureName = "realtime_conversation"
     static let defaultPrompt = "You are Codex in a live voice conversation inside Litter. Keep responses short, spoken, and conversational. Avoid markdown and code formatting unless explicitly asked."
 
     /// Build a voice prompt that includes awareness of available servers.

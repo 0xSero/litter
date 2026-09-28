@@ -35,14 +35,6 @@ final class StreamingRendererCoordinator {
 
     // MARK: - Renderer access
 
-    func hasRenderer(for itemId: String) -> Bool {
-        renderers[itemId] != nil
-    }
-
-    func existingRenderer(for itemId: String) -> StreamingMarkdownRenderer? {
-        renderers[itemId]
-    }
-
     func renderer(for itemId: String, currentText: String) -> StreamingMarkdownRenderer {
         if let existing = renderers[itemId] {
             return existing

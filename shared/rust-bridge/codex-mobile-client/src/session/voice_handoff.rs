@@ -589,15 +589,6 @@ impl HandoffManager {
         inner.handoffs.get(handoff_id).map(|e| e.phase)
     }
 
-    /// Get the remote thread key for a handoff (for inline display).
-    pub fn handoff_remote_thread_key(&self, handoff_id: &str) -> Option<ThreadKey> {
-        let inner = self.inner.lock().unwrap();
-        inner
-            .handoffs
-            .get(handoff_id)
-            .and_then(|e| e.remote_thread_key.clone())
-    }
-
     /// Get the reused thread for a server (if any).
     pub fn reused_thread(&self, server_id: &str) -> Option<ThreadKey> {
         let inner = self.inner.lock().unwrap();

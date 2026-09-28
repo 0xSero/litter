@@ -31,6 +31,4 @@ class SshSessionStore(private val ssh: SshBridge) {
             LLog.e("SshSessionStore", "failed to close SSH session", e, fields = mapOf("serverId" to serverId, "sessionId" to sessionId))
         }
     }
-
-    fun activeSessionId(serverId: String): String? = sessions[serverId]
 }

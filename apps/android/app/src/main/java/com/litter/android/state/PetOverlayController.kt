@@ -131,10 +131,6 @@ object PetOverlayController {
         syncOverlayService(context)
     }
 
-    fun toggleVisible(context: Context) {
-        setVisible(context, !visible)
-    }
-
     fun setOverlayEnabled(context: Context, next: Boolean) {
         overlayEnabled = next
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -217,11 +213,6 @@ object PetOverlayController {
 
     fun endPinch(context: Context) {
         isPinching = false
-        persistScale(context)
-    }
-
-    fun setScale(context: Context, value: Float) {
-        petScale = value.coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
         persistScale(context)
     }
 

@@ -123,13 +123,6 @@ object TipJarSupporterState {
         publishState()
     }
 
-    fun isHeaderKittySelected(productIds: List<String>): Boolean {
-        val tier = tiers.firstOrNull { it.productIds == productIds } ?: return false
-        if (!tier.productIds.any(ownedProductIds::contains)) return false
-        val selected = selectedHeaderKeys.value ?: return true
-        return tier.key in selected
-    }
-
     fun setHeaderKittySelected(context: Context, productIds: List<String>, selected: Boolean) {
         val tier = tiers.firstOrNull { it.productIds == productIds } ?: return
         if (!tier.productIds.any(ownedProductIds::contains)) return

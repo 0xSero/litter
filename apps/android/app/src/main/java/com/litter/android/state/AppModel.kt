@@ -249,14 +249,6 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
-    fun updateComposerDraft(threadKey: ThreadKey, transform: (ComposerDraft) -> ComposerDraft) {
-        setComposerDraft(threadKey, transform(composerDraft(threadKey)))
-    }
-
-    fun clearComposerDraft(threadKey: ThreadKey) {
-        setComposerDraft(threadKey, ComposerDraft.EMPTY)
-    }
-
     // --- Thinking-indicator minigame -----------------------------------------
 
     private val _minigameOverlay = MutableStateFlow<MinigameOverlayState>(MinigameOverlayState.Idle)

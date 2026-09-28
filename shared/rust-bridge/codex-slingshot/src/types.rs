@@ -85,13 +85,6 @@ pub struct ClientEnrollmentTokenResponse {
     pub scopes: Vec<String>,
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyClientEnrollmentResponse {
-    #[serde(alias = "client_id")]
-    pub client_id: String,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceKeyConnectionChallenge {
@@ -125,12 +118,6 @@ pub struct DeviceKeyConnectionProof {
     pub signature_der_base64: String,
     pub signed_payload_base64: String,
     pub algorithm: String,
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct EnvironmentUpdateRequest {
-    pub name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,36 +162,4 @@ pub struct SlingshotEnvironment {
     pub app_server_version: Option<String>,
     #[serde(alias = "last_seen_at")]
     pub last_seen_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum SlingshotThreadStatus {
-    NotLoaded,
-    Idle,
-    SystemError,
-    Active,
-}
-
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SlingshotThreadSummary {
-    pub id: String,
-    pub title: Option<String>,
-    pub preview: Option<String>,
-    pub source: Option<serde_json::Value>,
-    pub status: SlingshotThreadStatus,
-    #[serde(alias = "active_turn_id")]
-    pub active_turn_id: Option<String>,
-    #[serde(alias = "updated_at")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ThreadsPage {
-    #[serde(alias = "items")]
-    pub data: Vec<SlingshotThreadSummary>,
-    #[serde(alias = "next_cursor", alias = "cursor")]
-    pub next_cursor: Option<String>,
 }
