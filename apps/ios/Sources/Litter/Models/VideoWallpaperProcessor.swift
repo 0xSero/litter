@@ -119,11 +119,4 @@ final class VideoWallpaperProcessor {
             return nil
         }
     }
-
-    /// Transcode a GIF file to a looping MP4 video at the destination.
-    /// Returns the duration of the output video.
-    static func transcodeGIF(source: URL, destination: URL) async throws -> Double {
-        // AVAssetExportSession can handle GIFs loaded as AVAssets on iOS 16+
-        return try await transcode(source: source, destination: destination)
-    }
 }

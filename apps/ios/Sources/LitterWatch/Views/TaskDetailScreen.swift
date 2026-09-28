@@ -315,30 +315,3 @@ private struct StepBullet: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("running") {
-    NavigationStack {
-        TaskDetailScreen(task: WatchPreviewFixtures.tasks[0])
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("idle") {
-    NavigationStack {
-        TaskDetailScreen(task: WatchPreviewFixtures.tasks[1])
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("aod") {
-    NavigationStack {
-        TaskDetailScreen(task: WatchPreviewFixtures.tasks[0])
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-            .environment(\.isLuminanceReduced, true)
-    }
-}
-#endif

@@ -246,31 +246,3 @@ private struct DiffLineRow: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("diffs") {
-    NavigationStack {
-        DiffsScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("empty") {
-    NavigationStack {
-        DiffsScreen()
-            .environmentObject({
-                let store = WatchAppStore()
-                store.tasks = WatchPreviewFixtures.tasks.map { task in
-                    var copy = task
-                    copy.diffs = nil
-                    return copy
-                }
-                store.focusedTaskId = store.tasks.first?.id
-                store.lastSyncDate = .now
-                return store
-            }())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

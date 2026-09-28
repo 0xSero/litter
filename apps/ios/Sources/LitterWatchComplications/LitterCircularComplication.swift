@@ -61,10 +61,3 @@ struct LitterCircularView: View {
         }
     }
 }
-
-#Preview(as: .accessoryCircular) {
-    LitterCircularComplication()
-} timeline: {
-    LitterComplicationEntry.placeholder
-    LitterComplicationEntry.idlePlaceholder
-}

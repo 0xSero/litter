@@ -133,11 +133,6 @@ final class PetOverlayController {
         UserDefaults.standard.set(Double(petScale), forKey: petScaleKey)
     }
 
-    func setScale(_ value: CGFloat) {
-        petScale = Self.clampScale(value)
-        UserDefaults.standard.set(Double(petScale), forKey: petScaleKey)
-    }
-
     func avatarState(snapshot: AppSnapshotRecord?) -> PetAvatarState {
         if isLoading { return .waiting }
         if isDragging { return dragDirection }

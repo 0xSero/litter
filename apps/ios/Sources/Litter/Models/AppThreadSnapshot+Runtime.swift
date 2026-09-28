@@ -78,10 +78,6 @@ extension AppThreadSnapshot {
         return min(100, Int(Double(used) / Double(window) * 100))
     }
 
-    var latestAssistantSnippet: String? {
-        latestAssistantSnippetSnapshot?.snippet
-    }
-
     var latestAssistantSnippetSnapshot: AppThreadAssistantSnippetSnapshot? {
         for item in hydratedConversationItems.reversed() {
             switch item.content {

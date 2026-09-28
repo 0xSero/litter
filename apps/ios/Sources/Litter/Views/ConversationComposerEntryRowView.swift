@@ -26,7 +26,6 @@ struct ConversationComposerEntryRowView: View {
         /// Visible size of the round controls (ChatGPT/Claude/Messages use
         /// ~30-32pt). The tappable area stays 44pt via `hitTarget` padding.
         static let controlSize: CGFloat = 32
-        static let pillHeight: CGFloat = 30
         static let inputCornerRadius: CGFloat = 22
         static let trailingControlSize: CGFloat = 32
         static let horizontalPadding: CGFloat = LitterSpace.m

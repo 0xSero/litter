@@ -105,21 +105,3 @@ private struct TranscriptBubble: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("turns") {
-    NavigationStack {
-        TranscriptScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("empty") {
-    NavigationStack {
-        TranscriptScreen()
-            .environmentObject(WatchAppStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

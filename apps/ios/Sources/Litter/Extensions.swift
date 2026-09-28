@@ -79,12 +79,6 @@ enum LitterTheme {
     static var textOnAccent: Color   { adaptive(light: light.textOnAccent, dark: dark.textOnAccent) }
     static var codeBackground: Color { adaptive(light: light.codeBackground, dark: dark.codeBackground) }
 
-    static var overlayScrim: Color {
-        colorScheme == .dark
-            ? Color.black.opacity(0.5)
-            : Color.black.opacity(0.3)
-    }
-
     static var gradientColors: [Color] {
         [
             adaptive(light: light.background, dark: dark.background),
@@ -772,8 +766,6 @@ extension LitterTheme {
     static var composerOutline: Color { textPrimary.opacity(0.10) }
     /// Fill of the round/capsule controls sitting on the composer card.
     static var composerControl: Color { textPrimary.opacity(0.07) }
-    /// Muted terracotta used by the composer send button.
-    static var sendTint: Color { Color(red: 0.80, green: 0.43, blue: 0.30) }
 }
 
 extension LitterSpace {

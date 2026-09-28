@@ -267,28 +267,6 @@ impl MobileClient {
         })
     }
 
-    /// Send a raw `ClientRequest` and return the JSON response value.
-    /// Used by tooling (e.g. fixture export) that needs raw upstream data.
-    pub async fn request_raw_for_server(
-        &self,
-        server_id: &str,
-        request: upstream::ClientRequest,
-    ) -> Result<serde_json::Value, String> {
-        let session = self.get_session(server_id).map_err(|e| e.to_string())?;
-        session.request_client(request).await.map_err(|error| {
-            self.reconcile_transport_error(server_id, &error);
-            error.to_string()
-        })
-    }
-
-    /// Return the configs of all currently connected servers (public for tooling).
-    pub fn connected_server_configs(&self) -> Vec<ServerConfig> {
-        self.sessions_read()
-            .values()
-            .map(|s| s.config().clone())
-            .collect()
-    }
-
     pub(crate) fn snapshot_thread(&self, key: &ThreadKey) -> Result<ThreadSnapshot, RpcError> {
         self.app_store
             .snapshot()

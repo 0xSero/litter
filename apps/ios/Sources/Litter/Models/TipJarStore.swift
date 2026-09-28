@@ -46,11 +46,6 @@ final class TipJarStore {
         tiers.filter(\.isPurchased)
     }
 
-    var selectedHeaderTiers: [TipTier] {
-        guard let selectedHeaderTierIDs else { return purchasedTiers }
-        return purchasedTiers.filter { selectedHeaderTierIDs.contains($0.id) }
-    }
-
     init() {
         if let ids = UserDefaults.standard.array(forKey: Self.selectedHeaderTierIDsKey) as? [String] {
             selectedHeaderTierIDs = Set(ids)

@@ -35,23 +35,6 @@ enum PerfTracker {
         return try block()
     }
 
-    /// Time an async block and emit a signpost + log line.
-    @discardableResult
-    static func timeAsync<T>(_ name: StaticString, _ block: () async throws -> T) async rethrows -> T {
-        #if DEBUG
-        let signpostID = OSSignpostID(log: log)
-        os_signpost(.begin, log: log, name: name, signpostID: signpostID)
-        let start = DispatchTime.now()
-        defer {
-            let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-            let ms = Double(elapsed) / 1_000_000
-            os_signpost(.end, log: log, name: name, signpostID: signpostID)
-            LLog.debug("perf", "\(name) took \(String(format: "%.2f", ms))ms")
-        }
-        #endif
-        return try await block()
-    }
-
     /// Stable interval key for a thread, shared by the begin and end sites.
     ///
     /// Includes the server id: two servers can expose the same thread id, and a

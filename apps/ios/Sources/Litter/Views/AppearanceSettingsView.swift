@@ -443,23 +443,4 @@ struct ThemePreviewBadge: View {
                 .offset(x: 1, y: 1)
         }
     }
-
-    @MainActor
-    static func renderToImage(backgroundHex: String, foregroundHex: String, accentHex: String) -> UIImage {
-        let badge = ThemePreviewBadge(backgroundHex: backgroundHex, foregroundHex: foregroundHex, accentHex: accentHex)
-        let renderer = ImageRenderer(content: badge)
-        renderer.scale = UIScreen.main.scale
-        guard let cgImage = renderer.cgImage else { return UIImage() }
-        return UIImage(cgImage: cgImage).withRenderingMode(.alwaysOriginal)
-    }
 }
-
-#if DEBUG
-#Preview("Appearance") {
-    LitterPreviewScene(includeBackground: false) {
-        NavigationStack {
-            AppearanceSettingsView()
-        }
-    }
-}
-#endif

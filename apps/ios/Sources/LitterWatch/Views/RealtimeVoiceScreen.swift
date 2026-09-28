@@ -303,27 +303,3 @@ private struct IdleBody: View {
         .padding(.vertical, 6)
     }
 }
-
-#if DEBUG
-#Preview("active") {
-    NavigationStack {
-        RealtimeVoiceScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("idle") {
-    NavigationStack {
-        RealtimeVoiceScreen()
-            .environmentObject({
-                let s = WatchAppStore()
-                s.tasks = WatchPreviewFixtures.tasks
-                s.focusedTaskId = WatchPreviewFixtures.tasks.first?.id
-                s.lastSyncDate = .now
-                return s
-            }())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

@@ -353,13 +353,6 @@ struct ConversationItem: Identifiable, Equatable {
         return nil
     }
 
-    var userText: String? {
-        if case .user(let data) = content {
-            return data.text
-        }
-        return nil
-    }
-
     var userImages: [ChatImage] {
         if case .user(let data) = content {
             return data.images

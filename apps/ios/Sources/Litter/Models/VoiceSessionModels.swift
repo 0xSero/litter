@@ -190,15 +190,6 @@ extension VoiceSessionState {
     var scaledOutputLevel: Float {
         min(1, outputLevel * Self.levelScaleFactor)
     }
-
-    /// Truncated transcript suitable for glanceable display (CarPlay, widgets).
-    func truncatedTranscript(maxLength: Int = 80) -> String? {
-        guard let text = transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return nil }
-        return text.count > maxLength
-            ? String(text.prefix(maxLength)) + "…"
-            : text
-    }
 }
 
 // MARK: - VoiceActions Protocol

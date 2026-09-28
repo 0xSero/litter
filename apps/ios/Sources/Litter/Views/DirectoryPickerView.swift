@@ -1040,16 +1040,3 @@ struct DirectoryPickerView: View {
     }
 
 }
-
-#if DEBUG
-#Preview("Directory Picker") {
-    NavigationStack {
-        DirectoryPickerView(
-            servers: [],
-            selectedServerId: .constant(""),
-            onDismissRequested: {}
-        )
-        .environment(LitterPreviewData.makeDiscoveryAppModel())
-    }
-}
-#endif

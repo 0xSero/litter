@@ -551,18 +551,6 @@ impl RemoteTransport for SshBridgeReconnectTransport {
     }
 }
 
-pub async fn connect_app_server_client_via_ssh(
-    ssh: Arc<SshClient>,
-    state_dir: impl AsRef<Path>,
-    kind: AgentRuntimeKind,
-    bin_override: Option<String>,
-    transport: SshBridgeTransport,
-) -> Result<AppServerClient, SshBridgeError> {
-    connect_app_server_client_via_ssh_with_close(ssh, state_dir, kind, bin_override, transport)
-        .await
-        .map(|(client, _close_handle)| client)
-}
-
 async fn connect_app_server_client_via_ssh_with_close(
     ssh: Arc<SshClient>,
     state_dir: impl AsRef<Path>,

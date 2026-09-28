@@ -760,11 +760,6 @@ struct SessionCanvasLine: View {
     let isOpening: Bool
     let isHydrating: Bool
     let isCancelling: Bool
-    /// Committed integer zoom level — drives which zoom-gated layers
-    /// are visible and the preview cap. UIKit controls the visible
-    /// *container* height during a pinch; this view is purely a
-    /// function of the integer display zoom.
-    let zoomLevel: Int
 
     // No `@Environment(AppModel.self)` — the card is purely prop-driven.
     // That was the core of the streaming AttributeGraph hotspot: reading
@@ -773,31 +768,9 @@ struct SessionCanvasLine: View {
     // `HomeDashboardModel.refreshState`'s debounced observation path, so
     // propagation fans out to one observer (the parent), not twenty.
 
-    /// Vertical padding around the card content. Matches the iOS zoom
-    /// anchors `[3, 6, 10, 12]` for levels 1–4.
-    fileprivate static func verticalPadding(for zoom: Int) -> CGFloat {
-        let anchors: [CGFloat] = [10, 14, 16, 20]
-        let idx = max(0, min(anchors.count - 1, zoom - 1))
-        return anchors[idx]
-    }
-
     private var isActive: Bool { session.hasTurnActive }
     private var timeAgo: String { relativeDate(Int64(session.updatedAt.timeIntervalSince1970)) }
     private var s: AppConversationStats? { session.stats }
-    private var toolCallCount: UInt32 { s?.toolCallCount ?? 0 }
-    private var turnCount: UInt32 { s?.turnCount ?? 0 }
-
-    /// True when the most recent tool-capable item is still running.
-    /// Derived from the Rust-side `recent_tool_log`, which records tool
-    /// entries in chronological order — the last entry's status reflects
-    /// the most recent tool. Tool-call activity is only updated on item
-    /// upserts (not streaming deltas), so the log is always fresh for this
-    /// check.
-    private var isToolCallRunning: Bool {
-        guard let last = session.recentToolLog.last else { return false }
-        let s = last.status.lowercased()
-        return s == "pending" || s == "inprogress"
-    }
 
     /// Keep home-screen tool activity subordinate to assistant/user text.
     /// The home card's response preview uses conversation-body sizing, so
@@ -805,20 +778,6 @@ struct SessionCanvasLine: View {
     private var toolLogFontSize: CGFloat {
         max(LitterSpace.minText, LitterFont.conversationBodyPointSize - 3)
     }
-
-    // ────────────────────────────────────────────────────
-    // Zoom levels — each must feel distinct:
-    //
-    //  1  SCAN     title + age (right). Max density for scanning a backlog.
-    //  2  GLANCE   + identity strip (time · server · model · branch).
-    //  3  READ     + telemetry strip (counts · adds/rems · ⏱ · ctx%) +
-    //              user message (quoted) + 1 tool-log entry.
-    //  4  DEEP     + lineage breadcrumb + 3 tool-log entries + response
-    //              preview + sibling pills + cwd footer w/ Working pill.
-    //
-    // Identity (text) and telemetry (numbers) live on separate lines so a
-    // 390 px iPhone row never has to truncate one to fit the other.
-    // ────────────────────────────────────────────────────
 
     var body: some View {
         // Litter Quiet row: title, then one mono metadata line. No status
@@ -831,15 +790,12 @@ struct SessionCanvasLine: View {
                 // the visibleWhen pattern used for the rest of the layers.
                 lineageBreadcrumb
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .visibleWhen(zoomLevel >= 4 && (session.lineage?.ancestors.isEmpty == false))
+                    .visibleWhen(session.lineage?.ancestors.isEmpty == false)
 
-                // Title row: title + fork rune (if branched) on the left,
-                // a relative-age chip pinned to the right at zoom 1 so the
-                // SCAN row carries recency info without crowding identity.
-                // Higher zooms surface age inside `modelBadgeLine` and drop
-                // the chip here so we never duplicate.
+                // Title row: title + fork rune (if branched) on the left.
+                // Age lives in `modelBadgeLine`.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 2)
+                    FormattedText(text: session.sessionTitle, lineLimit: 4)
                         .modifier(MarkdownMatchedTitleFont())
                         .foregroundStyle(LitterTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -851,35 +807,17 @@ struct SessionCanvasLine: View {
                         ProgressView()
                             .controlSize(.mini)
                             .tint(LitterTheme.textMuted)
-                    } else if zoomLevel == 1 {
-                        Text(stateWord ?? timeAgo)
-                            .litterMeta(stateWordColor)
-                            .fixedSize()
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Detail below — gets full width. As zoom grows, additional
-                // rows are revealed by the container's layout animation.
                 // Inner VStack is pinned to full width so removals collapse
                 // vertically only — otherwise the container sizes to the
                 // widest child and short rows visually shrink to the left.
-                // Every zoom-gated layer is *always* in the view tree;
-                // per-zoom visibility is controlled via
-                // `.visibleWhen(...)` which squashes the view to zero
-                // height + zero opacity when hidden. SwiftUI still runs
-                // layout for these views at every zoom (cost paid on
-                // scroll, not on zoom change), but zoom transitions no
-                // longer materialize new subtrees — they just animate
-                // frame heights. Simpler, smoother zoom; uniform scroll
-                // cost across zoom levels.
+                // Optional layers stay in the view tree and use
+                // `.visibleWhen(...)`, which squashes the view to zero
+                // height + zero opacity when hidden.
                 VStack(alignment: .leading, spacing: 0) {
-                    // Zoom-gated visibility — binary on committed
-                    // `zoomLevel`. The UIKit host (HomeSessionsScrollView)
-                    // sets zoomLevel=4 during a pinch so every layer is
-                    // present and the UIKit frame clip reveals it
-                    // progressively.
-                    //
                     // Stacking order is the row's reading order:
                     //   identity  →  goal  →  telemetry  →  user msg  →
                     //   activity  →  response  →  branches  →  cwd
@@ -889,118 +827,44 @@ struct SessionCanvasLine: View {
                     // server name and dropping a stat.
                     modelBadgeLine
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 2)
-                    // Goal at z2/z3 renders standalone. At z4 it folds
-                    // into `telemetryDashboard` (banner above the grid)
-                    // so the dashed-bordered panel is the single home for
-                    // both the objective and the metrics.
-                    goalLine
+                    telemetryDashboard
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 2 && zoomLevel < 4 && session.goal != nil)
-                    telemetryStrip
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 3)
                     userMessageLine
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 3)
                     activityHeader
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 4 && !session.recentToolLog.isEmpty)
-                    // Zoom 4 takes the whole screen — show the full
-                    // recent_tool_log (Rust caps at 8 already) so Edit
-                    // entries don't get pushed off the visible suffix
-                    // by newer Bash commands. Zoom 3 keeps it tight at
-                    // 1 entry so multiple sessions can fit on screen.
-                    toolLog(maxEntries: zoomLevel >= 4 ? 8 : 1)
+                        .visibleWhen(!session.recentToolLog.isEmpty)
+                    // Show the full recent_tool_log (Rust caps at 8
+                    // already) so Edit entries don't get pushed off the
+                    // visible suffix by newer Bash commands.
+                    toolLog(maxEntries: 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 3)
                     responsePreview
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 4)
                     siblingPillsRow
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel >= 4 && (session.lineage?.hasMultipleBranches == true))
+                        .visibleWhen(session.lineage?.hasMultipleBranches == true)
                     cwdFooter
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .visibleWhen(zoomLevel == 4 && !session.cwd.isEmpty)
+                        .visibleWhen(!session.cwd.isEmpty)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SessionCanvasLayout.horizontalPadding)
-        .padding(.bottom, Self.verticalPadding(for: zoomLevel))
+        .padding(.bottom, 20)
         .contentShape(Rectangle())
         .clipped()
-        // Zoom transitions animate when triggered via `withAnimation`
-        // (zoom button, pinch-end snap). Live pinch updates bypass
-        // this — they set state directly so the card tracks the
-        // finger without overshooting. We deliberately don't attach
-        // `.animation(_:value: zoomLevel)` here because that would
-        // wrap every zoomLevel change (including mid-pinch threshold
-        // crossings) in an implicit animation and fight the live
-        // tracking.
         .accessibilityIdentifier("home.recentSessionCard")
     }
 
-    // MARK: - Zoom 2: meta line
-
-    /// Inline stat chips: tool calls, turns, context %
-    @ViewBuilder
-    private var statChips: some View {
-        if toolCallCount > 0 || turnCount > 0 {
-            Text("\u{00b7}")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-        }
-        if toolCallCount > 0 {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .litterFont(size: 8)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
-            RollingMetricText("\(toolCallCount)")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-        }
-        if turnCount > 0 {
-            Image(systemName: "arrow.turn.down.right")
-                .litterFont(size: 8)
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
-            RollingMetricText("\(turnCount)")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.8))
-        }
-        if let tu = session.tokenUsage, let window = tu.contextWindow, window > 0 {
-            let pct = Int((Double(tu.totalTokens) / Double(window)) * 100)
-            Text("\u{00b7}")
-                .foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-            RollingMetricText("\(pct)%")
-                .foregroundStyle(pct > 80 ? LitterTheme.warning.opacity(0.8) : LitterTheme.textMuted.opacity(0.8))
-        }
-    }
-
-    @ViewBuilder
-    private var toolActivityLabel: some View {
-        if let toolLabel = session.lastToolLabel {
-            let parts = toolLabel.split(separator: " ", maxSplits: 1)
-            let name = String(parts.first ?? "")
-            toolIconView(for: name)
-                .foregroundStyle(LitterTheme.accent)
-            if parts.count > 1 {
-                Text(String(parts.last ?? ""))
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.8))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else {
-            Text("thinking")
-                .foregroundStyle(LitterTheme.accent)
-        }
-    }
-
-    // MARK: - Zoom 2+: identity strip (time · server · model · branch)
+    // MARK: - Identity strip (time · server · model · branch)
     //
     // This row owns *only* identity. Telemetry (counts, %, adds/rems,
-    // stopwatch) lives below in `telemetryStrip` so a 390 px iPhone row
-    // never has to choose between truncating the server name and showing
-    // a stat. At zoom 2 the strip stands alone (no telemetry yet); at
-    // zoom 3+ it sits on top of the telemetry strip.
+    // stopwatch) lives below in `telemetryDashboard` so a 390 px iPhone
+    // row never has to choose between truncating the server name and
+    // showing a stat.
 
     /// One word for a state worth noticing. Healthy idle sessions show
     /// their age instead.
@@ -1054,54 +918,6 @@ struct SessionCanvasLine: View {
     // full-width without competing for space. Wraps gracefully if the
     // device is narrow or the text scale is large — the only soft contract
     // is that nothing here truncates with an ellipsis.
-
-    @ViewBuilder
-    private var telemetryStrip: some View {
-        if zoomLevel >= 4 {
-            telemetryDashboard
-        } else {
-            telemetryRow
-        }
-    }
-
-    /// Zoom 3: tight horizontal strip — chips flow left, no labels, no
-    /// borders. Density-friendly so multiple sessions still fit on
-    /// screen at this zoom.
-    @ViewBuilder
-    private var telemetryRow: some View {
-        let stats = s
-        let hasDiff = (stats?.diffAdditions ?? 0) > 0 || (stats?.diffDeletions ?? 0) > 0
-        let hasContextPct: Bool = {
-            guard let tu = session.tokenUsage, let window = tu.contextWindow else { return false }
-            return window > 0
-        }()
-        let hasAny = turnCount > 0 || toolCallCount > 0 || hasDiff || session.lastTurnStart != nil || hasContextPct
-
-        if hasAny {
-            HStack(spacing: LitterSpace.m) {
-                if turnCount > 0 {
-                    RollingMetricText("\(turnCount) turns")
-                }
-                if toolCallCount > 0 {
-                    RollingMetricText("\(toolCallCount) tools")
-                }
-                if let stats, hasDiff {
-                    RollingMetricText("+\(stats.diffAdditions) -\(stats.diffDeletions)")
-                }
-                if let start = session.lastTurnStart {
-                    TurnStopwatchChip(start: start, end: session.lastTurnEnd)
-                }
-                if let tu = session.tokenUsage, let window = tu.contextWindow, window > 0 {
-                    let pct = Int((Double(tu.totalTokens) / Double(window)) * 100)
-                    RollingMetricText("\(pct)%")
-                        .foregroundStyle(pct > 80 ? LitterTheme.warning : LitterTheme.meta)
-                }
-                Spacer(minLength: 0)
-            }
-            .litterMeta()
-            .padding(.top, LitterSpace.xs)
-        }
-    }
 
     /// Zoom 4: 2-column × 3-row dashboard between dashed rules. Each
     /// cell is `[icon] value label` — value bold/coloured, label dim.
@@ -1288,62 +1104,11 @@ struct SessionCanvasLine: View {
         return remainMins == 0 ? "\(hours)h" : "\(hours)h \(remainMins)m"
     }
 
-    // MARK: - Zoom 2+: goal line
-
-    /// Single-line goal row with status pill, objective, and usage chips
-    /// (tokens + elapsed seconds). Mirrors the in-conversation goal card
-    /// without the gauge — the home card stays scan-friendly.
-    @ViewBuilder
-    private var goalLine: some View {
-        if let goal = session.goal {
-            HStack(spacing: 6) {
-                Text(goal.objective)
-                    .foregroundStyle(LitterTheme.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 6)
-                if goal.tokensUsed > 0 {
-                    RollingMetricText(formatGoalTokens(goal.tokensUsed))
-                        .foregroundStyle(LitterTheme.meta)
-                }
-                if goal.timeUsedSeconds > 0 {
-                    RollingMetricText(formatGoalSeconds(goal.timeUsedSeconds))
-                        .foregroundStyle(LitterTheme.meta)
-                }
-            }
-            .litterMeta()
-            .padding(.top, 2)
-        }
-    }
-
     private func goalStatusTint(_ status: AppThreadGoalStatus) -> Color {
         switch status {
         case .active, .paused, .complete: return LitterTheme.meta
         case .blocked, .usageLimited, .budgetLimited: return LitterTheme.warning
         }
-    }
-
-    private func formatGoalTokens(_ value: Int64) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.1fM", Double(value) / 1_000_000.0)
-        }
-        if value >= 1_000 {
-            return String(format: "%.1fk", Double(value) / 1_000.0)
-        }
-        return "\(value)"
-    }
-
-    private func formatGoalSeconds(_ seconds: Int64) -> String {
-        if seconds < 60 { return "\(seconds)s" }
-        let total = Int(seconds)
-        let minutes = total / 60
-        let remainSecs = total % 60
-        if total < 3600 {
-            return remainSecs == 0 ? "\(minutes)m" : "\(minutes)m \(remainSecs)s"
-        }
-        let hours = total / 3600
-        let remainMins = (total % 3600) / 60
-        return remainMins == 0 ? "\(hours)h" : "\(hours)h \(remainMins)m"
     }
 
     // MARK: - Zoom 3+: last user message (quoted, single line)
@@ -1357,7 +1122,7 @@ struct SessionCanvasLine: View {
             // last user message reads as content rather than meta. Sits
             // between telemetry (above) and the tool log / response
             // preview (below) and visually breaks the two apart.
-            FormattedText(text: message, lineLimit: zoomLevel >= 4 ? 3 : 1)
+            FormattedText(text: message, lineLimit: 3)
                 .foregroundStyle(LitterTheme.textSecondary)
                 .litterFont(size: LitterFont.conversationBodyPointSize)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1513,8 +1278,7 @@ struct SessionCanvasLine: View {
         let blockId = session.lastResponseTurnId ?? "empty"
         if markdown.count > 20 {
             // ViewThatFits picks the first child whose natural size fits
-            // the proposed container. The container is capped at
-            // `responsePreviewMaxHeight`, so:
+            // the proposed container. If the container is capped, then:
             //   - Short markdown (natural ≤ cap): the fixed-size rendering
             //     wins, frame shrinks to natural height → no blank space.
             //   - Long markdown (natural > cap): the first child is too
@@ -1535,7 +1299,7 @@ struct SessionCanvasLine: View {
             // (where the fade mask hides the cut) rather than
             // center-clipping and revealing the middle. Replaces the
             // prior `ViewThatFits` + disabled-ScrollView pair.
-            .frame(maxHeight: responsePreviewMaxHeight, alignment: .top)
+            .frame(maxHeight: .infinity, alignment: .top)
             .clipped()
             .mask(
                 LinearGradient(
@@ -1551,19 +1315,6 @@ struct SessionCanvasLine: View {
             .padding(.top, 4)
         }
     }
-
-    /// Height cap for the response preview. Zoom 3 keeps it tight
-    /// (25% of screen) so rows stay scan-able in a dense list. Zoom 4
-    /// is uncapped — the full assistant reply renders at its natural
-    /// height so the user can actually read it.
-    private var responsePreviewMaxHeight: CGFloat {
-        if zoomLevel >= 4 { return .infinity }
-        let screenHeight = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.screen.bounds.height ?? 800
-        return screenHeight * 0.25
-    }
-
 
     // MARK: - Fork lineage affordances
 
@@ -1639,46 +1390,6 @@ struct SessionCanvasLine: View {
 }
 
 // MARK: - Canvas Animation Components
-
-/// Stopwatch chip rendered at the right of the modelBadgeLine. When
-/// `end` is nil the turn is live and a `TimelineView` drives a 1 Hz
-/// re-eval. When `end` is provided, the chip is static and shows the
-/// calculated turn duration (`end - start`) — no in-memory freeze.
-private struct TurnStopwatchChip: View {
-    let start: Date
-    let end: Date?
-
-    var body: some View {
-        if let end {
-            chip(seconds: max(0, end.timeIntervalSince(start)))
-        } else {
-            TimelineView(.periodic(from: .now, by: 1.0)) { context in
-                chip(seconds: max(0, context.date.timeIntervalSince(start)))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func chip(seconds: TimeInterval) -> some View {
-        HStack(spacing: 0) {
-            // Monospaced digits so "14s" and "15s" have the same width.
-            // Without this, each tick changes the chip's intrinsic size,
-            // which cascades into list row re-measure → RootGeometry
-            // invalidation on every active card every second. Mono
-            // digits freeze that width so the chip can update in-place.
-            RollingMetricText(Self.format(seconds))
-        }
-        .foregroundStyle(LitterTheme.meta)
-    }
-
-    private static func format(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded())
-        if total < 60 { return "\(total)s" }
-        let mins = total / 60
-        let secs = total % 60
-        return secs == 0 ? "\(mins)m" : "\(mins)m\(secs)s"
-    }
-}
 
 /// Renders the task title at the same size the conversation view uses for
 /// message bodies (`LitterFont.conversationBodyPointSize × textScale`) so

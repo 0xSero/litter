@@ -216,13 +216,6 @@ final class HomeDashboardModel {
         refreshState()
     }
 
-    func unhideThread(_ key: ThreadKey) {
-        let pin = SavedThreadsStore.PinnedKey(threadKey: key)
-        persistence.unhide(pin)
-        hiddenKeys = persistence.hiddenKeys()
-        refreshState()
-    }
-
     func isPinned(_ key: ThreadKey) -> Bool {
         pinnedKeys.contains(SavedThreadsStore.PinnedKey(threadKey: key))
     }

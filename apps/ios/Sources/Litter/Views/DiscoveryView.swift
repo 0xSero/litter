@@ -1110,16 +1110,3 @@ private enum ManualConnectionMode: String, CaseIterable, Identifiable {
         }
     }
 }
-
-#if DEBUG
-#Preview("Discovery") {
-    LitterPreviewScene(
-        appModel: LitterPreviewData.makeDiscoveryAppModel(),
-        includeBackground: false
-    ) {
-        NavigationStack {
-            DiscoveryView(autoStartSimulatorSSH: false)
-        }
-    }
-}
-#endif

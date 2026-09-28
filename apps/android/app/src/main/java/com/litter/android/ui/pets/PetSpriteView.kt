@@ -180,40 +180,6 @@ private fun rememberPetDisplayPresentation(
 }
 
 @Composable
-fun PetOverlayBody(
-    pet: CachedPetPackage,
-    state: PetAvatarState,
-    message: String?,
-    reducedMotion: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val presentation = rememberPetDisplayPresentation(
-        pet = pet,
-        state = state,
-        message = message,
-        reducedMotion = reducedMotion,
-    )
-    val scale = PetOverlayController.petScale
-    Box(
-        modifier = modifier.size(width = PetBodyWidth * scale, height = PetBodyHeight * scale),
-    ) {
-        PetSpriteView(
-            spritesheetBytes = pet.spritesheetBytes,
-            state = presentation.state,
-            reducedMotion = reducedMotion,
-        )
-    }
-}
-
-@Composable
-fun PetOverlayBubbleLabel(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    PetSpeechBubble(text = text, modifier = modifier)
-}
-
-@Composable
 @OptIn(ExperimentalComposeUiApi::class)
 fun PetAvatarBubble(
     pet: CachedPetPackage,

@@ -5,8 +5,6 @@ import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -23,7 +21,6 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.litter.android.util.EdgeToEdge
@@ -400,17 +397,3 @@ private tailrec fun Context.findActivity(): ComponentActivity? =
         is ContextWrapper -> baseContext.findActivity()
         else -> null
     }
-
-@Preview(showBackground = true, backgroundColor = 0xFF000000)
-@Composable
-private fun LitterThemePreview() {
-    LitterAppTheme {
-        Surface(color = LitterTheme.background) {
-            Text(
-                text = "Litter Theme",
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-    }
-}
