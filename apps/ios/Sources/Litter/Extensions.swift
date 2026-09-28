@@ -155,6 +155,9 @@ enum LitterSpace {
     static let l: CGFloat = 20
     static let xl: CGFloat = 32
     static let margin: CGFloat = 20
+    /// Max width of the conversation column (transcript and composer) on
+    /// wide surfaces, so text stays centered at a fixed reading width.
+    static let readableColumn: CGFloat = 760
     static let betweenTurns: CGFloat = 32
     /// Smallest point size used for any text.
     static let minText: CGFloat = 13

@@ -26,6 +26,9 @@ object LitterSpacing {
     /** Horizontal page margin. */
     val margin = 20.dp
 
+    /** Max width of the conversation reading column on wide screens. */
+    val readableColumn = 760.dp
+
     /** Minimum height of a two-line list row (title + meta). */
     val row = 62.dp
 

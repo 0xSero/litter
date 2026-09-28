@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -513,6 +515,11 @@ fun ConversationScreen(
                         verticalArrangement = Arrangement.spacedBy(LitterSpacing.xs),
                         modifier = Modifier
                             .fillMaxSize()
+                            // Keep the transcript a fixed, centered reading
+                            // column on tablets and foldables.
+                            .wrapContentWidth(Alignment.CenterHorizontally)
+                            .widthIn(max = LitterSpacing.readableColumn + LitterSpacing.margin * 2)
+                            .fillMaxWidth()
                             .padding(horizontal = LitterSpacing.margin)
                             .then(
                                 if (!hasWallpaper) {
@@ -747,7 +754,12 @@ fun ConversationScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(composerScrimColor),
+                        .background(composerScrimColor)
+                        // Scrim spans the screen; the composer lines up with
+                        // the transcript column on wide screens.
+                        .wrapContentWidth(Alignment.CenterHorizontally)
+                        .widthIn(max = LitterSpacing.readableColumn + LitterSpacing.margin * 2)
+                        .fillMaxWidth(),
                 ) {
                     // Pinned context strip
                     if (pinnedContext != null) {

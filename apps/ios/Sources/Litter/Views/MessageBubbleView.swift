@@ -285,7 +285,6 @@ struct AssistantBubble: View, Equatable {
                 bubbleContent
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: compact ? 8 : 20)
         }
     }
 
@@ -335,7 +334,6 @@ struct AssistantBlocksBubble: View {
             .transaction { $0.animation = nil }
             .modifier(MessageTextContextMenu(payload: .segments(segments)))
             .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: compact ? 8 : 20)
         }
     }
 
@@ -491,7 +489,6 @@ struct StreamingAssistantBubble: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 20)
         }
     }
 }

@@ -263,7 +263,17 @@ private struct ConversationMultiTurnUITestHarnessView: View {
     }
 
     private static var seedItems: [ConversationItem] {
-        let count = ProcessInfo.processInfo.arguments.contains("--ui-test-long-turn") ? 500 : 3
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--ui-test-prose") {
+            // Wrapped paragraphs make column width and gutters visible.
+            let answer = "DDPM samples by reversing a noisy Markov chain one small step at a time. DDIM keeps the same training objective but skips steps deterministically, so fifty steps can match a thousand."
+            return [
+                item(id: "prose-user", text: "What is the difference between DDPM and DDIM, and when would I pick one over the other?", user: true, turnID: "prose"),
+                item(id: "prose-answer-0", text: answer, user: false, turnID: "prose"),
+                item(id: "prose-answer-1", text: answer, user: false, turnID: "prose"),
+            ]
+        }
+        let count = arguments.contains("--ui-test-long-turn") ? 500 : 3
         return [item(id: "initial-user", text: "INITIAL_PROMPT", user: true, turnID: "initial")] +
             (0..<count).map { item(id: "answer-\($0)", text: "HISTORY_MESSAGE_\($0)", user: false, turnID: "initial") }
     }
