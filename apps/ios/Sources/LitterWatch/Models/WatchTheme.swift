@@ -36,7 +36,6 @@ enum WatchTheme {
     // MARK: - Palette
     static let bg            = Color.black
     static let surface       = Color(hex: 0x0E0E0E)
-    static let surfaceDeep   = Color(hex: 0x0A0A0A)
     static let surfaceHi     = Color(hex: 0x1A1A1A)
     static let border        = Color(hex: 0x222222)
     static let borderHi      = Color(hex: 0x333333)
@@ -44,9 +43,6 @@ enum WatchTheme {
     static let ginger        = Color(hex: 0xF59E0B)
     static let gingerLight   = Color(hex: 0xFCD472)
     static let amber         = Color(hex: 0xD98A53)
-    static let amberDeep     = Color(hex: 0xB06535)
-    static let gingerTint    = Color(hex: 0xF59E0B).opacity(0.12)
-    static let gingerStroke  = Color(hex: 0xF59E0B).opacity(0.35)
 
     static let text          = Color(hex: 0xFCFCFC)
     static let dim           = Color(hex: 0x8F8F8F)

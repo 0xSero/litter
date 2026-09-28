@@ -532,26 +532,6 @@ private extension Font.TextStyle {
     }
 }
 
-func serverIconName(for server: DiscoveredServer) -> String {
-    if server.source == .local { return "iphone" }
-
-    if let os = server.os?.lowercased() {
-        if os.contains("windows") { return "pc" }
-        if os.contains("raspbian") { return "cpu" }
-        if os.contains("ubuntu") || os.contains("debian")
-            || os.contains("fedora") || os.contains("red hat")
-            || os.contains("freebsd") || os.contains("linux") { return "server.rack" }
-    }
-
-    switch server.source {
-    case .local: return "iphone"
-    case .bonjour: return "macbook"
-    case .ssh: return "terminal"
-    case .tailscale: return "network"
-    case .manual: return "server.rack"
-    }
-}
-
 func abbreviateHomePath(_ path: String) -> String {
     let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "~" }

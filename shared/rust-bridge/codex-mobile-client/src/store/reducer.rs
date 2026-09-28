@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hasher};
-use std::path::PathBuf;
 use std::sync::RwLock;
 
 use codex_app_server_protocol as upstream;
@@ -51,8 +50,6 @@ use crate::terminal::TerminalBackendKind;
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
 const USER_INPUT_OTHER_OPTION_LABEL: &str = "None of the above";
 const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
-const DESKTOP_FILE_CONTEXT_HEADER: &str = "# Files mentioned by the user:";
-const DESKTOP_FILE_CONTEXT_REQUEST_HEADER: &str = "## My request for Codex:";
 
 /// Bytes of the serialized item head that are fed to the hasher verbatim.
 const FINGERPRINT_HEAD_BYTES: usize = 4096;
@@ -3467,7 +3464,7 @@ const USER_INPUT_RESPONSE_ITEM_PREFIX: &str = "user-input-response:";
 fn local_user_message_overlay_item(
     inputs: &[upstream::UserInput],
 ) -> Option<HydratedConversationItem> {
-    let (text, image_data_uris) = render_user_input(inputs);
+    let (text, image_data_uris) = crate::conversation::render_user_input(inputs);
     if text.is_empty() && image_data_uris.is_empty() {
         return None;
     }
@@ -3488,80 +3485,6 @@ fn local_user_message_overlay_item(
         timestamp: None,
         is_from_user_turn_boundary: true,
     })
-}
-
-fn render_user_input(inputs: &[upstream::UserInput]) -> (String, Vec<String>) {
-    let mut text_parts = Vec::new();
-    let mut images = Vec::new();
-    for input in inputs {
-        match input {
-            upstream::UserInput::Text { text, .. } => {
-                let trimmed = visible_user_text(text);
-                if !trimmed.is_empty() {
-                    text_parts.push(trimmed);
-                }
-            }
-            upstream::UserInput::Image { url, .. } => images.push(url.clone()),
-            upstream::UserInput::LocalImage { path, .. } => {
-                images.push(format!("file://{}", path.display()));
-            }
-            upstream::UserInput::Audio { .. } => text_parts.push("[Audio attachment]".to_string()),
-            upstream::UserInput::LocalAudio { path } => {
-                text_parts.push(format!("[Audio attachment] {}", path.display()))
-            }
-            upstream::UserInput::Skill { name, path } => {
-                if !name.is_empty() && path != &PathBuf::new() {
-                    text_parts.push(format!("[Skill] {} ({})", name, path.display()));
-                } else if !name.is_empty() {
-                    text_parts.push(format!("[Skill] {name}"));
-                } else if path != &PathBuf::new() {
-                    text_parts.push(format!("[Skill] {}", path.display()));
-                }
-            }
-            upstream::UserInput::Mention { name, path } => {
-                if !name.is_empty() && !path.is_empty() {
-                    text_parts.push(format!("[Mention] {name} ({path})"));
-                } else if !name.is_empty() {
-                    text_parts.push(format!("[Mention] {name}"));
-                } else if !path.is_empty() {
-                    text_parts.push(format!("[Mention] {path}"));
-                }
-            }
-        }
-    }
-    (text_parts.join("\n"), images)
-}
-
-fn visible_user_text(text: &str) -> String {
-    let trimmed = text.trim();
-    if !trimmed.starts_with(DESKTOP_FILE_CONTEXT_HEADER) {
-        return trimmed.to_string();
-    }
-    let Some((file_context, request)) = trimmed.split_once(DESKTOP_FILE_CONTEXT_REQUEST_HEADER)
-    else {
-        return trimmed.to_string();
-    };
-    let request = request.trim();
-    if !request.is_empty() {
-        return request.to_string();
-    }
-    file_context_summary(file_context).unwrap_or_else(|| trimmed.to_string())
-}
-
-fn file_context_summary(file_context: &str) -> Option<String> {
-    let labels: Vec<String> = file_context
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("## "))
-        .map(|line| line.split_once(':').map(|(label, _)| label).unwrap_or(line))
-        .map(str::trim)
-        .filter(|label| !label.is_empty())
-        .map(|label| format!("[File] {label}"))
-        .collect();
-    if labels.is_empty() {
-        None
-    } else {
-        Some(labels.join("\n"))
-    }
 }
 
 fn preserve_local_overlay_items(source: &ThreadSnapshot, target: &mut ThreadSnapshot) {

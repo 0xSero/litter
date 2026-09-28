@@ -8,7 +8,6 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.scaled
-import uniffi.codex_mobile_client.Account
 import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
@@ -237,49 +236,6 @@ object HomeDashboardSupport {
             delta < 604800 -> "${delta / 86400}d ago"
             else -> "${delta / 604800}w ago"
         }
-    }
-
-    fun maskedAccountLabel(server: AppServerSnapshot): String = when (val account = server.account) {
-        is Account.Chatgpt -> maskEmail(account.email).ifEmpty { "ChatGPT" }
-        is Account.ApiKey -> "API Key"
-        else -> "Not logged in"
-    }
-
-    private fun maskEmail(email: String): String {
-        val trimmed = email.trim()
-        if (trimmed.isEmpty()) return ""
-
-        val parts = trimmed.split("@", limit = 2)
-        if (parts.size != 2) return maskToken(trimmed, keepPrefix = 2, keepSuffix = 0)
-
-        val localPart = parts[0]
-        val domainPart = parts[1]
-        val domainPieces = domainPart.split(".")
-
-        val maskedLocal = maskToken(localPart, keepPrefix = 2, keepSuffix = 1)
-        val maskedDomain = if (domainPieces.size >= 2) {
-            val suffix = domainPieces.last()
-            val host = domainPieces.dropLast(1).joinToString(".")
-            "${maskToken(host, keepPrefix = 1, keepSuffix = 0)}.$suffix"
-        } else {
-            maskToken(domainPart, keepPrefix = 1, keepSuffix = 0)
-        }
-
-        return "$maskedLocal@$maskedDomain"
-    }
-
-    private fun maskToken(value: String, keepPrefix: Int, keepSuffix: Int): String {
-        if (value.isEmpty()) return ""
-
-        val prefixCount = keepPrefix.coerceAtMost(value.length)
-        val suffixCount = keepSuffix.coerceAtMost((value.length - prefixCount).coerceAtLeast(0))
-        val maskCount = (value.length - prefixCount - suffixCount).coerceAtLeast(0)
-
-        val prefix = value.take(prefixCount)
-        val suffix = if (suffixCount > 0) value.takeLast(suffixCount) else ""
-        val mask = if (maskCount > 0) "*".repeat(maskCount) else ""
-
-        return prefix + mask + suffix
     }
 }
 

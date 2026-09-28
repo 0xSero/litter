@@ -156,7 +156,7 @@ impl ChildProcess for SshDetachedChild {
         Box::pin(async move {
             loop {
                 if !is_remote_process_alive(&self.ssh, self.shell, self.agent_pid).await? {
-                    return exit_status_from_code(0);
+                    return crate::ssh::exit_status_from_code(0);
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
@@ -270,18 +270,4 @@ fn quote_remote_path(path: &str) -> String {
 
 fn io_from_ssh(error: crate::ssh::SshError) -> io::Error {
     io::Error::new(io::ErrorKind::ConnectionAborted, error)
-}
-
-#[cfg(unix)]
-fn exit_status_from_code(code: u32) -> io::Result<ExitStatus> {
-    use std::os::unix::process::ExitStatusExt;
-    Ok(ExitStatus::from_raw((code as i32) << 8))
-}
-
-#[cfg(not(unix))]
-fn exit_status_from_code(_code: u32) -> io::Result<ExitStatus> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "ssh detached exit status conversion is only implemented on unix targets",
-    ))
 }

@@ -71,38 +71,6 @@ class RecentDirectoryStore(
         }
     }
 
-    fun mergeSessionDirectories(
-        serverId: String,
-        entries: List<RecentDirectoryEntry>,
-    ) {
-        val normalizedServerId = normalizeServerId(serverId) ?: return
-        synchronized(lock) {
-            val all = loadAllInternal().toMutableList()
-            for (entry in entries) {
-                if (entry.serverId != normalizedServerId) continue
-                val normalizedPath = normalizePath(entry.path) ?: continue
-                val existingIndex = all.indexOfFirst { it.serverId == normalizedServerId && it.path == normalizedPath }
-                if (existingIndex >= 0) {
-                    val existing = all[existingIndex]
-                    all[existingIndex] = RecentDirectoryEntry(
-                        serverId = normalizedServerId,
-                        path = normalizedPath,
-                        lastUsedAtEpochMillis = maxOf(existing.lastUsedAtEpochMillis, entry.lastUsedAtEpochMillis),
-                        useCount = maxOf(existing.useCount, entry.useCount),
-                    )
-                } else {
-                    all += RecentDirectoryEntry(
-                        serverId = normalizedServerId,
-                        path = normalizedPath,
-                        lastUsedAtEpochMillis = entry.lastUsedAtEpochMillis,
-                        useCount = entry.useCount,
-                    )
-                }
-            }
-            saveAllInternal(trimEntriesInternal(all))
-        }
-    }
-
     fun remove(
         serverId: String,
         path: String,

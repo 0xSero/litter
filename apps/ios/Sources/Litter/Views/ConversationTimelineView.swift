@@ -511,8 +511,6 @@ extension AnyTransition {
 }
 
 private struct ConversationTimelineItemRow: View, Equatable {
-    private let renderCache = MessageRenderCache.shared
-
     let item: ConversationItem
     let serverId: String
     let originThreadId: String?

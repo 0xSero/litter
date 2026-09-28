@@ -113,7 +113,7 @@ fn append_android_debug_log(line: &str) {
     );
 }
 
-fn openai_base_url_from_env() -> Option<String> {
+pub(crate) fn openai_base_url_from_env() -> Option<String> {
     std::env::var(OPENAI_BASE_URL_ENV_KEY)
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())

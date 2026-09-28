@@ -153,10 +153,6 @@ final class ThemeManager {
         NotificationCenter.default.post(name: .themeDidChange, object: nil)
     }
 
-    func resolvedTheme(for colorScheme: ColorScheme) -> ResolvedTheme {
-        colorScheme == .dark ? darkTheme : lightTheme
-    }
-
     private static func storedAppearanceMode() -> LitterAppearanceMode {
         guard let raw = UserDefaults.standard.string(forKey: appearanceModeKey) else {
             return .system

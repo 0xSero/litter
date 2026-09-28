@@ -17,9 +17,7 @@ pub mod types;
 
 pub use api::{SlingshotApi, SlingshotConfig};
 pub use device_key::DeviceKeyEnrollment;
-pub use enrollment::{
-    EnrollmentStore, FileEnrollmentStore, MemoryEnrollmentStore, SlingshotControllerSession,
-};
+pub use enrollment::SlingshotControllerSession;
 pub use envelope::{EnvelopeType, KnownPongStatus, RemoteControlEnvelope};
 pub use errors::{SlingshotApiError, SlingshotTransportError};
 pub use stream::{SlingshotFraming, SlingshotJsonLineStream};
@@ -27,9 +25,7 @@ pub use types::{
     ClientEnrollmentFinishRequest, ClientEnrollmentResponse, ClientEnrollmentStartResponse,
     ClientEnrollmentTokenResponse, ClientRefreshFinishRequest, ClientRefreshStartRequest,
     DeviceIdentity, DeviceKeyChallenge, DeviceKeyConnectionChallenge, DeviceKeyConnectionProof,
-    DeviceKeyProof, EnvironmentKind, EnvironmentUpdateRequest, KnownOperatingSystem,
-    OperatingSystem, SlingshotEnvironment, SlingshotThreadStatus, SlingshotThreadSummary,
-    ThreadsPage,
+    DeviceKeyProof, EnvironmentKind, KnownOperatingSystem, OperatingSystem, SlingshotEnvironment,
 };
 
 use std::io::Error as IoError;

@@ -35,6 +35,7 @@ mod probes;
 mod resolve_binary;
 mod terminal_channel;
 mod types;
+pub(crate) use types::exit_status_from_code;
 
 use std::collections::HashMap;
 use std::sync::Arc;

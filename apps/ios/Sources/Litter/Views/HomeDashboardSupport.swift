@@ -390,14 +390,6 @@ enum HomeDashboardSupport {
         return parsed.isEmpty ? ["codex"] : parsed
     }
 
-    static func serverSubtitle(for server: HomeDashboardServer) -> String {
-        if server.isLocal {
-            return "In-process server"
-        }
-
-        return "\(server.host):\(server.port) | \(server.sourceLabel)"
-    }
-
     static func workspaceLabel(for cwd: String) -> String? {
         let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

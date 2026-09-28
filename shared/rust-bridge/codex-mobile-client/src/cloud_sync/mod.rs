@@ -111,7 +111,7 @@ fn with_platform_table<R>(f: impl FnOnce(&mut HashMap<String, CloudEntry>) -> R)
     f(table)
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

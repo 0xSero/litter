@@ -256,14 +256,6 @@ fn write_state(directory: &str, value: &SavedAppState) -> Result<(), SavedAppErr
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 fn sanitize_title(raw: &str) -> String {
     let stripped: String = raw
         .chars()
@@ -470,7 +462,7 @@ pub fn saved_app_upsert(
     let result = (|| -> Result<SavedApp, SavedAppError> {
         let _guard = acquire_write_guard();
         let slug = derive_slug_from_title(&app_id);
-        let now = now_ms();
+        let now = crate::cloud_sync::now_ms();
         let sanitized_title = sanitize_title(&title);
         let width = clamp_dimension(width, 800.0);
         let height = clamp_dimension(height, 600.0);
@@ -584,7 +576,7 @@ pub fn saved_app_promote(
     let result = (|| -> Result<SavedApp, SavedAppError> {
         let _guard = acquire_write_guard();
         let id = Uuid::new_v4().to_string();
-        let now = now_ms();
+        let now = crate::cloud_sync::now_ms();
         let sanitized_title = sanitize_title(&title);
 
         let index_path = index_path(&directory);
@@ -676,7 +668,7 @@ pub fn saved_app_replace_html(
         let index_path = index_path(&directory);
         let mut index = read_index(&index_path);
         migrate_missing_slugs(&mut index);
-        let now = now_ms();
+        let now = crate::cloud_sync::now_ms();
         let mut updated: Option<SavedApp> = None;
         for app in index.apps.iter_mut() {
             if app.id == app_id {
@@ -757,7 +749,7 @@ pub fn saved_app_save_state(
         let app_exists = index.apps.iter_mut().any(|app| {
             if app.id == app_id {
                 app.schema_version = schema_version;
-                app.updated_at_ms = now_ms();
+                app.updated_at_ms = crate::cloud_sync::now_ms();
                 true
             } else {
                 false
@@ -772,7 +764,7 @@ pub fn saved_app_save_state(
             app_id: app_id.clone(),
             state_json,
             schema_version,
-            updated_at_ms: now_ms(),
+            updated_at_ms: crate::cloud_sync::now_ms(),
         };
         write_state(&directory, &state)?;
         Ok(state)

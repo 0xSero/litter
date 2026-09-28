@@ -6,15 +6,6 @@
 
 pub mod adapter;
 
-/// Connection state observable by consumers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConnectionState {
-    Connecting,
-    Connected,
-    Reconnecting { attempt: u32 },
-    Disconnected { reason: String },
-}
-
 /// Errors from transport operations.
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {

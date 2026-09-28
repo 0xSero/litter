@@ -12,13 +12,11 @@ use tracing::{info, warn};
 use url::Url;
 
 use crate::device_key::DeviceKeyEnrollment;
-use crate::enrollment::{EnrollmentStore, SlingshotControllerSession};
-use crate::envelope::RemoteControlEnvelope;
+use crate::enrollment::SlingshotControllerSession;
 use crate::errors::SlingshotApiError;
 use crate::types::{
     ClientEnrollmentFinishRequest, ClientEnrollmentResponse, ClientEnrollmentTokenResponse,
-    ClientRefreshFinishRequest, ClientRefreshStartRequest, EnvironmentUpdateRequest,
-    LegacyClientEnrollmentResponse, SlingshotEnvironment, ThreadsPage,
+    ClientRefreshFinishRequest, ClientRefreshStartRequest, SlingshotEnvironment,
 };
 
 const REMOTE_CONTROL_PROTOCOL_VERSION: &str = "3";
@@ -155,22 +153,6 @@ impl SlingshotApi {
         }
     }
 
-    pub async fn ensure_enrolled<S>(&self, store: &S) -> Result<String, SlingshotApiError>
-    where
-        S: EnrollmentStore + ?Sized,
-    {
-        if let Some(client_id) = self.client_id() {
-            return Ok(client_id);
-        }
-        if let Some(client_id) = store.load().await? {
-            self.set_client_id(client_id.clone());
-            return Ok(client_id);
-        }
-        let response = self.enroll_start().await?;
-        store.save(&response.client_id).await?;
-        Ok(response.client_id)
-    }
-
     /// `POST /codex/remote/control/client/enroll/start`
     pub async fn enroll_start(&self) -> Result<ClientEnrollmentResponse, SlingshotApiError> {
         let url = self.path(&["client", "enroll", "start"])?;
@@ -201,30 +183,6 @@ impl SlingshotApi {
             "slingshot enrollment start decoded"
         );
         self.set_client_id(response.client_id.clone());
-        Ok(response)
-    }
-
-    /// `POST /wham/remote/control/client/enroll`
-    pub async fn enroll_legacy_client(
-        &self,
-    ) -> Result<LegacyClientEnrollmentResponse, SlingshotApiError> {
-        let url = self.path(&["client", "enroll"])?;
-        log_http_request("POST", &url, "Slingshot legacy client enrollment", None);
-        let response = self
-            .http
-            .post(url)
-            .headers(self.headers(None, false)?)
-            .send()
-            .await?;
-        let response = ensure_success(response, "Slingshot legacy client enrollment").await?;
-        let response: LegacyClientEnrollmentResponse =
-            decode_json_response(response, "Slingshot legacy client enrollment").await?;
-        self.set_client_id(response.client_id.clone());
-        info!(
-            target: "codex_slingshot",
-            client_id = %response.client_id,
-            "slingshot legacy enrollment decoded"
-        );
         Ok(response)
     }
 
@@ -423,11 +381,6 @@ impl SlingshotApi {
         Ok(response)
     }
 
-    /// Backwards-compatible name for the first phase of client enrollment.
-    pub async fn enroll(&self) -> Result<ClientEnrollmentResponse, SlingshotApiError> {
-        self.enroll_start().await
-    }
-
     /// `GET /codex/remote/control/environments`
     pub async fn list_environments(&self) -> Result<Vec<SlingshotEnvironment>, SlingshotApiError> {
         let url = self.path(&["environments"])?;
@@ -451,84 +404,6 @@ impl SlingshotApi {
         Ok(envs)
     }
 
-    /// `PATCH /codex/remote/control/environments/{id}`
-    pub async fn update_environment(
-        &self,
-        environment_id: &str,
-        name: &str,
-    ) -> Result<SlingshotEnvironment, SlingshotApiError> {
-        let url = self.path(&["environments", environment_id])?;
-        let body = EnvironmentUpdateRequest {
-            name: name.to_string(),
-        };
-        log_http_request(
-            "PATCH",
-            &url,
-            "Slingshot environment update",
-            Some(&sanitize_json_value(&serde_json::to_value(&body)?)),
-        );
-        let response = self
-            .http
-            .patch(url)
-            .headers(self.headers(None, false)?)
-            .json(&body)
-            .send()
-            .await?;
-        let response = ensure_success(response, "Slingshot environment update").await?;
-        let env = decode_json_response(response, "Slingshot environment update").await?;
-        Ok(env)
-    }
-
-    /// `DELETE /codex/remote/control/environments/{id}`
-    pub async fn delete_environment(&self, environment_id: &str) -> Result<(), SlingshotApiError> {
-        let url = self.path(&["environments", environment_id])?;
-        log_http_request("DELETE", &url, "Slingshot environment delete", None);
-        self.http
-            .delete(url)
-            .headers(self.headers(None, false)?)
-            .send()
-            .await
-            .and_then(|response| response.error_for_status())?;
-        Ok(())
-    }
-
-    /// `GET /codex/remote/control/environments/{id}/threads?cursor=...&limit=...`
-    pub async fn list_environment_threads(
-        &self,
-        environment_id: &str,
-        cursor: Option<&str>,
-        limit: Option<u32>,
-    ) -> Result<ThreadsPage, SlingshotApiError> {
-        let mut url = self.path(&["environments", environment_id, "threads"])?;
-        {
-            let mut query = url.query_pairs_mut();
-            if let Some(cursor) = cursor {
-                query.append_pair("cursor", cursor);
-            }
-            if let Some(limit) = limit {
-                query.append_pair("limit", &limit.to_string());
-            }
-        }
-        log_http_request("GET", &url, "Slingshot environment threads", None);
-        let response = self
-            .http
-            .get(url)
-            .headers(self.headers(None, false)?)
-            .send()
-            .await?;
-        let response = ensure_success(response, "Slingshot environment threads").await?;
-        let page: ThreadsPage =
-            decode_json_response(response, "Slingshot environment threads").await?;
-        info!(
-            target: "codex_slingshot",
-            environment_id,
-            count = page.data.len(),
-            next_cursor = ?page.next_cursor,
-            "slingshot environment threads decoded"
-        );
-        Ok(page)
-    }
-
     /// `GET /codex/remote/control/environments?cursor=...`
     pub async fn subscribe(
         &self,
@@ -547,30 +422,6 @@ impl SlingshotApi {
             .await?;
         let response = ensure_success(response, "Slingshot subscribe").await?;
         Ok(response)
-    }
-
-    /// Best-known send path. Capture can refine this without changing callers.
-    pub async fn send_envelope(
-        &self,
-        envelope: &RemoteControlEnvelope,
-    ) -> Result<(), SlingshotApiError> {
-        envelope.validate_outbound()?;
-        let url = self.path(&["environments"])?;
-        log_http_request(
-            "POST",
-            &url,
-            "Slingshot envelope send",
-            Some(&sanitize_json_value(&serde_json::to_value(envelope)?)),
-        );
-        let response = self
-            .http
-            .post(url)
-            .headers(self.headers(None, false)?)
-            .json(envelope)
-            .send()
-            .await?;
-        ensure_success(response, "Slingshot envelope send").await?;
-        Ok(())
     }
 
     pub(crate) fn websocket_request(

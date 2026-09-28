@@ -38,8 +38,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.DeveloperBoard
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -1076,16 +1074,6 @@ private fun slingshotEnvironmentStatus(environment: AppSlingshotEnvironment): St
         !environment.online -> "offline"
         environment.busy -> "busy"
         else -> "online"
-    }
-
-private fun slingshotEnvironmentIcon(
-    environment: AppSlingshotEnvironment,
-): androidx.compose.ui.graphics.vector.ImageVector =
-    when (environment.operatingSystem.lowercase()) {
-        "linux" -> Icons.Outlined.Dns
-        "windows" -> Icons.Outlined.DesktopWindows
-        "macos", "darwin" -> Icons.Outlined.DesktopWindows
-        else -> Icons.Outlined.Laptop
     }
 
 @Composable
