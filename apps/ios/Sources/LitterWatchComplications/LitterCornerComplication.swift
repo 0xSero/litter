@@ -45,9 +45,3 @@ struct LitterCornerView: View {
             : entry.title
     }
 }
-
-#Preview(as: .accessoryCorner) {
-    LitterCornerComplication()
-} timeline: {
-    LitterComplicationEntry.placeholder
-}

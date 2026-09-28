@@ -152,26 +152,3 @@ private struct ApprovalBody: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("pending") {
-    NavigationStack {
-        ApprovalScreen()
-            .environmentObject({
-                let s = WatchAppStore()
-                s.pendingApproval = WatchPreviewFixtures.approval
-                s.lastSyncDate = .now
-                return s
-            }())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("empty") {
-    NavigationStack {
-        ApprovalScreen()
-            .environmentObject(WatchAppStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

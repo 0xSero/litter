@@ -46,10 +46,6 @@ extension AppServerSnapshot {
         }
     }
 
-    var connectionProgressDetail: String? {
-        currentConnectionStep?.detail ?? connectionProgress?.terminalMessage
-    }
-
     var statusLabel: String {
         if let connectionProgressLabel {
             return connectionProgressLabel

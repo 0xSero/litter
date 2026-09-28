@@ -523,25 +523,6 @@ impl From<upstream::AuthMode> for AuthMode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Record)]
-pub struct CommandExecResult {
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-}
-
-impl From<upstream::CommandExecResponse> for CommandExecResult {
-    fn from(value: upstream::CommandExecResponse) -> Self {
-        Self {
-            exit_code: value.exit_code,
-            stdout: value.stdout,
-            stderr: value.stderr,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-#[derive(uniffi::Record)]
 pub struct ResolvedImageViewResult {
     pub path: String,
     pub bytes: Vec<u8>,

@@ -177,13 +177,6 @@ final class WallpaperManager {
         return nil
     }
 
-    func resolveConfigForServer(_ serverId: String) -> WallpaperConfig? {
-        if let cfg = prefs.servers[serverId], cfg.type != .none {
-            return cfg
-        }
-        return nil
-    }
-
     func setWallpaper(_ config: WallpaperConfig, scope: WallpaperScope) {
         switch scope {
         case .thread(let key):
@@ -255,12 +248,6 @@ final class WallpaperManager {
         }
         savePrefs()
         version += 1
-    }
-
-    func setActiveThreadKey(_ key: ThreadKey?) {
-        guard activeThreadKey != key else { return }
-        activeThreadKey = key
-        refreshResolved()
     }
 
     func cleanup(knownServerIds: Set<String>, knownThreadKeys: Set<String>) {
@@ -432,10 +419,6 @@ final class WallpaperManager {
         if resolvedConfig == nil || resolvedConfig?.type == WallpaperType.none {
             resolvedWallpaperImage = nil
         }
-    }
-
-    func updateResolvedImage(_ image: UIImage?) {
-        resolvedWallpaperImage = image
     }
 
     func videoFileURL(for scope: WallpaperScope) -> URL {

@@ -92,14 +92,6 @@ final class SavedAppsStore {
         return apps.first(where: { $0.appId == slug })
     }
 
-    /// Apps whose `originThreadId` matches the given thread, sorted by
-    /// most-recently-updated first. Empty when the thread has no saved apps.
-    func appsForThread(_ threadId: String) -> [SavedApp] {
-        apps
-            .filter { $0.originThreadId == threadId }
-            .sorted { $0.updatedAtMs > $1.updatedAtMs }
-    }
-
     func getWithPayload(id: String) -> SavedAppWithPayload? {
         savedAppGet(directory: directory, appId: id)
     }
@@ -143,10 +135,6 @@ final class SavedAppsStore {
     }
 
     // MARK: - State (debounced)
-
-    func loadState(id: String) -> SavedAppState? {
-        savedAppLoadState(directory: directory, appId: id)
-    }
 
     /// Debounced per-app_id state save. Coalesces bursts (e.g. from a
     /// dragging slider) into one write on a 250 ms trailing edge. Errors

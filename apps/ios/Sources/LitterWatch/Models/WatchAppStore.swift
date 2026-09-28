@@ -148,18 +148,4 @@ final class WatchAppStore: ObservableObject {
         }
         #endif
     }
-
-    #if DEBUG
-    static func previewStore() -> WatchAppStore {
-        let store = WatchAppStore()
-        store.tasks = WatchPreviewFixtures.tasks
-        store.hiddenTasks = WatchPreviewFixtures.hiddenTasks
-        store.focusedTaskId = WatchPreviewFixtures.tasks.first?.id
-        store.pendingApproval = WatchPreviewFixtures.approval
-        store.voice = WatchPreviewFixtures.voice
-        store.lastSyncDate = .now
-        store.isReachable = true
-        return store
-    }
-    #endif
 }

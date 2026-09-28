@@ -110,16 +110,6 @@ struct TranscriptTurn: Identifiable, Equatable {
         )
     }
 
-    func replacingItems(_ items: [ConversationItem]) -> TranscriptTurn {
-        TranscriptTurn(
-            id: id,
-            items: items,
-            isLive: isLive,
-            isCollapsedByDefault: isCollapsedByDefault,
-            renderDigest: Self.makeRenderDigest(from: items, isLive: isLive)
-        )
-    }
-
     func replacingRenderableItems(_ items: [ConversationItem]) -> TranscriptTurn {
         TranscriptTurn(
             id: id,

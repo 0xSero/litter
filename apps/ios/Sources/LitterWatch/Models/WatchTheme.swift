@@ -76,11 +76,6 @@ enum WatchTheme {
     static func scaled(_ size: CGFloat, for watchSize: WatchSize, weight: Font.Weight = .regular) -> Font {
         mono(size * watchSize.fontScale, weight: weight)
     }
-
-    // MARK: - Radii / spacing
-    static let cardRadius: CGFloat  = 14
-    static let pillRadius: CGFloat  = 999
-    static let innerRadius: CGFloat = 10
 }
 
 // MARK: - Hex helper

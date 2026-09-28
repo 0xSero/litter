@@ -25,23 +25,6 @@ struct SavedSSHCredential: Codable {
     let privateKey: String?
     let passphrase: String?
     let unlockMacosKeychain: Bool?
-
-    func toConnectionCredential() -> SSHCredentials {
-        switch method {
-        case .password:
-            return .password(
-                username: username,
-                password: password ?? "",
-                unlockMacosKeychain: unlockMacosKeychain ?? false
-            )
-        case .key:
-            return .key(
-                username: username,
-                privateKey: privateKey ?? "",
-                passphrase: passphrase
-            )
-        }
-    }
 }
 
 enum SSHCredentialStoreError: LocalizedError {

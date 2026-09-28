@@ -1125,10 +1125,6 @@ private struct ConversationTurnSummary: View, Equatable {
         return secondaryText
     }
 
-    private func responsePreviewText(_ preview: TranscriptTurn.Preview) -> String {
-        secondaryPreviewText(preview) ?? preview.primaryText
-    }
-
     private func accessibilitySummary(_ preview: TranscriptTurn.Preview) -> String {
         var parts = [preview.primaryText]
         if let secondary = secondaryPreviewText(preview) { parts.append(secondary) }
@@ -3590,11 +3586,3 @@ extension View {
         }
     }
 }
-
-#if DEBUG
-#Preview("Conversation") {
-    LitterPreviewScene(appModel: LitterPreviewData.makeConversationAppModel(messages: LitterPreviewData.longConversation)) {
-        ContentView()
-    }
-}
-#endif

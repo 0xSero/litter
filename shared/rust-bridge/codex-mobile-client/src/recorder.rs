@@ -92,11 +92,6 @@ impl MessageRecorder {
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     }
 
-    /// Parse a recording and return entries for replay.
-    pub fn parse_recording(data: &str) -> Result<Vec<RecordedEntry>, String> {
-        serde_json::from_str(data).map_err(|e| format!("parse recording: {e}"))
-    }
-
     /// Replay inbound notifications from a recording, rewriting server/thread
     /// IDs so the updates land on the caller's active thread.
     pub fn replay_entries(

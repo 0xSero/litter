@@ -1054,7 +1054,6 @@ final class TerminalSelectionOverlayView: UIView {
 /// captures the mouse.
 final class GhosttyHostView: UIView, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
     private static let bellHapticThrottle: TimeInterval = 0.25
-    private static let selectionDragSlop: CGFloat = 8.0
 
     weak var renderer: GhosttyTerminalRenderer? {
         didSet {

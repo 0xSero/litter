@@ -19,10 +19,6 @@ final class RustHandoffManager: @unchecked Sendable {
         manager.uniffiRegisterServer(serverId: serverId, name: name, hostname: hostname, isLocal: isLocal, isConnected: isConnected)
     }
 
-    func unregisterServer(serverId: String) {
-        manager.uniffiUnregisterServer(serverId: serverId)
-    }
-
     // MARK: - Turn Config
 
     func setTurnConfig(model: String?, effort: String?, fastMode: Bool) {
@@ -87,18 +83,4 @@ final class RustHandoffManager: @unchecked Sendable {
     func drainActions() -> [HandoffAction] {
         manager.uniffiDrainActions()
     }
-
-    // MARK: - Transcript
-
-    func accumulateTranscript(delta: String, speaker: String) -> (fullText: String, previousText: String?, speakerChanged: Bool) {
-        let result = manager.uniffiAccumulateTranscriptDelta(delta: delta, speaker: speaker)
-        return (result.fullText, result.previousText, result.speakerChanged)
-    }
-
-    // MARK: - Server List
-
-    func listServersJSON() -> String {
-        manager.uniffiListServersJson()
-    }
-
 }

@@ -93,21 +93,3 @@ private struct HiddenRow: View {
         .padding(.vertical, 2)
     }
 }
-
-#if DEBUG
-#Preview("hidden") {
-    NavigationStack {
-        HiddenThreadsScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("empty") {
-    NavigationStack {
-        HiddenThreadsScreen()
-            .environmentObject(WatchAppStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

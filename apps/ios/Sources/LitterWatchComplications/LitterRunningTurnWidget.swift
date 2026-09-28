@@ -166,10 +166,3 @@ struct LitterRunningTurnView: View {
         return String(format: "%d:%02d", capped / 60, capped % 60)
     }
 }
-
-#Preview(as: .accessoryRectangular) {
-    LitterRunningTurnWidget()
-} timeline: {
-    LitterRunningTurnEntry.placeholder
-    LitterRunningTurnEntry.empty
-}

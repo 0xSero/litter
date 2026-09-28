@@ -188,13 +188,3 @@ enum WatchDictation {
         WKApplication.shared().rootInterfaceController
     }
 }
-
-#if DEBUG
-#Preview {
-    NavigationStack {
-        VoiceScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-#endif

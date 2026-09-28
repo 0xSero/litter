@@ -67,9 +67,3 @@ struct LitterRectangularView: View {
             : "CODEX · \(entry.serverCount) READY"
     }
 }
-
-#Preview(as: .accessoryRectangular) {
-    LitterRectangularComplication()
-} timeline: {
-    LitterComplicationEntry.placeholder
-}

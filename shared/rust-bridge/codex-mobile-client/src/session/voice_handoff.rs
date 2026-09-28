@@ -241,18 +241,6 @@ impl HandoffManager {
         (full_text, previous_text, speaker_changed)
     }
 
-    /// Drain the transcript buffer, returning any accumulated text and speaker.
-    pub fn drain_transcript(&self) -> (Option<String>, Option<String>) {
-        let mut inner = self.inner.lock().unwrap();
-        let text = if inner.transcript.text.trim().is_empty() {
-            None
-        } else {
-            Some(std::mem::take(&mut inner.transcript.text))
-        };
-        let speaker = inner.transcript.speaker.take();
-        (text, speaker)
-    }
-
     // -- Handoff lifecycle --
 
     /// Process an incoming `handoff_request` item from the realtime session.
@@ -595,12 +583,6 @@ impl HandoffManager {
         std::mem::take(&mut inner.action_queue)
     }
 
-    /// Return the number of pending actions without draining.
-    pub fn action_count(&self) -> usize {
-        let inner = self.inner.lock().unwrap();
-        inner.action_queue.len()
-    }
-
     /// Get the current phase of a handoff.
     pub fn handoff_phase(&self, handoff_id: &str) -> Option<HandoffPhase> {
         let inner = self.inner.lock().unwrap();
@@ -665,13 +647,6 @@ pub struct TranscriptDeltaResult {
     pub speaker_changed: bool,
 }
 
-/// Result from drain_transcript.
-#[derive(uniffi::Record)]
-pub struct DrainTranscriptResult {
-    pub text: Option<String>,
-    pub speaker: Option<String>,
-}
-
 #[uniffi::export]
 impl HandoffManager {
     #[uniffi::constructor]
@@ -725,11 +700,6 @@ impl HandoffManager {
             previous_text,
             speaker_changed,
         }
-    }
-
-    pub fn uniffi_drain_transcript(&self) -> DrainTranscriptResult {
-        let (text, speaker) = self.drain_transcript();
-        DrainTranscriptResult { text, speaker }
     }
 
     pub fn uniffi_handle_handoff_request(

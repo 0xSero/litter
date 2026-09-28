@@ -1166,10 +1166,6 @@ impl AppStoreReducer {
         }
     }
 
-    pub fn remove_thread_follow_up_preview(&self, key: &ThreadKey, preview_id: &str) {
-        self.remove_thread_follow_up_draft(key, preview_id);
-    }
-
     pub(crate) fn remove_thread_follow_up_draft(&self, key: &ThreadKey, preview_id: &str) {
         if self
             .mutate_thread_with_result(key, |thread| {
@@ -1216,22 +1212,6 @@ impl AppStoreReducer {
             self.emit_thread_metadata_changed(key);
         }
         result
-    }
-
-    pub fn set_thread_follow_up_previews(
-        &self,
-        key: &ThreadKey,
-        previews: Vec<AppQueuedFollowUpPreview>,
-    ) {
-        let drafts = previews
-            .into_iter()
-            .map(|preview| QueuedFollowUpDraft {
-                preview,
-                inputs: Vec::new(),
-                source_message_json: None,
-            })
-            .collect();
-        self.set_thread_follow_up_drafts(key, drafts);
     }
 
     pub(crate) fn set_thread_follow_up_drafts(
@@ -1656,19 +1636,6 @@ impl AppStoreReducer {
                 server.transport.last_resumed_at = Some(now);
             }
         }
-    }
-
-    pub fn server_has_active_turns(&self, server_id: &str) -> bool {
-        self.snapshot
-            .read()
-            .expect("app store lock poisoned")
-            .threads
-            .iter()
-            .any(|(key, thread)| {
-                key.server_id == server_id
-                    && (thread.active_turn_id.is_some()
-                        || thread.info.status == ThreadSummaryStatus::Active)
-            })
     }
 
     pub fn server_pending_mutation_kind(
@@ -3065,16 +3032,6 @@ impl AppStoreReducer {
         // phase shifted. The renderer subscribes to the live session
         // directly for streaming bytes; broadcast is for non-byte state
         // changes only.
-    }
-
-    /// Update the session's row/col dimensions after a successful resize.
-    pub fn update_terminal_size(&self, id: &str, cols: u16, rows: u16) {
-        let mut snapshot = self.write_snapshot();
-        if let Some(session) = snapshot.terminal_sessions.iter_mut().find(|s| s.id == id) {
-            session.cols = cols;
-            session.rows = rows;
-            session.last_activity_ts_ms = now_ms();
-        }
     }
 
     /// Mark the session as exited with the given code and clear it from

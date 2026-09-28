@@ -804,23 +804,6 @@ impl AppClient {
         })
     }
 
-    pub async fn list_thread_turns(
-        &self,
-        server_id: String,
-        params: types::AppListThreadTurnsRequest,
-    ) -> Result<types::AppListThreadTurnsResponse, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let params = convert_params::<_, upstream::ThreadTurnsListParams>(params)?;
-            let response: upstream::ThreadTurnsListResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadTurnsList, params),
-            )
-            .await?;
-            Ok(response.into())
-        })
-    }
-
     // ── Turn ─────────────────────────────────────────────────────────────
 
     pub async fn interrupt_turn(
@@ -883,38 +866,6 @@ impl AppClient {
                 )
                 .await?;
             }
-            Ok(())
-        })
-    }
-
-    pub async fn append_realtime_audio(
-        &self,
-        server_id: String,
-        params: types::AppAppendRealtimeAudioRequest,
-    ) -> Result<(), ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let _: upstream::ThreadRealtimeAppendAudioResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadRealtimeAppendAudio, params.into()),
-            )
-            .await?;
-            Ok(())
-        })
-    }
-
-    pub async fn append_realtime_text(
-        &self,
-        server_id: String,
-        params: types::AppAppendRealtimeTextRequest,
-    ) -> Result<(), ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let _: upstream::ThreadRealtimeAppendTextResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadRealtimeAppendText, params.into()),
-            )
-            .await?;
             Ok(())
         })
     }
@@ -1240,23 +1191,6 @@ impl AppClient {
     }
 
     // ── Utilities ────────────────────────────────────────────────────────
-
-    pub async fn exec_command(
-        &self,
-        server_id: String,
-        params: types::AppExecCommandRequest,
-    ) -> Result<types::CommandExecResult, ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let params = convert_params::<_, upstream::CommandExecParams>(params)?;
-            let response: upstream::CommandExecResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, OneOffCommandExec, params),
-            )
-            .await?;
-            Ok(response.into())
-        })
-    }
 
     pub async fn resolve_image_view(
         &self,

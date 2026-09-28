@@ -560,13 +560,3 @@ private struct ToolCallImagePreview: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("Tool Call Card") {
-    ZStack {
-        LitterTheme.backgroundGradient.ignoresSafeArea()
-        ToolCallCardView(model: LitterPreviewData.sampleToolCallModel)
-            .padding(20)
-    }
-}
-#endif

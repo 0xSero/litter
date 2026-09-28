@@ -60,9 +60,3 @@ struct NotificationScreen: View {
         .containerBackground(theme.backgroundGradient, for: .navigation)
     }
 }
-
-#if DEBUG
-#Preview {
-    NotificationScreen()
-}
-#endif

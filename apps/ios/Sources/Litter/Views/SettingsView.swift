@@ -1494,11 +1494,3 @@ private struct SettingsDisconnectedAccountSection: View {
 private func isSettingsSlingshotURL(_ rawURL: String) -> Bool {
     URL(string: rawURL)?.scheme?.lowercased() == "slingshot"
 }
-
-#if DEBUG
-#Preview("Settings") {
-    LitterPreviewScene(includeBackground: false) {
-        SettingsView()
-    }
-}
-#endif

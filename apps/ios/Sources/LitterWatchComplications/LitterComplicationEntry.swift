@@ -47,17 +47,6 @@ struct LitterComplicationEntry: TimelineEntry {
         toolLine: "edit_file src/auth.go",
         serverCount: 3
     )
-
-    static let idlePlaceholder = LitterComplicationEntry(
-        date: .now,
-        mode: .idle,
-        lastTurnStartMsEpoch: nil,
-        taskId: nil,
-        progress: 1,
-        title: "3 servers ready",
-        toolLine: "tap to open",
-        serverCount: 3
-    )
 }
 
 /// Wire-format payload shared between the iOS writer

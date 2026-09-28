@@ -113,10 +113,6 @@ struct DiscoveredServer: Identifiable, Hashable {
         sshPort != nil
     }
 
-    var hasValidPreferredConnection: Bool {
-        preferredConnectionMode != nil
-    }
-
     var requiresConnectionChoice: Bool {
         guard source != .local, websocketURL == nil else { return false }
         guard preferredConnectionMode == nil else { return false }

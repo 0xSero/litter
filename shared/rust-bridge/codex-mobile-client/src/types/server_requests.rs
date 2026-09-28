@@ -14,8 +14,7 @@ use std::path::PathBuf;
 use super::enums::ApprovalKind;
 use super::{
     AbsolutePath, AppAskForApproval, AppDynamicToolSpec, AppMergeStrategy, AppReadOnlyAccess,
-    AppRealtimeAudioChunk, AppReviewTarget, AppSandboxMode, AppSandboxPolicy, AppUserInput,
-    ReasoningEffort, ServiceTier,
+    AppReviewTarget, AppSandboxMode, AppSandboxPolicy, AppUserInput, ReasoningEffort, ServiceTier,
 };
 
 fn absolute_path_buf_from_mobile(value: AbsolutePath) -> Result<AbsolutePathBuf, RpcClientError> {
@@ -452,36 +451,6 @@ impl From<AppTurnsSortDirection> for upstream::SortDirection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-#[derive(uniffi::Record)]
-pub struct AppListThreadTurnsRequest {
-    pub thread_id: String,
-    #[serde(default)]
-    #[uniffi(default = None)]
-    pub cursor: Option<String>,
-    #[serde(default)]
-    #[uniffi(default = None)]
-    pub limit: Option<u32>,
-    #[serde(default)]
-    #[uniffi(default = None)]
-    pub sort_direction: Option<AppTurnsSortDirection>,
-}
-
-impl TryFrom<AppListThreadTurnsRequest> for upstream::ThreadTurnsListParams {
-    type Error = RpcClientError;
-
-    fn try_from(value: AppListThreadTurnsRequest) -> Result<Self, Self::Error> {
-        Ok(Self {
-            thread_id: value.thread_id,
-            cursor: value.cursor,
-            limit: value.limit,
-            sort_direction: value.sort_direction.map(Into::into),
-            items_view: None,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Record)]
@@ -870,45 +839,6 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, uniffi::Record)]
 #[serde(rename_all = "camelCase")]
-pub struct AppAppendRealtimeAudioRequest {
-    pub thread_id: String,
-    pub audio: AppRealtimeAudioChunk,
-}
-
-impl From<AppAppendRealtimeAudioRequest> for upstream::ThreadRealtimeAppendAudioParams {
-    fn from(value: AppAppendRealtimeAudioRequest) -> Self {
-        Self {
-            thread_id: value.thread_id,
-            audio: upstream::ThreadRealtimeAudioChunk {
-                data: value.audio.data,
-                sample_rate: value.audio.sample_rate,
-                num_channels: value.audio.num_channels as u16,
-                samples_per_channel: value.audio.samples_per_channel,
-                item_id: value.audio.item_id,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, uniffi::Record)]
-#[serde(rename_all = "camelCase")]
-pub struct AppAppendRealtimeTextRequest {
-    pub thread_id: String,
-    pub text: String,
-}
-
-impl From<AppAppendRealtimeTextRequest> for upstream::ThreadRealtimeAppendTextParams {
-    fn from(value: AppAppendRealtimeTextRequest) -> Self {
-        Self {
-            thread_id: value.thread_id,
-            text: value.text,
-            role: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, uniffi::Record)]
-#[serde(rename_all = "camelCase")]
 pub struct AppStopRealtimeSessionRequest {
     pub thread_id: String,
 }
@@ -1110,58 +1040,6 @@ impl From<AppSearchFilesRequest> for upstream::FuzzyFileSearchParams {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Record)]
-pub struct AppExecCommandRequest {
-    pub command: Vec<String>,
-    pub process_id: Option<String>,
-    pub tty: bool,
-    pub stream_stdin: bool,
-    pub stream_stdout_stderr: bool,
-    pub output_bytes_cap: Option<u64>,
-    pub disable_output_cap: bool,
-    pub disable_timeout: bool,
-    pub timeout_ms: Option<i64>,
-    pub cwd: Option<String>,
-    pub sandbox_policy: Option<AppSandboxPolicy>,
-}
-
-impl TryFrom<AppExecCommandRequest> for upstream::CommandExecParams {
-    type Error = RpcClientError;
-
-    fn try_from(value: AppExecCommandRequest) -> Result<Self, Self::Error> {
-        Ok(Self {
-            command: value.command,
-            process_id: value.process_id,
-            tty: value.tty,
-            stream_stdin: value.stream_stdin,
-            stream_stdout_stderr: value.stream_stdout_stderr,
-            output_bytes_cap: value
-                .output_bytes_cap
-                .map(|cap| {
-                    usize::try_from(cap).map_err(|error| {
-                        RpcClientError::Serialization(format!(
-                            "output_bytes_cap out of range: {error}"
-                        ))
-                    })
-                })
-                .transpose()?,
-            disable_output_cap: value.disable_output_cap,
-            disable_timeout: value.disable_timeout,
-            timeout_ms: value.timeout_ms,
-            cwd: normalize_cwd(value.cwd).map(PathBuf::from),
-            env: None,
-            size: None,
-            sandbox_policy: value
-                .sandbox_policy
-                .map(sandbox_policy_into_upstream)
-                .transpose()?,
-            permission_profile: None,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-#[derive(uniffi::Record)]
 pub struct AppWriteConfigValueRequest {
     pub key_path: String,
     /// JSON-encoded value string.
@@ -1330,31 +1208,6 @@ mod tests {
         };
         let upstream_params: upstream::ThreadResumeParams = request.try_into().unwrap();
         assert_eq!(upstream_params.cwd, None);
-    }
-
-    #[test]
-    fn command_exec_request_normalizes_cwd() {
-        let request = AppExecCommandRequest {
-            command: vec!["cmd.exe".to_string(), "/c".to_string(), "dir".to_string()],
-            process_id: None,
-            tty: false,
-            stream_stdin: false,
-            stream_stdout_stderr: false,
-            output_bytes_cap: None,
-            disable_output_cap: false,
-            disable_timeout: false,
-            timeout_ms: None,
-            cwd: Some(r"C:\Users\npace\Users\npace".to_string()),
-            sandbox_policy: None,
-        };
-        let upstream_params: upstream::CommandExecParams = request.try_into().unwrap();
-        assert_eq!(
-            upstream_params
-                .cwd
-                .as_ref()
-                .map(|path| path.display().to_string()),
-            Some(r"C:\Users\npace".to_string())
-        );
     }
 
     #[test]

@@ -96,14 +96,3 @@ struct LaunchMarkView: View {
         .accessibilityLabel("Starting Litter")
     }
 }
-
-#if DEBUG
-#Preview("Cat mark") {
-    VStack(spacing: 32) {
-        CatMark(width: 104)
-        CatMark(width: 28, color: LitterTheme.textPrimary)
-    }
-    .padding()
-    .background(LitterTheme.backgroundGradient)
-}
-#endif

@@ -931,11 +931,3 @@ private struct TerminalGridSize: Equatable {
         rows = UInt16(max(4, min(120, computedRows)))
     }
 }
-
-#if DEBUG
-#Preview("Terminal") {
-    NavigationStack {
-        TerminalScreen(cwd: "/root")
-    }
-}
-#endif

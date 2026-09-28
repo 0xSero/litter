@@ -871,16 +871,3 @@ struct SessionsScreen: View {
     }
 
 }
-
-#if DEBUG
-#Preview("Sessions Screen") {
-    LitterPreviewScene(
-        appModel: LitterPreviewData.makeSidebarAppModel(),
-        appState: LitterPreviewData.makeAppState()
-    ) {
-        NavigationStack {
-            SessionsScreen(autoLoadSessions: false, onOpenConversation: { _ in })
-        }
-    }
-}
-#endif

@@ -70,11 +70,3 @@ struct ExperimentalFeaturesView: View {
         )
     }
 }
-
-#if DEBUG
-#Preview("Experimental Features") {
-    NavigationStack {
-        ExperimentalFeaturesView()
-    }
-}
-#endif

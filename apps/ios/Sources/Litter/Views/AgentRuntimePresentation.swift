@@ -223,15 +223,6 @@ extension AgentRuntimeKind {
         return displayLabel
     }
 
-    /// Sort index. Prefers metadata `sort_order`; otherwise drops to
-    /// the end, tie-broken by name.
-    var presentationSortIndex: Int {
-        if let order = metadata?.presentation?.sortOrder {
-            return Int(order)
-        }
-        return Int.max
-    }
-
     /// BETA badge driven by `presentation.is_beta` from alleycat. Codex is
     /// always treated as stable, including cold-start SSH/alleycat paths where
     /// metadata may not be cached yet. Other unknown agents stay beta by

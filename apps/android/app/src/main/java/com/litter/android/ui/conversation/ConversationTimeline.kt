@@ -2595,22 +2595,6 @@ private fun statusTint(status: AppOperationStatus): Color {
     }
 }
 
-@Composable
-private fun DurationChip(text: String, tint: Color) {
-    Box(
-        modifier = Modifier
-            .background(tint.copy(alpha = 0.10f), RoundedCornerShape(999.dp))
-            .border(0.5.dp, tint.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-    ) {
-        Text(
-            text = text,
-            color = tint,
-            fontSize = LitterTextStyle.footnote.scaled,
-        )
-    }
-}
-
 private fun formatDuration(ms: Long): String {
     return when {
         ms < 1000 -> "${ms}ms"

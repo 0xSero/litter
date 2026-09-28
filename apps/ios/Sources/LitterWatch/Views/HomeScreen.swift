@@ -432,30 +432,3 @@ private struct Badge: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("tasks") {
-    NavigationStack {
-        HomeScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("empty") {
-    NavigationStack {
-        HomeScreen()
-            .environmentObject(WatchAppStore())
-            .environmentObject(WatchThemeStore.shared)
-    }
-}
-
-#Preview("aod") {
-    NavigationStack {
-        HomeScreen()
-            .environmentObject(WatchAppStore.previewStore())
-            .environmentObject(WatchThemeStore.shared)
-            .environment(\.isLuminanceReduced, true)
-    }
-}
-#endif

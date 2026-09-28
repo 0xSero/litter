@@ -19,19 +19,9 @@ struct PreparedImageAttachment: Sendable {
     var userInput: AppUserInput {
         .image(url: dataURI)
     }
-
-    var chatImage: ChatImage {
-        ChatImage(data: data, mimeType: mimeType)
-    }
 }
 
 enum ConversationAttachmentSupport {
-    static let supportedImageFileContentTypes: [UTType] = [
-        .png,
-        .jpeg,
-        .gif,
-    ] + ["webp", "heic", "heif"].compactMap { UTType(filenameExtension: $0) }
-
     static let supportedFileContentTypes: [UTType] = [.data]
 
     static func prepareImage(_ image: UIImage) -> PreparedImageAttachment? {
@@ -47,20 +37,6 @@ enum ConversationAttachmentSupport {
         return await Task.detached(priority: .userInitiated) {
             images.compactMap { prepareImage($0) }
         }.value
-    }
-
-    static func loadImageFile(at url: URL) -> UIImage? {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        guard let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data) else {
-            return nil
-        }
-        return image
     }
 
     static func loadPickedFile(at url: URL) -> PickedComposerFile? {

@@ -44,10 +44,6 @@ final class TerminalSessionController {
         return false
     }
 
-    func openLocalIsh(cwd: String?) async {
-        await open(backend: .localIsh(cwd: normalized(cwd)))
-    }
-
     func open(backend: TerminalBackendKind) async {
         guard sessionId == nil else { return }
         eventGeneration &+= 1
@@ -131,10 +127,6 @@ final class TerminalSessionController {
         } catch {
             phase = .failed(error.localizedDescription)
         }
-    }
-
-    func sendLine(_ string: String) async {
-        await send(string + "\n")
     }
 
     func clearOutput() {
