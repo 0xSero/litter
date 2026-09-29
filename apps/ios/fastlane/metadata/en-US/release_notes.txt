@@ -1,6 +1,5 @@
-Your computers, everywhere.
+Faster reconnects.
 
-- Computers you pair appear on your other Apple devices signed into the same iCloud account.
 - Reconnecting after you return to the app is faster.
 - Conversations sit in a centered reading column on iPad and Mac.
 - Pairing uses Kittylitter 0.3.11 with faster session loading.
