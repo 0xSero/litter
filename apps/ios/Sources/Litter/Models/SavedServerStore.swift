@@ -17,99 +17,11 @@ enum SavedServerStore {
     private static var cachedServers: [SavedServer] = []
 
     static func save(_ servers: [SavedServer]) {
-        persist(reconcileWithCloud(servers))
-    }
-
-    private static func persist(_ servers: [SavedServer]) {
         guard let data = try? JSONEncoder().encode(servers) else { return }
         UserDefaults.standard.set(data, forKey: savedServersKey)
         cachedRaw = data
         cachedServers = servers
         NotificationCenter.default.post(name: .litterSavedServersDidChange, object: nil)
-    }
-
-    // MARK: - iCloud sync
-
-    /// Ledger shared with the user's other devices through `CloudKVSBridge`.
-    private static let syncedComputersKey = "litter.syncedComputers"
-    /// This device's copy of the ledger. Not synced.
-    private static let computerLedgerKey = "litter.syncedComputers.ledger"
-
-    /// Computers that any of the user's devices can reach with what syncs:
-    /// Kittylitter hosts (token-only auth; tokens sync via iCloud Keychain)
-    /// and direct Codex URLs. Local Studio grants are bound to one device's
-    /// key, SSH keys never leave the device, and ChatGPT-connected computers
-    /// need that device's own sign-in, so those stay local.
-    static func isCloudSyncable(_ server: SavedServer) -> Bool {
-        guard server.rememberedByUser, server.source != .local, server.source != .ssh else { return false }
-        guard !server.id.hasPrefix("slingshot-") else { return false }
-        guard server.preferredConnectionMode != .ssh, server.alleycatAgentWire != "ssh-bridge" else { return false }
-        if server.alleycatNodeId != nil {
-            return !server.id.hasPrefix("alleycat:local-studio:")
-        }
-        return server.alleycatHost == nil
-    }
-
-    /// Re-merge after another device changed the shared ledger.
-    static func syncWithCloud() {
-        AlleycatCredentialStore.shared.clearCache()
-        let current = load()
-        let merged = reconcileWithCloud(current)
-        if merged != current {
-            persist(merged)
-        }
-    }
-
-    /// Records this device's syncable computers in the ledger, merges in the
-    /// ledger from other devices, and returns the saved list the merge
-    /// implies. The merge policy lives in Rust (`cloud_sync::computers`).
-    private static func reconcileWithCloud(_ servers: [SavedServer]) -> [SavedServer] {
-        let defaults = UserDefaults.standard
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        for server in servers where isCloudSyncable(server) {
-            if let nodeId = server.alleycatNodeId {
-                AlleycatCredentialStore.shared.makeSynchronizable(nodeId: nodeId)
-            }
-        }
-        let local = servers.filter(isCloudSyncable).compactMap { server -> SyncedComputer? in
-            guard let data = try? encoder.encode(server),
-                  let json = String(data: data, encoding: .utf8) else { return nil }
-            return SyncedComputer(id: server.id, payloadJson: json)
-        }
-        let remote = defaults.string(forKey: syncedComputersKey)
-        let result = cloudSyncReconcileComputers(
-            ledgerJson: defaults.string(forKey: computerLedgerKey),
-            local: local,
-            remoteJson: remote,
-            nowMs: Int64(Date().timeIntervalSince1970 * 1000)
-        )
-        defaults.set(result.ledgerJson, forKey: computerLedgerKey)
-        if remote != result.ledgerJson {
-            // Observed by CloudKVSBridge, which pushes it to other devices.
-            defaults.set(result.ledgerJson, forKey: syncedComputersKey)
-        }
-
-        let decoder = JSONDecoder()
-        var synced: [String: SavedServer] = [:]
-        for computer in result.computers {
-            guard let data = computer.payloadJson.data(using: .utf8),
-                  let server = try? decoder.decode(SavedServer.self, from: data) else { continue }
-            synced[computer.id] = server
-        }
-        // Keep this device's order; computers added elsewhere go last.
-        var merged: [SavedServer] = []
-        for server in servers {
-            if isCloudSyncable(server) {
-                if let updated = synced.removeValue(forKey: server.id) {
-                    merged.append(updated)
-                }
-            } else {
-                merged.append(server)
-            }
-        }
-        merged.append(contentsOf: synced.values.sorted { $0.name < $1.name })
-        return merged
     }
 
     static func load() -> [SavedServer] {

@@ -422,6 +422,10 @@ jobs:
       - plan
       - host
     runs-on: "ubuntu-22.04"
+    # npm trusts this repo's release.yml only when it runs in the npm-publish
+    # environment, which GitHub restricts to `main`. A dispatch from any
+    # other branch cannot get a publish token.
+    environment: npm-publish
     permissions:
       "id-token": "write"
       "contents": "read"
