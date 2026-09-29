@@ -1,6 +1,5 @@
-Faster everywhere.
+Faster reconnects.
 
-- Back is instant.
-- Connections go straight to your computer instead of through a relay after the first launch.
-- All agents on a computer share one connection, so switching networks reconnects once.
-- Launch and new chats no longer wait on a hidden keyboard warmup.
+- Reconnecting after you return to the app is faster.
+- Conversations sit in a centered reading column on tablets.
+- Pairing uses Kittylitter 0.3.11 with faster session loading.

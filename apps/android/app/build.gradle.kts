@@ -33,8 +33,8 @@ android {
         applicationId = "com.sigkitten.litter.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 210020030
-        versionName = "2.1.8"
+        versionCode = 210020040
+        versionName = "2.1.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += supportedAbis
