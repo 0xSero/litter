@@ -28,11 +28,9 @@ extension View {
 /// Quiet first-run hints for the empty home screen.
 ///
 /// Design rules: mono footnote (follows Dynamic Type), gray, lowercase, no
-/// accent colour. The add-server hint hangs directly below the server pill
-/// with a thin straight hairline; the bottom-bar hints are one left-aligned
-/// block anchored above the bottom buttons. Every hint wraps within the
-/// container's 16pt gutters, so nothing clips or overlaps at any iPhone
-/// width or text size.
+/// accent colour. The bottom-bar hints are one left-aligned block anchored
+/// above the bottom buttons, wrapping within the container's 16pt gutters so
+/// nothing clips or overlaps at any iPhone width or text size.
 struct OnboardingCoachmarksView: View {
     let anchors: [CoachmarkTarget: Anchor<CGRect>]
 
@@ -42,9 +40,6 @@ struct OnboardingCoachmarksView: View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack(alignment: .topLeading) {
-                if let anchor = anchors[.addServer] {
-                    addServerHint(target: proxy[anchor], container: size)
-                }
                 bottomHints(container: size, bottomTop: bottomBarTop(in: proxy))
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -58,18 +53,6 @@ struct OnboardingCoachmarksView: View {
     private func bottomBarTop(in proxy: GeometryProxy) -> CGFloat {
         let tops = [CoachmarkTarget.newThread, .search].compactMap { anchors[$0].map { proxy[$0].minY } }
         return tops.min() ?? (proxy.size.height - 72)
-    }
-
-    private func addServerHint(target: CGRect, container: CGSize) -> some View {
-        let x = max(gutter, target.minX + 12)
-        return VStack(alignment: .leading, spacing: 6) {
-            Rectangle()
-                .fill(LitterTheme.textMuted.opacity(0.5))
-                .frame(width: 1, height: 18)
-            hint("add a remote computer, if you have one")
-        }
-        .frame(width: max(0, container.width - x - gutter), alignment: .leading)
-        .offset(x: x, y: target.maxY + 6)
     }
 
     private func bottomHints(container: CGSize, bottomTop: CGFloat) -> some View {

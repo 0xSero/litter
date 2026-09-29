@@ -494,7 +494,13 @@ struct AlleycatAddServerSheet: View {
                 // saved-server record. Reconnect re-reads the token and surfaces
                 // a re-pair prompt if it is genuinely missing.
                 do {
-                    try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
+                    // Kittylitter computers sync to the user's other devices;
+                    // Local Studio grants are bound to this device's key.
+                    try AlleycatCredentialStore.shared.saveToken(
+                        params.token,
+                        nodeId: params.nodeId,
+                        synchronizable: pairingMode == .kittylitter
+                    )
                 } catch {
                     LLog.error("alleycat", "keychain save failed after successful pair", error: error)
                 }

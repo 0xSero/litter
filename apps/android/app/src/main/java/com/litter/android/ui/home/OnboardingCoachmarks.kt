@@ -73,17 +73,6 @@ private data class CoachmarkItem(
 
 private val coachmarkItems = listOf(
     CoachmarkItem(
-        id = CoachmarkTarget.AddServer,
-        primary = "add a remote computer",
-        secondary = "if you have one",
-        positionX = 0.55f,
-        positionY = 0.20f,
-        labelWidth = 200.dp,
-        labelAlignment = CoachmarkLabelAlignment.Center,
-        style = CoachmarkLineStyle.SmoothCurve,
-        isPrimary = false,
-    ),
-    CoachmarkItem(
         id = CoachmarkTarget.Search,
         primary = "see all\nyour threads",
         secondary = null,
