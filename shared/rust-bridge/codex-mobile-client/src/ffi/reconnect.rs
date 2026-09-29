@@ -20,6 +20,8 @@ use tracing::{info, warn};
 
 /// Max concurrent account probes when the app becomes active.
 const ACCOUNT_PROBE_CONCURRENCY: usize = 4;
+/// Deadline for a single account probe.
+const ACCOUNT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn normalized_local_display_name(value: &str) -> Option<String> {
     let trimmed = value.trim();
@@ -254,51 +256,7 @@ impl ReconnectController {
         // foreign async executor.
         let _ = self
             .rt
-            .spawn(async move {
-                let snapshot = inner.app_snapshot();
-                let remote_connected: Vec<String> = snapshot
-                    .servers
-                    .values()
-                    .filter(|s| {
-                        !s.is_local
-                            && s.health == ServerHealthSnapshot::Connected
-                            && server_supports_account_probe(s)
-                    })
-                    .map(|s| s.server_id.clone())
-                    .collect();
-
-                futures::stream::iter(remote_connected)
-                    .map(|server_id| {
-                        let inner = Arc::clone(&inner);
-                        async move {
-                            let request = upstream::ClientRequest::GetAccount {
-                                request_id: upstream::RequestId::Integer(next_request_id()),
-                                params: upstream::GetAccountParams {
-                                    refresh_token: false,
-                                },
-                            };
-                            match inner
-                                .request_typed_for_server::<upstream::GetAccountResponse>(
-                                    &server_id, request,
-                                )
-                                .await
-                            {
-                                Ok(response) => {
-                                    inner.apply_account_response(&server_id, &response);
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "ReconnectController: probe failed server_id={} error={}",
-                                        server_id, e
-                                    );
-                                }
-                            }
-                        }
-                    })
-                    .buffer_unordered(ACCOUNT_PROBE_CONCURRENCY)
-                    .collect::<Vec<()>>()
-                    .await;
-            })
+            .spawn(probe_active_remote_servers_inner(inner))
             .await
             .inspect_err(|error| {
                 warn!("ReconnectController: probe_active_remote_servers task failed: {error}");
@@ -314,7 +272,10 @@ impl ReconnectController {
         // run for transports that can't recover on their own.
         self.notify_network_change().await;
         let results = self.reconnect_saved_servers().await;
-        self.probe_active_remote_servers().await;
+        // Account probes only refresh account state; they must not hold up
+        // the reconnect result the UI waits on.
+        let inner = Arc::clone(&self.inner);
+        self.rt.spawn(probe_active_remote_servers_inner(inner));
         results
     }
 
@@ -387,6 +348,53 @@ impl ReconnectController {
     }
 }
 
+/// Refresh account state on every connected remote. Each probe has a
+/// deadline because `account/read` has none on the wire, and one hung
+/// remote would otherwise hold a probe slot forever.
+async fn probe_active_remote_servers_inner(inner: Arc<MobileClient>) {
+    let snapshot = inner.app_snapshot();
+    let remote_connected: Vec<String> = snapshot
+        .servers
+        .values()
+        .filter(|s| {
+            !s.is_local
+                && s.health == ServerHealthSnapshot::Connected
+                && server_supports_account_probe(s)
+        })
+        .map(|s| s.server_id.clone())
+        .collect();
+
+    futures::stream::iter(remote_connected)
+        .map(|server_id| {
+            let inner = Arc::clone(&inner);
+            async move {
+                let request = upstream::ClientRequest::GetAccount {
+                    request_id: upstream::RequestId::Integer(next_request_id()),
+                    params: upstream::GetAccountParams {
+                        refresh_token: false,
+                    },
+                };
+                let probe = inner.request_typed_for_server::<upstream::GetAccountResponse>(
+                    &server_id, request,
+                );
+                match tokio::time::timeout(ACCOUNT_PROBE_TIMEOUT, probe).await {
+                    Ok(Ok(response)) => inner.apply_account_response(&server_id, &response),
+                    Ok(Err(e)) => warn!(
+                        "ReconnectController: probe failed server_id={} error={}",
+                        server_id, e
+                    ),
+                    Err(_) => warn!(
+                        "ReconnectController: probe timed out server_id={}",
+                        server_id
+                    ),
+                }
+            }
+        })
+        .buffer_unordered(ACCOUNT_PROBE_CONCURRENCY)
+        .collect::<Vec<()>>()
+        .await;
+}
+
 async fn reconnect_saved_servers_inner(
     inner: Arc<MobileClient>,
     saved_servers: Arc<RwLock<Vec<SavedServerRecord>>>,
@@ -397,11 +405,16 @@ async fn reconnect_saved_servers_inner(
     multi_clanker_and_quic_enabled: bool,
     reconnect_guard: Arc<tokio::sync::Mutex<()>>,
 ) -> Vec<ReconnectResult> {
+    // Launch fires several triggers at once (first task, scene phase,
+    // reachability). Wait for an in-flight pass instead of returning an
+    // empty result: an empty result made callers clear their "connecting"
+    // state while the first pass was still dialing. The follow-up pass is
+    // cheap because it skips servers that are already connected.
     let guard = match reconnect_guard.try_lock() {
         Ok(guard) => guard,
         Err(_) => {
-            info!("ReconnectController: reconnect already in progress; skipping");
-            return Vec::new();
+            info!("ReconnectController: reconnect already in progress; waiting for it");
+            reconnect_guard.lock().await
         }
     };
 

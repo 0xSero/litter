@@ -219,7 +219,7 @@ ANDROID_RUST_SOURCES := $(shell find $(RUST_DIR) \
 
 $(shell mkdir -p $(STAMPS))
 
-.PHONY: all ios ios-sim ios-sim-fast ios-sim-run ios-sim-launch ios-device ios-device-fast ios-device-run ios-device-launch ios-device-stop ios-run verify-ios-project catalyst catalyst-run catalyst-fast catalyst-fast-run mac-direct mac-direct-run mac-direct-fast mac-direct-fast-run \
+.PHONY: rust-target-prune all ios ios-sim ios-sim-fast ios-sim-run ios-sim-launch ios-device ios-device-fast ios-device-run ios-device-launch ios-device-stop ios-run verify-ios-project catalyst catalyst-run catalyst-fast catalyst-fast-run mac-direct mac-direct-run mac-direct-fast mac-direct-fast-run \
 	android android-fast android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
 	rust-ios rust-ios-package rust-ios-device-release rust-mac-release rust-ios-device-fast rust-ios-sim-fast rust-ios-macabi-fast rust-android rust-check rust-test rust-host-dev \
 	ios-xcode-sim ios-xcode-sim-fast ios-xcode-device ios-xcode-device-fast \
@@ -440,7 +440,12 @@ android-release: $(MATERIAL_SCHEMES_OUTPUT) android-alpine-fs proot-android
 
 rust-ios: rust-ios-package
 
-alleycat-main:
+# Every Rust build depends on alleycat-main, so the target size cap runs
+# before each one. Override with LITTER_RUST_TARGET_MAX_GB (0 disables).
+rust-target-prune:
+	@$(ROOT)/tools/scripts/prune-rust-target.sh "$(RUST_TARGET)"
+
+alleycat-main: rust-target-prune
 	@$(UPDATE_ALLEYCAT_MAIN) --all
 
 rust-ios-package: alleycat-main $(STAMP_SYNC) $(STAMP_GHOSTTY_IOS)
