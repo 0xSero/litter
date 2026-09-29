@@ -47,6 +47,11 @@ echo "==> Installing fs"
 # then `rm -rf` the renamed dir. If even rename fails, fall back to
 # in-place rm with a retry.
 mkdir -p "$RESOURCES_DIR"
+# A stray symlink (even a self-referencing one) is not a directory to `-d`;
+# drop it so the tarball extracts into a real directory.
+if [ -L "$RESOURCES_DIR/fs" ]; then
+    rm -f "$RESOURCES_DIR/fs"
+fi
 if [ -d "$RESOURCES_DIR/fs" ]; then
     staging="$RESOURCES_DIR/.fs.old-$$"
     if mv "$RESOURCES_DIR/fs" "$staging" 2>/dev/null; then

@@ -447,6 +447,9 @@ private struct ConversationBottomChrome: View {
             )
             .background(.clear, ignoresSafeAreaEdges: .bottom)
         }
+        // Line the composer up with the transcript column on wide surfaces.
+        .frame(maxWidth: LitterSpace.readableColumn + LitterSpace.margin * 2)
+        .frame(maxWidth: .infinity)
         .padding(.bottom, 4)
         .background(
             LinearGradient(
@@ -570,7 +573,6 @@ private struct ConversationScrollLayout: Equatable {
 }
 
 struct ConversationMessageList: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let items: [ConversationItem]
     let threadStatus: ConversationStatus
     let threadHasServerData: Bool
@@ -666,7 +668,10 @@ struct ConversationMessageList: View {
 
                         }
                         .scrollTargetLayout()
-                        .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
+                        // Fill the column even when the loaded rows are
+                        // narrow, so the transcript keeps a fixed width.
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: LitterSpace.readableColumn)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, LitterSpace.margin)
                         // Navigation owns the safe-area header. This keeps

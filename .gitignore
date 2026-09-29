@@ -18,7 +18,8 @@ DerivedData/
 apps/android/.gradle/
 apps/ios/Frameworks/
 apps/ios/GeneratedRust/
-apps/ios/Resources/fs/
+# No trailing slash: also ignore a symlink at this path.
+apps/ios/Resources/fs
 apps/ios/Litter.xcodeproj/Litter.xcodeproj/
 apps/ios/fastlane/report.xml
 apps/ios/fastlane/screenshots/
