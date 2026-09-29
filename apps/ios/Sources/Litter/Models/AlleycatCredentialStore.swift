@@ -37,6 +37,8 @@ final class AlleycatCredentialStore {
         cacheLock.unlock()
         if let cached { return cached }
 
+        // Match device-only and iCloud items: a pre-release build could move
+        // tokens to iCloud Keychain, and those must still be found.
         let query = baseQuery(nodeId: nodeId).merging([
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
             kSecReturnData as String: true,
@@ -53,6 +55,9 @@ final class AlleycatCredentialStore {
                   let token = String(data: data, encoding: .utf8), !token.isEmpty else {
                 throw AlleycatCredentialStoreError.decodingFailed
             }
+            if (attributes[kSecAttrSynchronizable as String] as? Bool) == true {
+                moveToDeviceOnly(token, nodeId: nodeId)
+            }
             cacheLock.lock()
             tokenCache[key] = token
             cacheLock.unlock()
@@ -64,24 +69,30 @@ final class AlleycatCredentialStore {
         }
     }
 
-    /// Saves the token device-only by default. Pass `synchronizable: true`
-    /// only for computers that sync across devices (Kittylitter hosts, which
-    /// authenticate by token alone): the token then goes to iCloud Keychain,
-    /// which is end-to-end encrypted, so the user's other devices can connect.
-    func saveToken(_ token: String, nodeId: String, synchronizable: Bool = false) throws {
+    /// Tokens are device-only: `AfterFirstUnlockThisDeviceOnly`, never
+    /// synchronizable. Adds the item, or updates it in place if it exists,
+    /// so a failed write never removes a working token.
+    func saveToken(_ token: String, nodeId: String) throws {
         guard let data = token.data(using: .utf8) else {
             throw AlleycatCredentialStoreError.encodingFailed
         }
 
-        try deleteKeychainItems(nodeId: nodeId)
-        let attributes = baseQuery(nodeId: nodeId).merging([
-            kSecAttrSynchronizable as String: synchronizable,
-            kSecAttrAccessible as String: synchronizable
-                ? kSecAttrAccessibleAfterFirstUnlock
-                : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        let query = baseQuery(nodeId: nodeId).merging([
+            kSecAttrSynchronizable as String: false
+        ]) { _, new in new }
+        let attributes = query.merging([
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: data
         ]) { _, new in new }
-        let status = SecItemAdd(attributes as CFDictionary, nil)
+
+        var status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let updates: [String: Any] = [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            ]
+            status = SecItemUpdate(query as CFDictionary, updates as CFDictionary)
+        }
         guard status == errSecSuccess else {
             throw AlleycatCredentialStoreError.keychain(status)
         }
@@ -90,56 +101,30 @@ final class AlleycatCredentialStore {
         cacheLock.unlock()
     }
 
-    private var synchronizedNodeIds: Set<String> = []
-
-    /// Moves a device-only token (saved before iCloud sync) to iCloud
-    /// Keychain. Called for computers that sync, so a computer that appears
-    /// on another device also brings its credential. No-op once done.
-    func makeSynchronizable(nodeId: String) {
-        let key = normalizedNodeId(nodeId)
-        cacheLock.lock()
-        let done = synchronizedNodeIds.contains(key)
-        cacheLock.unlock()
-        guard !done else { return }
-
-        let query = baseQuery(nodeId: nodeId).merging([
-            kSecAttrSynchronizable as String: false,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]) { _, new in new }
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-           let data = item as? Data,
-           let token = String(data: data, encoding: .utf8), !token.isEmpty {
-            do {
-                try saveToken(token, nodeId: nodeId, synchronizable: true)
-            } catch {
-                LLog.error("alleycat", "moving token to iCloud Keychain failed", error: error)
-                return
-            }
+    /// Moves a token that a pre-release build put in iCloud Keychain back to
+    /// device-only. Writes the device-only copy first and deletes the iCloud
+    /// copy only once that succeeded, so the token is never lost.
+    private func moveToDeviceOnly(_ token: String, nodeId: String) {
+        do {
+            try saveToken(token, nodeId: nodeId)
+        } catch {
+            LLog.error("alleycat", "moving token to device-only keychain failed", error: error)
+            return
         }
-        cacheLock.lock()
-        synchronizedNodeIds.insert(key)
-        cacheLock.unlock()
-    }
-
-    /// Drop cached tokens so the next read sees iCloud Keychain changes made
-    /// on another device (for example a re-pair with a new token).
-    func clearCache() {
-        cacheLock.lock()
-        tokenCache.removeAll()
-        cacheLock.unlock()
+        let synced = baseQuery(nodeId: nodeId).merging([
+            kSecAttrSynchronizable as String: true
+        ]) { _, new in new }
+        let status = SecItemDelete(synced as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            LLog.error("alleycat", "deleting iCloud keychain token failed", error: AlleycatCredentialStoreError.keychain(status))
+        }
     }
 
     func deleteToken(nodeId: String) throws {
         cacheLock.lock()
         tokenCache[normalizedNodeId(nodeId)] = nil
         cacheLock.unlock()
-        try deleteKeychainItems(nodeId: nodeId)
-    }
-
-    /// Deletes both the device-only and the iCloud copy.
-    private func deleteKeychainItems(nodeId: String) throws {
+        // Both the device-only item and any iCloud copy.
         let query = baseQuery(nodeId: nodeId).merging([
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
         ]) { _, new in new }

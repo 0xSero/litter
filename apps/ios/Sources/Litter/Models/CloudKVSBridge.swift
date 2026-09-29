@@ -78,7 +78,6 @@ final class CloudKVSBridge {
         // initial sync.
         store.synchronize()
         applyEnvelopeFromStore()
-        SavedServerStore.syncWithCloud()
         scheduleExport()
     }
 
@@ -122,8 +121,7 @@ final class CloudKVSBridge {
             )
             applyWritebacks(writebacks)
             lastAppliedEnvelopeHash = hash
-            SavedServerStore.syncWithCloud()
-            NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
+                NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         } catch {
             LLog.warn(
                 "cloud_sync",

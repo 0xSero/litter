@@ -26,8 +26,6 @@
 //! `PLATFORM_KEYS`). Anything not in that set is round-tripped through the
 //! Rust-owned `mobile_prefs.json` side of the envelope.
 
-pub mod computers;
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -60,9 +58,6 @@ const PLATFORM_KEYS: &[&str] = &[
     "collapseTurns",
     "litter.debugSettings",
     "litter.experimentalFeatures",
-    // Saved-computer ledger (see `computers.rs`). A string holding canonical
-    // ledger JSON; the platform merges it rather than taking it verbatim.
-    "litter.syncedComputers",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
