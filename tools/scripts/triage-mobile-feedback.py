@@ -55,8 +55,7 @@ def parse_timestamp(value: str) -> dt.datetime:
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
     parsed = dt.datetime.fromisoformat(raw)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+    # Naive values use the local offset for their own date, including DST.
     return parsed.astimezone(UTC)
 
 
