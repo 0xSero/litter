@@ -1978,7 +1978,6 @@ private struct ConversationDestinationScreen: View {
     var body: some View {
         Group {
             if let conversationThread {
-                @Bindable var bindableScreenModel = screenModel
                 ConversationView(
                     thread: conversationThread,
                     activeThreadKey: resolvedThreadKey,
@@ -1989,8 +1988,7 @@ private struct ConversationDestinationScreen: View {
                     resolveTargetLabel: screenModel.resolveTargetLabel,
                     resolveThreadKey: screenModel.resolveThreadKey,
                     resolveLiveStatus: screenModel.resolveLiveStatus,
-                    composerInputText: $bindableScreenModel.composerInputText,
-                    composerAttachedImages: $bindableScreenModel.composerAttachedImages,
+                    composerDraft: screenModel.composerDraft,
                     topInset: 4,
                     bottomInset: bottomInset,
                     onOpenConversation: onOpenConversation,
@@ -2108,7 +2106,6 @@ private struct ReplayDestinationScreen: View {
     var body: some View {
         Group {
             if let thread = conversationThread, let key = replayThreadKey {
-                @Bindable var bindableScreenModel = screenModel
                 ConversationView(
                     thread: thread,
                     activeThreadKey: key,
@@ -2119,8 +2116,7 @@ private struct ReplayDestinationScreen: View {
                     resolveTargetLabel: screenModel.resolveTargetLabel,
                     resolveThreadKey: screenModel.resolveThreadKey,
                     resolveLiveStatus: screenModel.resolveLiveStatus,
-                    composerInputText: $bindableScreenModel.composerInputText,
-                    composerAttachedImages: $bindableScreenModel.composerAttachedImages,
+                    composerDraft: screenModel.composerDraft,
                     topInset: 0,
                     bottomInset: bottomInset,
                     onOpenConversation: nil,

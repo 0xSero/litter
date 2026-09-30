@@ -1989,9 +1989,6 @@ struct ConversationPinnedContextStrip: View {
 
     init(items: [ConversationItem]) {
         self.items = items
-        _cachedCombinedPinnedDiff = State(
-            initialValue: Self.buildCombinedPinnedDiff(from: items)
-        )
     }
 
     var body: some View {
@@ -2023,7 +2020,10 @@ struct ConversationPinnedContextStrip: View {
                 sections: presentedDiff.sections
             )
         }
-        .onChange(of: pinnedDiffTaskKey, initial: false) { _, _ in
+        // Built only when the pinned items change. Building it in `init`
+        // ran on every parent re-render, although SwiftUI keeps only the
+        // first `@State` initial value.
+        .onChange(of: pinnedDiffTaskKey, initial: true) { _, _ in
             cachedCombinedPinnedDiff = Self.buildCombinedPinnedDiff(from: items)
         }
     }

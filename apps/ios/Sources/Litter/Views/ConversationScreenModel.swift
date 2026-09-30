@@ -106,13 +106,14 @@ final class ConversationScreenModel {
     /// ConversationToolbarControls via param instead of
     /// `appModel.snapshot` in body (which would create a per-token edge).
     private(set) var serverSnapshot: AppServerSnapshot?
-    /// Live composer draft. Lifted out of `ConversationInputBar` so it
-    /// survives view teardown when `ConversationDestinationScreen` flips
-    /// through its `if let conversationThread` branch during foreground
-    /// refresh — otherwise typed-but-unsent text and pasted attachments
-    /// vanish on app switch.
-    var composerInputText: String = ""
-    var composerAttachedImages: [UIImage] = []
+    /// Live composer draft. Owned here so it survives view teardown when
+    /// `ConversationDestinationScreen` flips through its
+    /// `if let conversationThread` branch during foreground refresh —
+    /// otherwise typed-but-unsent text and pasted attachments vanish on app
+    /// switch. A separate object, passed down by reference, so only the
+    /// composer observes keystrokes: a binding to a property here made every
+    /// keystroke re-render the whole conversation screen and transcript.
+    let composerDraft = ConversationComposerDraft()
 
     /// Precomputed closure that resolves agent target labels from a captured
     /// snapshot of `sessionSummaries`. Reading `appModel.snapshot` inside a
@@ -165,8 +166,8 @@ final class ConversationScreenModel {
             minigameTask?.cancel()
             minigameTask = nil
             minigameOverlay = .idle
-            composerInputText = ""
-            composerAttachedImages = []
+            composerDraft.text = ""
+            composerDraft.attachedImages = []
         }
 
         refreshState()
@@ -573,3 +574,11 @@ extension ConversationScreenModel {
     }
 }
 #endif
+
+/// The conversation composer's unsent text and attachments.
+@MainActor
+@Observable
+final class ConversationComposerDraft {
+    var text: String = ""
+    var attachedImages: [UIImage] = []
+}

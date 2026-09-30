@@ -21,8 +21,7 @@ struct ConversationView: View {
     var resolveTargetLabel: (String) -> String?
     var resolveThreadKey: (String) -> ThreadKey?
     var resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
-    @Binding var composerInputText: String
-    @Binding var composerAttachedImages: [UIImage]
+    let composerDraft: ConversationComposerDraft
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
@@ -146,8 +145,7 @@ struct ConversationView: View {
                 ConversationBottomChrome(
                     pinnedContextItems: pinnedContextItems,
                     composer: composer,
-                    composerInputText: $composerInputText,
-                    composerAttachedImages: $composerAttachedImages,
+                    composerDraft: composerDraft,
                     onSend: sendMessage,
                     onFileSearch: searchComposerFiles,
                     bottomInset: bottomInset,
@@ -412,12 +410,22 @@ private extension AppThreadSnapshot {
     }
 }
 
+/// Builds the draft bindings inside a leaf so keystrokes invalidate only the
+/// composer, not the conversation screen that holds the draft.
+private struct ComposerDraftBinder<Content: View>: View {
+    @Bindable var draft: ConversationComposerDraft
+    @ViewBuilder let content: (Binding<String>, Binding<[UIImage]>) -> Content
+
+    var body: some View {
+        content($draft.text, $draft.attachedImages)
+    }
+}
+
 private struct ConversationBottomChrome: View {
     @Environment(AppModel.self) private var appModel
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
-    @Binding var composerInputText: String
-    @Binding var composerAttachedImages: [UIImage]
+    let composerDraft: ConversationComposerDraft
     let onSend: (String, [UIImage], [ComposerFileAttachment], [SkillMentionSelection], [PluginMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
@@ -433,18 +441,20 @@ private struct ConversationBottomChrome: View {
             ConversationPinnedContextStrip(
                 items: pinnedContextItems
             )
-            ConversationInputBar(
-                snapshot: composer,
-                onSend: onSend,
-                onFileSearch: onFileSearch,
-                bottomInset: bottomInset,
-                showModeChip: !hasPinnedDiff,
-                onOpenModePicker: openCollaborationModePicker,
-                onOpenConversation: onOpenConversation,
-                onResumeSessions: onResumeSessions,
-                inputText: $composerInputText,
-                attachedImages: $composerAttachedImages
-            )
+            ComposerDraftBinder(draft: composerDraft) { text, images in
+                ConversationInputBar(
+                    snapshot: composer,
+                    onSend: onSend,
+                    onFileSearch: onFileSearch,
+                    bottomInset: bottomInset,
+                    showModeChip: !hasPinnedDiff,
+                    onOpenModePicker: openCollaborationModePicker,
+                    onOpenConversation: onOpenConversation,
+                    onResumeSessions: onResumeSessions,
+                    inputText: text,
+                    attachedImages: images
+                )
+            }
             .background(.clear, ignoresSafeAreaEdges: .bottom)
         }
         // Line the composer up with the transcript column on wide surfaces.
