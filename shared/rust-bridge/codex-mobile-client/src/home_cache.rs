@@ -89,8 +89,13 @@ impl From<CachedSession> for AppSessionSummary {
         summary.agent_runtime_kind = cached.agent_runtime_kind;
         summary.server_display_name = cached.server_display_name;
         summary.server_host = cached.server_host;
-        summary.title = cached.title;
-        summary.preview = cached.preview;
+        // Entries cached by older builds may hold raw Claude Code wrapper
+        // markup; clean them the same way live thread metadata is cleaned.
+        summary.title = crate::thread_display_text::sanitize_thread_display_text(&cached.title)
+            .unwrap_or_else(|| "Untitled session".to_string());
+        summary.preview =
+            crate::thread_display_text::sanitize_thread_display_text(&cached.preview)
+                .unwrap_or_default();
         summary.cwd = cached.cwd;
         summary.model = cached.model;
         summary.model_provider = cached.model_provider;

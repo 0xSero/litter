@@ -193,14 +193,12 @@ impl From<upstream::Thread> for ThreadInfo {
 
         Self {
             id: thread.id,
-            title: thread.name,
+            // Bridges derive names/previews from transcript text, which can
+            // carry Claude Code wrapper markup (`<local-command-caveat>` …).
+            title: crate::thread_display_text::sanitize_optional_thread_display_text(thread.name),
             model: None,
             status: ThreadSummaryStatus::from(thread.status),
-            preview: if thread.preview.is_empty() {
-                None
-            } else {
-                Some(thread.preview)
-            },
+            preview: crate::thread_display_text::sanitize_thread_display_text(&thread.preview),
             cwd: Some(thread.cwd.to_string_lossy().to_string()),
             path: match thread.path {
                 Some(path) => Some(path.to_string_lossy().to_string()),

@@ -175,6 +175,7 @@ pub mod store;
 pub mod terminal;
 mod thread_modes;
 pub mod transport;
+pub mod thread_display_text;
 pub mod types;
 pub mod widget_guidelines;
 
