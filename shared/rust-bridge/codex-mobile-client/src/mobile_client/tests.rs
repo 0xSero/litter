@@ -1592,7 +1592,11 @@ mod mobile_client_tests {
             .expect("snapshot after fallback resume");
         assert_eq!(snapshot.items.len(), 1);
         assert!(snapshot.initial_turns_loaded);
-        assert!(!client.app_store.server_supports_turn_pagination(server_id));
+        assert!(
+            !client
+                .app_store
+                .runtime_supports_turn_pagination(server_id, "codex")
+        );
     }
 
     #[tokio::test]
@@ -1721,7 +1725,18 @@ mod mobile_client_tests {
             .expect("thread snapshot after force refresh");
         assert_eq!(snapshot.active_turn_id, None);
         assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
-        assert!(client.app_store.server_supports_turn_pagination(server_id));
+        // The amp miss is recorded for amp only; codex on the same host
+        // keeps paging.
+        assert!(
+            client
+                .app_store
+                .runtime_supports_turn_pagination(server_id, "codex")
+        );
+        assert!(
+            !client
+                .app_store
+                .runtime_supports_turn_pagination(server_id, "amp")
+        );
     }
 
     #[tokio::test]
@@ -1971,7 +1986,7 @@ mod mobile_client_tests {
             .expect("initial resume should succeed");
         client
             .app_store
-            .set_server_supports_turn_pagination(server_id, false);
+            .set_runtime_turn_pagination(server_id, "codex", TurnPaginationSupport::Unsupported);
         client
             .external_resume_thread(server_id, thread_id, None)
             .await
@@ -2012,7 +2027,7 @@ mod mobile_client_tests {
             .upsert_server(&config, ServerHealthSnapshot::Connected);
         client
             .app_store
-            .set_server_supports_turn_pagination(server_id, false);
+            .set_runtime_turn_pagination(server_id, "codex", TurnPaginationSupport::Unsupported);
 
         let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
         let request_handler: TestRequestHandler = {
@@ -2580,5 +2595,330 @@ mod mobile_client_tests {
     #[tokio::test]
     async fn send_after_interrupt_with_completion_event_starts_new_turn() {
         assert_send_after_interrupt_starts_new_turn(true).await;
+    }
+
+    fn completed_turn_json(turn_id: &str, text: &str) -> serde_json::Value {
+        json!({
+            "id": turn_id,
+            "items": [{
+                "id": format!("{turn_id}-user"),
+                "type": "userMessage",
+                "content": [{ "type": "text", "text": text, "textElements": [] }]
+            }],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": null,
+            "completedAt": 2,
+            "durationMs": 1
+        })
+    }
+
+    /// Serves `thread/turns/list` like the Claude/Pi bridges: newest-first,
+    /// cut to `limit`, and never a cursor.
+    fn truncating_bridge_handler(
+        runtime: &'static str,
+        turn_count: usize,
+        requests: Arc<StdMutex<Vec<String>>>,
+    ) -> TestRequestHandler {
+        Arc::new(move |request| match request {
+            upstream::ClientRequest::ThreadTurnsList { params, .. } => {
+                requests
+                    .lock()
+                    .expect("request log lock should not be poisoned")
+                    .push(format!("{runtime}:thread/turns/list:{:?}", params.limit));
+                let mut turns: Vec<_> = (0..turn_count)
+                    .map(|index| completed_turn_json(&format!("turn-{index}"), &format!("msg {index}")))
+                    .collect();
+                turns.reverse();
+                if let Some(limit) = params.limit {
+                    turns.truncate(limit as usize);
+                }
+                Ok(json!({ "data": turns, "nextCursor": null, "backwardsCursor": null }))
+            }
+            other => Err(RpcError::Deserialization(format!(
+                "unexpected request in test: {}",
+                other.method_name()
+            ))),
+        })
+    }
+
+    fn seed_thread_for_runtime(client: &MobileClient, server_id: &str, thread_id: &str, runtime: &str) {
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info(server_id, make_thread_info(thread_id));
+        thread.agent_runtime_kind = runtime.to_string();
+        client.app_store.upsert_thread_snapshot(thread);
+        client.note_thread_runtime(key, runtime.to_string());
+    }
+
+    #[test]
+    fn full_first_page_without_cursor_is_ambiguous() {
+        assert!(page_may_be_truncated_without_cursor(Some(20), 20, false));
+        assert!(!page_may_be_truncated_without_cursor(Some(20), 19, false));
+        assert!(!page_may_be_truncated_without_cursor(Some(20), 20, true));
+        assert!(!page_may_be_truncated_without_cursor(None, 20, false));
+        assert!(!page_may_be_truncated_without_cursor(Some(0), 0, false));
+    }
+
+    #[tokio::test]
+    async fn truncating_bridge_page_loads_full_history_and_is_scoped_to_its_runtime() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        seed_thread_for_runtime(&client, server_id, "claude-thread", "claude");
+        seed_thread_for_runtime(&client, server_id, "codex-thread", "codex");
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let codex_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::ThreadTurnsList { params, .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("codex:thread/turns/list:{:?}", params.limit));
+                    Ok(json!({
+                        "data": [
+                            completed_turn_json("c-2", "newest"),
+                            completed_turn_json("c-1", "older"),
+                        ],
+                        "nextCursor": "older-page",
+                        "backwardsCursor": null
+                    }))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request in test: {}",
+                    other.method_name()
+                ))),
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config,
+            vec![
+                (
+                    "claude".to_string(),
+                    truncating_bridge_handler("claude", 7, Arc::clone(&requests)),
+                ),
+                ("codex".to_string(), codex_handler),
+            ],
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        let outcome = client
+            .load_thread_turns_page(server_id, "claude-thread", None, Some(2))
+            .await
+            .expect("claude page should load");
+        assert!(outcome.loaded);
+        assert!(!outcome.has_more);
+        let claude = client
+            .app_store
+            .thread_snapshot(&ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: "claude-thread".to_string(),
+            })
+            .expect("claude thread");
+        let turn_ids: Vec<_> = claude
+            .items
+            .iter()
+            .filter_map(|item| item.source_turn_id.clone())
+            .collect();
+        assert_eq!(
+            turn_ids,
+            (0..7).map(|index| format!("turn-{index}")).collect::<Vec<_>>(),
+            "the whole history must load, oldest first"
+        );
+        assert!(claude.initial_turns_loaded);
+        assert_eq!(claude.older_turns_cursor, None);
+        assert_eq!(
+            client.app_store.runtime_turn_pagination(server_id, "claude"),
+            Some(TurnPaginationSupport::Unsupported)
+        );
+        assert!(client.app_store.runtime_supports_turn_pagination(server_id, "codex"));
+
+        // Codex on the same host still pages with a cursor.
+        let outcome = client
+            .load_thread_turns_page(server_id, "codex-thread", None, Some(2))
+            .await
+            .expect("codex page should load");
+        assert!(outcome.loaded);
+        assert!(outcome.has_more);
+        assert_eq!(
+            client.app_store.runtime_turn_pagination(server_id, "codex"),
+            Some(TurnPaginationSupport::Confirmed)
+        );
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned")
+            .clone();
+        assert_eq!(
+            requests,
+            [
+                "claude:thread/turns/list:Some(2)",
+                "claude:thread/turns/list:None",
+                "codex:thread/turns/list:Some(2)",
+            ]
+        );
+        let snapshot = client.app_store.snapshot();
+        let server = snapshot.servers.get(server_id).expect("server");
+        assert_eq!(
+            server.turn_pagination_by_runtime.get("claude"),
+            Some(&TurnPaginationSupport::Unsupported)
+        );
+    }
+
+    #[tokio::test]
+    async fn full_page_that_really_is_the_whole_history_keeps_pagination() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        seed_thread_for_runtime(&client, server_id, "opencode-thread", "opencode");
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config,
+            vec![(
+                "opencode".to_string(),
+                truncating_bridge_handler("opencode", 2, Arc::clone(&requests)),
+            )],
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        let outcome = client
+            .load_thread_turns_page(server_id, "opencode-thread", None, Some(2))
+            .await
+            .expect("page should load");
+        assert!(outcome.loaded);
+        assert!(!outcome.has_more);
+        assert!(
+            client
+                .app_store
+                .runtime_supports_turn_pagination(server_id, "opencode"),
+            "a page that is the whole history must not disable paging"
+        );
+        let thread = client
+            .app_store
+            .thread_snapshot(&ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: "opencode-thread".to_string(),
+            })
+            .expect("thread");
+        assert_eq!(thread.items.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn legacy_resume_on_one_runtime_does_not_disable_codex_pagination() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        client.app_store.set_runtime_turn_pagination(
+            server_id,
+            "pi",
+            TurnPaginationSupport::Unsupported,
+        );
+        assert!(!client.app_store.runtime_supports_turn_pagination(server_id, "pi"));
+        assert!(client.app_store.runtime_supports_turn_pagination(server_id, "codex"));
+        let snapshot = client.app_store.snapshot();
+        let server = snapshot.servers.get(server_id).expect("server");
+        assert!(
+            crate::store::boundary::server_default_runtime_supports_turn_pagination(server),
+            "the platform flag follows the codex runtime"
+        );
+    }
+
+    #[tokio::test]
+    async fn pi_thread_with_missing_cwd_opens_with_history_unavailable_row() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "pi-thread";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        seed_thread_for_runtime(&client, server_id, thread_id, "pi");
+        let pi_error = "server error -32603: pi rpc error: Stored session working directory does not exist: /private/tmp/gone";
+        let pi_handler: TestRequestHandler = Arc::new(move |request| match request {
+            upstream::ClientRequest::ThreadResume { .. } => {
+                Err(RpcError::Deserialization(pi_error.to_string()))
+            }
+            upstream::ClientRequest::ThreadRead { params, .. } => {
+                assert!(!params.include_turns);
+                Ok(json!({
+                    "thread": {
+                        "id": thread_id,
+                        "preview": "Reply with ok",
+                        "ephemeral": false,
+                        "modelProvider": "pi",
+                        "createdAt": 1,
+                        "updatedAt": 2,
+                        "status": { "type": "idle" },
+                        "path": "/private/tmp/gone",
+                        "cwd": "/private/tmp/gone",
+                        "cliVersion": "1.0.0",
+                        "source": "cli",
+                        "agentNickname": null,
+                        "agentRole": null,
+                        "gitInfo": null,
+                        "name": null,
+                        "turns": []
+                    }
+                }))
+            }
+            other => Err(RpcError::Deserialization(format!(
+                "unexpected request in test: {}",
+                other.method_name()
+            ))),
+        });
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config,
+            vec![("pi".to_string(), pi_handler)],
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("open should succeed with a history-unavailable row");
+        let thread = client
+            .app_store
+            .thread_snapshot(&ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: thread_id.to_string(),
+            })
+            .expect("thread");
+        assert!(thread.initial_turns_loaded);
+        assert_eq!(thread.items.len(), 1);
+        match &thread.items[0].content {
+            crate::conversation_uniffi::HydratedConversationItemContent::Error(data) => {
+                assert_eq!(data.title, "History unavailable");
+                assert!(data.message.contains("working directory no longer exists"));
+                assert!(data.details.as_deref().unwrap_or_default().contains("/private/tmp/gone"));
+            }
+            other => panic!("expected error row, got {other:?}"),
+        }
+        assert_eq!(thread.info.preview.as_deref(), Some("Reply with ok"));
     }
 }

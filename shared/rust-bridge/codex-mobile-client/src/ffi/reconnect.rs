@@ -694,7 +694,7 @@ mod tests {
             agent_runtimes: Vec::new(),
             connection_progress: None,
             transport: ServerTransportDiagnostics::default(),
-            supports_turn_pagination: true,
+            turn_pagination_by_runtime: std::collections::HashMap::new(),
         }
     }
 
@@ -756,7 +756,7 @@ mod tests {
                 agent_runtimes: Vec::new(),
                 connection_progress: None,
                 transport: ServerTransportDiagnostics::default(),
-                supports_turn_pagination: true,
+                turn_pagination_by_runtime: std::collections::HashMap::new(),
             },
         );
 
@@ -820,7 +820,7 @@ mod tests {
                 agent_runtimes: Vec::new(),
                 connection_progress: None,
                 transport: ServerTransportDiagnostics::default(),
-                supports_turn_pagination: true,
+                turn_pagination_by_runtime: std::collections::HashMap::new(),
             },
         );
 

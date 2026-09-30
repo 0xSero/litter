@@ -187,10 +187,26 @@ pub struct ServerSnapshot {
     pub agent_runtimes: Vec<AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub transport: ServerTransportDiagnostics,
-    /// Whether the remote supports `thread/turns/list` + `exclude_turns`.
-    /// Defaults to `true` and flips to `false` at runtime if a paginated RPC
-    /// comes back as method-not-found or with the legacy embedded-turn shape.
-    pub supports_turn_pagination: bool,
+    /// Turn-history paging capability per agent runtime. One Kittylitter
+    /// host multiplexes several runtimes (codex, claude, pi, opencode, …)
+    /// whose `thread/turns/list` implementations differ, so what one runtime
+    /// proves must not change how another runtime's history loads. A
+    /// runtime missing from the map has not been observed yet and is
+    /// assumed to page correctly.
+    pub turn_pagination_by_runtime: HashMap<AgentRuntimeKind, TurnPaginationSupport>,
+}
+
+/// What the client has learned about one runtime's `thread/turns/list`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnPaginationSupport {
+    /// The runtime returned a `nextCursor`, so a page without one really is
+    /// the end of history.
+    Confirmed,
+    /// The runtime cannot page history: `thread/turns/list` is missing, it
+    /// ignores `exclude_turns`, or it truncates a page to `limit` without
+    /// returning a cursor (the Claude and Pi bridges do this). History for
+    /// its threads is loaded in full through an embedded-turn resume.
+    Unsupported,
 }
 
 #[derive(Debug, Clone, Default, uniffi::Record)]

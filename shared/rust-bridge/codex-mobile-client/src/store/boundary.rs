@@ -483,6 +483,8 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     transport_state == AppServerTransportState::Connected;
 
                 let usage_stats = compute_server_usage_stats(&snapshot, &server.server_id);
+                let supports_turn_pagination =
+                    server_default_runtime_supports_turn_pagination(&server);
 
                 AppServerSnapshot {
                     server_id: server.server_id,
@@ -498,7 +500,7 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                         can_browse_directories: can_use_transport_actions,
                         can_start_threads: can_use_transport_actions,
                         can_resume_threads: can_use_transport_actions,
-                        supports_turn_pagination: server.supports_turn_pagination,
+                        supports_turn_pagination,
                     },
                     account: server.account,
                     requires_openai_auth: server.requires_openai_auth,
@@ -712,6 +714,17 @@ pub(crate) fn empty_session_summary(key: ThreadKey) -> AppSessionSummary {
         token_usage: None,
         goal: None,
     }
+}
+
+/// The platform-facing pagination flag describes the host's default (codex)
+/// runtime. Threads on other runtimes get `initial_turns_loaded` from Rust
+/// once their embedded history lands, so the UI never waits on a page that
+/// will not come.
+pub(crate) fn server_default_runtime_supports_turn_pagination(server: &ServerSnapshot) -> bool {
+    server
+        .turn_pagination_by_runtime
+        .get("codex")
+        .is_none_or(|support| *support != super::snapshot::TurnPaginationSupport::Unsupported)
 }
 
 pub(crate) fn app_session_summary(

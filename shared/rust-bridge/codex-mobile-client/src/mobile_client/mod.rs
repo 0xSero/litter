@@ -24,6 +24,7 @@ use crate::store::snapshot::ServerMutatingCommandKind;
 use crate::store::{
     AppConnectionProgressSnapshot, AppQueuedFollowUpKind, AppQueuedFollowUpPreview, AppSnapshot,
     AppStoreReducer, AppStoreUpdateRecord, ServerHealthSnapshot, ThreadSnapshot,
+    TurnPaginationSupport,
 };
 use crate::transport::{RpcError, TransportError};
 use crate::types::{
@@ -293,6 +294,18 @@ fn should_fallback_to_thread_metadata_after_resume_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
     lower.contains("no rollout found for thread id")
         || lower.contains("remote app-server worker channel is closed")
+}
+
+/// Runtime errors that mean "this thread exists but its history cannot be
+/// replayed", mapped to the sentence shown in place of the transcript.
+fn history_unavailable_reason(error: &str) -> Option<&'static str> {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("stored session working directory does not exist") {
+        return Some(
+            "This session's working directory no longer exists on the host, so the agent cannot reopen it. Restore the directory to see its history.",
+        );
+    }
+    None
 }
 
 fn should_try_next_runtime_after_thread_lookup_error(error: &str) -> bool {
@@ -698,6 +711,18 @@ fn missing_runtime_kinds(
         .collect::<Vec<_>>();
     missing.sort();
     missing
+}
+
+/// A first `thread/turns/list` page that is exactly full and carries no
+/// cursor is ambiguous: either history ends there, or the runtime cut the
+/// list to `limit` without being able to page (the Claude and Pi bridges
+/// truncate this way). Callers resolve it with one unbounded read.
+fn page_may_be_truncated_without_cursor(
+    limit: Option<u32>,
+    returned_turns: usize,
+    has_next_cursor: bool,
+) -> bool {
+    !has_next_cursor && limit.is_some_and(|limit| limit > 0 && returned_turns >= limit as usize)
 }
 
 fn can_reuse_waited_resume(
@@ -2962,8 +2987,9 @@ impl MobileClient {
                     .app_store
                     .thread_snapshot(&key)
                     .is_some_and(|thread| !thread.items.is_empty() || thread.initial_turns_loaded);
-                let pagination_supported =
-                    self.app_store.server_supports_turn_pagination(server_id);
+                let pagination_supported = self
+                    .app_store
+                    .runtime_supports_turn_pagination(server_id, &self.runtime_for_thread(&key));
                 if thread_has_loaded_turns || pagination_supported {
                     debug!(
                         "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session (loaded={} pagination={})",
@@ -2997,7 +3023,9 @@ impl MobileClient {
 
         let mut lookup_errors = Vec::new();
         for runtime_kind in runtime_candidates.iter().cloned() {
-            let supports_pagination = self.app_store.server_supports_turn_pagination(server_id);
+            let supports_pagination = self
+                .app_store
+                .runtime_supports_turn_pagination(server_id, &runtime_kind);
             // Paginated servers always exclude turns from the resume
             // response; we never want to pull the full embedded archive,
             // even on the authoritative refresh path — for huge threads
@@ -3061,6 +3089,30 @@ impl MobileClient {
                             "{error}; metadata fallback failed: {fallback_error}"
                         ))
                     })?;
+                    self.note_thread_runtime(key.clone(), runtime_kind);
+                    return Ok(());
+                }
+                Err(error) if history_unavailable_reason(&error).is_some() => {
+                    // The runtime knows the thread but cannot replay it (for
+                    // example Pi refuses sessions whose cwd was deleted).
+                    // Open it with metadata and say why history is missing
+                    // instead of failing the whole open.
+                    warn!(
+                        "external_resume_thread: history unavailable runtime={:?} server={} thread={} error={}",
+                        runtime_kind, server_id, thread_id, error
+                    );
+                    self.read_thread_metadata_only_for_runtime(
+                        server_id,
+                        thread_id,
+                        runtime_kind.clone(),
+                    )
+                    .await
+                    .map_err(|fallback_error| {
+                        RpcError::Deserialization(format!(
+                            "{error}; metadata fallback failed: {fallback_error}"
+                        ))
+                    })?;
+                    self.note_thread_history_unavailable(&key, &error);
                     self.note_thread_runtime(key.clone(), runtime_kind);
                     return Ok(());
                 }
@@ -3154,13 +3206,17 @@ impl MobileClient {
         );
         let turns = response.thread.turns.clone();
         let server_honored_exclude_turns = exclude_turns && turns.is_empty();
-        // Legacy v0.124 remotes ignore `exclude_turns` and return the
-        // full embedded turn history. Flip the capability flag so
-        // future code paths (load_thread_turns_page) short-circuit
-        // and the UI keeps relying on embedded turns.
+        // Legacy v0.124 remotes (and some bridges) ignore `exclude_turns`
+        // and return the full embedded turn history. Record that for this
+        // runtime only so future code paths (load_thread_turns_page)
+        // short-circuit and keep relying on embedded turns, without
+        // changing how the host's other runtimes load history.
         if exclude_turns && !server_honored_exclude_turns {
-            self.app_store
-                .set_server_supports_turn_pagination(server_id, false);
+            self.app_store.set_runtime_turn_pagination(
+                server_id,
+                &runtime_kind,
+                TurnPaginationSupport::Unsupported,
+            );
         }
         let mut snapshot = thread_snapshot_from_upstream_thread_with_overrides(
             server_id,
@@ -3235,14 +3291,15 @@ impl MobileClient {
             Ok(response) => response,
             Err(error) => {
                 if is_method_not_found(&error) {
-                    // Some non-Codex runtimes can resume a thread but do not
-                    // implement the lightweight turn-list probe. Fall back to
-                    // one embedded-turn resume so reconcile_active_turn can
+                    // Some runtimes can resume a thread but do not implement
+                    // the lightweight turn-list probe. Fall back to one
+                    // embedded-turn resume so reconcile_active_turn can
                     // still clear a stale active turn after mobile reconnects.
-                    if runtime_kind == "codex" {
-                        self.app_store
-                            .set_server_supports_turn_pagination(server_id, false);
-                    }
+                    self.app_store.set_runtime_turn_pagination(
+                        server_id,
+                        &runtime_kind,
+                        TurnPaginationSupport::Unsupported,
+                    );
                     if let Err(fallback_error) = self
                         .resume_thread_for_runtime(
                             server_id,
@@ -3299,13 +3356,20 @@ impl MobileClient {
     /// Composite action: page a thread's older turns via `thread/turns/list`
     /// and merge them into the canonical store.
     ///
-    /// - When the server is known to not support pagination
-    ///   (`supports_turn_pagination == false`), refreshes an empty/unloaded
+    /// Capability is tracked per (server, runtime): one Kittylitter host
+    /// serves codex next to bridged runtimes whose paging differs.
+    ///
+    /// - When the thread's runtime is known not to page
+    ///   (`TurnPaginationSupport::Unsupported`), refreshes an empty/unloaded
     ///   thread with an embedded-turn resume. Already-loaded threads still
     ///   short-circuit because their embedded turns are already in the store.
     /// - When the RPC comes back as JSON-RPC -32601 (method not found),
-    ///   flips `supports_turn_pagination = false` on the server snapshot
-    ///   and returns the same short-circuit result.
+    ///   marks that runtime unsupported and loads embedded turns instead.
+    /// - When a first page is full but carries no cursor and the runtime has
+    ///   never returned one, the page may have been cut to `limit` by a
+    ///   bridge that cannot page (Claude and Pi bridges do this). The full
+    ///   list is fetched once to find out; if it is longer, the runtime is
+    ///   marked unsupported and the full history is kept.
     /// - On success, invokes the `apply_thread_turns_page` reducer.
     pub async fn load_thread_turns_page(
         &self,
@@ -3318,13 +3382,16 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         };
-        if !self.app_store.server_supports_turn_pagination(server_id) {
+        let runtime_kind = self.runtime_for_thread(&key);
+        if !self
+            .app_store
+            .runtime_supports_turn_pagination(server_id, &runtime_kind)
+        {
             let needs_embedded_resume = self
                 .app_store
                 .thread_snapshot(&key)
                 .is_none_or(|thread| thread.items.is_empty() && !thread.initial_turns_loaded);
             if needs_embedded_resume {
-                let runtime_kind = self.runtime_for_thread(&key);
                 self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
                     .await
                     .map_err(RpcError::Deserialization)?;
@@ -3338,27 +3405,61 @@ impl MobileClient {
                 has_more: false,
             });
         }
-        let params = upstream::ThreadTurnsListParams {
-            thread_id: thread_id.to_string(),
-            cursor,
-            limit,
-            sort_direction: Some(upstream::SortDirection::Desc),
-            items_view: None,
-        };
-        let request = upstream::ClientRequest::ThreadTurnsList {
-            request_id: upstream::RequestId::Integer(crate::next_request_id()),
-            params,
-        };
-        let runtime_kind = self.runtime_for_thread(&key);
+        let is_first_page = cursor.is_none();
         match self
-            .request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
-                server_id,
-                runtime_kind.clone(),
-                request,
-            )
+            .request_thread_turns_page(server_id, thread_id, runtime_kind.clone(), cursor, limit)
             .await
         {
-            Ok(response) => {
+            Ok(mut response) => {
+                if response.next_cursor.is_some() {
+                    self.app_store.set_runtime_turn_pagination(
+                        server_id,
+                        &runtime_kind,
+                        TurnPaginationSupport::Confirmed,
+                    );
+                }
+                let confirmed = self.app_store.runtime_turn_pagination(server_id, &runtime_kind)
+                    == Some(TurnPaginationSupport::Confirmed);
+                if is_first_page
+                    && !confirmed
+                    && page_may_be_truncated_without_cursor(
+                        limit,
+                        response.data.len(),
+                        response.next_cursor.is_some(),
+                    )
+                {
+                    match self
+                        .request_thread_turns_page(
+                            server_id,
+                            thread_id,
+                            runtime_kind.clone(),
+                            None,
+                            None,
+                        )
+                        .await
+                    {
+                        Ok(full) if full.data.len() > response.data.len() => {
+                            info!(
+                                "load_thread_turns_page: runtime {:?} on server={} cut a {}-turn page without a cursor (thread has {} turns); loading full history for this runtime",
+                                runtime_kind,
+                                server_id,
+                                response.data.len(),
+                                full.data.len()
+                            );
+                            self.app_store.set_runtime_turn_pagination(
+                                server_id,
+                                &runtime_kind,
+                                TurnPaginationSupport::Unsupported,
+                            );
+                            response = full;
+                        }
+                        Ok(_) => {}
+                        Err(error) => warn!(
+                            "load_thread_turns_page: full-history check failed server={} thread={} runtime={:?}: {}",
+                            server_id, thread_id, runtime_kind, error
+                        ),
+                    }
+                }
                 let has_more = response.next_cursor.is_some();
                 let page: crate::types::AppListThreadTurnsResponse = response.into();
                 self.apply_thread_turns_page(
@@ -3374,10 +3475,11 @@ impl MobileClient {
                 })
             }
             Err(error) if is_method_not_found(&error) => {
-                if runtime_kind == "codex" {
-                    self.app_store
-                        .set_server_supports_turn_pagination(server_id, false);
-                }
+                self.app_store.set_runtime_turn_pagination(
+                    server_id,
+                    &runtime_kind,
+                    TurnPaginationSupport::Unsupported,
+                );
                 self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
                     .await
                     .map_err(RpcError::Deserialization)?;
@@ -3388,6 +3490,60 @@ impl MobileClient {
             }
             Err(error) => Err(RpcError::Deserialization(error)),
         }
+    }
+
+    async fn request_thread_turns_page(
+        &self,
+        server_id: &str,
+        thread_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    ) -> Result<upstream::ThreadTurnsListResponse, String> {
+        let request = upstream::ClientRequest::ThreadTurnsList {
+            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+            params: upstream::ThreadTurnsListParams {
+                thread_id: thread_id.to_string(),
+                cursor,
+                limit,
+                sort_direction: Some(upstream::SortDirection::Desc),
+                items_view: None,
+            },
+        };
+        self.request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
+            server_id,
+            runtime_kind,
+            request,
+        )
+        .await
+    }
+
+    /// Replace an empty transcript with one error row explaining why the
+    /// runtime could not replay the thread, and mark the initial load done so
+    /// neither platform waits on a page that cannot come.
+    fn note_thread_history_unavailable(&self, key: &ThreadKey, error: &str) {
+        let Some(mut thread) = self.app_store.thread_snapshot(key) else {
+            return;
+        };
+        if thread.items.is_empty() {
+            let reason = history_unavailable_reason(error)
+                .unwrap_or("The agent could not load this session's history.");
+            let mut item = crate::conversation::make_error_item(
+                format!("history-unavailable:{}", key.thread_id),
+                reason.to_string(),
+                None,
+            );
+            if let crate::conversation_uniffi::HydratedConversationItemContent::Error(data) =
+                &mut item.content
+            {
+                data.title = "History unavailable".to_string();
+                data.details = Some(error.to_string());
+            }
+            thread.items = vec![item].into();
+        }
+        thread.initial_turns_loaded = true;
+        thread.older_turns_cursor = None;
+        self.app_store.upsert_thread_snapshot(thread);
     }
 
     async fn read_thread_metadata_only_for_runtime(
