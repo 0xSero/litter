@@ -1,12 +1,15 @@
 Summary
 
-- Reconnecting after launch or returning to the app no longer waits on the slowest computer's account check.
-- Kittylitter tokens are cached in memory instead of being read from the Keychain on every reconnect.
-- Conversations sit in a centered reading column on wide screens.
-- Pairing uses Kittylitter 0.3.11 (faster session loading).
-- Removed the "add a remote computer" hint on the empty home screen.
+- Typing no longer freezes after a reply: each keystroke used to redraw the whole conversation.
+- Full history for Claude Code, Pi and other harnesses (it was cut to the newest few turns).
+- Session titles no longer show raw Claude Code markup.
+- New model picker: choose a harness, then a model grouped by provider; search across everything; modes kept separate.
+- Conversations stay in a centered column; code and tables scroll inside their own box.
+- Simpler Settings in three groups.
+- Faster reconnects; pairing uses Kittylitter 0.3.11.
 
 What to test
 
-- Background the app for a minute, return, and send a prompt: your computer should reconnect quickly.
-- Open a conversation on iPad or Mac: text should sit in a centered column.
+- Open a Claude Code session and scroll up: older turns should load.
+- Send a message, wait for the reply, then type a long follow-up: it should keep up.
+- Open the model picker and search for a model.

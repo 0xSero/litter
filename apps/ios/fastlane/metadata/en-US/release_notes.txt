@@ -1,5 +1,7 @@
-Faster reconnects.
+Smoother, clearer, complete.
 
-- Reconnecting after you return to the app is faster.
-- Conversations sit in a centered reading column on iPad and Mac.
-- Pairing uses Kittylitter 0.3.11 with faster session loading.
+- Typing stays fast after a reply.
+- Full session history for Claude Code, Pi and other harnesses.
+- A new model picker: harness first, then models by provider, with search.
+- Conversations sit in a centered column; code and tables no longer run off the screen.
+- Simpler Settings and cleaner session titles.
