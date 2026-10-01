@@ -273,9 +273,82 @@ private struct ConversationMultiTurnUITestHarnessView: View {
                 item(id: "prose-answer-1", text: answer, user: false, turnID: "prose"),
             ]
         }
+        if arguments.contains("--ui-test-rich") {
+            return richSeedItems
+        }
         let count = arguments.contains("--ui-test-long-turn") ? 500 : 3
         return [item(id: "initial-user", text: "INITIAL_PROMPT", user: true, turnID: "initial")] +
             (0..<count).map { item(id: "answer-\($0)", text: "HISTORY_MESSAGE_\($0)", user: false, turnID: "initial") }
+    }
+
+    /// Wide content (long code lines, a table, a diff, tool cards) that must
+    /// stay inside the reading column on a phone.
+    private static var richSeedItems: [ConversationItem] {
+        let answer = """
+        ## A Simple Swift Counter
+
+        This example defines a small counter type with a value that can be read externally but changed only through its methods. A computed property provides a readable description.
+
+        - Uses a value type.
+        - Starts at zero.
+        - Restricts direct changes.
+
+        ```swift
+        struct Counter {
+            private(set) var value = 0
+            mutating func increment() { value += 1 }
+            var description: String { "Count: \\(value) — a deliberately long line that must scroll inside its own box" }
+        }
+        ```
+
+        | Sampler | Steps | Deterministic | Typical use case |
+        |---|---|---|---|
+        | DDPM | 1000 | No | Highest quality baseline sampling |
+        | DDIM | 50 | Yes | Fast previews and interpolation |
+
+        Run `swift run counter --verbose --output /tmp/a/really/long/path/that/keeps/going/and/going.txt` to check it.
+        """
+        let diff = """
+        --- a/Sources/Counter.swift
+        +++ b/Sources/Counter.swift
+        @@ -1,4 +1,4 @@
+         struct Counter {
+        -    var value = 0
+        +    private(set) var value = 0 // only mutate through increment() and reset(), never directly from callers
+         }
+        """
+        return [
+            item(id: "rich-user", text: "Write a markdown answer with a heading, a bullet list, a Swift code block, and a table.", user: true, turnID: "rich"),
+            ConversationItem(
+                id: "rich-reasoning",
+                content: .reasoning(ConversationReasoningData(summary: ["Planning the counter example"], content: [])),
+                sourceTurnId: "rich", timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            ConversationItem(
+                id: "rich-command",
+                content: .commandExecution(ConversationCommandExecutionData(
+                    command: "rg -n 'class CutlassW4A16|clamp_limit|swiglu_limit|SM90' deepseek-v4.1/research-20260930/flashinfer/cutlass.py | head -75",
+                    cwd: "/tmp",
+                    status: .completed,
+                    output: "cutlass.py:10: error for operation on deepseek-v4.1/research-20260930/flashinfer/cutlass.py: No such file or directory (os error 2)",
+                    exitCode: 0,
+                    durationMs: 25,
+                    processId: nil,
+                    actions: []
+                )),
+                sourceTurnId: "rich", timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            ConversationItem(
+                id: "rich-file-change",
+                content: .fileChange(ConversationFileChangeData(
+                    status: .completed,
+                    changes: [ConversationFileChangeEntry(path: "Sources/Counter.swift", kind: "update", diff: diff, additions: 1, deletions: 1)],
+                    outputDelta: nil
+                )),
+                sourceTurnId: "rich", timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            item(id: "rich-answer", text: answer, user: false, turnID: "rich"),
+        ]
     }
 }
 #endif
