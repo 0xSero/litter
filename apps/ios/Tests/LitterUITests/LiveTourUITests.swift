@@ -151,6 +151,13 @@ final class LiveTourUITests: XCTestCase {
         _ = composer.waitForExistence(timeout: 60)
         print(String(format: "E2E_TIMING open_to_composer %.2f", Date().timeIntervalSince(start)))
         // Huge bridge transcripts can take minutes to arrive from the host.
+        if ProcessInfo.processInfo.environment["LITTER_E2E_SCROLL_UP"] != nil {
+            for step in 0..<6 {
+                let t = Date()
+                app.swipeDown()
+                print(String(format: "E2E_TIMING scroll_up_%d %.2f", step, Date().timeIntervalSince(t)))
+            }
+        }
         let hold = UInt32(ProcessInfo.processInfo.environment["LITTER_E2E_HOLD_SECS"] ?? "") ?? 15
         sleep(hold)
         shot(app, "open-\(match)")
