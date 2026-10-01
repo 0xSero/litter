@@ -127,7 +127,16 @@ final class LiveTourUITests: XCTestCase {
         let row = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == 'sessions.sessionRow' AND label CONTAINS[c] %@", match))
             .firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "no session matching \(match)")
+        // Older sessions sit below the fold; scroll until the row appears.
+        var found = row.waitForExistence(timeout: 30)
+        var swipes = 0
+        while !(found && row.isHittable), swipes < 80 {
+            let loadMore = app.buttons["sessions.loadMore"]
+            if loadMore.exists && loadMore.isHittable { loadMore.tap() } else { app.swipeUp() }
+            swipes += 1
+            found = row.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(found, "no session matching \(match)")
         sleep(2)
         print("E2E_MARK open_start \(Date().timeIntervalSince1970)")
         let start = Date()
@@ -135,7 +144,9 @@ final class LiveTourUITests: XCTestCase {
         let composer = app.textViews.firstMatch
         _ = composer.waitForExistence(timeout: 60)
         print(String(format: "E2E_TIMING open_to_composer %.2f", Date().timeIntervalSince(start)))
-        sleep(15)
+        // Huge bridge transcripts can take minutes to arrive from the host.
+        let hold = UInt32(ProcessInfo.processInfo.environment["LITTER_E2E_HOLD_SECS"] ?? "") ?? 15
+        sleep(hold)
         shot(app, "open-\(match)")
         var t = Date()
         composer.tap()
