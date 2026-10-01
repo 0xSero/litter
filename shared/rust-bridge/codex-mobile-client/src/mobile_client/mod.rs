@@ -3410,7 +3410,7 @@ impl MobileClient {
             .request_thread_turns_page(server_id, thread_id, runtime_kind.clone(), cursor, limit)
             .await
         {
-            Ok(mut response) => {
+            Ok(response) => {
                 if response.next_cursor.is_some() {
                     self.app_store.set_runtime_turn_pagination(
                         server_id,
@@ -3420,14 +3420,27 @@ impl MobileClient {
                 }
                 let confirmed = self.app_store.runtime_turn_pagination(server_id, &runtime_kind)
                     == Some(TurnPaginationSupport::Confirmed);
-                if is_first_page
+                let maybe_truncated = is_first_page
                     && !confirmed
                     && page_may_be_truncated_without_cursor(
                         limit,
                         response.data.len(),
                         response.next_cursor.is_some(),
-                    )
-                {
+                    );
+                let page_turns = response.data.len();
+                let mut has_more = response.next_cursor.is_some();
+                // Show the page right away; on a non-paging bridge the full
+                // history can take a long time to arrive (a 100 MB Claude
+                // transcript takes minutes on the host).
+                let page: crate::types::AppListThreadTurnsResponse = response.into();
+                self.apply_thread_turns_page(
+                    server_id,
+                    thread_id,
+                    &page,
+                    crate::types::AppTurnsSortDirection::Descending,
+                )
+                .map_err(RpcError::Deserialization)?;
+                if maybe_truncated {
                     match self
                         .request_thread_turns_page(
                             server_id,
@@ -3438,12 +3451,12 @@ impl MobileClient {
                         )
                         .await
                     {
-                        Ok(full) if full.data.len() > response.data.len() => {
+                        Ok(full) if full.data.len() > page_turns => {
                             info!(
                                 "load_thread_turns_page: runtime {:?} on server={} cut a {}-turn page without a cursor (thread has {} turns); loading full history for this runtime",
                                 runtime_kind,
                                 server_id,
-                                response.data.len(),
+                                page_turns,
                                 full.data.len()
                             );
                             self.app_store.set_runtime_turn_pagination(
@@ -3451,7 +3464,15 @@ impl MobileClient {
                                 &runtime_kind,
                                 TurnPaginationSupport::Unsupported,
                             );
-                            response = full;
+                            has_more = full.next_cursor.is_some();
+                            let full: crate::types::AppListThreadTurnsResponse = full.into();
+                            self.apply_thread_turns_page(
+                                server_id,
+                                thread_id,
+                                &full,
+                                crate::types::AppTurnsSortDirection::Descending,
+                            )
+                            .map_err(RpcError::Deserialization)?;
                         }
                         Ok(_) => {}
                         Err(error) => warn!(
@@ -3460,15 +3481,6 @@ impl MobileClient {
                         ),
                     }
                 }
-                let has_more = response.next_cursor.is_some();
-                let page: crate::types::AppListThreadTurnsResponse = response.into();
-                self.apply_thread_turns_page(
-                    server_id,
-                    thread_id,
-                    &page,
-                    crate::types::AppTurnsSortDirection::Descending,
-                )
-                .map_err(RpcError::Deserialization)?;
                 Ok(crate::types::AppLoadThreadTurnsOutcome {
                     loaded: true,
                     has_more,
