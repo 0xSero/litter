@@ -154,6 +154,7 @@ fn thread_list_can_prune(params: &types::AppListThreadsRequest) -> bool {
 fn normalize_model_info_for_runtime(
     model_info: &mut types::ModelInfo,
     runtime_kind: types::AgentRuntimeKind,
+    visible_modes: Option<&[String]>,
 ) -> bool {
     let has_qualified_catalog = runtime_kind_uses_qualified_catalog(&runtime_kind);
     model_info.agent_runtime_kind = runtime_kind;
@@ -161,6 +162,9 @@ fn normalize_model_info_for_runtime(
         model_info.provider_id = Some(provider_id.to_string());
     }
     // Model IDs, defaults, plugin modes, and effort capabilities belong to the runtime.
+    // Litter only classifies entries (model vs mode) and derives picker labels
+    // once here so neither platform re-derives them per row.
+    model_info.apply_picker_presentation(visible_modes);
 
     true
 }
@@ -970,6 +974,11 @@ impl AppClient {
                     let client = Arc::clone(c);
                     let server_id = server_id.clone();
                     let mut request_params = params.clone();
+                    let visible_modes = client
+                        .agent_metadata
+                        .get(&runtime_kind)
+                        .and_then(|metadata| metadata.capabilities)
+                        .and_then(|capabilities| capabilities.visible_modes);
                     async move {
                         let fetch = async {
                             let mut models = Vec::new();
@@ -990,6 +999,7 @@ impl AppClient {
                                     normalize_model_info_for_runtime(
                                         &mut model,
                                         runtime_kind.clone(),
+                                        visible_modes.as_deref(),
                                     )
                                     .then_some(model)
                                 }));
@@ -3056,6 +3066,9 @@ mod tests {
             is_default: false,
             agent_runtime_kind: runtime_kind,
             provider_id: None,
+            entry_kind: crate::types::ModelEntryKind::Model,
+            picker_name: String::new(),
+            provider_label: None,
         }
     }
 
@@ -3076,22 +3089,64 @@ mod tests {
         assert!(runtime_exposes_model_choices("local-studio"));
         assert!(!runtime_exposes_model_choices("shell"));
         let mut pi = test_model("openrouter/ai21/jamba", "pi".to_string());
-        assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string()));
+        assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string(), None));
         assert_eq!(pi.provider_id.as_deref(), Some("ai21"));
         assert!(pi.supported_reasoning_efforts.is_empty());
         let mut codex = test_model("openai/gpt-6-codex", "codex".to_string());
         assert!(normalize_model_info_for_runtime(
             &mut codex,
-            "codex".to_string()
+            "codex".to_string(),
+            None
         ));
         assert_eq!(codex.provider_id, None);
 
         let mut local_studio = test_model("controller/qwen3-coder", "local-studio".to_string());
         assert!(normalize_model_info_for_runtime(
             &mut local_studio,
-            "local-studio".to_string()
+            "local-studio".to_string(),
+            None
         ));
         assert!(local_studio.supported_reasoning_efforts.is_empty());
+    }
+
+    #[test]
+    fn model_picker_classifies_modes_and_labels_providers() {
+        let amp_modes = vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "ultra".to_string(),
+        ];
+        let mut builtin = test_model("amp/High", "amp".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut builtin,
+            "amp".to_string(),
+            Some(&amp_modes)
+        ));
+        assert_eq!(builtin.entry_kind, crate::types::ModelEntryKind::Mode);
+        assert_eq!(builtin.picker_name, "high");
+
+        let mut plugin = test_model("glm-5.2", "amp".to_string());
+        assert!(normalize_model_info_for_runtime(
+            &mut plugin,
+            "amp".to_string(),
+            Some(&amp_modes)
+        ));
+        assert_eq!(plugin.entry_kind, crate::types::ModelEntryKind::PluginMode);
+        assert_eq!(plugin.picker_name, "glm-5.2");
+
+        let mut pi = test_model("openrouter/x-ai/grok-5", "pi".to_string());
+        pi.display_name = "x-ai/grok-5 (openrouter)".to_string();
+        assert!(normalize_model_info_for_runtime(&mut pi, "pi".to_string(), None));
+        assert_eq!(pi.entry_kind, crate::types::ModelEntryKind::Model);
+        assert_eq!(pi.provider_id.as_deref(), Some("x-ai"));
+        assert_eq!(pi.provider_label.as_deref(), Some("xAI"));
+        assert_eq!(pi.picker_name, "grok-5");
+
+        let mut custom = test_model("my-lab/qwen", "pi".to_string());
+        assert!(normalize_model_info_for_runtime(&mut custom, "pi".to_string(), None));
+        assert_eq!(custom.provider_label.as_deref(), Some("My Lab"));
+        assert_eq!(custom.picker_name, "qwen");
     }
 
     #[test]
@@ -3108,7 +3163,8 @@ mod tests {
         custom.is_default = true;
         assert!(normalize_model_info_for_runtime(
             &mut custom,
-            "claude".to_string()
+            "claude".to_string(),
+            None
         ));
         assert_eq!(custom.agent_runtime_kind, "claude");
         assert_eq!(custom.provider_id.as_deref(), Some("bedrock"));
@@ -3195,10 +3251,17 @@ mod tests {
         let mut model = test_model("my-plugin-mode", "amp".into());
         model.display_name = "Team plugin".into();
         model.is_default = true;
-        assert!(normalize_model_info_for_runtime(&mut model, "amp".into()));
+        let amp_modes = vec!["low".to_string(), "medium".to_string()];
+        assert!(normalize_model_info_for_runtime(
+            &mut model,
+            "amp".into(),
+            Some(&amp_modes)
+        ));
         assert_eq!(model.id, "my-plugin-mode");
         assert_eq!(model.display_name, "Team plugin");
         assert!(model.is_default);
+        assert_eq!(model.entry_kind, crate::types::ModelEntryKind::PluginMode);
+        assert_eq!(model.picker_name, "Team plugin");
     }
 
     #[test]
