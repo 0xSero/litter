@@ -61,17 +61,12 @@ struct SessionsScreen: View {
         let base = screenLayout(derived: derived)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
+                // Two actions only, so the computer name in the title
+                // is not squeezed to "macboo…". Refresh is pull-to-refresh
+                // (and in the menu); server info lives in the menu.
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 20) {
-                        if let onInfo {
-                            Button(action: onInfo) {
-                                Image(systemName: "info.circle")
-                                    .foregroundStyle(LitterTheme.textSecondary)
-                            }
-                            .accessibilityLabel("Server info")
-                        }
                         filterMenu
-                        refreshToolbarButton
                         newSessionButton
                     }
                 }
@@ -344,20 +339,6 @@ struct SessionsScreen: View {
         .accessibilityIdentifier("sessions.newSessionButton")
     }
 
-    private var refreshToolbarButton: some View {
-        Button(action: refreshSessions) {
-            if isLoading && hasLoadedInitialSessions {
-                ProgressView().controlSize(.small).tint(LitterTheme.textSecondary)
-            } else {
-                Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(connectedServers.isEmpty ? LitterTheme.textMuted : LitterTheme.textSecondary)
-            }
-        }
-        .disabled(isLoading || connectedServers.isEmpty)
-        .accessibilityLabel("Refresh sessions")
-        .accessibilityIdentifier("sessions.refreshButton")
-    }
-
     private var hasActiveFilters: Bool {
         selectedServerFilterId != nil || showOnlyForks || selectedRuntimeKindFilter != nil
     }
@@ -410,8 +391,25 @@ struct SessionsScreen: View {
                 }
             }
             Section {
-                Button("Add server") { appState.showServerPicker = true }
-                    .accessibilityIdentifier("sessions.addServerButton")
+                Button {
+                    refreshSessions()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading || connectedServers.isEmpty)
+                .accessibilityIdentifier("sessions.refreshButton")
+                if let onInfo {
+                    Button(action: onInfo) {
+                        Label("Computer info", systemImage: "info.circle")
+                    }
+                    .accessibilityIdentifier("sessions.infoButton")
+                }
+                Button {
+                    appState.showServerPicker = true
+                } label: {
+                    Label("Add computer", systemImage: "plus")
+                }
+                .accessibilityIdentifier("sessions.addServerButton")
             }
         } label: {
             Image(systemName: hasActiveFilters
@@ -447,6 +445,10 @@ struct SessionsScreen: View {
 
     private var sessionSearchField: some View {
         HStack(spacing: LitterSpace.s) {
+            Image(systemName: "magnifyingglass")
+                .litterFont(.body)
+                .foregroundStyle(LitterTheme.textMuted)
+                .accessibilityHidden(true)
             TextField("Search sessions", text: $sessionSearchQuery)
                 .litterFont(size: 17)
                 .foregroundStyle(LitterTheme.textPrimary)
@@ -454,9 +456,14 @@ struct SessionsScreen: View {
                 .autocorrectionDisabled(true)
                 .submitLabel(.search)
             if !sessionSearchQuery.isEmpty {
-                Button("clear") { sessionSearchQuery = "" }
-                    .litterMeta()
-                    .buttonStyle(.plain)
+                Button {
+                    sessionSearchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LitterTheme.textMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, LitterSpace.m)
@@ -535,6 +542,7 @@ struct SessionsScreen: View {
             .scrollDismissesKeyboard(.immediately)
             .environment(\.defaultMinListRowHeight, 0)
             .contentMargins(.bottom, LitterSpace.xl, for: .scrollContent)
+            .refreshable { await loadSessions() }
             .transaction { $0.animation = nil }
             .onAppear {
                 scrollToActiveSessionIfNeeded(derived: derived, proxy: proxy)
