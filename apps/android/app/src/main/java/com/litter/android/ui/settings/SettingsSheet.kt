@@ -152,42 +152,51 @@ fun SettingsSheet(
         )
     }
 
+    // Pets and Debug open from the Advanced page, so they return there
+    // (unless Settings was opened straight onto Pets).
+    val backToAdvanced = {
+        subScreen = if (initialSubScreen == SettingsStartDestination.Pets) null else SettingsSubScreen.Advanced
+    }
     when (subScreen) {
         SettingsSubScreen.Harnesses -> HarnessSettingsScreen(onBack = { subScreen = null })
         SettingsSubScreen.Appearance -> AppearanceScreen(onBack = { subScreen = null })
-        SettingsSubScreen.Experimental -> ExperimentalScreen(onBack = { subScreen = null })
-        SettingsSubScreen.Pets -> PetsScreen(onBack = { subScreen = null })
+        SettingsSubScreen.Advanced -> AdvancedScreen(
+            onBack = { subScreen = null },
+            onOpenPets = { subScreen = SettingsSubScreen.Pets },
+            onOpenDebug = { subScreen = SettingsSubScreen.Debug },
+            onOpenApps = onOpenApps?.let { openApps ->
+                {
+                    onDismiss()
+                    openApps()
+                }
+            },
+        )
+        SettingsSubScreen.Pets -> PetsScreen(onBack = backToAdvanced)
         SettingsSubScreen.TipJar -> TipJarScreen(onBack = { subScreen = null })
-        SettingsSubScreen.Debug -> DebugScreen(onBack = { subScreen = null })
+        SettingsSubScreen.Debug -> DebugScreen(onBack = { subScreen = SettingsSubScreen.Advanced })
         null -> SettingsTopLevel(
             onDismiss = onDismiss,
             onOpenHarnesses = { subScreen = SettingsSubScreen.Harnesses },
             onOpenAppearance = { subScreen = SettingsSubScreen.Appearance },
-            onOpenExperimental = { subScreen = SettingsSubScreen.Experimental },
-            onOpenPets = { subScreen = SettingsSubScreen.Pets },
+            onOpenAdvanced = { subScreen = SettingsSubScreen.Advanced },
             onOpenTipJar = { subScreen = SettingsSubScreen.TipJar },
-            onOpenDebug = { subScreen = SettingsSubScreen.Debug },
             onOpenAccount = onOpenAccount,
-            onOpenApps = onOpenApps,
         )
     }
 }
 
 enum class SettingsStartDestination { TopLevel, Pets }
 
-private enum class SettingsSubScreen { Harnesses, Appearance, Experimental, Pets, TipJar, Debug }
+private enum class SettingsSubScreen { Harnesses, Appearance, Advanced, Pets, TipJar, Debug }
 
 @Composable
 private fun SettingsTopLevel(
     onDismiss: () -> Unit,
     onOpenHarnesses: () -> Unit,
     onOpenAppearance: () -> Unit,
-    onOpenExperimental: () -> Unit,
-    onOpenPets: () -> Unit,
+    onOpenAdvanced: () -> Unit,
     onOpenTipJar: () -> Unit,
-    onOpenDebug: () -> Unit,
     onOpenAccount: (serverId: String) -> Unit,
-    onOpenApps: (() -> Unit)?,
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
@@ -226,166 +235,14 @@ private fun SettingsTopLevel(
             Spacer(Modifier.height(8.dp))
         }
 
-        // ── Support ──
-        item { SectionHeader("Support") }
-        item {
-            NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
-        }
+        // Same grouping as iOS Settings: connections first, then interface,
+        // then one "Advanced" page for rarely used switches.
 
-        // ── Local AI ──
-        item { SectionHeader("Local AI") }
-        item {
-            SettingsRow(
-                icon = {
-                    Icon(
-                        Icons.Default.Computer,
-                        contentDescription = null,
-                        tint = LitterTheme.textPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-                label = "Local Studio",
-                subtitle = "localstudio.ai",
-                trailing = {
-                    Icon(
-                        Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = null,
-                        tint = LitterTheme.textMuted,
-                        modifier = Modifier.size(16.dp),
-                    )
-                },
-                onClick = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://localstudio.ai")),
-                    )
-                },
-            )
-        }
-
-        // ── Theme ──
-        item { SectionHeader("Theme") }
-        item {
-            NavRow(icon = Icons.Default.Palette, label = "Appearance", onClick = onOpenAppearance)
-        }
-
-        // ── Font ──
-        item { SectionHeader("Font") }
-        item {
-            Column(
-                Modifier.fillMaxWidth().background(LitterQuiet.raised, LitterRadius.raisedShape),
-            ) {
-                LitterFontFamilyOption.entries.forEachIndexed { index, option ->
-                    FontRow(
-                        name = option.displayName,
-                        fontFamily = LitterTheme.fontFamily(option),
-                        isSelected = LitterThemeManager.selectedFontFamily == option,
-                        onClick = { LitterThemeManager.applyFont(option) },
-                    )
-                    if (index != LitterFontFamilyOption.entries.lastIndex) {
-                        HorizontalDivider(color = LitterTheme.divider)
-                    }
-                }
-            }
-        }
-
-        // ── Conversation ──
-        item { SectionHeader("Conversation") }
-        item {
-            SettingsRow(
-                icon = { Text("⊟", color = LitterTheme.textPrimary, fontSize = 16.sp) },
-                label = "Collapse Turns", subtitle = "Collapse previous turns into cards",
-                trailing = {
-                    Switch(
-                        checked = collapseTurns,
-                        onCheckedChange = { ConversationPrefs.setCollapseTurns(context, it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
-                    )
-                },
-            )
-        }
-
-        // ── Pets ──
-        item { SectionHeader("Pet") }
-        item {
-            SettingsRow(
-                icon = { Icon(Icons.Default.Pets, null, tint = LitterTheme.textPrimary, modifier = Modifier.size(18.dp)) },
-                label = "Wake Pet",
-                subtitle = PetOverlayController.selectedPet?.displayName ?: "Choose a Codex pet",
-                trailing = {
-                    Switch(
-                        checked = PetOverlayController.visible,
-                        onCheckedChange = { PetOverlayController.setVisible(context, it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
-                    )
-                },
-                onClick = onOpenPets,
-            )
-        }
-
-        // ── Apps ──
-        if (onOpenApps != null) {
-            item { SectionHeader("Apps") }
-            item {
-                NavRow(
-                    icon = Icons.Default.Widgets,
-                    label = "Saved Apps",
-                    onClick = {
-                        onDismiss()
-                        onOpenApps()
-                    },
-                )
-            }
-        }
-
-        // ── Experimental ──
-        item { SectionHeader("Experimental") }
-        item {
-            NavRow(icon = Icons.Default.Science, label = "Experimental Features", onClick = onOpenExperimental)
-        }
-
-        // ── Debug ──
-        if (DebugSettings.enabled) {
-            item { SectionHeader("Debug") }
-            item {
-                NavRow(icon = Icons.Default.Science, label = "Debug Settings", onClick = onOpenDebug)
-            }
-        }
-
-        // ── Account ──
-        item { SectionHeader("Account") }
-        item {
-            if (currentServer != null) {
-                val accountStatus = when (val account = currentServer!!.account) {
-                    is Account.Chatgpt -> account.email.ifEmpty { "ChatGPT account" }
-                    is Account.ApiKey -> "OpenAI API key"
-                    null -> "Not logged in"
-                }
-                SettingsRow(
-                    icon = { Text("@", color = LitterTheme.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
-                    label = currentServer!!.displayName,
-                    subtitle = accountStatus,
-                    trailing = {
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            null,
-                            tint = LitterTheme.textMuted,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    onClick = { onOpenAccount(currentServer!!.serverId) },
-                )
-            } else {
-                SettingsRow(label = "Connect to a server first")
-            }
-        }
-
-        item { NavRow(Icons.Default.Computer, "Harnesses", onOpenHarnesses) }
-
-        // ── Servers ──
-        item { SectionHeader("Servers") }
+        // ── Computers ──
+        item { SectionHeader("Computers") }
         val servers = snapshot?.servers ?: emptyList()
         if (servers.isEmpty()) {
-            item { SettingsRow(label = "No servers connected") }
+            item { SettingsRow(label = "No computers connected") }
         } else {
             items(servers, key = { it.serverId }) { server ->
                 ServerSettingsRow(
@@ -407,6 +264,62 @@ private fun SettingsTopLevel(
                     },
                 )
             }
+        }
+
+        // ── Connections ──
+        item { SectionHeader("Connections") }
+        item {
+            if (currentServer != null) {
+                val accountStatus = when (val account = currentServer!!.account) {
+                    is Account.Chatgpt -> account.email.ifEmpty { "ChatGPT account" }
+                    is Account.ApiKey -> "OpenAI API key"
+                    null -> "Not signed in"
+                }
+                SettingsRow(
+                    label = "Account",
+                    subtitle = "${currentServer!!.displayName} · $accountStatus",
+                    trailing = {
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            null,
+                            tint = LitterQuiet.meta,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    onClick = { onOpenAccount(currentServer!!.serverId) },
+                )
+            } else {
+                SettingsRow(label = "Account", subtitle = "Connect a computer first")
+            }
+        }
+        item { NavRow(Icons.Default.Computer, "Harnesses", onOpenHarnesses) }
+
+        // ── Interface ──
+        item { SectionHeader("Interface") }
+        item {
+            NavRow(icon = Icons.Default.Palette, label = "Appearance", onClick = onOpenAppearance)
+        }
+        item {
+            SettingsRow(
+                label = "Collapse earlier turns",
+                subtitle = "Long conversations collapse automatically",
+                trailing = {
+                    Switch(
+                        checked = collapseTurns,
+                        onCheckedChange = { ConversationPrefs.setCollapseTurns(context, it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
+                    )
+                },
+            )
+        }
+
+        // ── More ──
+        item { SectionHeader("More") }
+        item {
+            NavRow(icon = Icons.Default.Science, label = "Advanced", onClick = onOpenAdvanced)
+        }
+        item {
+            NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
         }
 
         item { Spacer(Modifier.height(32.dp)) }
@@ -1215,6 +1128,25 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
 
             // Font size slider
+            item { SectionHeader("Font") }
+            item {
+                Column(
+                    Modifier.fillMaxWidth().background(LitterQuiet.raised, LitterRadius.raisedShape),
+                ) {
+                    LitterFontFamilyOption.entries.forEachIndexed { index, option ->
+                        FontRow(
+                            name = option.displayName,
+                            fontFamily = LitterTheme.fontFamily(option),
+                            isSelected = LitterThemeManager.selectedFontFamily == option,
+                            onClick = { LitterThemeManager.applyFont(option) },
+                        )
+                        if (index != LitterFontFamilyOption.entries.lastIndex) {
+                            HorizontalDivider(color = LitterTheme.divider)
+                        }
+                    }
+                }
+            }
+
             item { SectionHeader("Font Size") }
             item {
                 Column(
@@ -1803,11 +1735,16 @@ private fun PetsScreen(onBack: () -> Unit) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Experimental Sub-Screen (matches iOS ExperimentalFeaturesView)
+// Advanced Sub-Screen (matches the iOS Settings "Advanced" page)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun ExperimentalScreen(onBack: () -> Unit) {
+private fun AdvancedScreen(
+    onBack: () -> Unit,
+    onOpenPets: () -> Unit,
+    onOpenDebug: () -> Unit,
+    onOpenApps: (() -> Unit)?,
+) {
     val context = LocalContext.current
     val features = remember { LitterFeature.entries }
 
@@ -1823,38 +1760,91 @@ private fun ExperimentalScreen(onBack: () -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.textPrimary)
             }
             Spacer(Modifier.weight(1f))
-            Text("Experimental", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("Advanced", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(48.dp))
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        SectionHeader("Features")
-        Column(
-            Modifier.fillMaxWidth().background(LitterQuiet.raised, LitterRadius.raisedShape),
-        ) {
-            features.forEachIndexed { idx, feature ->
-                val enabled = ExperimentalFeatures.isEnabled(feature)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(feature.displayName, color = LitterTheme.textPrimary, fontSize = 14.sp)
-                        Text(feature.description, color = LitterTheme.textSecondary, fontSize = 13.sp)
-                    }
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { ExperimentalFeatures.setEnabled(context, feature, it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
-                    )
-                }
-                if (idx < features.lastIndex) HorizontalDivider(color = LitterTheme.divider)
+        LazyColumn(Modifier.fillMaxWidth()) {
+            item { SectionHeader("Experimental") }
+            items(features, key = { it.name }) { feature ->
+                SettingsRow(
+                    label = feature.displayName,
+                    subtitle = feature.description,
+                    trailing = {
+                        Switch(
+                            checked = ExperimentalFeatures.isEnabled(feature),
+                            onCheckedChange = { ExperimentalFeatures.setEnabled(context, feature, it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
+                        )
+                    },
+                )
             }
+            item {
+                Text(
+                    "Experimental features may be unstable or change without notice.",
+                    style = LitterType.meta,
+                    modifier = Modifier.padding(top = LitterSpacing.xxs),
+                )
+            }
+
+            item { SectionHeader("Extras") }
+            item {
+                SettingsRow(
+                    label = "Wake Pet",
+                    subtitle = PetOverlayController.selectedPet?.displayName ?: "Choose a Codex pet",
+                    trailing = {
+                        Switch(
+                            checked = PetOverlayController.visible,
+                            onCheckedChange = { PetOverlayController.setVisible(context, it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
+                        )
+                    },
+                    onClick = onOpenPets,
+                )
+            }
+            if (onOpenApps != null) {
+                item { NavRow(icon = Icons.Default.Widgets, label = "Saved Apps", onClick = onOpenApps) }
+            }
+            item {
+                SettingsRow(
+                    label = "Local Studio",
+                    subtitle = "localstudio.ai",
+                    trailing = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            tint = LitterQuiet.meta,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://localstudio.ai")),
+                        )
+                    },
+                )
+            }
+
+            item { SectionHeader("Debug") }
+            item {
+                SettingsRow(
+                    label = "Debug mode",
+                    subtitle = "Show debug controls in conversations",
+                    trailing = {
+                        Switch(
+                            checked = DebugSettings.enabled,
+                            onCheckedChange = { DebugSettings.setEnabled(context, it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.textPrimary),
+                        )
+                    },
+                )
+            }
+            if (DebugSettings.enabled) {
+                item { NavRow(icon = Icons.Default.Science, label = "Debug Settings", onClick = onOpenDebug) }
+            }
+            item { Spacer(Modifier.height(32.dp)) }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("Experimental features may be unstable or change without notice.", color = LitterTheme.textMuted, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
