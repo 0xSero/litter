@@ -117,7 +117,13 @@ final class LiveTourUITests: XCTestCase {
             throw XCTSkip("LITTER_E2E_OPEN_MATCH not set")
         }
         let app = XCUIApplication()
-        app.launch()
+        // LITTER_E2E_ATTACH drives an app already started with
+        // `simctl launch --console-pty`, so its Rust stderr log is captured.
+        if ProcessInfo.processInfo.environment["LITTER_E2E_ATTACH"] != nil {
+            app.activate()
+        } else {
+            app.launch()
+        }
         XCTAssertTrue(app.buttons["home.settingsButton"].waitForExistence(timeout: 20))
         sleep(3)
         dismissWebSheet(app)
