@@ -193,14 +193,12 @@ impl From<upstream::Thread> for ThreadInfo {
 
         Self {
             id: thread.id,
-            title: thread.name,
+            // Bridges derive names/previews from transcript text, which can
+            // carry Claude Code wrapper markup (`<local-command-caveat>` …).
+            title: crate::thread_display_text::sanitize_optional_thread_display_text(thread.name),
             model: None,
             status: ThreadSummaryStatus::from(thread.status),
-            preview: if thread.preview.is_empty() {
-                None
-            } else {
-                Some(thread.preview)
-            },
+            preview: crate::thread_display_text::sanitize_thread_display_text(&thread.preview),
             cwd: Some(thread.cwd.to_string_lossy().to_string()),
             path: match thread.path {
                 Some(path) => Some(path.to_string_lossy().to_string()),
@@ -1243,6 +1241,153 @@ pub struct ModelInfo {
     #[serde(default)]
     #[uniffi(default = None)]
     pub provider_id: Option<String>,
+    /// What this catalog entry selects. Some runtimes (Amp) list *modes*
+    /// in their model catalog; pickers must present those as modes, not
+    /// as models. Classified once in Rust when the catalog is fetched.
+    #[serde(default)]
+    pub entry_kind: ModelEntryKind,
+    /// Short picker label: the mode name for mode entries, otherwise the
+    /// display name without its provider/catalog prefix or suffix.
+    #[serde(default)]
+    #[uniffi(default = "")]
+    pub picker_name: String,
+    /// Human-readable provider name for `provider_id` ("OpenAI", "xAI").
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub provider_label: Option<String>,
+}
+
+/// Kind of choice a model-catalog entry represents.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Enum)]
+pub enum ModelEntryKind {
+    /// A real model.
+    #[default]
+    Model,
+    /// A built-in runtime mode from the agent's `visible_modes` allowlist
+    /// (Amp `low` / `medium` / `high` / `ultra`).
+    Mode,
+    /// A mode contributed by a runtime plugin (Amp plugin modes).
+    PluginMode,
+}
+
+impl ModelInfo {
+    /// Fill the picker presentation fields (`entry_kind`, `picker_name`,
+    /// `provider_label`). `visible_modes` is the runtime's mode allowlist;
+    /// `Some` means the runtime's catalog lists modes rather than models.
+    pub fn apply_picker_presentation(&mut self, visible_modes: Option<&[String]>) {
+        self.provider_label = self
+            .provider_id
+            .as_deref()
+            .filter(|provider| !provider.is_empty())
+            .map(provider_display_label);
+        let Some(visible_modes) = visible_modes else {
+            self.entry_kind = ModelEntryKind::Model;
+            self.picker_name = model_name_within_provider(self);
+            return;
+        };
+        let kind = self.agent_runtime_kind.as_str();
+        let mut mode = normalized_mode_name(&self.id, kind);
+        if mode.is_empty() {
+            mode = normalized_mode_name(&self.model, kind);
+        }
+        let is_builtin = visible_modes
+            .iter()
+            .any(|visible| visible.trim().eq_ignore_ascii_case(&mode));
+        if is_builtin {
+            self.entry_kind = ModelEntryKind::Mode;
+            self.picker_name = mode;
+        } else {
+            // Plugin modes carry a host-chosen display name; prefer it.
+            self.entry_kind = ModelEntryKind::PluginMode;
+            self.picker_name = if !self.display_name.trim().is_empty() || mode.is_empty() {
+                fallback_display_name(self)
+            } else {
+                mode
+            };
+        }
+    }
+}
+
+fn fallback_display_name(model: &ModelInfo) -> String {
+    if model.display_name.trim().is_empty() {
+        model.id.clone()
+    } else {
+        model.display_name.clone()
+    }
+}
+
+/// Lowercased mode name with an optional `<kind>/`, `<kind>:` or
+/// `<kind>\` prefix removed.
+fn normalized_mode_name(value: &str, kind: &str) -> String {
+    let mut out = value.trim().to_lowercase();
+    if kind.is_empty() {
+        return out;
+    }
+    for separator in ['/', ':', '\\'] {
+        if out.starts_with(kind) && out[kind.len()..].starts_with(separator) {
+            out = out[kind.len() + separator.len_utf8()..].to_string();
+        }
+    }
+    out
+}
+
+fn model_name_within_provider(model: &ModelInfo) -> String {
+    let mut name = fallback_display_name(model);
+    if let Some((catalog, _)) = model.id.split_once('/') {
+        let suffix = format!(" ({catalog})");
+        if name.len() > suffix.len() && name.to_lowercase().ends_with(&suffix.to_lowercase()) {
+            name.truncate(name.len() - suffix.len());
+        }
+    }
+    if let Some(provider) = model.provider_id.as_deref().filter(|p| !p.is_empty()) {
+        let prefix = format!("{provider}/");
+        if name.len() > prefix.len() && name.starts_with(&prefix) {
+            name = name[prefix.len()..].to_string();
+        }
+    }
+    name
+}
+
+/// Display label for a provider id. Well-known ids get their brand
+/// spelling; everything else is title-cased on `-` / `_`.
+pub fn provider_display_label(provider: &str) -> String {
+    let known = match provider.to_ascii_lowercase().as_str() {
+        "ai21" => Some("AI21"),
+        "anthropic" => Some("Anthropic"),
+        "arcee-ai" => Some("Arcee AI"),
+        "bytedance-seed" => Some("ByteDance"),
+        "deepseek" => Some("DeepSeek"),
+        "google" => Some("Google"),
+        "meta-llama" => Some("Meta"),
+        "minimax" => Some("MiniMax"),
+        "mistralai" => Some("Mistral AI"),
+        "moonshotai" => Some("Moonshot AI"),
+        "nvidia" => Some("NVIDIA"),
+        "openai" => Some("OpenAI"),
+        "openai-codex" => Some("OpenAI Codex"),
+        "openrouter" => Some("OpenRouter"),
+        "qwen" => Some("Qwen"),
+        "x-ai" | "xai" => Some("xAI"),
+        "z-ai" | "zai" => Some("Z.ai"),
+        _ => None,
+    };
+    if let Some(known) = known {
+        return known.to_string();
+    }
+    provider
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl From<upstream::Model> for ModelInfo {
@@ -1276,6 +1421,9 @@ impl From<upstream::Model> for ModelInfo {
             is_default: value.is_default,
             agent_runtime_kind: "codex".to_string(),
             provider_id: None,
+            entry_kind: ModelEntryKind::Model,
+            picker_name: String::new(),
+            provider_label: None,
         }
     }
 }

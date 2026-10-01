@@ -1,30 +1,32 @@
 package com.litter.android.ui.common
 
+import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -44,7 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,26 +60,25 @@ import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppModeKind
 import uniffi.codex_mobile_client.AppThreadPermissionPreset
 import uniffi.codex_mobile_client.AppThreadSnapshot
-import com.litter.android.ui.common.AgentRuntimeKind
+import uniffi.codex_mobile_client.ModelEntryKind
 import uniffi.codex_mobile_client.ModelInfo
 import uniffi.codex_mobile_client.ReasoningEffort
 import uniffi.codex_mobile_client.threadPermissionPreset
 import java.util.Locale
 
 /**
- * Reusable model/reasoning/plan/permissions/fast-mode panel shared by the
- * conversation header (scoped to an existing thread) and the home composer
- * chip (pre-thread, `thread == null`). Mirrors iOS
- * `HeaderView.swift` + `ConversationOptionsSheet.swift`.
+ * Model picker shared by the conversation composer (scoped to an existing
+ * thread) and the home composer chip (pre-thread, `thread == null`).
+ * Mirrors iOS `ModelPickerView.swift`:
  *
- * When `thread` is null:
- *   - Permission toggle operates on `AppLaunchState` defaults (threadKey=null)
- *     so the choice carries through the next `startThread` call.
- *   - Plan toggle is hidden — the collaboration mode is a per-thread field
- *     with no pre-thread equivalent on Android.
+ *  - root: current selection, recents, one row per harness, then options
+ *    (reasoning effort, fast mode, plan, access);
+ *  - a harness page lists its modes, plugin modes, or models grouped by
+ *    provider (large catalogs start folded);
+ *  - search covers every harness and provider.
  *
- * `onToggleMode` is invoked for Plan chip taps; pass null (or it will be
- * ignored because the chip is hidden) when there's no thread.
+ * Mode vs model classification, picker labels and provider labels come
+ * from Rust (`ModelInfo.entryKind` / `pickerName` / `providerLabel`).
  */
 @Composable
 fun ModelSelectorPanel(
@@ -93,11 +94,13 @@ fun ModelSelectorPanel(
     showBackground: Boolean = true,
 ) {
     val appModel = LocalAppModel.current
+    val context = LocalContext.current
     val launchState by appModel.launchState.snapshot.collectAsState()
-    var modelSearchQuery by rememberSaveable { mutableStateOf("") }
-    val visibleModels = remember(availableModels) {
-        availableModels.filter { it.isVisibleModelOption() }
-    }
+    var query by rememberSaveable { mutableStateOf("") }
+    var openHarness by rememberSaveable { mutableStateOf<String?>(null) }
+    var recents by remember { mutableStateOf(ModelPickerRecents.load(context)) }
+    val catalog = remember(availableModels) { ModelPickerCatalog(availableModels) }
+    val visibleModels = catalog.visible
     val catalogMessage = catalogError
         ?: if (!catalogLoaded) "Loading models..."
         else if (visibleModels.isEmpty()) "No models available"
@@ -120,17 +123,6 @@ fun ModelSelectorPanel(
         ?: visibleModels.firstOrNull { it.id == selectedModel || it.model == selectedModel }?.agentRuntimeKind
     val selectedRuntimeSupportsPermissionOverrides =
         selectedRuntime?.supportsThreadPermissionOverrides ?: true
-    val runtimeBuckets = remember(visibleModels) {
-        visibleModels
-            .groupBy { it.agentRuntimeKind }
-            .map { (kind, models) -> RuntimeModelBucket(kind = kind, count = models.size) }
-            .sortedBy { it.kind.runtimeSortIndex }
-    }
-    var selectedRuntimeFilterName by rememberSaveable { mutableStateOf<String?>(null) }
-    var initializedRuntimeFilter by rememberSaveable { mutableStateOf(false) }
-    val selectedRuntimeFilter = runtimeBuckets.firstOrNull {
-        it.kind == selectedRuntimeFilterName
-    }?.kind
 
     LaunchedEffect(thread, pendingModel, pendingRuntime, fallbackModel) {
         if (thread == null && pendingModel != null && pendingModelDefinition == null && fallbackModel != null) {
@@ -142,34 +134,6 @@ fun ModelSelectorPanel(
         }
     }
 
-    LaunchedEffect(selectedRuntime, runtimeBuckets) {
-        if (!initializedRuntimeFilter) {
-            if (selectedRuntime != null && runtimeBuckets.any { it.kind == selectedRuntime }) {
-                selectedRuntimeFilterName = selectedRuntime
-            }
-            initializedRuntimeFilter = true
-        } else if (
-            selectedRuntimeFilterName != null &&
-            runtimeBuckets.none { it.kind == selectedRuntimeFilterName }
-        ) {
-            selectedRuntimeFilterName = null
-        }
-    }
-
-    val runtimeScopedModels = remember(visibleModels, selectedRuntimeFilter) {
-        selectedRuntimeFilter?.let { runtime ->
-            visibleModels.filter { it.agentRuntimeKind == runtime }
-        } ?: visibleModels
-    }
-    val modelSearchIndex = remember(runtimeScopedModels) {
-        ModelSearchIndex(runtimeScopedModels)
-    }
-    val filteredModels = remember(modelSearchIndex, modelSearchQuery) {
-        modelSearchIndex.results(modelSearchQuery)
-    }
-    val providerGroups = remember(filteredModels) {
-        modelProviderGroups(filteredModels)
-    }
     val selectedModelDefinition by remember(selectedModel, selectedRuntime, visibleModels) {
         derivedStateOf {
             visibleModels.firstOrNull { it.matchesModelSelection(selectedModel, selectedRuntime) }
@@ -177,8 +141,8 @@ fun ModelSelectorPanel(
                 ?: visibleModels.firstOrNull()
         }
     }
-    val selectedModelIsAmp = selectedModelDefinition?.agentRuntimeKind == "amp"
-    val ampEffortLocked = selectedModelIsAmp && thread?.ampReasoningEffortLocked == true
+    val selectedIsMode = selectedModelDefinition?.isModeEntry() == true
+    val ampEffortLocked = selectedIsMode && thread?.ampReasoningEffortLocked == true
     val supportedEfforts = remember(selectedModelDefinition, ampEffortLocked) {
         if (ampEffortLocked) {
             emptyList()
@@ -220,6 +184,49 @@ fun ModelSelectorPanel(
         }
     }
 
+    val isSelected: (ModelInfo) -> Boolean = { model ->
+        model.matchesModelSelection(selectedModel, selectedRuntime)
+    }
+    val onSelect: (ModelInfo) -> Unit = { model ->
+        appModel.launchState.updateSelectedModel(
+            model.id,
+            agentRuntimeKind = model.agentRuntimeKind,
+        )
+        appModel.launchState.updateReasoningEffort(
+            if (ampEffortLocked && model.isModeEntry()) {
+                null
+            } else {
+                model.defaultReasoningEffortSelection()
+            },
+        )
+        recents = ModelPickerRecents.record(context, model)
+        query = ""
+        openHarness = null
+    }
+
+    val harness = openHarness?.let(catalog::harness)
+    val trimmedQuery = query.trim()
+    val searchResults = remember(catalog, trimmedQuery, harness?.kind) {
+        catalog.search(trimmedQuery, harness?.kind)
+    }
+    val currentModel = selectedModelDefinition
+        ?.takeIf { it.matchesModelSelection(selectedModel, selectedRuntime) }
+    val recentModels = remember(recents, catalog, currentModel) {
+        recents
+            .filter { it != currentModel?.scopedId() }
+            .mapNotNull(catalog::model)
+            .take(4)
+    }
+    var expandedProviders by remember(openHarness) {
+        mutableStateOf(
+            harness?.providers
+                ?.filter { group -> group.models.any(isSelected) }
+                ?.map { it.id }
+                ?.toSet()
+                ?: emptySet(),
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -232,66 +239,62 @@ fun ModelSelectorPanel(
             )
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = "Model",
-            color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.footnote.scaled,
-        )
-
-        if (runtimeBuckets.size > 1) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
-            ) {
-                item(key = "all") {
-                    RuntimeFilterChip(
-                        label = "All",
-                        count = visibleModels.size,
-                        selected = selectedRuntimeFilterName == null,
-                        onClick = { selectedRuntimeFilterName = null },
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+        ) {
+            if (harness != null) {
+                IconButton(onClick = {
+                    openHarness = null
+                    query = ""
+                }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to harnesses",
+                        tint = LitterTheme.textPrimary,
                     )
                 }
-                items(runtimeBuckets, key = { it.kind }) { bucket ->
-                    RuntimeFilterChip(
-                        label = bucket.kind.runtimeLabel,
-                        count = bucket.count,
-                        selected = selectedRuntimeFilter == bucket.kind,
-                        onClick = { selectedRuntimeFilterName = bucket.kind },
-                        leadingIcon = { ModelRuntimeIcon(bucket.kind) },
-                    )
-                }
+                AgentIconView(kind = harness.kind, sizeDp = 20)
+                Spacer(Modifier.width(8.dp))
             }
+            Text(
+                text = harness?.label ?: "Model",
+                color = LitterTheme.textPrimary,
+                fontSize = LitterTextStyle.body.scaled,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
 
         OutlinedTextField(
-            value = modelSearchQuery,
-            onValueChange = { modelSearchQuery = it },
+            value = query,
+            onValueChange = { query = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 4.dp),
+                .padding(top = 4.dp, bottom = 8.dp),
             textStyle = TextStyle(
                 color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.footnote.scaled,
+                fontSize = LitterTextStyle.body.scaled,
             ),
             singleLine = true,
-            label = {
+            shape = RoundedCornerShape(12.dp),
+            placeholder = {
                 Text(
-                    "Search models",
-                    color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.footnote.scaled,
+                    if (harness != null) "Search ${harness.label}" else "Search all models",
+                    color = LitterTheme.textMuted,
+                    fontSize = LitterTextStyle.body.scaled,
                 )
             },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
-                    tint = LitterTheme.textSecondary,
-                    modifier = Modifier.size(16.dp),
+                    tint = LitterTheme.textMuted,
+                    modifier = Modifier.size(18.dp),
                 )
             },
             trailingIcon = {
-                if (modelSearchQuery.isNotEmpty()) {
-                    IconButton(onClick = { modelSearchQuery = "" }) {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Clear model search",
@@ -304,419 +307,641 @@ fun ModelSelectorPanel(
         )
 
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 320.dp)
-                .padding(vertical = 4.dp),
+                .heightIn(max = 560.dp),
         ) {
-            providerGroups.forEach { group ->
-                item(key = group.key) {
-                    Text(
-                        text = group.name.uppercase(Locale.ROOT),
-                        color = LitterTheme.textMuted,
-                        fontSize = LitterTextStyle.footnote.scaled,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 1.dp),
-                    )
-                }
-                items(group.models, key = { "${it.agentRuntimeKind}:${it.id}" }) { model ->
-                    val isSelected = model.matchesModelSelection(selectedModel, selectedRuntime)
-                    ModelOptionRow(
-                        model = model,
-                        selected = isSelected,
-                        onClick = {
-                            appModel.launchState.updateSelectedModel(
-                                model.id,
-                                agentRuntimeKind = model.agentRuntimeKind,
-                            )
-                            appModel.launchState.updateReasoningEffort(
-                                if (ampEffortLocked && model.agentRuntimeKind == "amp") {
-                                    null
-                                } else {
-                                    model.defaultReasoningEffortSelection()
-                                },
-                            )
-                        },
-                    )
-                }
-            }
-        }
-
-        if (catalogMessage != null) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = catalogMessage,
-                    color = LitterTheme.textMuted,
-                    fontSize = LitterTextStyle.footnote.scaled,
-                    maxLines = 3,
-                )
-                if (catalogError != null) {
-                    Text(
-                        text = "Retry",
-                        color = LitterTheme.textPrimary,
-                        fontSize = LitterTextStyle.footnote.scaled,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable(onClick = onRetryModels).padding(vertical = 4.dp),
-                    )
-                }
-            }
-        }
-        if (visibleModels.isNotEmpty() && filteredModels.isEmpty()) {
-            Text(
-                text = "No matching models",
-                color = LitterTheme.textMuted,
-                fontSize = LitterTextStyle.footnote.scaled,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        }
-
-        if (ampEffortLocked) {
-            Text(
-                text = "Reasoning effort is locked after the first message.",
-                color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.footnote.scaled,
-                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-            )
-        } else if (supportedEfforts.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Effort",
-                        color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.footnote.scaled,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(supportedEfforts) { option ->
-                        val effort = effortLabel(option.reasoningEffort)
-                        FilterChip(
-                            selected = selectedEffort == effort,
-                            onClick = {
-                                appModel.launchState.updateReasoningEffort(effort)
-                            },
-                            label = { Text(effort, fontSize = 13.scaled) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = LitterTheme.textPrimary,
-                                selectedLabelColor = LitterTheme.background,
-                            ),
-                        )
-                    }
-                }
-            }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            val threadKey = thread?.key
-            if (thread != null && onToggleMode != null) {
-                val isPlan = thread.collaborationMode == AppModeKind.PLAN
-                FilterChip(
-                    selected = isPlan,
-                    onClick = {
-                        val next = if (isPlan) AppModeKind.DEFAULT else AppModeKind.PLAN
-                        onToggleMode(next)
-                    },
-                    label = { Text("Plan", fontSize = 13.scaled) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = LitterTheme.textPrimary,
-                        selectedLabelColor = LitterTheme.background,
-                    ),
-                )
-            }
-
-            if (selectedRuntimeSupportsPermissionOverrides) {
-                val currentPreset = run {
-                    val approval = appModel.launchState.approvalPolicyValue(threadKey)
-                        ?: thread?.effectiveApprovalPolicy
-                    val sandbox = appModel.launchState.turnSandboxPolicy(threadKey)
-                        ?: thread?.effectiveSandboxPolicy
-                    if (approval != null && sandbox != null) {
-                        threadPermissionPreset(approval, sandbox)
-                    } else {
-                        null
-                    }
-                }
-                val isFullAccess = currentPreset == AppThreadPermissionPreset.FULL_ACCESS
-                FilterChip(
-                    selected = isFullAccess,
-                    onClick = {
-                        if (isFullAccess) {
-                            appModel.launchState.updateThreadPermissions(
-                                threadKey,
-                                approvalPolicy = "on-request",
-                                sandboxMode = "workspace-write",
-                            )
+            if (trimmedQuery.isNotEmpty()) {
+                searchResultItems(searchResults, trimmedQuery, isSelected, onSelect)
+            } else if (harness != null) {
+                harnessItems(
+                    harness = harness,
+                    expanded = expandedProviders,
+                    onToggle = { id ->
+                        expandedProviders = if (id in expandedProviders) {
+                            expandedProviders - id
                         } else {
-                            appModel.launchState.updateThreadPermissions(
-                                threadKey,
-                                approvalPolicy = "never",
-                                sandboxMode = "danger-full-access",
-                            )
+                            expandedProviders + id
                         }
                     },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (isFullAccess) Icons.Default.LockOpen else Icons.Default.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    },
-                    label = {
-                        Text(
-                            if (isFullAccess) "Full Access" else "Supervised",
-                            fontSize = 13.scaled,
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = LitterTheme.danger,
-                        selectedLabelColor = Color.White,
-                        selectedLeadingIconColor = Color.White,
-                    ),
+                    isSelected = isSelected,
+                    onSelect = onSelect,
                 )
+            } else {
+                if (catalogMessage != null) {
+                    item(key = "notice") {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        ) {
+                            Text(
+                                text = catalogMessage,
+                                color = LitterTheme.textSecondary,
+                                fontSize = LitterTextStyle.footnote.scaled,
+                                maxLines = 3,
+                            )
+                            if (catalogError != null) {
+                                Text(
+                                    text = "Retry",
+                                    color = LitterTheme.accent,
+                                    fontSize = LitterTextStyle.footnote.scaled,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clickable(onClick = onRetryModels)
+                                        .padding(vertical = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                if (currentModel != null) {
+                    item(key = "current-header") { PickerSectionHeader("Current") }
+                    item(key = "current") {
+                        PickerCard {
+                            PickerModelRow(
+                                model = currentModel,
+                                subtitle = catalog.subtitle(currentModel),
+                                showsIcon = true,
+                                selected = true,
+                                onClick = { openHarness = currentModel.agentRuntimeKind },
+                            )
+                        }
+                    }
+                }
+                if (recentModels.isNotEmpty()) {
+                    item(key = "recent-header") { PickerSectionHeader("Recent") }
+                    item(key = "recent") {
+                        PickerCard {
+                            recentModels.forEachIndexed { index, model ->
+                                if (index > 0) PickerDivider()
+                                PickerModelRow(
+                                    model = model,
+                                    subtitle = catalog.subtitle(model),
+                                    showsIcon = true,
+                                    selected = false,
+                                    onClick = { onSelect(model) },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (catalog.harnesses.isNotEmpty()) {
+                    item(key = "harness-header") { PickerSectionHeader("Harnesses") }
+                    item(key = "harnesses") {
+                        PickerCard {
+                            catalog.harnesses.forEachIndexed { index, entry ->
+                                if (index > 0) PickerDivider()
+                                PickerHarnessRow(
+                                    harness = entry,
+                                    isCurrent = currentModel?.agentRuntimeKind == entry.kind,
+                                    onClick = { openHarness = entry.kind },
+                                )
+                            }
+                        }
+                    }
+                }
+                item(key = "options-header") { PickerSectionHeader("Options") }
+                item(key = "options") {
+                    PickerCard {
+                        if (ampEffortLocked) {
+                            PickerValueRow(label = "Reasoning", value = "Locked after first message")
+                            PickerDivider()
+                        } else if (supportedEfforts.isNotEmpty()) {
+                            var menuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                PickerValueRow(
+                                    label = "Reasoning",
+                                    value = selectedEffort?.replaceFirstChar { it.titlecase(Locale.ROOT) } ?: "Default",
+                                    onClick = { menuOpen = true },
+                                )
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false },
+                                ) {
+                                    supportedEfforts.forEach { option ->
+                                        val effort = effortLabel(option.reasoningEffort)
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(effort.replaceFirstChar { it.titlecase(Locale.ROOT) })
+                                            },
+                                            trailingIcon = {
+                                                if (effort == selectedEffort) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                appModel.launchState.updateReasoningEffort(effort)
+                                                menuOpen = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            PickerDivider()
+                        }
+                        PickerSwitchRow(label = "Fast mode", checked = fastMode, onCheckedChange = onFastModeChange)
+                        val threadKey = thread?.key
+                        if (thread != null && onToggleMode != null) {
+                            val isPlan = thread.collaborationMode == AppModeKind.PLAN
+                            PickerDivider()
+                            PickerSwitchRow(
+                                label = "Plan mode",
+                                checked = isPlan,
+                                onCheckedChange = { enabled ->
+                                    onToggleMode(if (enabled) AppModeKind.PLAN else AppModeKind.DEFAULT)
+                                },
+                            )
+                        }
+                        if (selectedRuntimeSupportsPermissionOverrides) {
+                            val currentPreset = run {
+                                val approval = appModel.launchState.approvalPolicyValue(threadKey)
+                                    ?: thread?.effectiveApprovalPolicy
+                                val sandbox = appModel.launchState.turnSandboxPolicy(threadKey)
+                                    ?: thread?.effectiveSandboxPolicy
+                                if (approval != null && sandbox != null) {
+                                    threadPermissionPreset(approval, sandbox)
+                                } else {
+                                    null
+                                }
+                            }
+                            val isFullAccess = currentPreset == AppThreadPermissionPreset.FULL_ACCESS
+                            PickerDivider()
+                            PickerSwitchRow(
+                                label = "Full access",
+                                checked = isFullAccess,
+                                checkedTrackColor = LitterTheme.danger,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) {
+                                        appModel.launchState.updateThreadPermissions(
+                                            threadKey,
+                                            approvalPolicy = "never",
+                                            sandboxMode = "danger-full-access",
+                                        )
+                                    } else {
+                                        appModel.launchState.updateThreadPermissions(
+                                            threadKey,
+                                            approvalPolicy = "on-request",
+                                            sandboxMode = "workspace-write",
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+private fun LazyListScope.harnessItems(
+    harness: PickerHarness,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    isSelected: (ModelInfo) -> Boolean,
+    onSelect: (ModelInfo) -> Unit,
+) {
+    if (harness.modes.isNotEmpty()) {
+        item(key = "modes-header") { PickerSectionHeader("Modes") }
+        item(key = "modes") {
+            PickerCard {
+                harness.modes.forEachIndexed { index, model ->
+                    if (index > 0) PickerDivider()
+                    PickerModelRow(model, model.description, false, isSelected(model)) { onSelect(model) }
+                }
+            }
+        }
+    }
+    if (harness.pluginModes.isNotEmpty()) {
+        item(key = "plugin-modes-header") { PickerSectionHeader("Plugin modes") }
+        item(key = "plugin-modes") {
+            PickerCard {
+                harness.pluginModes.forEachIndexed { index, model ->
+                    if (index > 0) PickerDivider()
+                    PickerModelRow(model, null, false, isSelected(model)) { onSelect(model) }
+                }
+            }
+        }
+    }
+    val collapses = harness.providers.size > 1 && harness.modelCount > 30
+    harness.providers.forEach { group ->
+        val open = !collapses || group.id in expanded
+        item(key = "header:${group.id}") {
+            if (collapses) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clickable { onToggle(group.id) }
+                        .padding(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = group.title ?: "Other",
+                        color = LitterTheme.textSecondary,
+                        fontSize = LitterTextStyle.footnote.scaled,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (group.models.any(isSelected)) {
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(LitterTheme.accent),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = group.models.size.toString(),
+                        color = LitterTheme.textMuted,
+                        fontSize = LitterTextStyle.footnote.scaled,
+                    )
+                    Icon(
+                        imageVector = if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (open) "Collapse" else "Expand",
+                        tint = LitterTheme.textMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                val title = group.title
+                    ?: if (harness.providers.size > 1 || harness.modes.isNotEmpty() || harness.pluginModes.isNotEmpty()) "Models" else null
+                if (title != null) PickerSectionHeader(title) else Spacer(Modifier.width(0.dp))
+            }
+        }
+        if (open) {
+            items(group.models, key = { "${group.id}|${it.id}" }) { model ->
+                PickerCardRow(
+                    first = model === group.models.first(),
+                    last = model === group.models.last(),
+                ) {
+                    PickerModelRow(model, model.description, false, isSelected(model)) { onSelect(model) }
+                }
+            }
+        }
+    }
+}
+
+private fun LazyListScope.searchResultItems(
+    results: PickerSearchResults,
+    query: String,
+    isSelected: (ModelInfo) -> Boolean,
+    onSelect: (ModelInfo) -> Unit,
+) {
+    if (results.sections.isEmpty()) {
+        item(key = "no-results") {
             Text(
-                "Fast mode",
+                text = "No models match “$query”",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.footnote.scaled,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
             )
-            Switch(
-                checked = fastMode,
-                onCheckedChange = onFastModeChange,
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = LitterTheme.textPrimary,
-                ),
+        }
+    }
+    results.sections.forEach { section ->
+        item(key = "search-header:${section.id}") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AgentIconView(kind = section.kind, sizeDp = 14)
+                Spacer(Modifier.width(6.dp))
+                PickerSectionHeader(section.title)
+            }
+        }
+        items(section.models, key = { "search:${section.id}|${it.id}" }) { model ->
+            PickerCardRow(
+                first = model === section.models.first(),
+                last = model === section.models.last(),
+            ) {
+                PickerModelRow(model, null, false, isSelected(model)) { onSelect(model) }
+            }
+        }
+    }
+    if (results.total > results.shown) {
+        item(key = "search-more") {
+            Text(
+                text = "Showing ${results.shown} of ${results.total} matches. Keep typing to narrow.",
+                color = LitterTheme.textMuted,
+                fontSize = LitterTextStyle.caption.scaled,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             )
         }
     }
 }
 
-internal fun effortLabel(value: ReasoningEffort): String =
-    uniffi.codex_mobile_client.reasoningEffortWireValue(value)
+// region Catalog projection
 
+internal fun ModelInfo.isModeEntry(): Boolean = entryKind != ModelEntryKind.MODEL
 
-private fun ModelInfo.defaultReasoningEffortSelection(): String? =
-    supportedDefaultReasoningEffort?.let(::effortLabel)
+internal fun ModelInfo.pickerLabel(): String =
+    pickerName.ifEmpty { displayName.ifBlank { id } }
 
+private fun ModelInfo.scopedId(): String = "$agentRuntimeKind:$id"
 
-private fun normalizedAmpModeName(value: String): String =
-    value.trim()
-        .lowercase(Locale.ROOT)
-        .removePrefix("amp/")
-        .removePrefix("amp:")
-
-private fun ModelInfo.ampModeName(): String =
-    normalizedAmpModeName(id)
-        .ifEmpty {
-            normalizedAmpModeName(model)
-        }
-
-internal fun ModelInfo.modelPickerDisplayName(): String =
-    if (agentRuntimeKind == "amp") {
-        ampModeName().ifEmpty { displayName.ifBlank { id } }
-    } else {
-        displayName.ifBlank { id }
-    }
-
-private fun ModelInfo.isVisibleModelOption(): Boolean =
-    !hidden
-
-private data class RuntimeModelBucket(
-    val kind: AgentRuntimeKind,
-    val count: Int,
-)
-
-private data class ModelProviderGroup(
-    val key: String,
-    val name: String,
+private class PickerGroup(
+    val id: String,
+    val title: String?,
     val models: List<ModelInfo>,
 )
 
-private fun ModelInfo.providerName(): String {
-    val provider = providerId ?: return agentRuntimeKind.runtimeLabel
-    return when (provider.lowercase(Locale.ROOT)) {
-        "ai21" -> "AI21"
-        "arcee-ai" -> "Arcee AI"
-        "bytedance-seed" -> "ByteDance"
-        "deepseek" -> "DeepSeek"
-        "meta-llama" -> "Meta"
-        "mistralai" -> "Mistral AI"
-        "moonshotai" -> "Moonshot AI"
-        "openai" -> "OpenAI"
-        "openrouter" -> "OpenRouter"
-        "x-ai" -> "xAI"
-        else -> provider.split('-', '_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
-    }
-}
+private class PickerHarness(
+    val kind: AgentRuntimeKind,
+    val label: String,
+    val modes: List<ModelInfo>,
+    val pluginModes: List<ModelInfo>,
+    val providers: List<PickerGroup>,
+    val modelCount: Int,
+    val summary: String,
+)
 
-private fun modelProviderGroups(models: List<ModelInfo>): List<ModelProviderGroup> =
-    models
-        .groupBy { model ->
-            val provider = model.providerId?.takeIf(String::isNotEmpty)?.let { "provider:$it" }
-                ?: "runtime"
-            "${model.agentRuntimeKind}:$provider"
-        }
-        .map { (key, entries) ->
-            val model = entries.first()
-            ModelProviderGroup(
-                key,
-                if (model.providerId.isNullOrEmpty()) model.agentRuntimeKind.runtimeLabel
-                else "${model.agentRuntimeKind.runtimeLabel} · ${model.providerName()}",
-                entries,
-            )
-        }
-        .sortedBy { it.name.lowercase(Locale.ROOT) }
+private class PickerSearchSection(
+    val id: String,
+    val kind: AgentRuntimeKind,
+    val title: String,
+    val models: MutableList<ModelInfo>,
+)
 
-private fun ModelInfo.modelNameWithinProvider(): String {
-    var name = modelPickerDisplayName()
-    val catalog = id.substringBefore('/', "")
-    if (catalog.isNotEmpty() && name.endsWith(" ($catalog)", ignoreCase = true)) {
-        name = name.dropLast(catalog.length + 3)
-    }
-    val provider = providerId
-    if (!provider.isNullOrEmpty() && name.startsWith("$provider/")) {
-        name = name.removePrefix("$provider/")
-    }
-    return name
-}
+private class PickerSearchResults(
+    val sections: List<PickerSearchSection>,
+    val shown: Int,
+    val total: Int,
+)
 
-private const val MaxModelSearchResults = 80
+private const val MaxModelSearchResults = 150
 
-private class ModelSearchIndex(models: List<ModelInfo>) {
-    private data class Row(
+/** Render-only grouping of the catalog; built once per model list. */
+private class ModelPickerCatalog(models: List<ModelInfo>) {
+    private class SearchRow(
         val model: ModelInfo,
-        val searchableText: String,
+        val sectionId: String,
+        val sectionTitle: String,
+        val text: String,
     )
 
-    private val rows = models.map { model ->
-        Row(
-            model = model,
-            searchableText = buildString {
-                append(model.id)
-                append('\n')
-                append(model.model)
-                append('\n')
-                append(model.agentRuntimeKind)
-                append('\n')
-                append(model.modelPickerDisplayName())
-                append('\n')
-                append(model.description)
-            }.lowercase(Locale.ROOT),
-        )
-    }
+    val visible: List<ModelInfo> = models.filter { !it.hidden }
+    val harnesses: List<PickerHarness>
+    private val byScopedId: Map<String, ModelInfo> = visible.associateBy { it.scopedId() }
+    private val rows: List<SearchRow>
 
-    fun results(query: String): List<ModelInfo> {
-        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
-        if (normalizedQuery.isEmpty()) {
-            return rows.map { it.model }
-        }
-
-        val matches = ArrayList<ModelInfo>(minOf(MaxModelSearchResults, rows.size))
-        for (row in rows) {
-            if (row.searchableText.contains(normalizedQuery)) {
-                matches += row.model
-                if (matches.size == MaxModelSearchResults) {
-                    break
+    init {
+        val byKind = LinkedHashMap<AgentRuntimeKind, MutableList<ModelInfo>>()
+        visible.forEach { byKind.getOrPut(it.agentRuntimeKind) { mutableListOf() }.add(it) }
+        harnesses = byKind.entries
+            .sortedWith(compareBy({ it.key.runtimeSortIndex }, { it.key.titleDisplayLabel.lowercase(Locale.ROOT) }))
+            .map { (kind, entries) -> buildHarness(kind, entries) }
+        val searchRows = ArrayList<SearchRow>(visible.size)
+        harnesses.forEach { harness ->
+            val label = harness.label.lowercase(Locale.ROOT)
+            fun index(entries: List<ModelInfo>, sectionId: String, title: String, provider: String?) {
+                entries.forEach { model ->
+                    val text = listOf(
+                        model.pickerLabel(), model.id, model.model, model.displayName,
+                        label, provider.orEmpty(), model.providerId.orEmpty(),
+                    ).joinToString("\n").lowercase(Locale.ROOT)
+                    searchRows += SearchRow(model, sectionId, title, text)
                 }
             }
+            index(harness.modes, "${harness.kind}|modes", "${harness.label} · Modes", "mode")
+            index(harness.pluginModes, "${harness.kind}|plugin-modes", "${harness.label} · Plugin modes", "plugin mode")
+            harness.providers.forEach { group ->
+                index(
+                    group.models,
+                    group.id,
+                    group.title?.let { "${harness.label} · $it" } ?: harness.label,
+                    group.title,
+                )
+            }
         }
-        return matches
+        rows = searchRows
+    }
+
+    fun harness(kind: AgentRuntimeKind): PickerHarness? = harnesses.firstOrNull { it.kind == kind }
+
+    fun model(scopedId: String): ModelInfo? = byScopedId[scopedId]
+
+    fun subtitle(model: ModelInfo): String {
+        val harness = model.agentRuntimeKind.titleDisplayLabel
+        return when (model.entryKind) {
+            ModelEntryKind.MODE -> "$harness · mode"
+            ModelEntryKind.PLUGIN_MODE -> "$harness · plugin mode"
+            ModelEntryKind.MODEL -> {
+                val provider = model.providerLabel ?: model.providerId
+                if (provider.isNullOrEmpty()) harness else "$harness · $provider"
+            }
+        }
+    }
+
+    fun search(query: String, kind: AgentRuntimeKind?): PickerSearchResults {
+        val tokens = query.lowercase(Locale.ROOT).split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return PickerSearchResults(emptyList(), 0, 0)
+        val sections = ArrayList<PickerSearchSection>()
+        var shown = 0
+        var total = 0
+        for (row in rows) {
+            if (kind != null && row.model.agentRuntimeKind != kind) continue
+            if (!tokens.all { row.text.contains(it) }) continue
+            total += 1
+            if (shown >= MaxModelSearchResults) continue
+            shown += 1
+            val last = sections.lastOrNull()
+            if (last != null && last.id == row.sectionId) {
+                last.models += row.model
+            } else {
+                sections += PickerSearchSection(
+                    row.sectionId,
+                    row.model.agentRuntimeKind,
+                    row.sectionTitle,
+                    mutableListOf(row.model),
+                )
+            }
+        }
+        return PickerSearchResults(sections, shown, total)
+    }
+
+    private fun buildHarness(kind: AgentRuntimeKind, entries: List<ModelInfo>): PickerHarness {
+        val modes = entries.filter { it.entryKind == ModelEntryKind.MODE }
+        val pluginModes = entries.filter { it.entryKind == ModelEntryKind.PLUGIN_MODE }
+        val models = entries.filter { it.entryKind == ModelEntryKind.MODEL }
+        val providers = models
+            .groupBy { it.providerId.orEmpty() }
+            .map { (provider, grouped) ->
+                PickerGroup(
+                    id = "$kind|provider:$provider",
+                    title = if (provider.isEmpty()) null else grouped.first().providerLabel ?: provider,
+                    models = grouped,
+                )
+            }
+            .sortedWith(compareBy({ it.title != null }, { it.title?.lowercase(Locale.ROOT).orEmpty() }))
+        val parts = mutableListOf<String>()
+        if (models.isNotEmpty()) {
+            parts += if (models.size == 1) "1 model" else "${models.size} models"
+            val named = providers.count { it.title != null }
+            if (named > 1) parts += "$named providers"
+        }
+        if (modes.isNotEmpty()) parts += if (modes.size == 1) "1 mode" else "${modes.size} modes"
+        if (pluginModes.isNotEmpty()) {
+            parts += if (pluginModes.size == 1) "1 plugin mode" else "${pluginModes.size} plugin modes"
+        }
+        return PickerHarness(
+            kind = kind,
+            label = kind.titleDisplayLabel,
+            modes = modes,
+            pluginModes = pluginModes,
+            providers = providers,
+            modelCount = models.size,
+            summary = parts.joinToString(" · "),
+        )
     }
 }
 
-internal fun ModelInfo.matchesModelSelection(
-    selection: String?,
-    runtimeKind: AgentRuntimeKind? = null,
-): Boolean {
-    val trimmed = selection?.trim().orEmpty()
-    if (trimmed.isEmpty()) return false
-    if (runtimeKind != null && agentRuntimeKind != runtimeKind) return false
-    return id == trimmed || model == trimmed
+/** Recently picked models, most recent first. Platform-local preference. */
+private object ModelPickerRecents {
+    private const val PREFS = "model_picker"
+    private const val KEY = "recents"
+    private const val LIMIT = 8
+
+    fun load(context: Context): List<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY, null)
+            ?.split('\n')
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+
+    fun record(context: Context, model: ModelInfo): List<String> {
+        val id = model.scopedId()
+        val next = (listOf(id) + load(context).filter { it != id }).take(LIMIT)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY, next.joinToString("\n"))
+            .apply()
+        return next
+    }
 }
 
+// endregion
+
+// region Rows
+
+private val PickerCardShape = RoundedCornerShape(14.dp)
+
 @Composable
-private fun RuntimeFilterChip(
-    label: String,
-    count: Int,
-    selected: Boolean,
-    onClick: () -> Unit,
-    leadingIcon: (@Composable () -> Unit)? = null,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        leadingIcon = leadingIcon,
-        label = {
-            Text(
-                text = "$label $count",
-                fontSize = LitterTextStyle.footnote.scaled,
-                maxLines = 1,
-            )
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = LitterTheme.textPrimary,
-            selectedLabelColor = LitterTheme.background,
-        ),
+private fun PickerSectionHeader(title: String) {
+    Text(
+        text = title,
+        color = LitterTheme.textSecondary,
+        fontSize = LitterTextStyle.footnote.scaled,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 6.dp),
     )
 }
 
 @Composable
-private fun ModelOptionRow(
+private fun PickerCard(content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(PickerCardShape)
+            .background(LitterTheme.textPrimary.copy(alpha = 0.045f)),
+    ) {
+        content()
+    }
+}
+
+/** One row of a card rendered as separate lazy items (large lists). */
+@Composable
+private fun PickerCardRow(first: Boolean, last: Boolean, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(
+        topStart = if (first) 14.dp else 0.dp,
+        topEnd = if (first) 14.dp else 0.dp,
+        bottomStart = if (last) 14.dp else 0.dp,
+        bottomEnd = if (last) 14.dp else 0.dp,
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(LitterTheme.textPrimary.copy(alpha = 0.045f)),
+    ) {
+        if (!first) PickerDivider()
+        content()
+    }
+}
+
+@Composable
+private fun PickerDivider() {
+    HorizontalDivider(
+        color = LitterTheme.divider,
+        thickness = 0.5.dp,
+        modifier = Modifier.padding(start = 16.dp),
+    )
+}
+
+@Composable
+private fun PickerHarnessIcon(kind: AgentRuntimeKind) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(LitterTheme.textPrimary.copy(alpha = 0.06f)),
+    ) {
+        AgentIconView(kind = kind, sizeDp = 18)
+    }
+}
+
+@Composable
+private fun PickerModelRow(
     model: ModelInfo,
+    subtitle: String?,
+    showsIcon: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val title = model.modelNameWithinProvider()
-    val detail = model.description
-        .takeIf { it.isNotBlank() }
-        ?: model.model.takeIf { it.isNotBlank() && it != title && it != model.id }
-    val runtimeLabel = model.agentRuntimeKind.runtimeLabel
-        .takeUnless { model.agentRuntimeKind == "amp" }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 48.dp)
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ModelRuntimeIcon(model.agentRuntimeKind)
+        if (showsIcon) PickerHarnessIcon(model.agentRuntimeKind)
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = title,
+                    text = model.pickerLabel(),
                     color = LitterTheme.textPrimary,
                     fontSize = LitterTextStyle.body.scaled,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (runtimeLabel != null) {
+                if (model.isDefault) {
                     Text(
-                        text = runtimeLabel,
+                        text = "Default",
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.footnote.scaled,
-                        maxLines = 1,
+                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(LitterTheme.textPrimary.copy(alpha = 0.07f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
             }
-            if (detail != null) {
+            if (!subtitle.isNullOrBlank()) {
                 Text(
-                    text = detail,
-                    color = LitterTheme.textMuted,
+                    text = subtitle,
+                    color = LitterTheme.textSecondary,
                     fontSize = LitterTextStyle.footnote.scaled,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -726,8 +951,8 @@ private fun ModelOptionRow(
         if (selected) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "Selected model",
-                tint = LitterTheme.textPrimary,
+                contentDescription = "Selected",
+                tint = LitterTheme.accent,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -735,6 +960,136 @@ private fun ModelOptionRow(
 }
 
 @Composable
-private fun ModelRuntimeIcon(kind: AgentRuntimeKind) {
-    AgentIconView(kind = kind, sizeDp = 16)
+private fun PickerHarnessRow(
+    harness: PickerHarness,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PickerHarnessIcon(harness.kind)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = harness.label,
+                color = LitterTheme.textPrimary,
+                fontSize = LitterTextStyle.body.scaled,
+                maxLines = 1,
+            )
+            Text(
+                text = harness.summary,
+                color = LitterTheme.textSecondary,
+                fontSize = LitterTextStyle.footnote.scaled,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (isCurrent) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Current harness",
+                tint = LitterTheme.accent,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = LitterTheme.textMuted,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun PickerValueRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = LitterTheme.textPrimary,
+            fontSize = LitterTextStyle.body.scaled,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            color = LitterTheme.textSecondary,
+            fontSize = LitterTextStyle.body.scaled,
+            maxLines = 1,
+        )
+        if (onClick != null) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = LitterTheme.textMuted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PickerSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    checkedTrackColor: Color = LitterTheme.accent,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = LitterTheme.textPrimary,
+            fontSize = LitterTextStyle.body.scaled,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = checkedTrackColor),
+        )
+    }
+}
+
+// endregion
+
+internal fun effortLabel(value: ReasoningEffort): String =
+    uniffi.codex_mobile_client.reasoningEffortWireValue(value)
+
+private fun ModelInfo.defaultReasoningEffortSelection(): String? =
+    supportedDefaultReasoningEffort?.let(::effortLabel)
+
+/** Chip / header label: the mode name for mode entries, else the display name. */
+internal fun ModelInfo.modelPickerDisplayName(): String =
+    if (isModeEntry()) {
+        pickerLabel()
+    } else {
+        displayName.ifBlank { id }
+    }
+
+internal fun ModelInfo.matchesModelSelection(
+    selection: String?,
+    runtimeKind: AgentRuntimeKind? = null,
+): Boolean {
+    val trimmed = selection?.trim().orEmpty()
+    if (trimmed.isEmpty()) return false
+    if (runtimeKind != null && agentRuntimeKind != runtimeKind) return false
+    return id == trimmed || model == trimmed
 }

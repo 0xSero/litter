@@ -41,7 +41,7 @@ use super::snapshot::{
     AppConnectionProgressSnapshot, AppLifecyclePhaseSnapshot, AppQueuedFollowUpPreview,
     AppSnapshot, AppTerminalSessionPhase, AppVoiceSessionSnapshot, PendingServerMutatingCommand,
     QueuedFollowUpDraft, ServerHealthSnapshot, ServerMutatingCommandKind, ServerSnapshot,
-    ServerTransportDiagnostics, TerminalSessionSnapshot, ThreadSnapshot,
+    ServerTransportDiagnostics, TerminalSessionSnapshot, ThreadSnapshot, TurnPaginationSupport,
 };
 use super::updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
 use super::voice::{VoiceDerivedUpdate, VoiceRealtimeState};
@@ -358,7 +358,7 @@ impl AppStoreReducer {
                 existing_agent_runtimes,
                 existing_connection_progress,
                 existing_transport,
-                existing_supports_turn_pagination,
+                existing_turn_pagination_by_runtime,
             ) = if let Some(existing) = snapshot.servers.get(&config.server_id) {
                 (
                     existing.wake_mac.clone(),
@@ -370,7 +370,7 @@ impl AppStoreReducer {
                     existing.agent_runtimes.clone(),
                     existing.connection_progress.clone(),
                     existing.transport.clone(),
-                    existing.supports_turn_pagination,
+                    existing.turn_pagination_by_runtime.clone(),
                 )
             } else {
                 (
@@ -388,7 +388,7 @@ impl AppStoreReducer {
                     }],
                     None,
                     ServerTransportDiagnostics::default(),
-                    true,
+                    HashMap::new(),
                 )
             };
             snapshot.servers.insert(
@@ -409,7 +409,7 @@ impl AppStoreReducer {
                     agent_runtimes: existing_agent_runtimes,
                     connection_progress: existing_connection_progress,
                     transport: existing_transport,
-                    supports_turn_pagination: existing_supports_turn_pagination,
+                    turn_pagination_by_runtime: existing_turn_pagination_by_runtime,
                 },
             );
         }
@@ -1596,12 +1596,23 @@ impl AppStoreReducer {
         });
     }
 
-    pub fn set_server_supports_turn_pagination(&self, server_id: &str, supports: bool) {
+    /// Record what was learned about one runtime's turn paging. Emits a
+    /// server change only when the recorded capability changes.
+    pub fn set_runtime_turn_pagination(
+        &self,
+        server_id: &str,
+        runtime_kind: &str,
+        support: TurnPaginationSupport,
+    ) {
         let changed = {
             let mut snapshot = self.write_snapshot();
             match snapshot.servers.get_mut(server_id) {
-                Some(server) if server.supports_turn_pagination != supports => {
-                    server.supports_turn_pagination = supports;
+                Some(server)
+                    if server.turn_pagination_by_runtime.get(runtime_kind) != Some(&support) =>
+                {
+                    server
+                        .turn_pagination_by_runtime
+                        .insert(runtime_kind.to_string(), support);
                     true
                 }
                 _ => false,
@@ -1614,13 +1625,23 @@ impl AppStoreReducer {
         }
     }
 
-    pub fn server_supports_turn_pagination(&self, server_id: &str) -> bool {
+    /// Whether `runtime_kind` on `server_id` pages turn history through
+    /// `thread/turns/list`. Unobserved runtimes are assumed to.
+    pub fn runtime_supports_turn_pagination(&self, server_id: &str, runtime_kind: &str) -> bool {
+        self.runtime_turn_pagination(server_id, runtime_kind)
+            != Some(TurnPaginationSupport::Unsupported)
+    }
+
+    pub fn runtime_turn_pagination(
+        &self,
+        server_id: &str,
+        runtime_kind: &str,
+    ) -> Option<TurnPaginationSupport> {
         let snapshot = self.snapshot.read().expect("app store lock poisoned");
         snapshot
             .servers
             .get(server_id)
-            .map(|server| server.supports_turn_pagination)
-            .unwrap_or(true)
+            .and_then(|server| server.turn_pagination_by_runtime.get(runtime_kind).copied())
     }
 
     pub fn note_app_lifecycle_phase(&self, phase: AppLifecyclePhaseSnapshot) {

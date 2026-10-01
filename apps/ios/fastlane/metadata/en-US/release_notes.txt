@@ -1,6 +1,7 @@
-Faster everywhere.
+Smoother, clearer, complete.
 
-- Back is instant.
-- Connections go straight to your computer instead of through a relay after the first launch.
-- All agents on a computer share one connection, so switching networks reconnects once.
-- Launch and new chats no longer wait on a hidden keyboard warmup.
+- Typing stays fast after a reply.
+- Full session history for Claude Code, Pi and other harnesses.
+- A new model picker: harness first, then models by provider, with search.
+- Conversations sit in a centered column; code and tables no longer run off the screen.
+- Simpler Settings and cleaner session titles.

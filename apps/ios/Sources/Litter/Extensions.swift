@@ -158,6 +158,12 @@ enum LitterSpace {
     /// Max width of the conversation column (transcript and composer) on
     /// wide surfaces, so text stays centered at a fixed reading width.
     static let readableColumn: CGFloat = 760
+
+    /// Transcript column width for a container: the full width minus the
+    /// page margins on a phone, capped at `readableColumn` on wide screens.
+    static func readableColumnWidth(for containerWidth: CGFloat) -> CGFloat {
+        max(0, min(readableColumn, containerWidth - margin * 2))
+    }
     static let betweenTurns: CGFloat = 32
     /// Smallest point size used for any text.
     static let minText: CGFloat = 13

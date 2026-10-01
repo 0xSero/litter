@@ -21,8 +21,7 @@ struct ConversationView: View {
     var resolveTargetLabel: (String) -> String?
     var resolveThreadKey: (String) -> ThreadKey?
     var resolveLiveStatus: (ThreadKey) -> AppSubagentStatus?
-    @Binding var composerInputText: String
-    @Binding var composerAttachedImages: [UIImage]
+    let composerDraft: ConversationComposerDraft
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
@@ -146,8 +145,7 @@ struct ConversationView: View {
                 ConversationBottomChrome(
                     pinnedContextItems: pinnedContextItems,
                     composer: composer,
-                    composerInputText: $composerInputText,
-                    composerAttachedImages: $composerAttachedImages,
+                    composerDraft: composerDraft,
                     onSend: sendMessage,
                     onFileSearch: searchComposerFiles,
                     bottomInset: bottomInset,
@@ -412,12 +410,22 @@ private extension AppThreadSnapshot {
     }
 }
 
+/// Builds the draft bindings inside a leaf so keystrokes invalidate only the
+/// composer, not the conversation screen that holds the draft.
+private struct ComposerDraftBinder<Content: View>: View {
+    @Bindable var draft: ConversationComposerDraft
+    @ViewBuilder let content: (Binding<String>, Binding<[UIImage]>) -> Content
+
+    var body: some View {
+        content($draft.text, $draft.attachedImages)
+    }
+}
+
 private struct ConversationBottomChrome: View {
     @Environment(AppModel.self) private var appModel
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
-    @Binding var composerInputText: String
-    @Binding var composerAttachedImages: [UIImage]
+    let composerDraft: ConversationComposerDraft
     let onSend: (String, [UIImage], [ComposerFileAttachment], [SkillMentionSelection], [PluginMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
@@ -433,18 +441,20 @@ private struct ConversationBottomChrome: View {
             ConversationPinnedContextStrip(
                 items: pinnedContextItems
             )
-            ConversationInputBar(
-                snapshot: composer,
-                onSend: onSend,
-                onFileSearch: onFileSearch,
-                bottomInset: bottomInset,
-                showModeChip: !hasPinnedDiff,
-                onOpenModePicker: openCollaborationModePicker,
-                onOpenConversation: onOpenConversation,
-                onResumeSessions: onResumeSessions,
-                inputText: $composerInputText,
-                attachedImages: $composerAttachedImages
-            )
+            ComposerDraftBinder(draft: composerDraft) { text, images in
+                ConversationInputBar(
+                    snapshot: composer,
+                    onSend: onSend,
+                    onFileSearch: onFileSearch,
+                    bottomInset: bottomInset,
+                    showModeChip: !hasPinnedDiff,
+                    onOpenModePicker: openCollaborationModePicker,
+                    onOpenConversation: onOpenConversation,
+                    onResumeSessions: onResumeSessions,
+                    inputText: text,
+                    attachedImages: images
+                )
+            }
             .background(.clear, ignoresSafeAreaEdges: .bottom)
         }
         // Line the composer up with the transcript column on wide surfaces.
@@ -656,24 +666,32 @@ struct ConversationMessageList: View {
         let _ = PerfTracker.event("ConversationMessageList.body")
         let turns = renderedTurns
         GeometryReader { viewport in
+            let columnWidth = LitterSpace.readableColumnWidth(for: viewport.size.width)
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        // The scroll target layout spans the full viewport and
+                        // each row sits in a centered column of an exact
+                        // width. Two failure modes this avoids:
+                        // * `scrollTo(edge: .bottom)` aligns the scroll target
+                        //   layout's leading edge, so a padded (inset) stack
+                        //   scrolled the whole transcript sideways by the
+                        //   page margin;
+                        // * a row with a wider ideal size (long code line,
+                        //   table) cannot widen the column; wide content
+                        //   scrolls inside its own box.
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(timelineProjection.entries) { entry in
                                 transcriptRow(entry)
                                     .modifier(ConversationWorkMemberModifier(isMember: entry.isWorkMember))
                                     .modifier(TurnBoundaryModifier(isTurnStart: entry.startsTurn))
+                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(maxWidth: .infinity)
                             }
 
                         }
                         .scrollTargetLayout()
-                        // Fill the column even when the loaded rows are
-                        // narrow, so the transcript keeps a fixed width.
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(maxWidth: LitterSpace.readableColumn)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, LitterSpace.margin)
+                        .frame(width: viewport.size.width)
                         // Navigation owns the safe-area header. This keeps
                         // the first message below it without wasting the
                         // extra blank line that made an open chat feel
@@ -687,7 +705,12 @@ struct ConversationMessageList: View {
                                 .padding(.top, 40)
                         }
                     }
-                    .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
+                    // Exactly the viewport width. If any row reports a wider
+                    // ideal size, the scroll content must not grow sideways:
+                    // the bottom scroll anchor would then center it and push
+                    // the whole transcript off-screen to the left.
+                    .frame(width: viewport.size.width, alignment: .top)
+                    .frame(minHeight: viewport.size.height, alignment: .top)
                 }
                 .id(activeThreadScopeID)
                 .scrollIndicators(.hidden)

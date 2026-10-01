@@ -4,16 +4,17 @@ struct AppearanceSettingsView: View {
     @Environment(ThemeManager.self) private var themeManager
     @State private var activeThemePicker: ThemePickerKind?
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.system.rawValue
 
     var body: some View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             Form {
                 appearanceModeSection
-                fontSizeSection
-                conversationPreviewSection
                 lightThemeSection
                 darkThemeSection
+                fontSizeSection
+                conversationPreviewSection
             }
             .scrollContentBackground(.hidden)
         }
@@ -49,12 +50,12 @@ struct AppearanceSettingsView: View {
             }
             .pickerStyle(.segmented)
             .tint(LitterTheme.accent)
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
+            .settingsRowBackground()
         } header: {
-            Text("Mode")
-                .litterSectionLabel()
+            SettingsSectionHeader("Mode")
         } footer: {
             Text("Match the device setting, or keep Litter fixed in light or dark mode.")
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textMuted)
         }
     }
@@ -63,9 +64,30 @@ struct AppearanceSettingsView: View {
 
     private var fontSizeSection: some View {
         Section {
+            Picker(selection: Binding(
+                get: { fontFamily },
+                set: { next in
+                    fontFamily = next
+                    ThemeManager.shared.syncFontPreference()
+                    FontPreferenceObserver.shared.didChange()
+                }
+            )) {
+                ForEach(FontFamilyOption.allCases) { option in
+                    Text(option.displayName).tag(option.rawValue)
+                }
+            } label: {
+                Text("Font")
+                    .litterFont(.body)
+                    .foregroundColor(LitterTheme.textPrimary)
+            }
+            .pickerStyle(.menu)
+            .tint(LitterTheme.textSecondary)
+            .accessibilityIdentifier("appearance.fontFamily")
+            .settingsRowBackground()
+
             VStack(spacing: 12) {
                 HStack {
-                    Text("Font Size")
+                    Text("Size")
                         .litterFont(.body)
                         .foregroundColor(LitterTheme.textPrimary)
                     Spacer()
@@ -95,12 +117,12 @@ struct AppearanceSettingsView: View {
                 }
             }
             .padding(.vertical, 4)
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
+            .settingsRowBackground()
         } header: {
-            Text("Font Size")
-                .litterSectionLabel()
+            SettingsSectionHeader("Text")
         } footer: {
-            Text("Pinch in conversations to adjust, or use this slider. Applies across the app.")
+            Text("Pinch in a conversation to change the size too.")
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textMuted)
         }
     }
@@ -141,8 +163,7 @@ struct AppearanceSettingsView: View {
             .listRowBackground(LitterTheme.backgroundGradient)
             .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
         } header: {
-            Text("Preview")
-                .litterSectionLabel()
+            SettingsSectionHeader("Preview")
         }
     }
 
@@ -156,8 +177,7 @@ struct AppearanceSettingsView: View {
                 pickerKind: .light
             )
         } header: {
-            Text("Light theme")
-                .litterSectionLabel()
+            SettingsSectionHeader("Light theme")
         }
     }
 
@@ -171,8 +191,7 @@ struct AppearanceSettingsView: View {
                 pickerKind: .dark
             )
         } header: {
-            Text("Dark theme")
-                .litterSectionLabel()
+            SettingsSectionHeader("Dark theme")
         }
     }
 
@@ -190,7 +209,7 @@ struct AppearanceSettingsView: View {
             ThemePickerRow(entry: selected, trailingAccessory: .chevron)
         }
         .buttonStyle(.plain)
-        .listRowBackground(LitterTheme.surface.opacity(0.6))
+        .settingsRowBackground()
     }
 
     private func themes(for pickerKind: ThemePickerKind) -> [ThemeIndexEntry] {

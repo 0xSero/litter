@@ -338,8 +338,11 @@ impl MobileClient {
             // capability off as soon as we recognise the legacy shape so
             // downstream code paths (load_thread_turns_page) short-circuit
             // instead of waiting for the runtime -32601 probe.
-            self.app_store
-                .set_server_supports_turn_pagination(server_id, false);
+            self.app_store.set_runtime_turn_pagination(
+                server_id,
+                &runtime_kind,
+                crate::store::TurnPaginationSupport::Unsupported,
+            );
         }
         parsed.map_err(|e| {
             let error = format_typed_rpc_deserialization_error(wire_method, &e, &value);

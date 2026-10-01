@@ -20,6 +20,6 @@ pub use snapshot::{
     AppConnectionProgressSnapshot, AppConnectionStepKind, AppConnectionStepSnapshot,
     AppConnectionStepState, AppQueuedFollowUpKind, AppQueuedFollowUpPreview, AppSnapshot,
     AppTerminalSessionPhase, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
-    TerminalSessionSnapshot, ThreadItems, ThreadSnapshot,
+    TerminalSessionSnapshot, ThreadItems, ThreadSnapshot, TurnPaginationSupport,
 };
 pub use updates::{AppStoreUpdateRecord, ThreadStreamingDeltaKind};
