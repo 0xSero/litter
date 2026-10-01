@@ -135,6 +135,9 @@ mod mobile_client_tests {
             is_default: false,
             agent_runtime_kind: runtime_kind,
             provider_id: None,
+            entry_kind: crate::types::ModelEntryKind::Model,
+            picker_name: String::new(),
+            provider_label: None,
         }
     }
 

@@ -343,6 +343,17 @@ Implemented on both iOS and Android through shared Rust. Device acceptance is pe
 | Harness settings | Searchable lazy list, typed edits, native source/scope, enforced read-only constraints, authoritative save read-back |
 | SSH settings | Claude/Pi/OMP values read and written on the remote host with credential fields preserved and redacted |
 | Streaming | Unchanged server/runtime projections do not invalidate the settings list |
+
+## Model picker layout
+
+Both platforms render the composer model picker from the same Rust fields (`ModelInfo.entryKind`, `pickerName`, `providerLabel`). iOS verified on simulator against a paired kittylitter host; Android is compile-checked in CI only.
+
+| Check | Required result on both platforms |
+|---|---|
+| Root | Current selection, up to 4 recents, one row per harness with counts, then Options (reasoning, fast, plan, full access) |
+| Harness page | Modes and plugin modes listed separately from models; multi-provider catalogs over 30 models start folded with the selected provider open |
+| Search | Matches every whitespace token across harness, provider, and model names; results capped at 150 with a total count |
+| Modes | Amp `low`/`medium`/`high`/`ultra` are `Mode`, other Amp entries `PluginMode`; never shown as models |
 | Host execution | Discovery and settings launch headless processes without terminal windows or Dock helpers |
 
 Validation for the 2.1.2 candidate: shared Rust library tests passed (823 passed, 3 existing manual/live tests ignored). The final `a5aaa9f6` Android library built successfully; all 58 unit tests and six settings/navigation instrumentation tests passed on Android 17. These cover unset strings/booleans/enums, managed policy, and MainActivity Settings → Harnesses navigation. Logo/splash animation state stays in draw/layer scopes using the standard Compose infinite-animation clock. The focused iOS harness settings UI test also passed against the ABI-compatible simulator library, including authoritative fixture readback and read-only controls. Final iOS artifact/input validation and store release remain pending.
