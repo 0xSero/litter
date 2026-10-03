@@ -143,21 +143,37 @@ impl RemotePath {
     }
 
     /// Navigate up one directory level. Root paths return themselves.
+    ///
+    /// A trailing separator is not a directory level. `/home/user/` is the
+    /// same directory as `/home/user`.
     pub fn parent(&self) -> Self {
         match self {
             Self::Posix(s) => {
-                if s == "/" {
-                    return self.clone();
+                let trimmed = s.trim_end_matches('/');
+                if trimmed.is_empty() {
+                    return Self::Posix("/".to_string());
                 }
-                match s.rfind('/') {
+                match trimmed.rfind('/') {
                     Some(0) => Self::Posix("/".to_string()),
-                    Some(i) => Self::Posix(s[..i].to_string()),
+                    Some(i) => Self::Posix(trimmed[..i].to_string()),
                     None => Self::Posix("/".to_string()),
                 }
             }
             Self::Windows(s) => {
-                let parts: Vec<&str> = s.split('\\').collect();
+                let trimmed = s.trim_end_matches('\\');
+                let parts: Vec<&str> = trimmed
+                    .split('\\')
+                    .filter(|part| !part.is_empty())
+                    .collect();
                 if parts.len() <= 1 {
+                    if let Some(drive) = parts.first() {
+                        if drive.len() == 2
+                            && drive.as_bytes()[0].is_ascii_alphabetic()
+                            && drive.as_bytes()[1] == b':'
+                        {
+                            return Self::Windows(format!("{drive}\\"));
+                        }
+                    }
                     return self.clone();
                 }
                 let parent_parts = &parts[..parts.len() - 1];
@@ -430,6 +446,18 @@ mod tests {
         assert_eq!(
             RemotePath::parse("D:/Projects/kitty").parent().as_str(),
             r"D:\Projects"
+        );
+    }
+
+    #[test]
+    fn parent_trailing_separator_is_not_a_level() {
+        assert_eq!(RemotePath::parse("/home/user/").parent().as_str(), "/home");
+        assert_eq!(RemotePath::parse("/home/").parent().as_str(), "/");
+        assert_eq!(RemotePath::parse("/home/user//").parent().as_str(), "/home");
+        assert_eq!(RemotePath::parse("C:\\Users\\").parent().as_str(), r"C:\");
+        assert_eq!(
+            RemotePath::parse("C:\\Users\\npace\\").parent().as_str(),
+            r"C:\Users"
         );
     }
 
